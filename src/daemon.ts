@@ -205,7 +205,10 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       /* /core/api/* — Reverse Proxy to Mihomo external-controller             */
       /* ==================================================================== */
       if (pathname.startsWith("/core/api")) {
-        const targetSubPath = (pathname.slice("/core/api".length) || "/") + url.search;
+        const rawUrl = req.url ?? "/";
+        const prefixIdx = rawUrl.indexOf("/core/api");
+        const targetSubPath =
+          prefixIdx >= 0 ? rawUrl.slice(prefixIdx + "/core/api".length) || "/" : "/";
         forwardHttpToCore(req, res, targetSubPath, settings.controller, settings.secret);
         return;
       }
@@ -363,10 +366,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             await syncSystemProxy(false);
           }
         } else {
-          const doc = settings.subscriptionUrl
-            ? await fetchSub(settings.subscriptionUrl)
-            : undefined;
-          await generateConfig({ layout, settings, subscription: doc });
+          await generateConfig({ layout, settings });
           if (supervisor.isRunning()) {
             if (requiresCoreRestart(key)) {
               await supervisor.restart();
@@ -445,9 +445,10 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    const targetSubPath = pathname.startsWith("/core/api")
-      ? (pathname.slice("/core/api".length) || "/") + url.search
-      : pathname + url.search;
+    const rawUrl = req.url ?? "/";
+    const prefixIdx = rawUrl.indexOf("/core/api");
+    const targetSubPath =
+      prefixIdx >= 0 ? rawUrl.slice(prefixIdx + "/core/api".length) || "/" : rawUrl;
 
     forwardWsToCore(req, socket, head, targetSubPath, settings.controller, settings.secret);
   });

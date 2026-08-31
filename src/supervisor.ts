@@ -35,7 +35,7 @@ export interface CoreSupervisorOptions {
   settings: () => SashSettings;
   spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   waitHealthyMs?: number;
-  onExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
+  onExit?: (code: number | null, signal: NodeJS.Signals | null) => Promise<void> | void;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -54,7 +54,10 @@ export class CoreSupervisor {
   private readonly getSettings: () => SashSettings;
   private readonly spawnFn: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   private readonly waitHealthyMs: number;
-  private readonly onExitCallback?: (code: number | null, signal: NodeJS.Signals | null) => void;
+  private readonly onExitCallback?: (
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ) => Promise<void> | void;
 
   constructor(opts: CoreSupervisorOptions) {
     this.layout = opts.layout;
@@ -69,7 +72,8 @@ export class CoreSupervisor {
     fs.mkdirSync(layout.stateDir, { recursive: true });
 
     const outFd = fs.openSync(layout.coreLogFile, "a", 0o600);
-    let errFd: number;
+    let errFd: number | undefined;
+
     try {
       if (process.platform !== "win32") {
         try {
@@ -86,27 +90,30 @@ export class CoreSupervisor {
           // ignore
         }
       }
-    } catch (err) {
-      fs.closeSync(outFd);
-      throw err;
+
+      const sanitizedEnv = buildSanitizedEnv();
+      const child = spawn(layout.coreExe, ["-d", layout.root, "-f", layout.configFile], {
+        cwd: layout.root,
+        stdio: ["ignore", outFd, errFd],
+        windowsHide: true,
+        env: sanitizedEnv,
+      });
+
+      return child;
+    } finally {
+      try {
+        fs.closeSync(outFd);
+      } catch {
+        // ignore
+      }
+      if (errFd !== undefined) {
+        try {
+          fs.closeSync(errFd);
+        } catch {
+          // ignore
+        }
+      }
     }
-
-    const sanitizedEnv = buildSanitizedEnv();
-    const child = spawn(layout.coreExe, ["-d", layout.root, "-f", layout.configFile], {
-      cwd: layout.root,
-      stdio: ["ignore", outFd, errFd],
-      windowsHide: true,
-      env: sanitizedEnv,
-    });
-
-    try {
-      fs.closeSync(outFd);
-      fs.closeSync(errFd);
-    } catch {
-      // ignore
-    }
-
-    return child;
   }
 
   async start(): Promise<{ pid: number; version?: string }> {
@@ -138,7 +145,7 @@ export class CoreSupervisor {
     });
 
     let spawnError: Error | undefined;
-    child.once("error", (err) => {
+    child.on("error", (err) => {
       spawnError = err;
     });
 
@@ -148,7 +155,9 @@ export class CoreSupervisor {
       this.childStartedAt = undefined;
       clearPidRecord(this.layout.pidFile);
       if (!wasStopping) {
-        this.onExitCallback?.(code, signal);
+        Promise.resolve(this.onExitCallback?.(code, signal)).catch(() => {
+          // ignore rejection in exit callback
+        });
       }
     });
 

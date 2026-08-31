@@ -4,9 +4,10 @@ import type { Duplex } from "node:stream";
 
 export function parseHostPort(address: string): { host: string; port: number } {
   const trimmed = address.trim();
-  const match = trimmed.match(/^(?:https?:\/\/)?(?:\[([0-9a-fA-F:]+)\]|([^:]+)):(\d+)$/);
+  const match = trimmed.match(/^(?:https?:\/\/)?(?:\[([0-9a-fA-F:]+)\]|([^:]*)):(\d+)$/);
   if (match) {
-    const host = match[1] ?? match[2] ?? "127.0.0.1";
+    const rawHost = match[1] ?? match[2];
+    const host = rawHost && rawHost.length > 0 ? rawHost : "127.0.0.1";
     const port = Number.parseInt(match[3] ?? "9090", 10);
     return { host, port };
   }
@@ -31,6 +32,8 @@ export function forwardHttpToCore(
     upstreamHeaders.authorization = `Bearer ${secret}`;
   }
 
+  let completed = false;
+
   const proxyReq = http.request(
     {
       hostname: host,
@@ -43,8 +46,18 @@ export function forwardHttpToCore(
     (proxyRes) => {
       res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
       proxyRes.pipe(res);
+      proxyRes.on("end", () => {
+        completed = true;
+      });
+      proxyRes.on("error", () => {
+        res.destroy();
+      });
     },
   );
+
+  proxyReq.on("timeout", () => {
+    proxyReq.destroy(new Error("Core controller request timed out after 30000ms"));
+  });
 
   proxyReq.on("error", (err) => {
     if (!res.headersSent) {
@@ -56,6 +69,13 @@ export function forwardHttpToCore(
         "Content-Length": Buffer.byteLength(msg),
       });
       res.end(msg);
+    }
+  });
+
+  // If client disconnects early, abort upstream request
+  res.on("close", () => {
+    if (!completed) {
+      proxyReq.destroy();
     }
   });
 
@@ -87,6 +107,7 @@ export function forwardWsToCore(
     path: targetPath,
     method: "GET",
     headers: upstreamHeaders,
+    timeout: 10_000,
   });
 
   proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
@@ -99,8 +120,31 @@ export function forwardWsToCore(
     if (proxyHead.length > 0) socket.write(proxyHead);
     if (head.length > 0) proxySocket.write(head);
 
+    const cleanup = () => {
+      proxySocket.destroy();
+      socket.destroy();
+    };
+
+    proxySocket.on("error", cleanup);
+    proxySocket.on("close", () => socket.destroy());
+    socket.on("error", cleanup);
+    socket.on("close", () => proxySocket.destroy());
+
     proxySocket.pipe(socket);
     socket.pipe(proxySocket);
+  });
+
+  // Upstream rejected upgrade (e.g. HTTP 401/404/500)
+  proxyReq.on("response", (proxyRes) => {
+    const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 502} ${proxyRes.statusMessage ?? "Bad Gateway"}\r\n\r\n`;
+    socket.write(statusLine);
+    socket.destroy();
+    proxyRes.resume(); // drain response body
+  });
+
+  proxyReq.on("timeout", () => {
+    proxyReq.destroy();
+    socket.destroy();
   });
 
   proxyReq.on("error", () => {

@@ -1,7 +1,7 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { fetchSubscription, generateConfig } from "../mihomo-config.js";
+import { generateConfig } from "../mihomo-config.js";
 import {
   applyManagedKey,
   requiresCoreRestart,
@@ -59,9 +59,6 @@ export async function runConfigSet(key: string, value: string | undefined): Prom
   saveSettings(ctx.settings, ctx.layout);
   log.ok(`${key} updated`);
 
-  const doc = ctx.settings.subscriptionUrl
-    ? await fetchSubscription(ctx.settings.subscriptionUrl)
-    : undefined;
-  await generateConfig({ layout: ctx.layout, settings: ctx.settings, subscription: doc });
+  await generateConfig({ layout: ctx.layout, settings: ctx.settings });
   log.info("takes effect on next `sash start`");
 }

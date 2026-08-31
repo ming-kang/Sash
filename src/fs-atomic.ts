@@ -19,9 +19,16 @@ export function atomicWriteFileSync(target: string, data: string | Buffer, mode 
   try {
     fs.writeFileSync(fd, data);
     fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
+  } catch (err) {
+    try {
+      fs.closeSync(fd);
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // ignore
+    }
+    throw err;
   }
+  fs.closeSync(fd);
   renameWithRetry(tmp, target);
 }
 

@@ -185,38 +185,6 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
   return "unknown";
 }
 
-export function hasMihomoImageEvidence(pid: number, expectedExe: string): boolean {
-  try {
-    if (process.platform === "win32") {
-      const out = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: 3000,
-      }).trim();
-      const image = parseTasklistImageName(out);
-      return image ? imageMatchesExpectedExe(image, expectedExe) : false;
-    }
-    if (process.platform === "linux") {
-      try {
-        const comm = fs.readFileSync(`/proc/${pid}/comm`, "utf8").trim();
-        return imageMatchesExpectedExe(comm, expectedExe);
-      } catch {
-        return false;
-      }
-    }
-    if (process.platform === "darwin") {
-      const out = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "comm="], {
-        encoding: "utf8",
-        timeout: 3000,
-      }).trim();
-      return imageMatchesExpectedExe(out, expectedExe);
-    }
-  } catch {
-    return false;
-  }
-  return false;
-}
-
 /**
  * Best-effort full command line of a process. Needed because the sash daemon
  * is a Node process: its executable path (node.exe) is shared by unrelated

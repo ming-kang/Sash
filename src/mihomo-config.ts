@@ -9,9 +9,9 @@ import type { SashSettings } from "./settings.js";
  * Generates mihomo's config.yaml.
  *
  * Sash owns a fixed set of operational keys (ports, controller, secret,
- * external-ui, tun). Everything else — proxies, proxy-groups, rules, dns —
- * comes from the user's Clash/mihomo-format subscription, or from a built-in
- * DIRECT-only default so the core always boots.
+ * tun, allow-lan). Everything else — proxies, proxy-groups, rules, dns —
+ * comes from the user's Clash/mihomo-format subscription, or from existing
+ * config on disk, or from a built-in DIRECT-only default.
  */
 
 export interface GeneratedConfig {
@@ -34,10 +34,27 @@ export function buildDefaultConfig(): Record<string, unknown> {
 export function isValidMihomoConfig(doc: unknown): doc is Record<string, unknown> {
   if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return false;
   const rec = doc as Record<string, unknown>;
-  // A Clash/mihomo subscription must define proxies and/or rules; a bare node
-  // list (v2ray/ss share links) or base64 blob will fail YAML parsing anyway,
-  // but some subs return YAML that is not a Clash config — reject those early.
-  return "proxies" in rec || "proxy-providers" in rec || "rules" in rec;
+  return (
+    ("proxies" in rec && (Array.isArray(rec.proxies) || rec.proxies === undefined)) ||
+    ("proxy-providers" in rec && typeof rec["proxy-providers"] === "object") ||
+    ("rules" in rec && (Array.isArray(rec.rules) || rec.rules === undefined))
+  );
+}
+
+export function readExistingConfigDoc(
+  layout: SashLayout = sashLayout(),
+): Record<string, unknown> | undefined {
+  try {
+    if (!fs.existsSync(layout.configFile)) return undefined;
+    const raw = fs.readFileSync(layout.configFile, "utf8");
+    const doc = YAML.parse(raw);
+    if (isValidMihomoConfig(doc)) {
+      return doc;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function fetchSubscription(url: string): Promise<Record<string, unknown>> {
@@ -82,7 +99,11 @@ const MANAGED_KEYS = new Set([
   "mixed-port",
   "port",
   "socks-port",
+  "redir-port",
+  "tproxy-port",
+  "authentication",
   "external-controller",
+  "external-controller-tls",
   "external-ui",
   "external-ui-url",
   "external-ui-name",
@@ -118,13 +139,13 @@ export function overlayManagedKeys(
 export interface GenerateOptions {
   layout?: SashLayout;
   settings: SashSettings;
-  /** Subscription document; when absent, the built-in default is used. */
+  /** Subscription document; when absent, existing config or default is used. */
   subscription?: Record<string, unknown>;
 }
 
 export async function generateConfig(opts: GenerateOptions): Promise<GeneratedConfig> {
   const layout = opts.layout ?? sashLayout();
-  const base = opts.subscription ?? buildDefaultConfig();
+  const base = opts.subscription ?? readExistingConfigDoc(layout) ?? buildDefaultConfig();
   const merged = overlayManagedKeys(base, opts.settings);
   const proxies = merged.proxies;
   const proxyCount = Array.isArray(proxies) ? proxies.length : 0;
