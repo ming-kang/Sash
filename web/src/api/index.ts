@@ -38,7 +38,11 @@ async function request<T>(
     throw new Error(errText || `HTTP ${res.status}`);
   }
 
-  return res.json() as Promise<T>;
+  // Several core endpoints (PATCH /configs, PUT /proxies/:name, DELETE
+  // /connections…) answer 204 with an empty body; res.json() would throw.
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 /** Persistent WebSocket with auto-reconnect. Returns an unsubscribe function. */
@@ -134,6 +138,15 @@ export const api = {
   ) =>
     request<{ delay: number }>(
       `/core/api/proxies/${encodeURIComponent(proxyName)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
+    ),
+
+  testGroupDelay: (
+    groupName: string,
+    url = "https://www.gstatic.com/generate_204",
+    timeout = 5000,
+  ) =>
+    request<Record<string, number>>(
+      `/core/api/group/${encodeURIComponent(groupName)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
     ),
 
   getConnections: () => request<ConnectionsResponse>("/core/api/connections"),

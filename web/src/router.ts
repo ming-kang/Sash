@@ -2,7 +2,6 @@ import { ref } from "vue";
 
 export const ROUTES = [
   "overview",
-  "proxies",
   "connections",
   "rules",
   "subscription",

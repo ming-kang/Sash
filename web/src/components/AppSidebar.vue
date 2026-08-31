@@ -64,7 +64,6 @@ import { formatSpeed } from "../utils/format.js";
 
 const navItems: Array<{ route: Route; icon: string }> = [
   { route: "overview", icon: "grid" },
-  { route: "proxies", icon: "globe" },
   { route: "connections", icon: "swap" },
   { route: "rules", icon: "list-filter" },
   { route: "subscription", icon: "link" },

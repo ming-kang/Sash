@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- WebUI API client: endpoints answering `204 No Content` (mode switch, node selection, connection close) no longer raise a spurious "JSON.parse" error toast while the operation actually succeeded.
 - Core supervisor: a late `exit` event from the replaced process after `restart()` could clear the new child handle and PID record, making status report the core as stopped while it was running. Stale exit events are now ignored.
 
 ### Added
@@ -22,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Rebuilt the built-in WebUI (`web/`) from the ground up: pure light minimalist design with a sidebar layout, Chinese/English interface switch (Chinese default, persisted), hash-based view routing, toast notifications and confirm dialogs replacing browser `alert`/`confirm`, and reworked overview, proxies, connections, rules, logs, subscription, and settings views.
+- Merged the Proxies page into Overview: the left column hosts core status, quick settings (system proxy, TUN, LAN access, ports), subscription summary, and the live traffic chart; the right column is a mode-driven proxy panel (rule: selector groups on top with auto groups below; global: full GLOBAL member list; direct: a single DIRECT card).
 - Process supervision: `sashd` manages the core process as a direct child, handling crash cleanup, automatic system proxy tear-down, and configuration reload orchestration.
 - `settings.ts` added `daemonPort` (default 19090), `daemonSecret`, and `systemProxy` fields with automatic migration.
 - `sash web` directly opens the built-in WebUI served by `sashd` on `http://127.0.0.1:19090/ui/`.

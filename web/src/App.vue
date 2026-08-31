@@ -12,7 +12,6 @@
 
       <div class="page-container">
         <OverviewView v-if="currentRoute === 'overview'" />
-        <ProxiesView v-else-if="currentRoute === 'proxies'" />
         <ConnectionsView v-else-if="currentRoute === 'connections'" />
         <RulesView v-else-if="currentRoute === 'rules'" />
         <SubscriptionView v-else-if="currentRoute === 'subscription'" />
@@ -39,7 +38,6 @@ import { addLog, addTraffic, setProxies, store } from "./stores/index.js";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import LogsView from "./views/LogsView.vue";
 import OverviewView from "./views/OverviewView.vue";
-import ProxiesView from "./views/ProxiesView.vue";
 import RulesView from "./views/RulesView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import SubscriptionView from "./views/SubscriptionView.vue";
