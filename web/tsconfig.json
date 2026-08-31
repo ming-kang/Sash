@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "../dist/ui",
+    "rootDir": "./src",
+    "strict": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "declaration": false,
+    "sourceMap": false,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src/**/*.ts"]
+}

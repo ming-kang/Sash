@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sash Control Panel</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo">
+          <span class="logo-icon">⚡</span>
+          <span class="logo-text">Sash</span>
+        </div>
+        <nav class="nav-links">
+          <a href="#overview" class="nav-item active" data-tab="overview">Overview</a>
+          <a href="#proxies" class="nav-item" data-tab="proxies">Proxies</a>
+          <a href="#subscriptions" class="nav-item" data-tab="subscriptions">Subscriptions</a>
+          <a href="#connections" class="nav-item" data-tab="connections">Connections</a>
+          <a href="#rules" class="nav-item" data-tab="rules">Rules</a>
+          <a href="#settings" class="nav-item" data-tab="settings">Settings</a>
+          <a href="#logs" class="nav-item" data-tab="logs">Logs</a>
+        </nav>
+      </div>
+      <div class="header-right">
+        <span id="header-mode-badge" class="badge badge-neutral">RULE</span>
+        <span id="header-sysproxy-badge" class="badge badge-neutral">SYS PROXY OFF</span>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      <div class="container" id="app-content">
+        <!-- Rendered dynamically by view components -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Authentication Modal -->
+  <div id="auth-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="logo-icon">⚡</span>
+        <h3>Connect to Sash</h3>
+      </div>
+      <p class="modal-desc">
+        Enter your Sash Daemon Secret to authenticate. You can find your secret in <code>sash.json</code> or run <code>sash web</code> to open with credentials embedded.
+      </p>
+      <form id="auth-form">
+        <div class="form-group">
+          <label class="form-label" for="auth-secret-input">Daemon Secret</label>
+          <input
+            type="password"
+            id="auth-secret-input"
+            class="input"
+            placeholder="Paste your daemonSecret here..."
+            required
+          />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Connect</button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

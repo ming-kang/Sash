@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import {
   downloadReleaseAsset,
@@ -15,8 +16,18 @@ import { type SashLayout, sashLayout } from "./paths.js";
  * serves via its `external-ui` directive — no extra port or process needed.
  */
 
+export function builtInUiDir(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const distUi = path.join(here, "ui");
+  if (fs.existsSync(path.join(distUi, "index.html"))) return distUi;
+  const devUi = path.join(path.dirname(here), "dist", "ui");
+  if (fs.existsSync(path.join(devUi, "index.html"))) return devUi;
+  return distUi;
+}
+
 export function uiInstalled(layout: SashLayout = sashLayout()): boolean {
-  return fs.existsSync(path.join(layout.uiDir, "index.html"));
+  if (fs.existsSync(path.join(layout.uiDir, "index.html"))) return true;
+  return fs.existsSync(path.join(builtInUiDir(), "index.html"));
 }
 
 export interface UiInstallOptions {

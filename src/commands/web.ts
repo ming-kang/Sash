@@ -1,13 +1,19 @@
-import { MihomoApi } from "../api.js";
 import { openInBrowser } from "../browser.js";
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { uiInstalled } from "../webui.js";
 import { runStart } from "./lifecycle.js";
-import { ensureWebUi, persistContext, runtimeContext } from "./shared.js";
+import { runtimeContext } from "./shared.js";
 
-/** `sash web`: make sure the dashboard is installed and the core is up, then open it. */
+export function dashboardUrl(daemonPort: number): string {
+  return `http://127.0.0.1:${daemonPort}/ui/`;
+}
+
+export function dashboardAuthUrl(daemonPort: number, secret: string): string {
+  return `http://127.0.0.1:${daemonPort}/ui/#secret=${encodeURIComponent(secret)}`;
+}
+
+/** `sash web`: make sure sash is running, then open the built-in WebUI. */
 export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
@@ -26,17 +32,17 @@ export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
   if (!coreRunning) {
     log.info("sash is not running; starting it first...");
     await runStart({});
-  } else if (!uiInstalled(ctx.layout)) {
-    await ensureWebUi(ctx);
-    persistContext(ctx);
   }
 
-  const api = new MihomoApi(ctx.settings.controller, ctx.settings.secret);
+  const port = ctx.settings.daemonPort;
+  const secret = ctx.settings.daemonSecret;
+
   if (opts.noOpen) {
-    log.ok(`dashboard: ${api.dashboardAuthUrl()}`);
-    log.warn("the URL above embeds the controller secret; treat it as a credential");
+    log.ok(`dashboard: ${dashboardAuthUrl(port, secret)}`);
+    log.warn("the URL above embeds the daemon secret; treat it as a credential");
     return;
   }
-  log.ok(`dashboard: ${api.uiUrl()}`);
-  openInBrowser(api.dashboardAuthUrl());
+
+  log.ok(`dashboard: ${dashboardUrl(port)}`);
+  openInBrowser(dashboardAuthUrl(port, secret));
 }

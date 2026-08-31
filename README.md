@@ -9,9 +9,11 @@ Sash is designed for developers and therefore requires professional networking k
 ## Features
 
 - **One-command lifecycle** — `sash start` / `stop` / `restart` / `status` / `logs`
-- **Zero-config bootstrap** — the core and dashboard are fetched on first run; no manual downloads
-- **Integrated web dashboard** — served by the core itself, no extra port or process; `sash web` opens it already signed in to your controller
-- **Remote profiles** — point Sash at a subscription/profile URL and it keeps the local configuration in sync (`sash sub`)
+- **Zero-config bootstrap** — the core binary is fetched on first run; WebUI is built-in with zero external downloads
+- **Supervisor daemon (`sashd`)** — long-running supervisor process on port `19090` managing the core lifecycle and recovery
+- **System proxy management** — `sash proxy on` / `off` / `status` with automatic crash reconciliation and tear-down
+- **Integrated web dashboard** — served directly by `sashd` at `http://127.0.0.1:19090/ui/`; `sash web` opens it with automatic credential injection
+- **Remote profiles** — point Sash at a subscription URL and it keeps the local configuration in sync (`sash sub`)
 - **Safe core upgrades** — atomic binary swap with automatic rollback (`sash update`)
 - **Self upgrade** — `sash upgrade` updates Sash itself via npm
 - **Resilient downloads** — automatic fallback to public GitHub mirrors when direct access fails
@@ -32,33 +34,37 @@ npm install -g @astralyn/sash
 ## Quick start
 
 ```sh
-sash start                 # first run downloads the core and dashboard, then launches
+sash start                 # first run downloads the core, launches sashd and the core
+sash proxy on              # enable OS-level system proxy
 sash sub set <profile>     # import a remote profile (subscription URL, native YAML format)
 sash web                   # open the web dashboard
-sash status                # runtime state and endpoints
-sash stop
+sash status                # runtime state, endpoints, and system proxy status
+sash stop                  # stops core, disables system proxy, shuts down sashd
 ```
 
-That's it: the core runs as a detached background process, and the dashboard is available at the address printed by `sash status` (default `http://127.0.0.1:9090/ui/`). Use `sash web` to open it — it hands the controller address and secret to the dashboard, so there is no sign-in step. `sash web --no-open` prints that URL instead of opening it; the URL embeds the secret, so treat it as a credential.
+That's it: Sash runs a background supervisor (`sashd`) on port 19090, and the dashboard is available at `http://127.0.0.1:19090/ui/`. Use `sash web` to open it — it automatically hands credentials to the dashboard. `sash web --no-open` prints that URL instead of opening it.
 
 ## Commands
 
 | Command | Description |
 | --- | --- |
-| `sash start [--no-ui]` | Install missing components and start the core |
-| `sash stop` | Stop the running core |
-| `sash restart [--no-ui]` | Restart the core |
-| `sash status [--json]` | Show runtime state, versions, and endpoints |
-| `sash logs [-n N] [-f] [--errors]` | Print (or follow) core logs |
+| `sash start [--no-ui]` | Install missing components and start sash in the background |
+| `sash stop` | Stop sash (shuts down core and disables system proxy) |
+| `sash restart [--no-ui]` | Restart the core process |
+| `sash proxy on` | Route OS-level traffic through Sash |
+| `sash proxy off` | Disable OS-level system proxy |
+| `sash proxy status` | Show OS and desired system proxy state |
+| `sash status [--json]` | Show runtime state, versions, endpoints, and proxy state |
+| `sash logs [-n N] [-f] [--errors] [--daemon]` | Print runtime logs (`--daemon` for supervisor logs) |
 | `sash update [--version T] [--force]` | Upgrade the core binary (atomic, with rollback) |
 | `sash upgrade [--version V]` | Upgrade Sash itself via npm |
-| `sash web [--no-open]` | Open the web dashboard (starts components as needed) |
+| `sash web [--no-open]` | Open the web dashboard (starts sash as needed) |
 | `sash sub set <url>` | Set the remote profile URL; reloads a running core |
 | `sash sub update` | Refetch the profile and hot-reload the running core |
 | `sash sub show` | Show the current profile |
-| `sash sub unset` | Remove the profile and revert to the default config; reloads a running core |
+| `sash sub unset` | Remove the profile and revert to the default config |
 | `sash config show` | Show paths and current settings |
-| `sash config set <k> [v]` | Adjust `tun`, `allow-lan`, `mixed-port`, `controller`, `secret`; restarts a running core |
+| `sash config set <k> [v]` | Adjust managed keys (`tun`, `allow-lan`, `mixed-port`, `controller`, `secret`, `system-proxy`) |
 | `sash version` | Print the Sash version |
 
 ## Settings
@@ -132,9 +138,8 @@ Sash is a network tool created for **learning, research, and development debuggi
 
 ## Upstream components
 
-Sash itself is MIT-licensed open source and an independent project. On first run it downloads two unmodified upstream components, each published under the MIT license by their respective authors:
+Sash itself is MIT-licensed open source and an independent project. On first run it downloads the unmodified upstream network core binary, published under the MIT license by its authors:
 
 - the network core: [`MetaCubeX/mihomo`](https://github.com/MetaCubeX/mihomo)
-- the web dashboard: [`MetaCubeX/metacubexd`](https://github.com/MetaCubeX/metacubexd)
 
-Both components remain the work of their respective authors; all credit belongs upstream.
+The component remains the work of its respective authors; all credit belongs upstream.

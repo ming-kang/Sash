@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Supervisor daemon (`sashd`) architecture: CLI commands act as thin clients communicating over an authenticated loopback REST API (`127.0.0.1:17890`).
+- Built-in zero-external-download WebUI dashboard (`web/` SPA built directly into `dist/ui/`) with real-time bandwidth charts, outbound mode switcher, proxy group selection with latency testing, subscription management, active connection monitor, routing rule browser, and live log terminal.
+- Unified supervisor daemon (`sashd`) listening on port `19090` with `/sash/*` and `/core/*` dual namespaces.
+- `/core/api/*` reverse proxy forwarding HTTP requests and WebSocket streams (traffic & logs) to the core controller with automatic server-side credential injection.
 - Cross-platform OS system proxy support (`sash proxy on` / `off` / `status`) with automatic disable on core exit/daemon shutdown and boot-time crash reconciliation.
 - Platform-native system proxy adapters for Windows (HKCU registry + WinINet refresh via PowerShell), macOS (`networksetup`), and Linux (GNOME `gsettings`).
 - `sash logs --daemon` flag to inspect supervisor logs.
@@ -16,7 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Process supervision: `sashd` manages the core process as a direct child, handling crash cleanup, automatic system proxy tear-down, and configuration reload orchestration.
-- `settings.ts` added `daemonPort`, `daemonSecret`, and `systemProxy` fields with automatic migration.
+- `settings.ts` added `daemonPort` (default 19090), `daemonSecret`, and `systemProxy` fields with automatic migration.
+- `sash web` directly opens the built-in WebUI served by `sashd` on `http://127.0.0.1:19090/ui/`.
 
 ## [0.1.0] - 2026-08-31
 

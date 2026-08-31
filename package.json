@@ -15,7 +15,8 @@
   ],
   "scripts": {
     "clean:build": "node scripts/clean-build.mjs",
-    "build": "npm run clean:build && tsc -p tsconfig.build.json",
+    "build:ui": "node scripts/build-ui.mjs",
+    "build": "npm run clean:build && tsc -p tsconfig.build.json && npm run build:ui",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
