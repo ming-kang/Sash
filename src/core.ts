@@ -1,0 +1,154 @@
+import fs from "node:fs";
+import path from "node:path";
+import zlib from "node:zlib";
+import AdmZip from "adm-zip";
+import { atomicWriteFileSync } from "./fs-atomic.js";
+import {
+  downloadReleaseAsset,
+  listReleaseAssets,
+  MIHOMO_REPO,
+  resolveLatestTag,
+} from "./github.js";
+import { type SashLayout, sashLayout } from "./paths.js";
+
+/**
+ * Mihomo core acquisition: platform asset selection, download, decompression,
+ * and atomic install/update with rollback.
+ */
+
+export function goOsArch(
+  platform = process.platform,
+  arch = process.arch,
+): { os: string; arch: string } {
+  const osMap: Record<string, string> = { win32: "windows", darwin: "darwin", linux: "linux" };
+  const archMap: Record<string, string> = { x64: "amd64", arm64: "arm64" };
+  const goOs = osMap[platform];
+  const goArch = archMap[arch];
+  if (!goOs || !goArch) {
+    throw new Error(
+      `Unsupported platform: ${platform}/${arch} (supported: win32/darwin/linux × x64/arm64)`,
+    );
+  }
+  return { os: goOs, arch: goArch };
+}
+
+/**
+ * Asset name candidates in preference order. mihomo publishes many amd64
+ * micro-architecture/toolchain variants; the plain name is the default build,
+ * `compatible` runs on pre-v3 CPUs, `v1` is the baseline x86-64 build.
+ */
+export function mihomoAssetCandidates(
+  tag: string,
+  platform = process.platform,
+  arch = process.arch,
+): string[] {
+  const { os, arch: goArch } = goOsArch(platform, arch);
+  const ext = platform === "win32" ? "zip" : "gz";
+  if (goArch === "amd64") {
+    return [
+      `mihomo-${os}-amd64-${tag}.${ext}`,
+      `mihomo-${os}-amd64-compatible-${tag}.${ext}`,
+      `mihomo-${os}-amd64-v1-${tag}.${ext}`,
+    ];
+  }
+  return [`mihomo-${os}-arm64-${tag}.${ext}`];
+}
+
+/** Extract the binary from a downloaded .zip (windows) or .gz (single file). */
+export function extractCoreArchive(archivePath: string, assetName: string, destExe: string): void {
+  const extracted = `${destExe}.extracted`;
+  try {
+    if (assetName.endsWith(".zip")) {
+      const zip = new AdmZip(archivePath);
+      const entry = zip.getEntries().find((e) => !e.isDirectory && /\.exe$/i.test(e.entryName));
+      if (!entry) throw new Error(`No .exe found inside ${assetName}`);
+      const data = entry.getData();
+      if (data.length > 512 * 1024 * 1024)
+        throw new Error("Extracted binary exceeds 512MB safety limit");
+      fs.writeFileSync(extracted, data, { mode: 0o755 });
+    } else if (assetName.endsWith(".gz")) {
+      const data = zlib.gunzipSync(fs.readFileSync(archivePath));
+      if (data.length > 512 * 1024 * 1024)
+        throw new Error("Extracted binary exceeds 512MB safety limit");
+      fs.writeFileSync(extracted, data, { mode: 0o755 });
+    } else {
+      throw new Error(`Unsupported archive type: ${assetName}`);
+    }
+    fs.renameSync(extracted, destExe);
+  } catch (err) {
+    fs.rmSync(extracted, { force: true });
+    throw err;
+  }
+}
+
+export interface InstallRecord {
+  coreVersion: string;
+  installedAt: string;
+}
+
+export function readInstallRecord(layout: SashLayout = sashLayout()): InstallRecord | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(layout.installFile, "utf8")) as InstallRecord;
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeInstallRecord(record: InstallRecord, layout: SashLayout = sashLayout()): void {
+  atomicWriteFileSync(layout.installFile, `${JSON.stringify(record, null, 2)}\n`);
+}
+
+/** Best-effort current core version: install record first, then `mihomo -v`. */
+export function currentCoreVersion(layout: SashLayout = sashLayout()): string {
+  const record = readInstallRecord(layout);
+  if (record?.coreVersion) return record.coreVersion;
+  return "";
+}
+
+export interface CoreInstallOptions {
+  layout?: SashLayout;
+  /** Specific tag to install (e.g. v1.19.30); defaults to latest. */
+  tag?: string;
+  onProgress?: (downloaded: number, total: number | undefined) => void;
+}
+
+/**
+ * Download and install a mihomo core binary. The binary is staged next to the
+ * existing one and swapped in atomically; on Windows the running binary keeps
+ * its file locked, so callers must stop the daemon first when replacing it.
+ */
+export async function installCore(
+  opts: CoreInstallOptions = {},
+): Promise<{ version: string; exe: string }> {
+  const layout = opts.layout ?? sashLayout();
+  const tag = opts.tag ?? (await resolveLatestTag(MIHOMO_REPO));
+  const assets = await listReleaseAssets(MIHOMO_REPO, tag).catch(() => []);
+  const candidates = mihomoAssetCandidates(tag);
+
+  fs.mkdirSync(layout.tempDir, { recursive: true });
+  const archivePath = path.join(layout.tempDir, `mihomo-${tag}.download`);
+  try {
+    const assetName = await downloadReleaseAsset({
+      repo: MIHOMO_REPO,
+      tag,
+      assets,
+      candidates,
+      dest: archivePath,
+      onProgress: opts.onProgress,
+    });
+
+    fs.mkdirSync(layout.binDir, { recursive: true });
+    const stagedExe = `${layout.coreExe}.new`;
+    extractCoreArchive(archivePath, assetName, stagedExe);
+    fs.chmodSync(stagedExe, 0o755);
+    fs.renameSync(stagedExe, layout.coreExe);
+    writeInstallRecord({ coreVersion: tag, installedAt: new Date().toISOString() }, layout);
+    return { version: tag, exe: layout.coreExe };
+  } finally {
+    fs.rmSync(archivePath, { force: true });
+  }
+}
+
+export function coreInstalled(layout: SashLayout = sashLayout()): boolean {
+  return fs.existsSync(layout.coreExe);
+}

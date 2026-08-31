@@ -1,0 +1,71 @@
+import os from "node:os";
+import path from "node:path";
+
+/**
+ * Sash manages one canonical local Mihomo instance. The root directory follows
+ * per-platform data dir conventions; SASH_HOME may override it when absolute.
+ */
+
+const DIR_NAME = "sash";
+
+function envPathOr(fallback: string, value: string | undefined): string {
+  const trimmed = value?.trim();
+  // Per XDG spec: non-absolute paths must be ignored to avoid cwd-dependent drift.
+  return trimmed && path.isAbsolute(trimmed) ? trimmed : fallback;
+}
+
+export function sashRoot(): string {
+  const override = process.env.SASH_HOME?.trim();
+  if (override) {
+    if (!path.isAbsolute(override)) {
+      throw new Error(`SASH_HOME must be an absolute path, got: ${override}`);
+    }
+    return override;
+  }
+  if (process.platform === "win32") {
+    const base = envPathOr(path.join(os.homedir(), "AppData", "Local"), process.env.LOCALAPPDATA);
+    return path.join(base, "Sash");
+  }
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", "Sash");
+  }
+  const xdgData = envPathOr(path.join(os.homedir(), ".local", "share"), process.env.XDG_DATA_HOME);
+  return path.join(xdgData, DIR_NAME);
+}
+
+export interface SashLayout {
+  root: string;
+  binDir: string;
+  coreExe: string;
+  configFile: string;
+  settingsFile: string;
+  uiDir: string;
+  stateDir: string;
+  pidFile: string;
+  installFile: string;
+  logsDir: string;
+  coreLogFile: string;
+  coreErrLogFile: string;
+  sashLogFile: string;
+  tempDir: string;
+}
+
+export function sashLayout(root: string = sashRoot()): SashLayout {
+  const exeName = process.platform === "win32" ? "mihomo.exe" : "mihomo";
+  return {
+    root,
+    binDir: path.join(root, "bin"),
+    coreExe: path.join(root, "bin", exeName),
+    configFile: path.join(root, "config.yaml"),
+    settingsFile: path.join(root, "sash.json"),
+    uiDir: path.join(root, "ui"),
+    stateDir: path.join(root, "state"),
+    pidFile: path.join(root, "state", "sash.pid"),
+    installFile: path.join(root, "state", "install.json"),
+    logsDir: path.join(root, "logs"),
+    coreLogFile: path.join(root, "logs", "mihomo.log"),
+    coreErrLogFile: path.join(root, "logs", "mihomo.err.log"),
+    sashLogFile: path.join(root, "logs", "sash.log"),
+    tempDir: path.join(root, "temp"),
+  };
+}

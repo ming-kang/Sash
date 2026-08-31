@@ -1,0 +1,68 @@
+{
+  "name": "@astralyn/sash",
+  "version": "0.1.0",
+  "description": "A lightweight command-line companion for a rule-based network core and its web dashboard. For developers and advanced users.",
+  "license": "MIT",
+  "author": "ming-kang",
+  "type": "module",
+  "bin": {
+    "sash": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "scripts": {
+    "clean:build": "node scripts/clean-build.mjs",
+    "build": "npm run clean:build && tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "audit:prod": "npm audit --omit=dev --audit-level=moderate",
+    "test": "tsc --noEmit && node scripts/run-tests.mjs",
+    "prepublishOnly": "npm run audit:prod && npm test && npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ming-kang/Sash.git"
+  },
+  "homepage": "https://github.com/ming-kang/Sash#readme",
+  "bugs": {
+    "url": "https://github.com/ming-kang/Sash/issues"
+  },
+  "keywords": [
+    "cli",
+    "sash",
+    "network",
+    "toolbox",
+    "rules",
+    "dashboard",
+    "tun"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.0",
+    "commander": "^13.1.0",
+    "cross-spawn": "^7.0.6",
+    "semver": "^7.8.5",
+    "tar": "^7.5.22",
+    "undici": "^7.29.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.5",
+    "@types/adm-zip": "^0.5.7",
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "^20.0.0",
+    "@types/semver": "^7.8.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
