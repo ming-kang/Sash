@@ -7,51 +7,14 @@ import type {
   RulesResponse,
   SashStatus,
   TrafficMessage,
-} from "./types.js";
+} from "../types/index.js";
 
 export class ApiClient {
-  private secret = "";
-
-  constructor() {
-    this.initSecret();
-  }
-
-  private initSecret(): void {
-    // 1. Check URL hash: e.g. /ui/#/setup?secret=... or /ui/#secret=...
-    const hash = window.location.hash;
-    const match = hash.match(/(?:[?&#]|secret=)(?:secret=)?([a-fA-F0-9]{16,64})/);
-    if (match?.[1]) {
-      this.secret = match[1];
-      localStorage.setItem("sash_daemon_secret", this.secret);
-      // Clean up hash from URL to avoid leaking in history
-      window.history.replaceState(null, "", window.location.pathname);
-      return;
-    }
-
-    // 2. Check localStorage
-    const saved = localStorage.getItem("sash_daemon_secret");
-    if (saved) {
-      this.secret = saved.trim();
-    }
-  }
-
-  getSecret(): string {
-    return this.secret;
-  }
-
-  setSecret(secret: string): void {
-    this.secret = secret.trim();
-    localStorage.setItem("sash_daemon_secret", this.secret);
-  }
-
   private async request<T>(
     endpoint: string,
     options: { method?: string; body?: unknown } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {};
-    if (this.secret) {
-      headers.Authorization = `Bearer ${this.secret}`;
-    }
     let bodyStr: string | undefined;
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -63,10 +26,6 @@ export class ApiClient {
       headers,
       body: bodyStr,
     });
-
-    if (res.status === 401) {
-      throw new Error("UNAUTHORIZED");
-    }
 
     if (!res.ok) {
       let errText = "";
@@ -83,7 +42,7 @@ export class ApiClient {
   }
 
   /* ======================================================================== */
-  /* /sash/* Endpoints                                                        */
+  /* /sash/*                                                                  */
   /* ======================================================================== */
 
   async getHealth(): Promise<{ ok: boolean; token: string; pid: number }> {
@@ -138,8 +97,14 @@ export class ApiClient {
     });
   }
 
+  async reloadCoreConfig(): Promise<{ ok: boolean; proxyCount: number }> {
+    return this.request<{ ok: boolean; proxyCount: number }>("/core/config/reload", {
+      method: "POST",
+    });
+  }
+
   /* ======================================================================== */
-  /* /core/api/* Endpoints (Reverse Proxied to Core)                          */
+  /* /core/api/*                                                              */
   /* ======================================================================== */
 
   async getConfigs(): Promise<ConfigsResponse> {
@@ -195,12 +160,12 @@ export class ApiClient {
   }
 
   /* ======================================================================== */
-  /* WebSocket Streaming: Traffic & Logs                                      */
+  /* WebSocket Streams                                                        */
   /* ======================================================================== */
 
   connectTrafficStream(onData: (msg: TrafficMessage) => void): () => void {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/core/api/traffic?token=${encodeURIComponent(this.secret)}`;
+    const wsUrl = `${protocol}//${window.location.host}/core/api/traffic`;
     let ws: WebSocket | null = null;
     let timer: number | null = null;
     let closed = false;
@@ -218,17 +183,13 @@ export class ApiClient {
           }
         };
         ws.onclose = () => {
-          if (!closed) {
-            timer = window.setTimeout(connect, 3000);
-          }
+          if (!closed) timer = window.setTimeout(connect, 3000);
         };
         ws.onerror = () => {
           ws?.close();
         };
       } catch {
-        if (!closed) {
-          timer = window.setTimeout(connect, 3000);
-        }
+        if (!closed) timer = window.setTimeout(connect, 3000);
       }
     };
 
@@ -243,7 +204,7 @@ export class ApiClient {
 
   connectLogsStream(onLog: (msg: LogMessage) => void): () => void {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/core/api/logs?token=${encodeURIComponent(this.secret)}`;
+    const wsUrl = `${protocol}//${window.location.host}/core/api/logs`;
     let ws: WebSocket | null = null;
     let timer: number | null = null;
     let closed = false;
@@ -255,23 +216,20 @@ export class ApiClient {
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data) as LogMessage;
+            data.time = new Date().toLocaleTimeString();
             onLog(data);
           } catch {
             // ignore
           }
         };
         ws.onclose = () => {
-          if (!closed) {
-            timer = window.setTimeout(connect, 3000);
-          }
+          if (!closed) timer = window.setTimeout(connect, 3000);
         };
         ws.onerror = () => {
           ws?.close();
         };
       } catch {
-        if (!closed) {
-          timer = window.setTimeout(connect, 3000);
-        }
+        if (!closed) timer = window.setTimeout(connect, 3000);
       }
     };
 

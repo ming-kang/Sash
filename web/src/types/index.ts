@@ -45,6 +45,7 @@ export interface ProxyItem {
   history: Array<{ time: string; delay: number }>;
   now?: string;
   all?: string[];
+  alive?: boolean;
 }
 
 export interface ProxiesResponse {
@@ -83,9 +84,15 @@ export interface TrafficMessage {
   down: number;
 }
 
+export interface MemoryMessage {
+  inuse: number;
+  osalloc: number;
+}
+
 export interface LogMessage {
   type: "info" | "warning" | "error" | "debug";
   payload: string;
+  time?: string;
 }
 
 export interface RuleItem {
