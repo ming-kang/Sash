@@ -25,16 +25,16 @@ let redirectDirectDispatcher: Dispatcher | undefined;
 function getBaseProxyDispatcher(): Dispatcher {
   if (!baseProxyDispatcher) {
     // EnvHttpProxyAgent covers HTTP_PROXY/HTTPS_PROXY/NO_PROXY; ALL_PROXY is a
-    // common extra convention among proxy tools, so fold it in manually.
-    const allProxy = process.env.ALL_PROXY ?? process.env.all_proxy;
-    const hasHttpsProxy = Boolean(process.env.HTTPS_PROXY ?? process.env.https_proxy);
-    if (allProxy && /^https?:\/\//i.test(allProxy) && !hasHttpsProxy) {
-      process.env.HTTPS_PROXY = allProxy;
-      baseProxyDispatcher = new EnvHttpProxyAgent();
-      delete process.env.HTTPS_PROXY;
-    } else {
-      baseProxyDispatcher = new EnvHttpProxyAgent();
-    }
+    // common extra convention among proxy tools, so fold it in via constructor
+    // options without ever mutating process.env.
+    const allProxyRaw = process.env.ALL_PROXY ?? process.env.all_proxy;
+    const allProxy = allProxyRaw && /^https?:\/\//i.test(allProxyRaw) ? allProxyRaw : undefined;
+    const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? allProxy;
+    const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? allProxy;
+    baseProxyDispatcher = new EnvHttpProxyAgent({
+      ...(httpProxy ? { httpProxy } : {}),
+      ...(httpsProxy ? { httpsProxy } : {}),
+    });
   }
   return baseProxyDispatcher;
 }
@@ -44,6 +44,16 @@ function getBaseDirectDispatcher(): Dispatcher {
     baseDirectDispatcher = new Agent({ connect: { rejectUnauthorized: false } });
   }
   return baseDirectDispatcher;
+}
+
+/** Public accessor for the shared proxy-aware dispatcher (remote requests). */
+export function proxyAwareDispatcher(): Dispatcher {
+  return getBaseProxyDispatcher();
+}
+
+/** Public accessor for the shared direct dispatcher (loopback requests). */
+export function directDispatcherForLoopback(): Dispatcher {
+  return getBaseDirectDispatcher();
 }
 
 function pickDispatcher(opts: { direct?: boolean; manualRedirect?: boolean }): Dispatcher {
@@ -126,26 +136,84 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
 
 export type DownloadProgress = (downloaded: number, total: number | undefined) => void;
 
+export interface DownloadOptions {
+  stallMs?: number;
+  onProgress?: DownloadProgress;
+  headers?: Record<string, string>;
+  /**
+   * When provided, redirects are followed manually hop-by-hop and every
+   * redirect target host must be in this set; otherwise redirects are
+   * followed automatically by undici's redirect interceptor.
+   */
+  allowedHosts?: ReadonlySet<string>;
+}
+
+function validateRedirectTarget(
+  location: string,
+  currentUrl: string,
+  allowedHosts: ReadonlySet<string>,
+): string {
+  const target = new URL(location, currentUrl);
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw new Error(`Refusing redirect to non-http(s) URL: ${target.href}`);
+  }
+  if (!allowedHosts.has(target.hostname.toLowerCase())) {
+    throw new Error(`Refusing redirect to untrusted host: ${target.hostname}`);
+  }
+  return target.href;
+}
+
 /**
  * Download a URL to a file with stall detection. Throws on non-2xx or when no
- * bytes arrive for `stallMs`.
+ * bytes arrive for `stallMs`. Partial files are removed on failure.
  */
 export async function downloadToFile(
   url: string,
   dest: string,
-  opts: { stallMs?: number; onProgress?: DownloadProgress; headers?: Record<string, string> } = {},
+  opts: DownloadOptions = {},
 ): Promise<number> {
   const stallMs = opts.stallMs ?? 60_000;
-  const res = await request(url, {
-    method: "GET",
-    headers: { "user-agent": USER_AGENT, ...opts.headers },
-    headersTimeout: 30_000,
-    bodyTimeout: stallMs,
-    dispatcher: pickDispatcher({ direct: false, manualRedirect: false }),
-  });
+  const maxRedirects = 5;
+
+  let currentUrl = url;
+  let res: Awaited<ReturnType<typeof request>>;
+  if (opts.allowedHosts) {
+    const dispatcher = pickDispatcher({ direct: false, manualRedirect: true });
+    let hops = 0;
+    for (;;) {
+      res = await request(currentUrl, {
+        method: "GET",
+        headers: { "user-agent": USER_AGENT, ...opts.headers },
+        headersTimeout: 30_000,
+        bodyTimeout: stallMs,
+        dispatcher,
+      });
+      const isRedirect =
+        res.statusCode >= 300 && res.statusCode < 400 && Boolean(res.headers.location);
+      if (!isRedirect) break;
+      const locationHeader = res.headers.location;
+      const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader;
+      await res.body.dump();
+      if (!location) throw new Error(`Redirect without Location header from ${currentUrl}`);
+      hops += 1;
+      if (hops > maxRedirects) {
+        throw new Error(`Too many redirects (>${maxRedirects}) downloading ${url}`);
+      }
+      currentUrl = validateRedirectTarget(location, currentUrl, opts.allowedHosts);
+    }
+  } else {
+    res = await request(currentUrl, {
+      method: "GET",
+      headers: { "user-agent": USER_AGENT, ...opts.headers },
+      headersTimeout: 30_000,
+      bodyTimeout: stallMs,
+      dispatcher: pickDispatcher({ direct: false, manualRedirect: false }),
+    });
+  }
+
   if (res.statusCode < 200 || res.statusCode >= 300) {
     await res.body.dump();
-    throw new Error(`HTTP ${res.statusCode} for ${url}`);
+    throw new Error(`HTTP ${res.statusCode} for ${currentUrl}`);
   }
   const totalHeader = res.headers["content-length"];
   const parsedTotal =
@@ -155,18 +223,18 @@ export async function downloadToFile(
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const out = fs.createWriteStream(dest, { mode: 0o755 });
   let downloaded = 0;
+  let success = false;
   try {
     for await (const chunk of res.body) {
       out.write(chunk);
       downloaded += (chunk as Buffer).length;
       opts.onProgress?.(downloaded, total);
     }
+    if (downloaded === 0) throw new Error(`Empty download from ${currentUrl}`);
+    success = true;
+    return downloaded;
   } finally {
     await new Promise<void>((resolve) => out.close(() => resolve()));
+    if (!success) fs.rmSync(dest, { force: true });
   }
-  if (downloaded === 0) {
-    fs.rmSync(dest, { force: true });
-    throw new Error(`Empty download from ${url}`);
-  }
-  return downloaded;
 }

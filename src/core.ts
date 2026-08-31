@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import AdmZip from "adm-zip";
 import { atomicWriteFileSync } from "./fs-atomic.js";
@@ -54,23 +56,49 @@ export function mihomoAssetCandidates(
   return [`mihomo-${os}-arm64-${tag}.${ext}`];
 }
 
+const EXTRACT_SIZE_LIMIT = 512 * 1024 * 1024;
+
 /** Extract the binary from a downloaded .zip (windows) or .gz (single file). */
-export function extractCoreArchive(archivePath: string, assetName: string, destExe: string): void {
+export async function extractCoreArchive(
+  archivePath: string,
+  assetName: string,
+  destExe: string,
+): Promise<void> {
   const extracted = `${destExe}.extracted`;
   try {
     if (assetName.endsWith(".zip")) {
       const zip = new AdmZip(archivePath);
-      const entry = zip.getEntries().find((e) => !e.isDirectory && /\.exe$/i.test(e.entryName));
+      const executables = zip
+        .getEntries()
+        .filter((e) => !e.isDirectory && /\.exe$/i.test(e.entryName));
+      const entry =
+        executables.find((e) => /^mihomo.*\.exe$/i.test(path.basename(e.entryName))) ??
+        executables[0];
       if (!entry) throw new Error(`No .exe found inside ${assetName}`);
       const data = entry.getData();
-      if (data.length > 512 * 1024 * 1024)
+      if (data.length > EXTRACT_SIZE_LIMIT)
         throw new Error("Extracted binary exceeds 512MB safety limit");
       fs.writeFileSync(extracted, data, { mode: 0o755 });
     } else if (assetName.endsWith(".gz")) {
-      const data = zlib.gunzipSync(fs.readFileSync(archivePath));
-      if (data.length > 512 * 1024 * 1024)
-        throw new Error("Extracted binary exceeds 512MB safety limit");
-      fs.writeFileSync(extracted, data, { mode: 0o755 });
+      // Stream decompression with a hard size cap instead of buffering the
+      // whole archive in memory.
+      let bytes = 0;
+      const limiter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          bytes += chunk.length;
+          if (bytes > EXTRACT_SIZE_LIMIT) {
+            callback(new Error("Extracted binary exceeds 512MB safety limit"));
+            return;
+          }
+          callback(null, chunk);
+        },
+      });
+      await pipeline(
+        fs.createReadStream(archivePath),
+        zlib.createGunzip(),
+        limiter,
+        fs.createWriteStream(extracted, { mode: 0o755 }),
+      );
     } else {
       throw new Error(`Unsupported archive type: ${assetName}`);
     }
@@ -98,7 +126,7 @@ export function writeInstallRecord(record: InstallRecord, layout: SashLayout = s
   atomicWriteFileSync(layout.installFile, `${JSON.stringify(record, null, 2)}\n`);
 }
 
-/** Best-effort current core version: install record first, then `mihomo -v`. */
+/** Best-effort current core version, read from the install record ("" when absent). */
 export function currentCoreVersion(layout: SashLayout = sashLayout()): string {
   const record = readInstallRecord(layout);
   if (record?.coreVersion) return record.coreVersion;
@@ -139,7 +167,7 @@ export async function installCore(
 
     fs.mkdirSync(layout.binDir, { recursive: true });
     const stagedExe = `${layout.coreExe}.new`;
-    extractCoreArchive(archivePath, assetName, stagedExe);
+    await extractCoreArchive(archivePath, assetName, stagedExe);
     fs.chmodSync(stagedExe, 0o755);
     fs.renameSync(stagedExe, layout.coreExe);
     writeInstallRecord({ coreVersion: tag, installedAt: new Date().toISOString() }, layout);

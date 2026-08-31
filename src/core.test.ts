@@ -95,7 +95,7 @@ describe("core", () => {
   });
 
   describe("extractCoreArchive", () => {
-    it("extracts executable from a .zip archive to destination path", () => {
+    it("extracts executable from a .zip archive to destination path", async () => {
       const fakeExeData = Buffer.from("fake-windows-binary-content-12345");
       const zip = new AdmZip();
       zip.addFile("mihomo.exe", fakeExeData);
@@ -105,13 +105,27 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      extractCoreArchive(zipPath, "mihomo-windows-amd64-v1.19.30.zip", destExe);
+      await extractCoreArchive(zipPath, "mihomo-windows-amd64-v1.19.30.zip", destExe);
 
       assert.equal(fs.existsSync(destExe), true);
       assert.deepEqual(fs.readFileSync(destExe), fakeExeData);
     });
 
-    it("extracts binary from a .gz archive to destination path", () => {
+    it("prefers the mihomo*.exe entry when a .zip contains multiple executables", async () => {
+      const zip = new AdmZip();
+      zip.addFile("helper.exe", Buffer.from("helper-tool"));
+      zip.addFile("mihomo-windows-amd64.exe", Buffer.from("real-core-binary"));
+      const zipPath = path.join(tmpDir, "multi.zip");
+      zip.writeZip(zipPath);
+
+      const destExe = path.join(tmpDir, "bin", "mihomo.exe");
+      fs.mkdirSync(path.dirname(destExe), { recursive: true });
+
+      await extractCoreArchive(zipPath, "mihomo-windows-amd64-v1.19.30.zip", destExe);
+      assert.deepEqual(fs.readFileSync(destExe), Buffer.from("real-core-binary"));
+    });
+
+    it("extracts binary from a .gz archive to destination path", async () => {
       const fakeBinaryData = Buffer.from("fake-linux-binary-content-67890");
       const gzData = zlib.gzipSync(fakeBinaryData);
       const gzPath = path.join(tmpDir, "archive.gz");
@@ -120,13 +134,13 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      extractCoreArchive(gzPath, "mihomo-linux-amd64-v1.19.30.gz", destExe);
+      await extractCoreArchive(gzPath, "mihomo-linux-amd64-v1.19.30.gz", destExe);
 
       assert.equal(fs.existsSync(destExe), true);
       assert.deepEqual(fs.readFileSync(destExe), fakeBinaryData);
     });
 
-    it("throws an error when a .zip archive does not contain an .exe file", () => {
+    it("throws an error when a .zip archive does not contain an .exe file", async () => {
       const zip = new AdmZip();
       zip.addFile("README.txt", Buffer.from("no executable here"));
       const zipPath = path.join(tmpDir, "no-exe.zip");
@@ -135,7 +149,7 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      assert.throws(
+      await assert.rejects(
         () => extractCoreArchive(zipPath, "no-exe.zip", destExe),
         /No \.exe found inside no-exe\.zip/,
       );
@@ -143,12 +157,12 @@ describe("core", () => {
       assert.equal(fs.existsSync(`${destExe}.extracted`), false);
     });
 
-    it("throws an error for unsupported archive extensions", () => {
+    it("throws an error for unsupported archive extensions", async () => {
       const tarPath = path.join(tmpDir, "archive.tar");
       fs.writeFileSync(tarPath, "dummy");
       const destExe = path.join(tmpDir, "bin", "mihomo");
 
-      assert.throws(
+      await assert.rejects(
         () => extractCoreArchive(tarPath, "archive.tar", destExe),
         /Unsupported archive type: archive\.tar/,
       );

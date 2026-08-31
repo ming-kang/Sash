@@ -128,7 +128,10 @@ export async function downloadReleaseAsset(opts: DownloadAssetOptions): Promise<
     for (const url of mirrorize(direct)) {
       assertAllowedDownload(url);
       try {
-        await downloadToFile(url, opts.dest, { onProgress: opts.onProgress });
+        await downloadToFile(url, opts.dest, {
+          onProgress: opts.onProgress,
+          allowedHosts: ALLOWED_DOWNLOAD_HOSTS,
+        });
         return name;
       } catch (err) {
         errors.push(`${name} via ${new URL(url).host}: ${(err as Error).message}`);
