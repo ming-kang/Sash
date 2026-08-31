@@ -9,9 +9,15 @@ import type {
   TrafficMessage,
 } from "../types/index.js";
 
+export interface ToastItem {
+  id: number;
+  kind: "success" | "error" | "info";
+  text: string;
+}
+
 export interface StoreState {
-  authenticated: boolean;
   status: SashStatus | null;
+  daemonOnline: boolean;
   mode: OutboundMode;
   traffic: {
     up: number;
@@ -26,19 +32,22 @@ export interface StoreState {
   connectionsDownloadTotal: number;
   rules: RuleItem[];
   logs: LogMessage[];
-  currentTab: string;
   activeGroup: string;
+  toasts: ToastItem[];
 }
 
+const HISTORY_LEN = 60;
+const LOG_LEN = 600;
+
 export const store = reactive<StoreState>({
-  authenticated: false,
   status: null,
+  daemonOnline: true,
   mode: "rule",
   traffic: {
     up: 0,
     down: 0,
-    historyUp: Array(30).fill(0),
-    historyDown: Array(30).fill(0),
+    historyUp: Array(HISTORY_LEN).fill(0),
+    historyDown: Array(HISTORY_LEN).fill(0),
   },
   proxies: {},
   proxyGroups: [],
@@ -47,8 +56,8 @@ export const store = reactive<StoreState>({
   connectionsDownloadTotal: 0,
   rules: [],
   logs: [],
-  currentTab: "overview",
   activeGroup: "",
+  toasts: [],
 });
 
 export const isSysProxyOn = computed(() => store.status?.systemProxy.applied ?? false);
@@ -71,10 +80,15 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
 
 export function updateProxyDelay(name: string, delay: number): void {
   const item = store.proxies[name];
-  if (item) {
-    if (!item.history) item.history = [];
-    item.history.push({ time: new Date().toISOString(), delay });
-  }
+  if (!item) return;
+  if (!item.history) item.history = [];
+  item.history.push({ time: new Date().toISOString(), delay });
+}
+
+export function proxyDelay(name: string): number | undefined {
+  const item = store.proxies[name];
+  const history = item?.history ?? [];
+  return history.length > 0 ? history[history.length - 1]?.delay : undefined;
 }
 
 export function addTraffic(msg: TrafficMessage): void {
@@ -82,11 +96,34 @@ export function addTraffic(msg: TrafficMessage): void {
   store.traffic.down = msg.down;
   store.traffic.historyUp.push(msg.up);
   store.traffic.historyDown.push(msg.down);
-  if (store.traffic.historyUp.length > 30) store.traffic.historyUp.shift();
-  if (store.traffic.historyDown.length > 30) store.traffic.historyDown.shift();
+  if (store.traffic.historyUp.length > HISTORY_LEN) store.traffic.historyUp.shift();
+  if (store.traffic.historyDown.length > HISTORY_LEN) store.traffic.historyDown.shift();
 }
 
 export function addLog(msg: LogMessage): void {
   store.logs.push(msg);
-  if (store.logs.length > 600) store.logs.shift();
+  if (store.logs.length > LOG_LEN) store.logs.shift();
+}
+
+let toastSeq = 0;
+
+export function pushToast(kind: ToastItem["kind"], text: string): void {
+  const id = ++toastSeq;
+  store.toasts.push({ id, kind, text });
+  window.setTimeout(() => dismissToast(id), 4200);
+}
+
+export function dismissToast(id: number): void {
+  const idx = store.toasts.findIndex((t) => t.id === id);
+  if (idx >= 0) store.toasts.splice(idx, 1);
+}
+
+export const toast = {
+  success: (text: string) => pushToast("success", text),
+  error: (text: string) => pushToast("error", text),
+  info: (text: string) => pushToast("info", text),
+};
+
+export function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

@@ -1,172 +1,126 @@
 <template>
-  <div class="overview-view">
-    <!-- Top Speed Meters -->
-    <div class="grid grid-cols-2 gap-4">
-      <!-- Download Card -->
-      <div class="glass-card stat-card">
-        <div class="card-top">
-          <div class="stat-meta">
-            <span class="stat-label">Download Speed</span>
-            <div class="stat-speed text-success">
-              <Icon name="download" size="18" />
-              <span>{{ formatSpeed(store.traffic.down) }}</span>
-            </div>
-          </div>
-          <span class="badge badge-success">LIVE</span>
-        </div>
-        <div class="chart-box">
-          <svg viewBox="0 0 320 48" class="sparkline">
-            <polyline
-              fill="none"
-              stroke="#10b981"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              :points="renderSparkline(store.traffic.historyDown)"
-            />
-          </svg>
-        </div>
-      </div>
+  <div>
+    <PageHeader :title="t('page.overview.title')" :desc="t('page.overview.desc')" />
 
-      <!-- Upload Card -->
-      <div class="glass-card stat-card">
-        <div class="card-top">
-          <div class="stat-meta">
-            <span class="stat-label">Upload Speed</span>
-            <div class="stat-speed text-sky">
-              <Icon name="upload" size="18" />
-              <span>{{ formatSpeed(store.traffic.up) }}</span>
-            </div>
-          </div>
-          <span class="badge badge-primary">LIVE</span>
+    <!-- Live traffic -->
+    <UiCard :title="t('overview.trafficTitle')">
+      <template #actions>
+        <div class="traffic-now">
+          <span class="now-item">
+            <i class="legend-dot" style="background: var(--chart-down)" />
+            {{ t('overview.download') }}
+            <b class="mono">{{ formatSpeed(store.traffic.down) }}</b>
+          </span>
+          <span class="now-item">
+            <i class="legend-dot" style="background: var(--chart-up)" />
+            {{ t('overview.upload') }}
+            <b class="mono">{{ formatSpeed(store.traffic.up) }}</b>
+          </span>
+          <span class="badge badge-success">
+            <span class="dot dot-success" style="width: 6px; height: 6px; box-shadow: none" />
+            {{ t('common.live') }}
+          </span>
         </div>
-        <div class="chart-box">
-          <svg viewBox="0 0 320 48" class="sparkline">
-            <polyline
-              fill="none"
-              stroke="#0ea5e9"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              :points="renderSparkline(store.traffic.historyUp)"
-            />
-          </svg>
-        </div>
+      </template>
+      <TrafficChart :down="store.traffic.historyDown" :up="store.traffic.historyUp" />
+      <div class="traffic-totals">
+        <span class="total-item">
+          {{ t('overview.totalDown') }}
+          <b class="mono">{{ formatBytes(store.connectionsDownloadTotal) }}</b>
+        </span>
+        <span class="total-item">
+          {{ t('overview.totalUp') }}
+          <b class="mono">{{ formatBytes(store.connectionsUploadTotal) }}</b>
+        </span>
+        <span class="total-item">
+          {{ t('connections.active') }}
+          <b class="mono">{{ store.connections.length }}</b>
+        </span>
       </div>
-    </div>
+    </UiCard>
 
-    <!-- Main Controls Row -->
-    <div class="grid grid-cols-2 gap-4 mt-4">
-      <!-- Outbound Mode Switcher -->
-      <div class="glass-card action-card">
-        <div class="card-header">
-          <div class="header-title">
-            <Icon name="globe" size="16" />
-            <span>Outbound Mode</span>
-          </div>
-          <span class="badge badge-neutral">{{ store.mode.toUpperCase() }}</span>
-        </div>
-        <div class="mode-grid">
+    <div class="grid-2 mt-4">
+      <!-- Outbound mode -->
+      <UiCard :title="t('overview.modeTitle')" :desc="t('overview.modeDesc')">
+        <div class="segmented mode-seg">
           <button
             v-for="m in modes"
             :key="m.id"
-            class="mode-btn"
+            class="segmented-item"
             :class="{ active: store.mode === m.id }"
             @click="switchMode(m.id)"
           >
-            <span class="mode-title">{{ m.name }}</span>
-            <span class="mode-desc">{{ m.desc }}</span>
+            {{ m.label }}
           </button>
         </div>
-      </div>
+        <p class="seg-desc">{{ activeModeDesc }}</p>
+      </UiCard>
 
-      <!-- OS System Proxy Toggle -->
-      <div class="glass-card action-card">
-        <div class="card-header">
-          <div class="header-title">
-            <Icon name="shield" size="16" />
-            <span>OS System Proxy</span>
-          </div>
-          <span class="badge" :class="isSysProxyOn ? 'badge-success' : 'badge-neutral'">
-            {{ isSysProxyOn ? 'Active' : 'Disabled' }}
-          </span>
-        </div>
-        <div class="sysproxy-body">
-          <p class="desc-text">
-            {{
-              isSysProxyOn
-                ? `System network traffic routes through 127.0.0.1:${store.status?.settings.mixedPort ?? 17890}`
-                : 'Direct connection: OS network settings are not currently pointing at local proxy.'
-            }}
-          </p>
-          <button
-            class="btn"
-            :class="isSysProxyOn ? 'btn-danger-outline' : 'btn-primary'"
+      <!-- System proxy -->
+      <UiCard :title="t('overview.sysProxyTitle')">
+        <template #actions>
+          <UiSwitch
+            :model-value="isSysProxyOn"
             :disabled="!isCoreRunning || togglingProxy"
-            @click="toggleSystemProxy"
-          >
-            <Icon name="power" size="14" />
-            <span>{{ isSysProxyOn ? 'Disable System Proxy' : 'Enable System Proxy' }}</span>
-          </button>
-        </div>
-      </div>
+            @update:model-value="toggleSystemProxy"
+          />
+        </template>
+        <p class="sysproxy-desc">
+          {{
+            isSysProxyOn
+              ? t('overview.sysProxyOnDesc', { port: store.status?.settings.mixedPort ?? 17890 })
+              : t('overview.sysProxyOffDesc')
+          }}
+        </p>
+      </UiCard>
     </div>
 
-    <!-- Bottom Metadata Row -->
-    <div class="grid grid-cols-2 gap-4 mt-4">
-      <!-- Primary Group & Node -->
-      <div class="glass-card info-card">
-        <div class="card-header">
-          <div class="header-title">
-            <Icon name="zap" size="16" />
-            <span>Primary Outbound</span>
-          </div>
-          <button class="link-btn" @click="store.currentTab = 'proxies'">All Proxies →</button>
-        </div>
-        <div class="active-node-box">
-          <div class="group-tag">{{ primaryGroup }}</div>
-          <div class="node-display">
-            <div class="node-main">
-              <span class="node-dot"></span>
-              <span class="node-name">{{ activeNodeName }}</span>
-            </div>
-            <span
-              v-if="activeNodeDelay !== undefined"
-              class="badge"
-              :class="delayBadgeClass(activeNodeDelay)"
-            >
-              {{ activeNodeDelay > 0 ? `${activeNodeDelay} ms` : 'Timeout' }}
+    <div class="grid-2 mt-4">
+      <!-- Primary outbound -->
+      <UiCard :title="t('overview.primaryTitle')">
+        <template #actions>
+          <button class="btn btn-ghost btn-sm" @click="navigate('proxies')">
+            {{ t('overview.manage') }}
+            <Icon name="chevron-right" :size="12" />
+          </button>
+        </template>
+        <div class="primary-box">
+          <div class="primary-group">{{ primaryGroup }}</div>
+          <div class="primary-node-row">
+            <span class="primary-node" :title="activeNodeName">{{ activeNodeName }}</span>
+            <span v-if="activeDelay !== undefined" class="badge" :class="delayBadge(activeDelay)">
+              {{ activeDelay > 0 ? `${activeDelay} ms` : t('common.timeout') }}
             </span>
           </div>
         </div>
-      </div>
+      </UiCard>
 
-      <!-- Core Runtime Details -->
-      <div class="glass-card info-card">
-        <div class="card-header">
-          <div class="header-title">
-            <Icon name="activity" size="16" />
-            <span>Core & Endpoints</span>
-          </div>
+      <!-- Core info -->
+      <UiCard :title="t('overview.coreTitle')">
+        <template #actions>
           <span class="badge" :class="isCoreRunning ? 'badge-success' : 'badge-danger'">
-            {{ isCoreRunning ? 'Running' : 'Stopped' }}
+            {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
           </span>
-        </div>
-        <div class="meta-list">
-          <div class="meta-item">
-            <span class="meta-key">Core Version</span>
-            <span class="meta-value">{{ store.status?.core.version || store.status?.settings.coreVersion || 'Installed' }}</span>
+        </template>
+        <dl class="info-list">
+          <div class="info-item">
+            <dt>{{ t('overview.version') }}</dt>
+            <dd class="mono">{{ coreVersion || '-' }}</dd>
           </div>
-          <div class="meta-item">
-            <span class="meta-key">Mixed Proxy Port</span>
-            <span class="meta-value">127.0.0.1:{{ store.status?.settings.mixedPort ?? 17890 }}</span>
+          <div class="info-item">
+            <dt>{{ t('overview.uptime') }}</dt>
+            <dd class="mono">{{ uptime }}</dd>
           </div>
-          <div class="meta-item">
-            <span class="meta-key">Sash API Endpoint</span>
-            <span class="meta-value">127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}</span>
+          <div class="info-item">
+            <dt>{{ t('overview.mixedPort') }}</dt>
+            <dd class="mono">127.0.0.1:{{ store.status?.settings.mixedPort ?? 17890 }}</dd>
           </div>
-        </div>
-      </div>
+          <div class="info-item">
+            <dt>{{ t('overview.controller') }}</dt>
+            <dd class="mono">{{ store.status?.settings.controller || '-' }}</dd>
+          </div>
+        </dl>
+      </UiCard>
     </div>
   </div>
 </template>
@@ -175,85 +129,87 @@
 import { computed, ref } from "vue";
 import { api } from "../api/index.js";
 import Icon from "../components/Icon.vue";
-import { isCoreRunning, isSysProxyOn, store } from "../stores/index.js";
+import PageHeader from "../components/PageHeader.vue";
+import TrafficChart from "../components/TrafficChart.vue";
+import UiCard from "../components/UiCard.vue";
+import UiSwitch from "../components/UiSwitch.vue";
+import { locale, t } from "../i18n/index.js";
+import { navigate } from "../router.js";
+import { errorText, isCoreRunning, isSysProxyOn, proxyDelay, store, toast } from "../stores/index.js";
 import type { OutboundMode } from "../types/index.js";
+import { delayLevel, formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 
 const togglingProxy = ref(false);
 
-const modes = [
-  { id: "rule" as OutboundMode, name: "Rule", desc: "Split-routing via rules" },
-  { id: "global" as OutboundMode, name: "Global", desc: "Route everything via proxy" },
-  { id: "direct" as OutboundMode, name: "Direct", desc: "Bypass all proxies" },
-];
+const modes = computed(() => [
+  { id: "rule" as OutboundMode, label: t("overview.modeRule"), desc: t("overview.modeRuleDesc") },
+  {
+    id: "global" as OutboundMode,
+    label: t("overview.modeGlobal"),
+    desc: t("overview.modeGlobalDesc"),
+  },
+  {
+    id: "direct" as OutboundMode,
+    label: t("overview.modeDirect"),
+    desc: t("overview.modeDirectDesc"),
+  },
+]);
 
-const primaryGroup = computed(() => {
-  return (
+const activeModeDesc = computed(
+  () => modes.value.find((m) => m.id === store.mode)?.desc ?? "",
+);
+
+const primaryGroup = computed(
+  () =>
     store.proxyGroups.find((g) => g.toUpperCase() === "PROXY" || g.toUpperCase() === "GLOBAL") ??
     store.proxyGroups[0] ??
-    "PROXY"
-  );
-});
+    "",
+);
 
 const activeNodeName = computed(() => {
-  const g = store.proxies[primaryGroup.value];
-  return g?.now ?? "DIRECT";
+  const g = primaryGroup.value ? store.proxies[primaryGroup.value] : undefined;
+  return g?.now ?? t("overview.noNode");
 });
 
-const activeNodeDelay = computed(() => {
-  const item = store.proxies[activeNodeName.value];
-  return item?.history?.slice(-1)[0]?.delay;
+const activeDelay = computed(() => proxyDelay(activeNodeName.value));
+
+const coreVersion = computed(() => {
+  const v = store.status?.core.version ?? store.status?.settings.coreVersion;
+  return v ? (v.startsWith("v") ? v : `v${v}`) : "";
 });
 
-function formatSpeed(bytes: number): string {
-  if (bytes === 0) return "0 B/s";
-  const k = 1024;
-  const sizes = ["B/s", "KB/s", "MB/s", "GB/s"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
-}
+const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
 
-function renderSparkline(data: number[]): string {
-  const max = Math.max(...data, 1024);
-  const width = 320;
-  const height = 48;
-  const step = width / (data.length - 1);
-  return data
-    .map((val, idx) => {
-      const x = idx * step;
-      const y = height - (val / max) * (height - 8) - 4;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-}
-
-function delayBadgeClass(delay: number): string {
-  if (delay === 0) return "badge-danger";
-  if (delay < 300) return "badge-success";
-  if (delay < 600) return "badge-warning";
-  return "badge-danger";
+function delayBadge(delay: number): string {
+  const lvl = delayLevel(delay);
+  return lvl === "good" ? "badge-success" : lvl === "mid" ? "badge-warning" : "badge-danger";
 }
 
 async function switchMode(mode: OutboundMode): Promise<void> {
+  if (mode === store.mode) return;
   try {
     await api.setMode(mode);
     store.mode = mode;
+    toast.success(t("toast.modeOk", { mode: t(`overview.mode${mode[0]?.toUpperCase()}${mode.slice(1)}`) }));
   } catch (err) {
-    alert(`Failed to set mode: ${(err as Error).message}`);
+    toast.error(t("toast.failed", { msg: errorText(err) }));
   }
 }
 
 async function toggleSystemProxy(): Promise<void> {
+  if (togglingProxy.value) return;
   togglingProxy.value = true;
   try {
     if (isSysProxyOn.value) {
       await api.disableSystemProxy();
+      toast.success(t("toast.sysProxyOff"));
     } else {
       await api.enableSystemProxy();
+      toast.success(t("toast.sysProxyOn"));
     }
-    const newStatus = await api.getStatus();
-    store.status = newStatus;
+    store.status = await api.getStatus();
   } catch (err) {
-    alert(`Failed to toggle system proxy: ${(err as Error).message}`);
+    toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
     togglingProxy.value = false;
   }
@@ -261,226 +217,124 @@ async function toggleSystemProxy(): Promise<void> {
 </script>
 
 <style scoped>
-.overview-view {
-  display: flex;
-  flex-direction: column;
-}
-
-.grid {
+.grid-2 {
   display: grid;
-}
-.grid-cols-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.gap-4 {
   gap: 16px;
 }
-.mt-4 {
-  margin-top: 16px;
-}
 
-.stat-card {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-.card-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.stat-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.stat-speed {
+.traffic-now {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 20px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  margin-top: 4px;
+  gap: 16px;
 }
-
-.text-success {
-  color: var(--color-success);
-}
-.text-sky {
-  color: #38bdf8;
-}
-
-.chart-box {
-  height: 48px;
-  margin-top: 10px;
-}
-
-.sparkline {
-  width: 100%;
-  height: 100%;
-}
-
-.action-card,
-.info-card {
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.card-header {
-  display: flex;
+.now-item {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-}
-
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.mode-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.mode-btn {
-  background: var(--bg-input);
-  border: 1px solid #1f2937;
-  border-radius: var(--radius-sm);
-  padding: 10px 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  gap: 6px;
+  font-size: 12.5px;
   color: var(--text-secondary);
 }
-
-.mode-btn:hover {
-  background: #1f2937;
-  border-color: #374151;
+.now-item b {
   color: var(--text-primary);
-}
-
-.mode-btn.active {
-  background: rgba(2, 132, 199, 0.15);
-  border-color: #0284c7;
-  color: #38bdf8;
-}
-
-.mode-title {
-  font-weight: 600;
   font-size: 13px;
 }
-
-.mode-desc {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
 }
-
-.sysproxy-body {
+.traffic-totals {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  gap: 24px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
-
-.desc-text {
-  font-size: 12.5px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.link-btn {
-  background: none;
-  border: none;
-  color: #38bdf8;
+.total-item {
   font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.link-btn:hover {
-  text-decoration: underline;
-}
-
-.active-node-box {
-  background: var(--bg-input);
-  border: 1px solid #1f2937;
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: baseline;
   gap: 6px;
 }
-
-.group-tag {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  letter-spacing: 0.05em;
-}
-
-.node-display {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.node-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.node-dot {
-  width: 7px;
-  height: 7px;
-  background: var(--color-success);
-  border-radius: 9999px;
-}
-
-.node-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.meta-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.meta-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.total-item b {
+  color: var(--text-primary);
   font-size: 12.5px;
 }
 
-.meta-key {
+.mode-seg {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+.seg-desc {
+  margin-top: 10px;
+  font-size: 12.5px;
   color: var(--text-muted);
 }
-.meta-value {
-  font-family: var(--font-mono);
+
+.sysproxy-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.primary-box {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+.primary-group {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.primary-node-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+.primary-node {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-list {
+  display: flex;
+  flex-direction: column;
+}
+.info-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.info-item:last-child {
+  border-bottom: none;
+}
+.info-item dt {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.info-item dd {
+  font-size: 12.5px;
   font-weight: 500;
 }
 
-@media (max-width: 768px) {
-  .grid-cols-2 {
+@media (max-width: 760px) {
+  .grid-2 {
     grid-template-columns: 1fr;
   }
 }

@@ -1,90 +1,88 @@
 <template>
-  <div class="connections-view">
-    <!-- Stats Row -->
-    <div class="stats-bar">
-      <div class="glass-card stat-pill">
-        <span class="pill-label">Active Connections</span>
-        <span class="pill-value text-sky">{{ store.connections.length }}</span>
+  <div>
+    <PageHeader :title="t('page.connections.title')" :desc="t('page.connections.desc')">
+      <div class="search-box" style="width: 240px">
+        <Icon name="search" :size="13" />
+        <input v-model="searchQuery" type="text" :placeholder="t('connections.searchPlaceholder')" />
       </div>
-      <div class="glass-card stat-pill">
-        <span class="pill-label">Total Download</span>
-        <span class="pill-value text-success">{{ formatSize(store.connectionsDownloadTotal) }}</span>
-      </div>
-      <div class="glass-card stat-pill">
-        <span class="pill-label">Total Upload</span>
-        <span class="pill-value text-warning">{{ formatSize(store.connectionsUploadTotal) }}</span>
-      </div>
-    </div>
-
-    <!-- Controls Bar -->
-    <div class="controls-bar mt-4">
-      <div class="search-box">
-        <Icon name="search" size="13" />
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Filter by host, IP, process..."
-          class="search-input"
-        />
-      </div>
-
       <button
-        class="btn btn-danger btn-sm"
+        class="btn btn-danger-outline btn-sm"
         :disabled="store.connections.length === 0"
         @click="closeAll"
       >
-        <Icon name="trash" size="13" />
-        <span>Close All</span>
+        <Icon name="trash" :size="12" />
+        <span>{{ t('connections.closeAll') }}</span>
       </button>
+    </PageHeader>
+
+    <div class="stat-chips">
+      <div class="chip card">
+        <span class="chip-label">{{ t('connections.active') }}</span>
+        <span class="chip-value mono">{{ store.connections.length }}</span>
+      </div>
+      <div class="chip card">
+        <span class="chip-label">{{ t('connections.totalDown') }}</span>
+        <span class="chip-value mono down">{{ formatBytes(store.connectionsDownloadTotal) }}</span>
+      </div>
+      <div class="chip card">
+        <span class="chip-label">{{ t('connections.totalUp') }}</span>
+        <span class="chip-value mono up">{{ formatBytes(store.connectionsUploadTotal) }}</span>
+      </div>
     </div>
 
-    <!-- Connections Table -->
-    <div class="data-table-wrap mt-4">
+    <div class="table-wrap mt-4">
       <table class="data-table">
         <thead>
           <tr>
-            <th>Host / Target</th>
-            <th>Process</th>
-            <th>Network</th>
-            <th>Rule</th>
-            <th>Chains</th>
-            <th>Download</th>
-            <th>Upload</th>
-            <th>Action</th>
+            <th>{{ t('connections.colHost') }}</th>
+            <th>{{ t('connections.colProcess') }}</th>
+            <th>{{ t('connections.colNetwork') }}</th>
+            <th>{{ t('connections.colChain') }}</th>
+            <th>{{ t('connections.colRule') }}</th>
+            <th class="num">{{ t('connections.colDown') }}</th>
+            <th class="num">{{ t('connections.colUp') }}</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="filteredConnections.length === 0">
-            <td colspan="8" class="text-center text-muted py-8">
-              No active connections matching filter
-            </td>
-          </tr>
           <tr v-for="c in filteredConnections" :key="c.id">
-            <td class="cell-mono font-bold" :title="c.metadata.host || c.metadata.destinationIP">
-              {{ c.metadata.host || `${c.metadata.destinationIP}:${c.metadata.destinationPort}` }}
+            <td class="cell-truncate">
+              <div class="host-cell">
+                <span class="mono host-main" :title="hostOf(c)">{{ hostOf(c) }}</span>
+                <span class="host-sub text-muted mono">{{ c.metadata.sourceIP }}:{{ c.metadata.sourcePort }}</span>
+              </div>
             </td>
-            <td class="cell-proc text-muted">
-              {{ c.metadata.processPath ? c.metadata.processPath.split(/[\\/]/).pop() : '-' }}
+            <td class="cell-truncate text-muted" :title="c.metadata.processPath">
+              {{ processName(c) }}
             </td>
             <td>
               <span class="badge badge-neutral">{{ c.metadata.network }}</span>
             </td>
-            <td>
-              <span class="badge badge-primary">{{ c.rule }}</span>
-            </td>
-            <td class="cell-chains text-muted" :title="c.chains.join(' → ')">
+            <td class="cell-truncate text-muted" :title="c.chains.join(' → ')">
               {{ c.chains.join(' → ') }}
             </td>
-            <td class="cell-mono">{{ formatSize(c.download) }}</td>
-            <td class="cell-mono">{{ formatSize(c.upload) }}</td>
             <td>
-              <button class="btn btn-xs btn-danger-outline" @click="closeOne(c.id)">
-                ✕
+              <span class="badge badge-accent">{{ c.rule || '-' }}</span>
+            </td>
+            <td class="cell-mono num">{{ formatBytes(c.download) }}</td>
+            <td class="cell-mono num">{{ formatBytes(c.upload) }}</td>
+            <td class="num">
+              <button
+                class="btn btn-ghost btn-xs close-btn"
+                :title="t('connections.closeTitle')"
+                @click="closeOne(c.id)"
+              >
+                <Icon name="x" :size="12" />
               </button>
             </td>
           </tr>
         </tbody>
       </table>
+      <EmptyState
+        v-if="filteredConnections.length === 0"
+        icon="swap"
+        :title="t('connections.empty')"
+      />
     </div>
   </div>
 </template>
@@ -92,147 +90,131 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { api } from "../api/index.js";
+import { confirmDialog } from "../components/confirm.js";
+import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
-import { store } from "../stores/index.js";
+import PageHeader from "../components/PageHeader.vue";
+import { t } from "../i18n/index.js";
+import { errorText, store, toast } from "../stores/index.js";
+import type { ConnectionItem } from "../types/index.js";
+import { formatBytes } from "../utils/format.js";
 
 const searchQuery = ref("");
 
 const filteredConnections = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return store.connections;
-  return store.connections.filter((c) => {
-    const host = c.metadata.host || c.metadata.destinationIP;
-    const proc = c.metadata.processPath || "";
-    return host.toLowerCase().includes(q) || proc.toLowerCase().includes(q);
+  const list = [...store.connections].sort(
+    (a, b) => new Date(b.start).getTime() - new Date(a.start).getTime(),
+  );
+  if (!q) return list;
+  return list.filter((c) => {
+    const hay = [
+      c.metadata.host,
+      c.metadata.destinationIP,
+      c.metadata.sourceIP,
+      c.metadata.processPath,
+      c.metadata.network,
+      c.rule,
+      c.rulePayload,
+      c.chains.join(" "),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(q);
   });
 });
 
-function formatSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
+function hostOf(c: ConnectionItem): string {
+  if (c.metadata.host) return c.metadata.host;
+  return `${c.metadata.destinationIP}:${c.metadata.destinationPort}`;
+}
+
+function processName(c: ConnectionItem): string {
+  const p = c.metadata.processPath;
+  return p ? (p.split(/[\\/]/).pop() ?? p) : "-";
 }
 
 async function closeOne(id: string): Promise<void> {
   try {
     await api.closeConnection(id);
     store.connections = store.connections.filter((c) => c.id !== id);
+    toast.success(t("toast.connClosed"));
   } catch (err) {
-    alert(`Failed to close connection: ${(err as Error).message}`);
+    toast.error(t("toast.failed", { msg: errorText(err) }));
   }
 }
 
 async function closeAll(): Promise<void> {
-  if (!confirm("Close all active connections?")) return;
+  const ok = await confirmDialog({
+    title: t("connections.closeAll"),
+    message: t("connections.closeAllConfirm", {
+      n: store.connections.length,
+    }),
+    confirmText: t("common.confirm"),
+    cancelText: t("common.cancel"),
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api.closeAllConnections();
     store.connections = [];
+    toast.success(t("toast.connAllClosed"));
   } catch (err) {
-    alert(`Failed to close all connections: ${(err as Error).message}`);
+    toast.error(t("toast.failed", { msg: errorText(err) }));
   }
 }
 </script>
 
 <style scoped>
-.connections-view {
+.stat-chips {
   display: flex;
-  flex-direction: column;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.mt-4 {
-  margin-top: 16px;
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
 }
-.py-8 {
-  padding-top: 32px;
-  padding-bottom: 32px;
-}
-.text-center {
-  text-align: center;
-}
-
-.stats-bar {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-}
-
-.stat-pill {
-  padding: 14px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.pill-label {
-  font-size: 11px;
+.chip-label {
+  font-size: 12px;
   color: var(--text-muted);
+}
+.chip-value {
+  font-size: 14px;
+  font-weight: 650;
+}
+.chip-value.down {
+  color: var(--chart-down);
+}
+.chip-value.up {
+  color: var(--chart-up);
+}
+
+.num {
+  text-align: right;
+}
+.host-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.host-main {
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.pill-value {
-  font-size: 20px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-}
-
-.text-sky {
-  color: #38bdf8;
-}
-.text-success {
-  color: var(--color-success);
-}
-.text-warning {
-  color: var(--color-warning);
-}
-
-.controls-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-sm);
-  padding: 5px 10px;
-  width: 260px;
-}
-
-.search-input {
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
-  font-size: 12px;
-  outline: none;
-  width: 100%;
-}
-
-.cell-mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  max-width: 200px;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.font-bold {
-  font-weight: 600;
-}
-
-.cell-proc,
-.cell-chains {
-  max-width: 140px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 12px;
+}
+.host-sub {
+  font-size: 11px;
+}
+.close-btn {
+  color: var(--text-muted);
+}
+.close-btn:hover {
+  color: var(--danger);
 }
 </style>

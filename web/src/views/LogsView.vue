@@ -1,44 +1,35 @@
 <template>
-  <div class="logs-view">
-    <div class="header-bar">
-      <div class="header-info">
-        <h2 class="title-text">Core Logs</h2>
-        <span class="badge badge-neutral">{{ store.logs.length }} entries</span>
-      </div>
-
-      <div class="controls-bar">
-        <div class="btn-group">
-          <button
-            v-for="lvl in levels"
-            :key="lvl"
-            class="btn btn-sm"
-            :class="selectedLevel === lvl ? 'btn-primary' : 'btn-secondary'"
-            @click="selectedLevel = lvl"
-          >
-            {{ lvl.toUpperCase() }}
-          </button>
-        </div>
-
-        <button class="btn btn-secondary btn-sm" @click="store.logs = []">
-          <Icon name="trash" size="13" />
-          <span>Clear</span>
+  <div>
+    <PageHeader :title="t('page.logs.title')" :desc="t('page.logs.desc')">
+      <div class="segmented">
+        <button
+          v-for="lvl in levels"
+          :key="lvl"
+          class="segmented-item"
+          :class="{ active: selectedLevel === lvl }"
+          @click="selectedLevel = lvl"
+        >
+          {{ lvl === 'all' ? t('logs.levelAll') : lvl.toUpperCase() }}
         </button>
       </div>
-    </div>
+      <button class="btn btn-secondary btn-sm" @click="paused = !paused">
+        <Icon :name="paused ? 'play' : 'pause'" :size="12" />
+        <span>{{ paused ? t('logs.resume') : t('logs.pause') }}</span>
+      </button>
+      <button class="btn btn-secondary btn-sm" :disabled="store.logs.length === 0" @click="store.logs = []">
+        <Icon name="trash" :size="12" />
+        <span>{{ t('common.clear') }}</span>
+      </button>
+    </PageHeader>
 
-    <!-- Terminal Box -->
-    <div ref="terminalRef" class="terminal-box mt-4">
-      <div v-if="filteredLogs.length === 0" class="log-line text-muted">
-        Listening for core runtime log stream...
+    <div ref="paneRef" class="log-pane card" @scroll="onScroll">
+      <div v-if="filteredLogs.length === 0" class="log-empty text-muted">
+        {{ store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
       </div>
-      <div
-        v-for="(log, idx) in filteredLogs"
-        :key="idx"
-        class="log-line"
-      >
-        <span v-if="log.time" class="log-time">{{ log.time }}</span>
-        <span class="badge" :class="getLogBadgeClass(log.type)">
-          {{ log.type.toUpperCase() }}
+      <div v-for="(log, idx) in filteredLogs" :key="idx" class="log-line">
+        <span v-if="log.time" class="log-time mono">{{ log.time }}</span>
+        <span class="log-level mono" :class="`lv-${log.type.toLowerCase()}`">
+          {{ levelLabel(log.type) }}
         </span>
         <span class="log-payload">{{ log.payload }}</span>
       </div>
@@ -49,107 +40,95 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import Icon from "../components/Icon.vue";
+import PageHeader from "../components/PageHeader.vue";
+import { t } from "../i18n/index.js";
 import { store } from "../stores/index.js";
 
 const levels = ["all", "info", "warning", "error", "debug"];
 const selectedLevel = ref("all");
-const terminalRef = ref<HTMLElement | null>(null);
+const paused = ref(false);
+const paneRef = ref<HTMLElement | null>(null);
+const stickToBottom = ref(true);
 
 const filteredLogs = computed(() => {
   if (selectedLevel.value === "all") return store.logs;
-  return store.logs.filter((l) => l.type.toLowerCase() === selectedLevel.value.toLowerCase());
+  return store.logs.filter((l) => l.type.toLowerCase() === selectedLevel.value);
 });
+
+function levelLabel(type: string): string {
+  const upper = type.toUpperCase();
+  return upper === "WARNING" ? "WARN" : upper;
+}
+
+function onScroll(): void {
+  const el = paneRef.value;
+  if (!el) return;
+  stickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+}
 
 watch(
   () => store.logs.length,
   async () => {
+    if (paused.value || !stickToBottom.value) return;
     await nextTick();
-    if (terminalRef.value) {
-      terminalRef.value.scrollTop = terminalRef.value.scrollHeight;
-    }
+    const el = paneRef.value;
+    if (el) el.scrollTop = el.scrollHeight;
   },
 );
-
-function getLogBadgeClass(type: string): string {
-  switch (type.toLowerCase()) {
-    case "error":
-      return "badge-danger";
-    case "warning":
-      return "badge-warning";
-    case "info":
-      return "badge-neutral";
-    default:
-      return "badge-neutral";
-  }
-}
 </script>
 
 <style scoped>
-.logs-view {
-  display: flex;
-  flex-direction: column;
-}
-.mt-4 {
-  margin-top: 16px;
-}
-
-.header-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.header-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.title-text {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.controls-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btn-group {
-  display: flex;
-  gap: 4px;
-}
-
-.terminal-box {
-  background: #020617;
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-md);
-  padding: 16px;
-  height: 520px;
+.log-pane {
+  height: calc(100vh - 220px);
+  min-height: 320px;
   overflow-y: auto;
-  font-family: var(--font-mono);
+  padding: 12px 14px;
   font-size: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  background: #fcfcfd;
 }
-
+.log-empty {
+  padding: 8px 2px;
+  font-size: 12.5px;
+}
 .log-line {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   gap: 10px;
-  line-height: 1.6;
-  word-break: break-all;
+  padding: 2.5px 2px;
+  border-radius: 4px;
+  line-height: 1.5;
 }
-
+.log-line:hover {
+  background: var(--bg-inset);
+}
 .log-time {
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 11px;
   flex-shrink: 0;
 }
-
+.log-level {
+  width: 46px;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.lv-info {
+  color: var(--info);
+}
+.lv-warning {
+  color: var(--warning);
+}
+.lv-error {
+  color: var(--danger);
+}
+.lv-debug {
+  color: var(--text-muted);
+}
 .log-payload {
-  color: #e2e8f0;
+  color: var(--text-primary);
+  word-break: break-all;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 </style>

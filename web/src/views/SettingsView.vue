@@ -1,134 +1,146 @@
 <template>
-  <div class="settings-view">
-    <!-- Inbound & Network -->
-    <div class="glass-card setting-section">
-      <div class="section-header">
-        <Icon name="globe" size="16" />
-        <span class="section-title">Network & Inbound Listeners</span>
+  <div>
+    <PageHeader :title="t('page.settings.title')" :desc="t('page.settings.desc')" />
+
+    <!-- Interface -->
+    <UiCard :title="t('settings.langTitle')" :desc="t('settings.langDesc')">
+      <div class="segmented">
+        <button
+          class="segmented-item"
+          :class="{ active: locale === 'zh' }"
+          @click="switchLocale('zh')"
+        >
+          中文
+        </button>
+        <button
+          class="segmented-item"
+          :class="{ active: locale === 'en' }"
+          @click="switchLocale('en')"
+        >
+          English
+        </button>
       </div>
+    </UiCard>
 
-      <div class="settings-list">
-        <!-- Mixed Port -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-name">Mixed Proxy Port</span>
-            <span class="setting-desc">Local port for HTTP & SOCKS5 mixed inbound (default: 17890)</span>
-          </div>
-          <div class="setting-action">
-            <input
-              v-model.number="mixedPort"
-              type="number"
-              min="1"
-              max="65535"
-              class="input input-sm port-input"
-            />
-            <button class="btn btn-secondary btn-sm" @click="saveMixedPort">Save</button>
-          </div>
+    <!-- Network -->
+    <UiCard :title="t('settings.networkTitle')" class="mt-4">
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-name">{{ t('settings.mixedPortTitle') }}</span>
+          <span class="setting-desc">{{ t('settings.mixedPortDesc') }}</span>
         </div>
-
-        <!-- Allow LAN -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-name">Allow LAN Connections</span>
-            <span class="setting-desc">Accept proxy traffic from other devices on your local area network</span>
-          </div>
-          <div class="setting-action">
-            <button
-              class="btn btn-sm"
-              :class="allowLan ? 'btn-primary' : 'btn-secondary'"
-              @click="toggleAllowLan"
-            >
-              {{ allowLan ? 'Enabled' : 'Disabled' }}
-            </button>
-          </div>
-        </div>
-
-        <!-- TUN Mode -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-name">TUN Mode (Virtual Network Interface)</span>
-            <span class="setting-desc">Transparently route all system network traffic (requires Administrator/root)</span>
-          </div>
-          <div class="setting-action">
-            <button
-              class="btn btn-sm"
-              :class="tunMode ? 'btn-primary' : 'btn-secondary'"
-              @click="toggleTun"
-            >
-              {{ tunMode ? 'Enabled' : 'Disabled' }}
-            </button>
-          </div>
+        <div class="setting-action">
+          <input
+            v-model.number="mixedPort"
+            type="number"
+            min="1"
+            max="65535"
+            class="input input-sm port-input"
+            :disabled="savingPort"
+          />
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="savingPort || !portValid"
+            @click="saveMixedPort"
+          >
+            {{ savingPort ? t('common.loading') : t('common.save') }}
+          </button>
         </div>
       </div>
-    </div>
 
-    <!-- Core Management -->
-    <div class="glass-card setting-section mt-4">
-      <div class="section-header">
-        <Icon name="activity" size="16" />
-        <span class="section-title">Core Process Control</span>
-      </div>
-
-      <div class="settings-list">
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-name">Restart Core Process</span>
-            <span class="setting-desc">Reboots the child core process and re-applies configuration</span>
-          </div>
-          <div class="setting-action">
-            <button class="btn btn-secondary btn-sm" @click="restartCore">
-              <Icon name="refresh" size="13" />
-              <span>Restart Core</span>
-            </button>
-          </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-name">{{ t('settings.allowLanTitle') }}</span>
+          <span class="setting-desc">{{ t('settings.allowLanDesc') }}</span>
         </div>
-
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-name">Hot-Reload Configuration</span>
-            <span class="setting-desc">Recompiles config.yaml and signals core without restart</span>
-          </div>
-          <div class="setting-action">
-            <button class="btn btn-secondary btn-sm" @click="reloadConfig">
-              <Icon name="refresh" size="13" />
-              <span>Reload Config</span>
-            </button>
-          </div>
+        <div class="setting-action">
+          <UiSwitch :model-value="allowLan" :disabled="toggling" @update:model-value="toggleAllowLan" />
         </div>
       </div>
-    </div>
 
-    <!-- Supervisor Ports -->
-    <div class="glass-card setting-section mt-4">
-      <div class="section-header">
-        <Icon name="settings" size="16" />
-        <span class="section-title">Supervisor Ports</span>
-      </div>
-
-      <div class="settings-list">
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-name">Sash Unified Control Port</span>
-            <span class="setting-desc">Supervisor loopback API & WebUI dashboard address</span>
-          </div>
-          <div class="setting-action">
-            <span class="badge badge-neutral">127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}</span>
-          </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-name">{{ t('settings.tunTitle') }}</span>
+          <span class="setting-desc">{{ t('settings.tunDesc') }}</span>
+        </div>
+        <div class="setting-action">
+          <UiSwitch :model-value="tunMode" :disabled="toggling" @update:model-value="toggleTun" />
         </div>
       </div>
-    </div>
+    </UiCard>
+
+    <!-- Core control -->
+    <UiCard :title="t('settings.coreTitle')" class="mt-4">
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-name">{{ t('settings.restartTitle') }}</span>
+          <span class="setting-desc">{{ t('settings.restartDesc') }}</span>
+        </div>
+        <div class="setting-action">
+          <button class="btn btn-secondary btn-sm" :disabled="restarting" @click="restartCore">
+            <Icon name="power" :size="12" :class="{ spin: restarting }" />
+            <span>{{ t('settings.restartBtn') }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-name">{{ t('settings.reloadTitle') }}</span>
+          <span class="setting-desc">{{ t('settings.reloadDesc') }}</span>
+        </div>
+        <div class="setting-action">
+          <button class="btn btn-secondary btn-sm" :disabled="reloading" @click="reloadConfig">
+            <Icon name="refresh" :size="12" :class="{ spin: reloading }" />
+            <span>{{ t('settings.reloadBtn') }}</span>
+          </button>
+        </div>
+      </div>
+    </UiCard>
+
+    <!-- Runtime info -->
+    <UiCard :title="t('settings.aboutTitle')" class="mt-4">
+      <dl class="info-grid">
+        <div class="info-item">
+          <dt>{{ t('overview.daemonPort') }}</dt>
+          <dd class="mono">127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}</dd>
+        </div>
+        <div class="info-item">
+          <dt>{{ t('overview.controller') }}</dt>
+          <dd class="mono">{{ store.status?.settings.controller || '-' }}</dd>
+        </div>
+        <div class="info-item">
+          <dt>{{ t('settings.coreVersion') }}</dt>
+          <dd class="mono">{{ coreVersion || '-' }}</dd>
+        </div>
+        <div class="info-item">
+          <dt>{{ t('settings.uiVersion') }}</dt>
+          <dd class="mono">{{ store.status?.settings.uiVersion || '-' }}</dd>
+        </div>
+      </dl>
+    </UiCard>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { api } from "../api/index.js";
+import { confirmDialog } from "../components/confirm.js";
 import Icon from "../components/Icon.vue";
-import { store } from "../stores/index.js";
+import PageHeader from "../components/PageHeader.vue";
+import UiCard from "../components/UiCard.vue";
+import UiSwitch from "../components/UiSwitch.vue";
+import { locale, setLocale, t, type Locale } from "../i18n/index.js";
+import { errorText, setProxies, store, toast } from "../stores/index.js";
 
 const mixedPort = ref(store.status?.settings.mixedPort ?? 17890);
 const allowLan = ref(store.status?.settings.allowLan ?? false);
 const tunMode = ref(store.status?.settings.tun ?? false);
+
+const savingPort = ref(false);
+const toggling = ref(false);
+const restarting = ref(false);
+const reloading = ref(false);
 
 watch(
   () => store.status?.settings,
@@ -140,123 +152,174 @@ watch(
   },
 );
 
+const portValid = computed(
+  () =>
+    Number.isInteger(mixedPort.value) &&
+    mixedPort.value >= 1 &&
+    mixedPort.value <= 65535 &&
+    mixedPort.value !== store.status?.settings.mixedPort,
+);
+
+const coreVersion = computed(() => {
+  const v = store.status?.core.version ?? store.status?.settings.coreVersion;
+  return v ? (v.startsWith("v") ? v : `v${v}`) : "";
+});
+
+function switchLocale(next: Locale): void {
+  if (next === locale.value) return;
+  setLocale(next);
+  toast.success(t("toast.langSwitched"));
+}
+
+async function refreshStatus(): Promise<void> {
+  store.status = await api.getStatus();
+}
+
 async function saveMixedPort(): Promise<void> {
+  if (!portValid.value || savingPort.value) return;
+  savingPort.value = true;
   try {
     await api.patchSetting("mixed-port", String(mixedPort.value));
-    alert("Mixed port updated! Core restarted.");
-    const s = await api.getStatus();
-    store.status = s;
+    await refreshStatus();
+    toast.success(t("toast.portSaved"));
   } catch (err) {
-    alert(`Failed to update port: ${(err as Error).message}`);
+    toast.error(t("toast.failed", { msg: errorText(err) }));
+  } finally {
+    savingPort.value = false;
   }
 }
 
-async function toggleAllowLan(): Promise<void> {
-  const next = !allowLan.value;
+async function applyToggle(key: "allow-lan" | "tun", next: boolean): Promise<void> {
+  toggling.value = true;
   try {
-    await api.patchSetting("allow-lan", next ? "on" : "off");
-    const s = await api.getStatus();
-    store.status = s;
+    await api.patchSetting(key, next ? "on" : "off");
+    await refreshStatus();
+    toast.success(t("toast.settingSaved"));
   } catch (err) {
-    alert(`Failed to toggle allow-lan: ${(err as Error).message}`);
+    toast.error(t("toast.failed", { msg: errorText(err) }));
+  } finally {
+    toggling.value = false;
   }
 }
 
-async function toggleTun(): Promise<void> {
-  const next = !tunMode.value;
-  try {
-    await api.patchSetting("tun", next ? "on" : "off");
-    const s = await api.getStatus();
-    store.status = s;
-  } catch (err) {
-    alert(`Failed to toggle TUN: ${(err as Error).message}`);
-  }
+function toggleAllowLan(next: boolean): void {
+  void applyToggle("allow-lan", next);
+}
+
+function toggleTun(next: boolean): void {
+  void applyToggle("tun", next);
 }
 
 async function restartCore(): Promise<void> {
+  const ok = await confirmDialog({
+    title: t("settings.restartConfirmTitle"),
+    message: t("settings.restartConfirmMsg"),
+    confirmText: t("common.confirm"),
+    cancelText: t("common.cancel"),
+    danger: true,
+  });
+  if (!ok || restarting.value) return;
+  restarting.value = true;
   try {
     await api.restartCore();
-    alert("Core restarted successfully.");
-    const s = await api.getStatus();
-    store.status = s;
+    await refreshStatus();
+    toast.success(t("toast.coreRestarted"));
   } catch (err) {
-    alert(`Failed to restart core: ${(err as Error).message}`);
+    toast.error(t("toast.failed", { msg: errorText(err) }));
+  } finally {
+    restarting.value = false;
   }
 }
 
 async function reloadConfig(): Promise<void> {
+  if (reloading.value) return;
+  reloading.value = true;
   try {
     const res = await api.reloadCoreConfig();
-    alert(`Config reloaded with ${res.proxyCount} proxies.`);
+    const [proxies, rules] = await Promise.all([api.getProxies(), api.getRules()]);
+    setProxies(proxies.proxies);
+    store.rules = rules.rules;
+    toast.success(t("toast.configReloaded", { n: res.proxyCount }));
   } catch (err) {
-    alert(`Failed to reload config: ${(err as Error).message}`);
+    toast.error(t("toast.failed", { msg: errorText(err) }));
+  } finally {
+    reloading.value = false;
   }
 }
 </script>
 
 <style scoped>
-.settings-view {
-  display: flex;
-  flex-direction: column;
-}
-.mt-4 {
-  margin-top: 16px;
-}
-
-.setting-section {
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.section-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.settings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
 .setting-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 20px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--border);
 }
-
+.setting-row:first-child {
+  padding-top: 2px;
+}
 .setting-row:last-child {
   border-bottom: none;
   padding-bottom: 0;
 }
-
+.setting-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .setting-name {
   font-size: 13.5px;
   font-weight: 600;
-  display: block;
 }
-
 .setting-desc {
   font-size: 12px;
   color: var(--text-muted);
-  margin-top: 2px;
+  line-height: 1.5;
 }
-
 .setting-action {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+}
+.port-input {
+  width: 96px;
+  text-align: right;
+  font-family: var(--font-mono);
 }
 
-.port-input {
-  width: 90px;
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 32px;
+}
+.info-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.info-item dt {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.info-item dd {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+  .setting-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

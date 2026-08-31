@@ -8,239 +8,151 @@ import type {
   SashStatus,
   TrafficMessage,
 } from "../types/index.js";
+import { formatTime } from "../utils/format.js";
 
-export class ApiClient {
-  private async request<T>(
-    endpoint: string,
-    options: { method?: string; body?: unknown } = {},
-  ): Promise<T> {
-    const headers: Record<string, string> = {};
-    let bodyStr: string | undefined;
-    if (options.body !== undefined) {
-      headers["Content-Type"] = "application/json";
-      bodyStr = JSON.stringify(options.body);
+async function request<T>(
+  endpoint: string,
+  options: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  const headers: Record<string, string> = {};
+  let bodyStr: string | undefined;
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    bodyStr = JSON.stringify(options.body);
+  }
+
+  const res = await fetch(endpoint, {
+    method: options.method ?? "GET",
+    headers,
+    body: bodyStr,
+  });
+
+  if (!res.ok) {
+    let errText = "";
+    try {
+      const json = await res.json();
+      errText = json.error || JSON.stringify(json);
+    } catch {
+      errText = await res.text().catch(() => "");
     }
+    throw new Error(errText || `HTTP ${res.status}`);
+  }
 
-    const res = await fetch(endpoint, {
-      method: options.method ?? "GET",
-      headers,
-      body: bodyStr,
-    });
+  return res.json() as Promise<T>;
+}
 
-    if (!res.ok) {
-      let errText = "";
-      try {
-        const json = await res.json();
-        errText = json.error || JSON.stringify(json);
-      } catch {
-        errText = await res.text();
-      }
-      throw new Error(errText || `HTTP ${res.status}`);
+/** Persistent WebSocket with auto-reconnect. Returns an unsubscribe function. */
+function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${protocol}//${window.location.host}${path}`;
+  let ws: WebSocket | null = null;
+  let timer: number | null = null;
+  let closed = false;
+
+  const connect = () => {
+    if (closed) return;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          onData(JSON.parse(event.data) as T);
+        } catch {
+          // malformed frame, ignore
+        }
+      };
+      ws.onclose = () => {
+        if (!closed) timer = window.setTimeout(connect, 3000);
+      };
+      ws.onerror = () => ws?.close();
+    } catch {
+      if (!closed) timer = window.setTimeout(connect, 3000);
     }
+  };
 
-    return res.json() as Promise<T>;
-  }
+  connect();
 
-  /* ======================================================================== */
-  /* /sash/*                                                                  */
-  /* ======================================================================== */
+  return () => {
+    closed = true;
+    if (timer !== null) clearTimeout(timer);
+    ws?.close();
+  };
+}
 
-  async getHealth(): Promise<{ ok: boolean; token: string; pid: number }> {
-    return this.request<{ ok: boolean; token: string; pid: number }>("/sash/health");
-  }
+export const api = {
+  /* /sash/* ------------------------------------------------------------- */
 
-  async getStatus(): Promise<SashStatus> {
-    return this.request<SashStatus>("/sash/status");
-  }
+  getHealth: () => request<{ ok: boolean; token: string; pid: number }>("/sash/health"),
 
-  async enableSystemProxy(): Promise<{ ok: boolean; systemProxy: boolean }> {
-    return this.request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/enable", {
-      method: "POST",
-    });
-  }
+  getStatus: () => request<SashStatus>("/sash/status"),
 
-  async disableSystemProxy(): Promise<{ ok: boolean; systemProxy: boolean }> {
-    return this.request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/disable", {
-      method: "POST",
-    });
-  }
+  enableSystemProxy: () =>
+    request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/enable", { method: "POST" }),
 
-  async setSubscription(url: string): Promise<{ ok: boolean; proxyCount: number }> {
-    return this.request<{ ok: boolean; proxyCount: number }>("/sash/subscription", {
+  disableSystemProxy: () =>
+    request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/disable", { method: "POST" }),
+
+  setSubscription: (url: string) =>
+    request<{ ok: boolean; proxyCount: number }>("/sash/subscription", {
       method: "POST",
       body: { url },
-    });
-  }
+    }),
 
-  async refreshSubscription(): Promise<{ ok: boolean; proxyCount: number }> {
-    return this.request<{ ok: boolean; proxyCount: number }>("/sash/subscription/refresh", {
+  refreshSubscription: () =>
+    request<{ ok: boolean; proxyCount: number }>("/sash/subscription/refresh", {
       method: "POST",
-    });
-  }
+    }),
 
-  async unsetSubscription(): Promise<{ ok: boolean }> {
-    return this.request<{ ok: boolean }>("/sash/subscription", {
-      method: "DELETE",
-    });
-  }
+  unsetSubscription: () => request<{ ok: boolean }>("/sash/subscription", { method: "DELETE" }),
 
-  async patchSetting(key: string, value: string): Promise<{ ok: boolean }> {
-    return this.request<{ ok: boolean }>("/sash/settings", {
-      method: "PATCH",
-      body: { key, value },
-    });
-  }
+  patchSetting: (key: string, value: string) =>
+    request<{ ok: boolean }>("/sash/settings", { method: "PATCH", body: { key, value } }),
 
-  async restartCore(): Promise<{ ok: boolean; pid: number }> {
-    return this.request<{ ok: boolean; pid: number }>("/core/restart", {
-      method: "POST",
-    });
-  }
+  restartCore: () => request<{ ok: boolean; pid: number }>("/core/restart", { method: "POST" }),
 
-  async reloadCoreConfig(): Promise<{ ok: boolean; proxyCount: number }> {
-    return this.request<{ ok: boolean; proxyCount: number }>("/core/config/reload", {
-      method: "POST",
-    });
-  }
+  reloadCoreConfig: () =>
+    request<{ ok: boolean; proxyCount: number }>("/core/config/reload", { method: "POST" }),
 
-  /* ======================================================================== */
-  /* /core/api/*                                                              */
-  /* ======================================================================== */
+  /* /core/api/* ---------------------------------------------------------- */
 
-  async getConfigs(): Promise<ConfigsResponse> {
-    return this.request<ConfigsResponse>("/core/api/configs");
-  }
+  getConfigs: () => request<ConfigsResponse>("/core/api/configs"),
 
-  async setMode(mode: OutboundMode): Promise<void> {
-    await this.request("/core/api/configs", {
-      method: "PATCH",
-      body: { mode },
-    });
-  }
+  setMode: (mode: OutboundMode) =>
+    request<void>("/core/api/configs", { method: "PATCH", body: { mode } }),
 
-  async getProxies(): Promise<ProxiesResponse> {
-    return this.request<ProxiesResponse>("/core/api/proxies");
-  }
+  getProxies: () => request<ProxiesResponse>("/core/api/proxies"),
 
-  async selectProxy(groupName: string, proxyName: string): Promise<void> {
-    await this.request(`/core/api/proxies/${encodeURIComponent(groupName)}`, {
+  selectProxy: (groupName: string, proxyName: string) =>
+    request<void>(`/core/api/proxies/${encodeURIComponent(groupName)}`, {
       method: "PUT",
       body: { name: proxyName },
-    });
-  }
+    }),
 
-  async testProxyDelay(
+  testProxyDelay: (
     proxyName: string,
     url = "https://www.gstatic.com/generate_204",
     timeout = 5000,
-  ): Promise<{ delay: number }> {
-    return this.request<{ delay: number }>(
+  ) =>
+    request<{ delay: number }>(
       `/core/api/proxies/${encodeURIComponent(proxyName)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
-    );
-  }
+    ),
 
-  async getConnections(): Promise<ConnectionsResponse> {
-    return this.request<ConnectionsResponse>("/core/api/connections");
-  }
+  getConnections: () => request<ConnectionsResponse>("/core/api/connections"),
 
-  async closeConnection(id: string): Promise<void> {
-    await this.request(`/core/api/connections/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    });
-  }
+  closeConnection: (id: string) =>
+    request<void>(`/core/api/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  async closeAllConnections(): Promise<void> {
-    await this.request("/core/api/connections", {
-      method: "DELETE",
-    });
-  }
+  closeAllConnections: () => request<void>("/core/api/connections", { method: "DELETE" }),
 
-  async getRules(): Promise<RulesResponse> {
-    return this.request<RulesResponse>("/core/api/rules");
-  }
+  getRules: () => request<RulesResponse>("/core/api/rules"),
 
-  /* ======================================================================== */
-  /* WebSocket Streams                                                        */
-  /* ======================================================================== */
+  /* WebSocket streams ----------------------------------------------------- */
 
-  connectTrafficStream(onData: (msg: TrafficMessage) => void): () => void {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/core/api/traffic`;
-    let ws: WebSocket | null = null;
-    let timer: number | null = null;
-    let closed = false;
+  connectTraffic: (onData: (msg: TrafficMessage) => void) =>
+    connectStream<TrafficMessage>("/core/api/traffic", onData),
 
-    const connect = () => {
-      if (closed) return;
-      try {
-        ws = new WebSocket(wsUrl);
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data) as TrafficMessage;
-            onData(data);
-          } catch {
-            // ignore
-          }
-        };
-        ws.onclose = () => {
-          if (!closed) timer = window.setTimeout(connect, 3000);
-        };
-        ws.onerror = () => {
-          ws?.close();
-        };
-      } catch {
-        if (!closed) timer = window.setTimeout(connect, 3000);
-      }
-    };
-
-    connect();
-
-    return () => {
-      closed = true;
-      if (timer) clearTimeout(timer);
-      if (ws) ws.close();
-    };
-  }
-
-  connectLogsStream(onLog: (msg: LogMessage) => void): () => void {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/core/api/logs`;
-    let ws: WebSocket | null = null;
-    let timer: number | null = null;
-    let closed = false;
-
-    const connect = () => {
-      if (closed) return;
-      try {
-        ws = new WebSocket(wsUrl);
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data) as LogMessage;
-            data.time = new Date().toLocaleTimeString();
-            onLog(data);
-          } catch {
-            // ignore
-          }
-        };
-        ws.onclose = () => {
-          if (!closed) timer = window.setTimeout(connect, 3000);
-        };
-        ws.onerror = () => {
-          ws?.close();
-        };
-      } catch {
-        if (!closed) timer = window.setTimeout(connect, 3000);
-      }
-    };
-
-    connect();
-
-    return () => {
-      closed = true;
-      if (timer) clearTimeout(timer);
-      if (ws) ws.close();
-    };
-  }
-}
-
-export const api = new ApiClient();
+  connectLogs: (onLog: (msg: LogMessage) => void) =>
+    connectStream<LogMessage>("/core/api/logs", (msg) => {
+      msg.time = formatTime();
+      onLog(msg);
+    }),
+};

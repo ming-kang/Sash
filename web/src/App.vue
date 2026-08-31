@@ -1,260 +1,149 @@
 <template>
-  <div class="app-container">
-    <!-- Top Navigation Bar -->
-    <header class="top-nav">
-      <div class="nav-brand">
-        <span class="brand-logo">⚡</span>
-        <span class="brand-name">Sash</span>
-      </div>
+  <div class="app-shell">
+    <AppSidebar />
 
-      <!-- Navigation Tabs -->
-      <nav class="nav-menu">
-        <button
-          v-for="tab in navTabs"
-          :key="tab.id"
-          class="nav-tab"
-          :class="{ active: store.currentTab === tab.id }"
-          @click="store.currentTab = tab.id"
-        >
-          <Icon :name="tab.icon" size="15" />
-          <span>{{ tab.name }}</span>
-        </button>
-      </nav>
-
-      <!-- Status Indicators -->
-      <div class="nav-right">
-        <div class="live-speed-badges">
-          <span class="speed-pill text-success">
-            <Icon name="download" size="12" />
-            <span>{{ formatSpeed(store.traffic.down) }}</span>
-          </span>
-          <span class="speed-pill text-sky">
-            <Icon name="upload" size="12" />
-            <span>{{ formatSpeed(store.traffic.up) }}</span>
-          </span>
+    <main class="app-main">
+      <Transition name="fade">
+        <div v-if="!store.daemonOnline" class="offline-banner">
+          <Icon name="alert" :size="13" />
+          <span>{{ t('status.offline') }}</span>
         </div>
+      </Transition>
 
-        <span class="badge" :class="isSysProxyOn ? 'badge-success' : 'badge-neutral'">
-          {{ isSysProxyOn ? 'SYS PROXY ON' : 'SYS PROXY OFF' }}
-        </span>
-
-        <span class="badge badge-primary">
-          {{ store.mode.toUpperCase() }}
-        </span>
-      </div>
-    </header>
-
-    <!-- Main View Content -->
-    <main class="main-body">
-      <div class="view-wrapper">
-        <OverviewView v-if="store.currentTab === 'overview'" />
-        <ProxiesView v-else-if="store.currentTab === 'proxies'" />
-        <SubscriptionsView v-else-if="store.currentTab === 'subscriptions'" />
-        <ConnectionsView v-else-if="store.currentTab === 'connections'" />
-        <RulesView v-else-if="store.currentTab === 'rules'" />
-        <LogsView v-else-if="store.currentTab === 'logs'" />
-        <SettingsView v-else-if="store.currentTab === 'settings'" />
+      <div class="page-container">
+        <OverviewView v-if="currentRoute === 'overview'" />
+        <ProxiesView v-else-if="currentRoute === 'proxies'" />
+        <ConnectionsView v-else-if="currentRoute === 'connections'" />
+        <RulesView v-else-if="currentRoute === 'rules'" />
+        <SubscriptionView v-else-if="currentRoute === 'subscription'" />
+        <LogsView v-else-if="currentRoute === 'logs'" />
+        <SettingsView v-else-if="currentRoute === 'settings'" />
       </div>
     </main>
+
+    <ToastHost />
+    <ConfirmDialog />
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, onUnmounted } from "vue";
 import { api } from "./api/index.js";
+import AppSidebar from "./components/AppSidebar.vue";
+import ConfirmDialog from "./components/ConfirmDialog.vue";
 import Icon from "./components/Icon.vue";
-import { addLog, addTraffic, isSysProxyOn, setProxies, store } from "./stores/index.js";
+import ToastHost from "./components/ToastHost.vue";
+import { t } from "./i18n/index.js";
+import { currentRoute } from "./router.js";
+import { addLog, addTraffic, setProxies, store } from "./stores/index.js";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import LogsView from "./views/LogsView.vue";
 import OverviewView from "./views/OverviewView.vue";
 import ProxiesView from "./views/ProxiesView.vue";
 import RulesView from "./views/RulesView.vue";
 import SettingsView from "./views/SettingsView.vue";
-import SubscriptionsView from "./views/SubscriptionsView.vue";
+import SubscriptionView from "./views/SubscriptionView.vue";
 
 let pollTimer: number | null = null;
 let unsubTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
 
-const navTabs = [
-  { id: "overview", name: "Overview", icon: "activity" },
-  { id: "proxies", name: "Proxies", icon: "globe" },
-  { id: "subscriptions", name: "Subscriptions", icon: "link" },
-  { id: "connections", name: "Connections", icon: "layers" },
-  { id: "rules", name: "Rules", icon: "filter" },
-  { id: "settings", name: "Settings", icon: "settings" },
-  { id: "logs", name: "Logs", icon: "terminal" },
-];
-
-function formatSpeed(bytes: number): string {
-  if (bytes === 0) return "0 B/s";
-  const k = 1024;
-  const sizes = ["B/s", "KB/s", "MB/s", "GB/s"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
+async function pollOnce(): Promise<void> {
+  try {
+    const [status, conn] = await Promise.all([
+      api.getStatus(),
+      api.getConnections().catch(() => ({
+        connections: [],
+        uploadTotal: 0,
+        downloadTotal: 0,
+      })),
+    ]);
+    store.status = status;
+    store.daemonOnline = true;
+    store.connections = conn.connections;
+    store.connectionsUploadTotal = conn.uploadTotal;
+    store.connectionsDownloadTotal = conn.downloadTotal;
+  } catch {
+    store.daemonOnline = false;
+  }
 }
 
 async function bootstrap(): Promise<void> {
   const [status, configs] = await Promise.all([
     api.getStatus().catch(() => null),
-    api.getConfigs().catch(() => ({ mode: "rule" as const })),
+    api.getConfigs().catch(() => null),
   ]);
 
+  store.daemonOnline = status !== null;
   if (status) store.status = status;
   if (configs) store.mode = configs.mode;
-  store.authenticated = true;
 
-  // Background fetch proxies & rules
   Promise.all([api.getProxies(), api.getRules()])
-    .then(([pRes, rRes]) => {
-      setProxies(pRes.proxies);
-      store.rules = rRes.rules;
+    .then(([p, r]) => {
+      setProxies(p.proxies);
+      store.rules = r.rules;
     })
     .catch(() => {});
 
-  // WebSockets
-  unsubTraffic?.();
-  unsubTraffic = api.connectTrafficStream((t) => addTraffic(t));
+  unsubTraffic = api.connectTraffic((msg) => addTraffic(msg));
+  unsubLogs = api.connectLogs((msg) => addLog(msg));
 
-  unsubLogs?.();
-  unsubLogs = api.connectLogsStream((l) => addLog(l));
-
-  // Polling loop
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = window.setInterval(async () => {
-    try {
-      const [newStatus, cRes] = await Promise.all([
-        api.getStatus(),
-        api.getConnections().catch(() => ({ connections: [], uploadTotal: 0, downloadTotal: 0 })),
-      ]);
-      store.status = newStatus;
-      store.connections = cRes.connections;
-      store.connectionsUploadTotal = cRes.uploadTotal;
-      store.connectionsDownloadTotal = cRes.downloadTotal;
-    } catch {
-      // transient
-    }
+  pollTimer = window.setInterval(() => {
+    void pollOnce();
   }, 2000);
 }
 
 onMounted(() => {
-  bootstrap();
+  void bootstrap();
 });
 
 onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer);
+  if (pollTimer !== null) clearInterval(pollTimer);
   unsubTraffic?.();
   unsubLogs?.();
 });
 </script>
 
 <style scoped>
-.app-container {
+.app-shell {
   display: flex;
-  flex-direction: column;
   min-height: 100vh;
 }
 
-.top-nav {
-  height: 56px;
-  background: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border-card);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  position: sticky;
-  top: 0;
-  z-index: 40;
-}
-
-.brand-logo {
-  font-size: 18px;
-}
-
-.brand-name {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.nav-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.nav-menu {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.nav-tab {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.15s ease;
-}
-
-.nav-tab:hover {
-  color: var(--text-primary);
-  background: #1f2937;
-}
-
-.nav-tab.active {
-  color: #38bdf8;
-  background: rgba(2, 132, 199, 0.12);
-  border-color: rgba(2, 132, 199, 0.3);
-}
-
-.nav-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.live-speed-badges {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-card);
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-}
-
-.speed-pill {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
-.text-success {
-  color: var(--color-success);
-}
-.text-sky {
-  color: #38bdf8;
-}
-
-.main-body {
+.app-main {
   flex: 1;
-  padding: 20px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.view-wrapper {
-  max-width: 1140px;
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: var(--warning-soft);
+  border-bottom: 1px solid #fde6b5;
+  color: var(--warning);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 16px;
+}
+
+.page-container {
+  flex: 1;
+  width: 100%;
+  max-width: 1060px;
   margin: 0 auto;
+  padding: 24px 28px 48px;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  .page-container {
+    padding: 18px 16px 40px;
+  }
 }
 </style>

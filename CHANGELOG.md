@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Rebuilt the built-in WebUI (`web/`) from the ground up: pure light minimalist design with a sidebar layout, Chinese/English interface switch (Chinese default, persisted), hash-based view routing, toast notifications and confirm dialogs replacing browser `alert`/`confirm`, and reworked overview, proxies, connections, rules, logs, subscription, and settings views.
 - Process supervision: `sashd` manages the core process as a direct child, handling crash cleanup, automatic system proxy tear-down, and configuration reload orchestration.
 - `settings.ts` added `daemonPort` (default 19090), `daemonSecret`, and `systemProxy` fields with automatic migration.
 - `sash web` directly opens the built-in WebUI served by `sashd` on `http://127.0.0.1:19090/ui/`.
