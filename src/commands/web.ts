@@ -9,10 +9,6 @@ export function dashboardUrl(daemonPort: number): string {
   return `http://127.0.0.1:${daemonPort}/ui/`;
 }
 
-export function dashboardAuthUrl(daemonPort: number, secret: string): string {
-  return `http://127.0.0.1:${daemonPort}/ui/#secret=${encodeURIComponent(secret)}`;
-}
-
 /** `sash web`: make sure sash is running, then open the built-in WebUI. */
 export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
   const ctx = runtimeContext();
@@ -34,15 +30,9 @@ export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
     await runStart({});
   }
 
-  const port = ctx.settings.daemonPort;
-  const secret = ctx.settings.daemonSecret;
-
-  if (opts.noOpen) {
-    log.ok(`dashboard: ${dashboardAuthUrl(port, secret)}`);
-    log.warn("the URL above embeds the daemon secret; treat it as a credential");
-    return;
+  const url = dashboardUrl(ctx.settings.daemonPort);
+  log.ok(`dashboard: ${url}`);
+  if (!opts.noOpen) {
+    openInBrowser(url);
   }
-
-  log.ok(`dashboard: ${dashboardUrl(port)}`);
-  openInBrowser(dashboardAuthUrl(port, secret));
 }

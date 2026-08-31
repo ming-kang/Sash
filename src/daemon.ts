@@ -379,9 +379,6 @@ function parseHostPort(address: string): { host: string; port: number } {
 }
 
 function resolveUiDir(layout: SashLayout): string | null {
-  if (fs.existsSync(path.join(layout.uiDir, "index.html"))) {
-    return layout.uiDir;
-  }
   const here = path.dirname(fileURLToPath(import.meta.url));
   const distUi = path.join(here, "ui");
   if (fs.existsSync(path.join(distUi, "index.html"))) {
@@ -390,6 +387,9 @@ function resolveUiDir(layout: SashLayout): string | null {
   const devUi = path.join(path.dirname(here), "dist", "ui");
   if (fs.existsSync(path.join(devUi, "index.html"))) {
     return devUi;
+  }
+  if (fs.existsSync(path.join(layout.uiDir, "index.html"))) {
+    return layout.uiDir;
   }
   return null;
 }
@@ -457,13 +457,6 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       },
     });
 
-  const checkAuth = (req: IncomingMessage): boolean => {
-    const auth = req.headers.authorization;
-    if (!auth || !settings.daemonSecret) return false;
-    const match = auth.match(/^Bearer\s+(\S+)$/i);
-    return match?.[1] === settings.daemonSecret;
-  };
-
   const forwardToCore = (req: IncomingMessage, res: ServerResponse, targetPath: string): void => {
     const { host, port } = parseHostPort(settings.controller);
     const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
@@ -512,37 +505,49 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    // 2. Static UI serving (for / and /ui/*) - public dashboard assets
-    if (
-      method === "GET" &&
-      (pathname === "/" || pathname === "/ui" || pathname.startsWith("/ui/"))
-    ) {
-      const uiRoot = resolveUiDir(layout);
-      if (uiRoot) {
-        let relative = pathname.startsWith("/ui/") ? pathname.slice("/ui/".length) : "";
-        if (!relative || relative === "ui" || pathname === "/") relative = "index.html";
-        const candidate = path.join(uiRoot, relative);
-        const targetFile =
-          fs.existsSync(candidate) && fs.statSync(candidate).isFile()
-            ? candidate
-            : path.join(uiRoot, "index.html");
-
-        if (fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
-          const ext = path.extname(targetFile);
-          const mime = MIME_TYPES[ext] ?? "application/octet-stream";
-          res.writeHead(200, { "Content-Type": mime });
-          fs.createReadStream(targetFile).pipe(res);
-          return;
-        }
-      }
-    }
-
-    // 3. Authentication check for all remaining API routes
-    if (!checkAuth(req)) {
-      sendError(res, 401, "Unauthorized: valid Bearer token required");
+    // 2. Root redirect to /ui/
+    if (pathname === "/") {
+      res.writeHead(302, { Location: "/ui/" });
+      res.end();
       return;
     }
 
+    // 3. Static UI serving (for /ui and /ui/*) - public dashboard assets
+    if (method === "GET" && (pathname === "/ui" || pathname.startsWith("/ui/"))) {
+      const uiRoot = resolveUiDir(layout);
+      if (uiRoot) {
+        let relative = pathname.startsWith("/ui/") ? pathname.slice("/ui/".length) : "";
+        if (!relative || relative === "ui") relative = "index.html";
+        const candidate = path.join(uiRoot, relative);
+        const hasExt = Boolean(path.extname(relative));
+
+        let targetFile: string | null = null;
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          targetFile = candidate;
+        } else if (!hasExt) {
+          targetFile = path.join(uiRoot, "index.html");
+        }
+
+        if (targetFile && fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
+          const ext = path.extname(targetFile);
+          const mime = MIME_TYPES[ext] ?? "application/octet-stream";
+          const headers: Record<string, string> = { "Content-Type": mime };
+          if (ext === ".html") {
+            headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+            headers.Pragma = "no-cache";
+            headers.Expires = "0";
+          }
+          res.writeHead(200, headers);
+          fs.createReadStream(targetFile).pipe(res);
+          return;
+        }
+
+        sendError(res, 404, `File not found: ${pathname}`);
+        return;
+      }
+    }
+
+    // 4. API routes (loopback accessible)
     try {
       /* ==================================================================== */
       /* /core/api/* — Reverse Proxy to Mihomo external-controller             */
@@ -550,6 +555,21 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       if (pathname.startsWith("/core/api")) {
         const targetSubPath = (pathname.slice("/core/api".length) || "/") + url.search;
         forwardToCore(req, res, targetSubPath);
+        return;
+      }
+
+      /* ==================================================================== */
+      /* Standard Controller Fallback Proxy (e.g. /version, /proxies, etc.)   */
+      /* ==================================================================== */
+      if (
+        pathname === "/version" ||
+        pathname.startsWith("/proxies") ||
+        pathname.startsWith("/rules") ||
+        pathname.startsWith("/connections") ||
+        pathname.startsWith("/providers") ||
+        pathname.startsWith("/dns")
+      ) {
+        forwardToCore(req, res, pathname + url.search);
         return;
       }
 
@@ -785,19 +805,17 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
 
-    if (!pathname.startsWith("/core/api")) {
-      socket.destroy();
-      return;
-    }
-
-    if (!checkAuth(req)) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    const isCoreWs =
+      pathname.startsWith("/core/api") || pathname === "/traffic" || pathname === "/logs";
+    if (!isCoreWs) {
       socket.destroy();
       return;
     }
 
     const { host, port } = parseHostPort(settings.controller);
-    const targetSubPath = (pathname.slice("/core/api".length) || "/") + url.search;
+    const targetSubPath = pathname.startsWith("/core/api")
+      ? (pathname.slice("/core/api".length) || "/") + url.search
+      : pathname + url.search;
 
     const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
     delete upstreamHeaders.host;

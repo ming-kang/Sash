@@ -129,7 +129,7 @@ describe("daemon server", () => {
   describe("authentication and namespaces", () => {
     it("allows unauthenticated GET /sash/health returning token and pid", async () => {
       await startServer();
-      const res = await apiRequest("/sash/health", { token: "" });
+      const res = await apiRequest("/sash/health");
       assert.equal(res.statusCode, 200);
       const data = res.data as { ok: boolean; token: string; pid: number };
       assert.equal(data.ok, true);
@@ -137,13 +137,12 @@ describe("daemon server", () => {
       assert.equal(data.pid, process.pid);
     });
 
-    it("rejects unauthorized requests to protected routes", async () => {
+    it("allows direct local loopback access to /sash/status", async () => {
       await startServer();
-      const res = await apiRequest("/sash/status", { token: "" });
-      assert.equal(res.statusCode, 401);
-
-      const resBad = await apiRequest("/sash/status", { token: "wrong-token" });
-      assert.equal(resBad.statusCode, 401);
+      const res = await apiRequest("/sash/status");
+      assert.equal(res.statusCode, 200);
+      const data = res.data as { daemon: { pid: number } };
+      assert.equal(data.daemon.pid, process.pid);
     });
   });
 
