@@ -81,7 +81,7 @@ export class MihomoApi {
     const url = `${this.baseUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
     const headers: Record<string, string> = {};
     if (this.secret) {
-      headers["Authorization"] = `Bearer ${this.secret}`;
+      headers.Authorization = `Bearer ${this.secret}`;
     }
     if (options.body) {
       headers["Content-Type"] = "application/json";
