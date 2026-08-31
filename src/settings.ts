@@ -37,7 +37,7 @@ export const DEFAULT_SETTINGS: SashSettings = {
   coreVersion: "",
   uiVersion: "",
   allowLan: false,
-  daemonPort: 17890,
+  daemonPort: 19090,
   daemonSecret: "",
   systemProxy: false,
 };

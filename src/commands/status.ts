@@ -57,7 +57,8 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
           uiInstalled: uiInstalled(ctx.layout),
           mixedPort: ctx.settings.mixedPort,
           controller: api.baseUrl,
-          dashboard: uiInstalled(ctx.layout) ? api.uiUrl() : null,
+          daemonApi: `http://127.0.0.1:${ctx.settings.daemonPort}`,
+          dashboard: `http://127.0.0.1:${ctx.settings.daemonPort}/ui/`,
           subscription: ctx.settings.subscriptionUrl || null,
           tun: ctx.settings.tun,
           root: ctx.layout.root,
@@ -89,10 +90,9 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
   log.kv("config", ctx.layout.configFile);
   log.kv("mixed port", `127.0.0.1:${ctx.settings.mixedPort}`);
   log.kv("system proxy", ctx.settings.systemProxy ? "enabled" : "disabled");
-  log.kv("controller", api.baseUrl);
-  log.kv("dashboard", uiInstalled(ctx.layout) ? api.uiUrl() : "(not installed)");
+  log.kv("sash api", `http://127.0.0.1:${ctx.settings.daemonPort}`);
+  log.kv("dashboard", `http://127.0.0.1:${ctx.settings.daemonPort}/ui/`);
   log.kv("subscription", ctx.settings.subscriptionUrl || "(none)");
   log.kv("tun", ctx.settings.tun ? "on" : "off");
   log.kv("core version", ctx.settings.coreVersion || "(not installed)");
-  log.kv("ui version", ctx.settings.uiVersion || "(not installed)");
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -21,14 +22,17 @@ describe("daemon server", () => {
   let settings: SashSettings;
   let instance: DaemonInstance | undefined;
   let boundPort: number;
+  let mockCoreServer: http.Server | undefined;
+  let mockCorePort: number;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-daemon-test-"));
     layout = sashLayout(tmpDir);
     settings = {
       ...DEFAULT_SETTINGS,
-      daemonPort: 0, // ephemeral
+      daemonPort: 0,
       daemonSecret: "test-daemon-secret-1234567890",
+      controller: "127.0.0.1:9090",
       secret: "test-core-secret-1234567890",
     };
   });
@@ -37,6 +41,10 @@ describe("daemon server", () => {
     if (instance) {
       await instance.close().catch(() => undefined);
       instance = undefined;
+    }
+    if (mockCoreServer) {
+      await new Promise<void>((resolve) => mockCoreServer?.close(() => resolve()));
+      mockCoreServer = undefined;
     }
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -118,10 +126,10 @@ describe("daemon server", () => {
     return { statusCode: res.statusCode, data: json };
   }
 
-  describe("authentication", () => {
-    it("allows unauthenticated GET /health returning token and pid", async () => {
+  describe("authentication and namespaces", () => {
+    it("allows unauthenticated GET /sash/health returning token and pid", async () => {
       await startServer();
-      const res = await apiRequest("/health", { token: "" });
+      const res = await apiRequest("/sash/health", { token: "" });
       assert.equal(res.statusCode, 200);
       const data = res.data as { ok: boolean; token: string; pid: number };
       assert.equal(data.ok, true);
@@ -131,18 +139,18 @@ describe("daemon server", () => {
 
     it("rejects unauthorized requests to protected routes", async () => {
       await startServer();
-      const res = await apiRequest("/status", { token: "" });
+      const res = await apiRequest("/sash/status", { token: "" });
       assert.equal(res.statusCode, 401);
 
-      const resBad = await apiRequest("/status", { token: "wrong-token" });
+      const resBad = await apiRequest("/sash/status", { token: "wrong-token" });
       assert.equal(resBad.statusCode, 401);
     });
   });
 
-  describe("GET /status", () => {
+  describe("GET /sash/status", () => {
     it("returns daemon, core, system proxy, and settings state", async () => {
       await startServer();
-      const res = await apiRequest("/status");
+      const res = await apiRequest("/sash/status");
       assert.equal(res.statusCode, 200);
       const data = res.data as {
         daemon: { pid: number };
@@ -191,34 +199,34 @@ describe("daemon server", () => {
       await startServer({ supervisor: fakeSupervisor, sysproxy: fakeSysproxy });
 
       // Core not running -> enable should fail
-      const failRes = await apiRequest("/proxy/enable", { method: "POST" });
+      const failRes = await apiRequest("/sash/proxy/enable", { method: "POST" });
       assert.equal(failRes.statusCode, 400);
 
       // Start core first
       await apiRequest("/core/start", { method: "POST" });
 
-      const enableRes = await apiRequest("/proxy/enable", { method: "POST" });
+      const enableRes = await apiRequest("/sash/proxy/enable", { method: "POST" });
       assert.equal(enableRes.statusCode, 200);
       assert.equal(enabledCalls, 1);
 
-      // GET /proxy should show enabled
-      const stateRes = await apiRequest("/proxy");
+      // GET /sash/proxy should show enabled
+      const stateRes = await apiRequest("/sash/proxy");
       assert.equal(stateRes.statusCode, 200);
       const state = stateRes.data as { desired: boolean; applied: boolean };
       assert.equal(state.desired, true);
       assert.equal(state.applied, true);
 
       // Disable
-      const disableRes = await apiRequest("/proxy/disable", { method: "POST" });
+      const disableRes = await apiRequest("/sash/proxy/disable", { method: "POST" });
       assert.equal(disableRes.statusCode, 200);
       assert.equal(disabledCalls, 1);
     });
   });
 
-  describe("PATCH /settings", () => {
+  describe("PATCH /sash/settings", () => {
     it("applies managed keys and writes settings file", async () => {
       await startServer();
-      const res = await apiRequest("/settings", {
+      const res = await apiRequest("/sash/settings", {
         method: "PATCH",
         body: { key: "tun", value: "on" },
       });
@@ -230,12 +238,44 @@ describe("daemon server", () => {
 
     it("rejects unknown keys with 500 containing message", async () => {
       await startServer();
-      const res = await apiRequest("/settings", {
+      const res = await apiRequest("/sash/settings", {
         method: "PATCH",
         body: { key: "invalid-key", value: "value" },
       });
       assert.equal(res.statusCode, 500);
       assert.match((res.data as { error: string }).error, /unknown key/);
+    });
+  });
+
+  describe("/core/api/* reverse proxy", () => {
+    it("forwards HTTP requests to the core controller and injects authorization header", async () => {
+      let receivedAuth: string | undefined;
+      let receivedPath: string | undefined;
+
+      // Start a mock Core external-controller server
+      mockCoreServer = http.createServer((req, res) => {
+        receivedAuth = req.headers.authorization;
+        receivedPath = req.url;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ version: "v1.19.30-meta" }));
+      });
+
+      await new Promise<void>((resolve) => {
+        mockCoreServer?.listen(0, "127.0.0.1", () => resolve());
+      });
+
+      const addr = mockCoreServer.address();
+      mockCorePort = typeof addr === "object" && addr ? addr.port : 0;
+      settings.controller = `127.0.0.1:${mockCorePort}`;
+
+      await startServer();
+
+      // Call /core/api/version via sashd
+      const res = await apiRequest("/core/api/version");
+      assert.equal(res.statusCode, 200);
+      assert.equal(receivedPath, "/version");
+      assert.equal(receivedAuth, `Bearer ${settings.secret}`);
+      assert.deepEqual(res.data, { version: "v1.19.30-meta" });
     });
   });
 });

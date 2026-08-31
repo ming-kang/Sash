@@ -74,7 +74,7 @@ export class SashDaemonClient {
   }
 
   async health(): Promise<HealthInfo> {
-    return (await this.request("/health", {
+    return (await this.request("/sash/health", {
       auth: false,
       attempts: 1,
       timeoutMs: 2000,
@@ -91,7 +91,7 @@ export class SashDaemonClient {
   }
 
   async status(): Promise<DaemonStatus> {
-    return (await this.request("/status")) as DaemonStatus;
+    return (await this.request("/sash/status")) as DaemonStatus;
   }
 
   async startCore(): Promise<CoreStartResult> {
@@ -115,28 +115,28 @@ export class SashDaemonClient {
   }
 
   async enableProxy(): Promise<{ ok: boolean; systemProxy: boolean }> {
-    return (await this.request("/proxy/enable", { method: "POST" })) as {
+    return (await this.request("/sash/proxy/enable", { method: "POST" })) as {
       ok: boolean;
       systemProxy: boolean;
     };
   }
 
   async disableProxy(): Promise<{ ok: boolean; systemProxy: boolean }> {
-    return (await this.request("/proxy/disable", { method: "POST" })) as {
+    return (await this.request("/sash/proxy/disable", { method: "POST" })) as {
       ok: boolean;
       systemProxy: boolean;
     };
   }
 
   async getProxy(): Promise<SystemProxyState & { desired: boolean; applied: boolean }> {
-    return (await this.request("/proxy")) as SystemProxyState & {
+    return (await this.request("/sash/proxy")) as SystemProxyState & {
       desired: boolean;
       applied: boolean;
     };
   }
 
   async setSubscription(url: string): Promise<{ ok: boolean; proxyCount: number }> {
-    return (await this.request("/subscription", {
+    return (await this.request("/sash/subscription", {
       method: "POST",
       body: { url },
       timeoutMs: 35_000,
@@ -145,11 +145,11 @@ export class SashDaemonClient {
   }
 
   async unsetSubscription(): Promise<void> {
-    await this.request("/subscription", { method: "DELETE" });
+    await this.request("/sash/subscription", { method: "DELETE" });
   }
 
   async refreshSubscription(): Promise<{ ok: boolean; proxyCount: number }> {
-    return (await this.request("/subscription/refresh", {
+    return (await this.request("/sash/subscription/refresh", {
       method: "POST",
       timeoutMs: 35_000,
       attempts: 1,
@@ -157,7 +157,7 @@ export class SashDaemonClient {
   }
 
   async reloadConfig(): Promise<{ ok: boolean; proxyCount: number; source: string }> {
-    return (await this.request("/config/reload", {
+    return (await this.request("/core/config/reload", {
       method: "POST",
       timeoutMs: 35_000,
       attempts: 1,
@@ -165,7 +165,7 @@ export class SashDaemonClient {
   }
 
   async patchSetting(key: string, value?: string): Promise<{ ok: boolean }> {
-    return (await this.request("/settings", {
+    return (await this.request("/sash/settings", {
       method: "PATCH",
       body: { key, value },
       timeoutMs: 15_000,
@@ -175,7 +175,7 @@ export class SashDaemonClient {
 
   async shutdown(): Promise<void> {
     try {
-      await this.request("/shutdown", { method: "POST", timeoutMs: 3000, attempts: 1 });
+      await this.request("/sash/shutdown", { method: "POST", timeoutMs: 3000, attempts: 1 });
     } catch {
       // Best effort; daemon may exit immediately
     }

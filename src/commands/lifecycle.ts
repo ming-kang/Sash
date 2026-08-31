@@ -1,8 +1,6 @@
-import { MihomoApi } from "../api.js";
 import { SashDaemonClient } from "../daemon-client.js";
 import { ensureDaemon, evaluateDaemon, stopDaemonFromCli } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { uiInstalled } from "../webui.js";
 import {
   ensureConfig,
   ensureCore,
@@ -75,10 +73,7 @@ export async function runRestart(opts: StartCommandOptions = {}): Promise<void> 
 }
 
 export function printEndpoints(ctx: RuntimeContext): void {
-  const api = new MihomoApi(ctx.settings.controller, ctx.settings.secret);
   log.kv("mixed port", `127.0.0.1:${ctx.settings.mixedPort}`);
-  log.kv("controller", api.baseUrl);
-  if (uiInstalled(ctx.layout)) {
-    log.kv("dashboard", `${api.uiUrl()}  (sash web to open)`);
-  }
+  log.kv("sash api", `http://127.0.0.1:${ctx.settings.daemonPort}`);
+  log.kv("dashboard", `http://127.0.0.1:${ctx.settings.daemonPort}/ui/  (sash web to open)`);
 }

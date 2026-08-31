@@ -4,6 +4,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
+import path from "node:path";
+import type { Duplex } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { MihomoApi } from "./api.js";
 import { fetchSubscription, generateConfig } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -364,6 +367,49 @@ function sendError(res: ServerResponse, statusCode: number, message: string): vo
   sendJson(res, statusCode, { error: message });
 }
 
+function parseHostPort(address: string): { host: string; port: number } {
+  const trimmed = address.trim();
+  const match = trimmed.match(/^(?:https?:\/\/)?(?:\[([0-9a-fA-F:]+)\]|([^:]+)):(\d+)$/);
+  if (match) {
+    const host = match[1] ?? match[2] ?? "127.0.0.1";
+    const port = Number.parseInt(match[3] ?? "9090", 10);
+    return { host, port };
+  }
+  return { host: "127.0.0.1", port: 9090 };
+}
+
+function resolveUiDir(layout: SashLayout): string | null {
+  if (fs.existsSync(path.join(layout.uiDir, "index.html"))) {
+    return layout.uiDir;
+  }
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const distUi = path.join(here, "ui");
+  if (fs.existsSync(path.join(distUi, "index.html"))) {
+    return distUi;
+  }
+  const devUi = path.join(path.dirname(here), "dist", "ui");
+  if (fs.existsSync(path.join(devUi, "index.html"))) {
+    return devUi;
+  }
+  return null;
+}
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".wasm": "application/wasm",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+};
+
 export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   const layout = deps.layout;
   const settings = { ...deps.settings };
@@ -418,13 +464,45 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     return match?.[1] === settings.daemonSecret;
   };
 
+  const forwardToCore = (req: IncomingMessage, res: ServerResponse, targetPath: string): void => {
+    const { host, port } = parseHostPort(settings.controller);
+    const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
+    delete upstreamHeaders.host;
+    if (settings.secret) {
+      upstreamHeaders.authorization = `Bearer ${settings.secret}`;
+    }
+
+    const proxyReq = http.request(
+      {
+        hostname: host,
+        port,
+        path: targetPath,
+        method: req.method,
+        headers: upstreamHeaders,
+        timeout: 30_000,
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+        proxyRes.pipe(res);
+      },
+    );
+
+    proxyReq.on("error", (err) => {
+      if (!res.headersSent) {
+        sendError(res, 502, `Core controller unavailable: ${(err as Error).message}`);
+      }
+    });
+
+    req.pipe(proxyReq);
+  };
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     const method = req.method?.toUpperCase() ?? "GET";
 
-    // Unauthenticated identity probe for CLI health checks and token verification.
-    if (method === "GET" && pathname === "/health") {
+    // 1. Unauthenticated identity probe (/sash/health and /health alias)
+    if (method === "GET" && (pathname === "/sash/health" || pathname === "/health")) {
       sendJson(res, 200, {
         ok: true,
         token,
@@ -434,14 +512,51 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
+    // 2. Static UI serving (for / and /ui/*) - public dashboard assets
+    if (
+      method === "GET" &&
+      (pathname === "/" || pathname === "/ui" || pathname.startsWith("/ui/"))
+    ) {
+      const uiRoot = resolveUiDir(layout);
+      if (uiRoot) {
+        let relative = pathname.startsWith("/ui/") ? pathname.slice("/ui/".length) : "";
+        if (!relative || relative === "ui" || pathname === "/") relative = "index.html";
+        const candidate = path.join(uiRoot, relative);
+        const targetFile =
+          fs.existsSync(candidate) && fs.statSync(candidate).isFile()
+            ? candidate
+            : path.join(uiRoot, "index.html");
+
+        if (fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
+          const ext = path.extname(targetFile);
+          const mime = MIME_TYPES[ext] ?? "application/octet-stream";
+          res.writeHead(200, { "Content-Type": mime });
+          fs.createReadStream(targetFile).pipe(res);
+          return;
+        }
+      }
+    }
+
+    // 3. Authentication check for all remaining API routes
     if (!checkAuth(req)) {
       sendError(res, 401, "Unauthorized: valid Bearer token required");
       return;
     }
 
     try {
-      /* GET /status */
-      if (method === "GET" && pathname === "/status") {
+      /* ==================================================================== */
+      /* /core/api/* — Reverse Proxy to Mihomo external-controller             */
+      /* ==================================================================== */
+      if (pathname.startsWith("/core/api")) {
+        const targetSubPath = (pathname.slice("/core/api".length) || "/") + url.search;
+        forwardToCore(req, res, targetSubPath);
+        return;
+      }
+
+      /* ==================================================================== */
+      /* /sash/* — Sash Supervisor Domain                                     */
+      /* ==================================================================== */
+      if (method === "GET" && (pathname === "/sash/status" || pathname === "/status")) {
         const core = await supervisor.status();
         let actualProxy: SystemProxyState | undefined;
         try {
@@ -467,33 +582,20 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      /* POST /core/start */
-      if (method === "POST" && pathname === "/core/start") {
-        const result = await supervisor.start();
-        await applyProxyIfDesired();
-        sendJson(res, 200, { ok: true, ...result });
+      if (method === "GET" && (pathname === "/sash/proxy" || pathname === "/proxy")) {
+        const state = sysproxyAdapter.getState();
+        sendJson(res, 200, {
+          desired: settings.systemProxy,
+          applied: proxyApplied,
+          ...state,
+        });
         return;
       }
 
-      /* POST /core/stop */
-      if (method === "POST" && pathname === "/core/stop") {
-        await removeProxyIfApplied();
-        await supervisor.stop();
-        sendJson(res, 200, { ok: true });
-        return;
-      }
-
-      /* POST /core/restart */
-      if (method === "POST" && pathname === "/core/restart") {
-        await removeProxyIfApplied();
-        const result = await supervisor.restart();
-        await applyProxyIfDesired();
-        sendJson(res, 200, { ok: true, ...result });
-        return;
-      }
-
-      /* POST /proxy/enable */
-      if (method === "POST" && pathname === "/proxy/enable") {
+      if (
+        method === "POST" &&
+        (pathname === "/sash/proxy/enable" || pathname === "/proxy/enable")
+      ) {
         if (!supervisor.isRunning()) {
           sendError(res, 400, "Cannot enable system proxy: core is not running");
           return;
@@ -506,8 +608,10 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      /* POST /proxy/disable */
-      if (method === "POST" && pathname === "/proxy/disable") {
+      if (
+        method === "POST" &&
+        (pathname === "/sash/proxy/disable" || pathname === "/proxy/disable")
+      ) {
         settings.systemProxy = false;
         saveSettings(settings, layout);
         await sysproxyAdapter.disable();
@@ -516,27 +620,23 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      /* GET /proxy */
-      if (method === "GET" && pathname === "/proxy") {
-        const state = sysproxyAdapter.getState();
-        sendJson(res, 200, {
-          desired: settings.systemProxy,
-          applied: proxyApplied,
-          ...state,
-        });
+      if (method === "GET" && pathname === "/sash/subscription") {
+        sendJson(res, 200, { url: settings.subscriptionUrl });
         return;
       }
 
-      /* POST /subscription */
-      if (method === "POST" && pathname === "/subscription") {
+      if (
+        method === "POST" &&
+        (pathname === "/sash/subscription" || pathname === "/subscription")
+      ) {
         const body = (await parseJsonBody(req)) as { url?: unknown };
-        const url = typeof body.url === "string" ? body.url.trim() : "";
-        if (!url) {
+        const urlStr = typeof body.url === "string" ? body.url.trim() : "";
+        if (!urlStr) {
           sendError(res, 400, "Missing required 'url' string");
           return;
         }
-        const doc = await fetchSub(url);
-        settings.subscriptionUrl = url;
+        const doc = await fetchSub(urlStr);
+        settings.subscriptionUrl = urlStr;
         saveSettings(settings, layout);
         const result = await generateConfig({ layout, settings, subscription: doc });
         if (supervisor.isRunning()) {
@@ -547,8 +647,10 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      /* DELETE /subscription */
-      if (method === "DELETE" && pathname === "/subscription") {
+      if (
+        method === "DELETE" &&
+        (pathname === "/sash/subscription" || pathname === "/subscription")
+      ) {
         settings.subscriptionUrl = "";
         saveSettings(settings, layout);
         await generateConfig({ layout, settings });
@@ -560,8 +662,10 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      /* POST /subscription/refresh */
-      if (method === "POST" && pathname === "/subscription/refresh") {
+      if (
+        method === "POST" &&
+        (pathname === "/sash/subscription/refresh" || pathname === "/subscription/refresh")
+      ) {
         if (!settings.subscriptionUrl) {
           sendError(res, 400, "No subscription configured");
           return;
@@ -576,20 +680,12 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      /* POST /config/reload */
-      if (method === "POST" && pathname === "/config/reload") {
-        const doc = settings.subscriptionUrl ? await fetchSub(settings.subscriptionUrl) : undefined;
-        const result = await generateConfig({ layout, settings, subscription: doc });
-        if (supervisor.isRunning()) {
-          const api = new MihomoApi(settings.controller, settings.secret);
-          await api.reloadConfig(layout.configFile);
-        }
-        sendJson(res, 200, { ok: true, proxyCount: result.proxyCount, source: result.source });
+      if (method === "GET" && pathname === "/sash/settings") {
+        sendJson(res, 200, { ok: true, settings });
         return;
       }
 
-      /* PATCH /settings */
-      if (method === "PATCH" && pathname === "/settings") {
+      if (method === "PATCH" && (pathname === "/sash/settings" || pathname === "/settings")) {
         const body = (await parseJsonBody(req)) as { key?: unknown; value?: unknown };
         const key = typeof body.key === "string" ? body.key : "";
         const value = typeof body.value === "string" ? body.value : undefined;
@@ -601,7 +697,6 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         applyManagedKey(settings, key, value);
         saveSettings(settings, layout);
 
-        // Apply side effects
         if (key === "system-proxy") {
           if (settings.systemProxy && supervisor.isRunning()) {
             await sysproxyAdapter.enable({ port: settings.mixedPort });
@@ -629,8 +724,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      /* POST /shutdown */
-      if (method === "POST" && pathname === "/shutdown") {
+      if (method === "POST" && (pathname === "/sash/shutdown" || pathname === "/shutdown")) {
         sendJson(res, 200, { ok: true, shuttingDown: true });
         setImmediate(async () => {
           await removeProxyIfApplied();
@@ -641,10 +735,103 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
+      /* ==================================================================== */
+      /* /core/* — Core Lifecycle Domain                                      */
+      /* ==================================================================== */
+      if (method === "POST" && pathname === "/core/start") {
+        const result = await supervisor.start();
+        await applyProxyIfDesired();
+        sendJson(res, 200, { ok: true, ...result });
+        return;
+      }
+
+      if (method === "POST" && pathname === "/core/stop") {
+        await removeProxyIfApplied();
+        await supervisor.stop();
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (method === "POST" && pathname === "/core/restart") {
+        await removeProxyIfApplied();
+        const result = await supervisor.restart();
+        await applyProxyIfDesired();
+        sendJson(res, 200, { ok: true, ...result });
+        return;
+      }
+
+      if (
+        method === "POST" &&
+        (pathname === "/core/config/reload" || pathname === "/config/reload")
+      ) {
+        const doc = settings.subscriptionUrl ? await fetchSub(settings.subscriptionUrl) : undefined;
+        const result = await generateConfig({ layout, settings, subscription: doc });
+        if (supervisor.isRunning()) {
+          const api = new MihomoApi(settings.controller, settings.secret);
+          await api.reloadConfig(layout.configFile);
+        }
+        sendJson(res, 200, { ok: true, proxyCount: result.proxyCount, source: result.source });
+        return;
+      }
+
       sendError(res, 404, `Not found: ${method} ${pathname}`);
     } catch (err) {
       sendError(res, 500, (err as Error).message);
     }
+  });
+
+  // Handle WebSocket upgrade proxying to Core controller (e.g. for /core/api/traffic)
+  server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+
+    if (!pathname.startsWith("/core/api")) {
+      socket.destroy();
+      return;
+    }
+
+    if (!checkAuth(req)) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    const { host, port } = parseHostPort(settings.controller);
+    const targetSubPath = (pathname.slice("/core/api".length) || "/") + url.search;
+
+    const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
+    delete upstreamHeaders.host;
+    if (settings.secret) {
+      upstreamHeaders.authorization = `Bearer ${settings.secret}`;
+    }
+
+    const proxyReq = http.request({
+      hostname: host,
+      port,
+      path: targetSubPath,
+      method: "GET",
+      headers: upstreamHeaders,
+    });
+
+    proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
+      const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 101} ${proxyRes.statusMessage ?? "Switching Protocols"}\r\n`;
+      const headerLines = Object.entries(proxyRes.headers)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
+        .join("\r\n");
+      socket.write(`${statusLine}${headerLines}\r\n\r\n`);
+
+      if (proxyHead.length > 0) socket.write(proxyHead);
+      if (head.length > 0) proxySocket.write(head);
+
+      proxySocket.pipe(socket);
+      socket.pipe(proxySocket);
+    });
+
+    proxyReq.on("error", () => {
+      socket.destroy();
+    });
+
+    proxyReq.end();
   });
 
   return {

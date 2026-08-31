@@ -26,7 +26,7 @@ describe("mihomo-config", () => {
     coreVersion: "v1.19.30",
     uiVersion: "",
     allowLan: false,
-    daemonPort: 17890,
+    daemonPort: 19090,
     daemonSecret: "test-daemon-secret-1234",
     systemProxy: false,
   };
@@ -106,7 +106,7 @@ describe("mihomo-config", () => {
         coreVersion: "",
         uiVersion: "",
         allowLan: false,
-        daemonPort: 17890,
+        daemonPort: 19090,
         daemonSecret: "daemon-secret",
         systemProxy: false,
       };
