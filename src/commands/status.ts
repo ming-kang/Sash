@@ -2,6 +2,7 @@ import { MihomoApi } from "../api.js";
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
+import { clearPidRecord } from "../process.js";
 import { getSystemProxyState } from "../sysproxy.js";
 import { uiInstalled } from "../webui.js";
 import { runtimeContext } from "./shared.js";
@@ -72,7 +73,10 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
 
   if (!daemonState.running) {
     log.info("sash is not running");
-    if (daemonState.stalePidFile) log.warn("a stale sashd pid file was found and ignored");
+    if (daemonState.stalePidFile) {
+      clearPidRecord(ctx.layout.daemonPidFile);
+      clearPidRecord(ctx.layout.pidFile);
+    }
   } else {
     try {
       const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
