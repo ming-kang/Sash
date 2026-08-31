@@ -3,7 +3,7 @@ import "./node-version-guard.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Command, CommanderError } from "commander";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
 import { runConfigSet, runConfigShow } from "./commands/config-cmd.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
@@ -77,7 +77,7 @@ program
 program
   .command("logs")
   .description("print core logs")
-  .option("-n, --lines <n>", "number of lines to print", (v: string) => Number.parseInt(v, 10))
+  .option("-n, --lines <n>", "number of lines to print", parseLines)
   .option("-f, --follow", "follow the log output")
   .option("--errors", "read the stderr log instead of stdout")
   .action(
@@ -141,6 +141,14 @@ program
   .action(() => {
     console.log(packageVersion());
   });
+
+function parseLines(value: string): number {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new InvalidArgumentError("must be a positive integer");
+  }
+  return n;
+}
 
 async function main(): Promise<void> {
   try {

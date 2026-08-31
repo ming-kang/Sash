@@ -460,6 +460,7 @@ export async function startDaemon(opts?: StartOptions): Promise<{ pid: number }>
   const record: PidRecord = { pid, exe: layout.coreExe, startedAt };
   atomicWriteFileSync(layout.pidFile, `${JSON.stringify(record, null, 2)}\n`);
 
+  const api = new MihomoApi(settings.controller, settings.secret);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (spawnError) {
@@ -480,9 +481,14 @@ export async function startDaemon(opts?: StartOptions): Promise<{ pid: number }>
       );
     }
 
-    const currentRunning = await evaluateRunning(layout, settings);
-    if (currentRunning.running && currentRunning.healthy) {
+    // Poll lightly: process liveness + API answer only. Do NOT call
+    // evaluateRunning here — its identity probe spawns PowerShell on Windows
+    // and would starve the event loop inside a 300ms loop.
+    try {
+      await api.version();
       return { pid };
+    } catch {
+      // core not listening yet
     }
 
     await sleep(300);
@@ -532,10 +538,12 @@ export async function stopDaemon(opts?: {
   if (identity === "unknown") {
     const hasEvidence = hasMihomoImageEvidence(pid, record.exe);
     if (!hasEvidence) {
+      // Keep the pid record: the process may still be ours, and dropping the
+      // record would orphan it from Sash's tracking entirely.
       log.warn(
-        `Refusing to stop PID ${pid}: process identity cannot be verified. PID record removed.`,
+        `Refusing to stop PID ${pid}: process identity cannot be verified. ` +
+          `The process may still be running; verify it manually (or delete ${layout.pidFile} if it is not ours).`,
       );
-      clearPidRecord(layout);
       return false;
     }
   }
@@ -599,16 +607,25 @@ export async function stopDaemon(opts?: {
   return true;
 }
 
-function recoverUnlockProbeBinary(target: string, probe: string): void {
+function recoverUnlockProbeBinary(target: string, probe: string): boolean {
   try {
     if (fs.existsSync(probe) && !fs.existsSync(target)) {
       fs.renameSync(probe, target);
     } else if (fs.existsSync(probe) && fs.existsSync(target)) {
       fs.rmSync(probe, { force: true });
     }
+    return !fs.existsSync(probe);
   } catch {
-    // best effort
+    return false;
   }
+}
+
+async function recoverUnlockProbeWithRetry(target: string, probe: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (recoverUnlockProbeBinary(target, probe)) return true;
+    await sleep(100);
+  }
+  return recoverUnlockProbeBinary(target, probe);
 }
 
 /**
@@ -643,8 +660,17 @@ export async function waitForBinaryUnlocked(
         fs.renameSync(probe, target);
         return;
       } catch (secondErr) {
-        recoverUnlockProbeBinary(target, probe);
-        throw secondErr;
+        // Antivirus may grab the freshly renamed file; retry the recovery a
+        // few times before giving up so the core binary is never stranded
+        // under the probe name.
+        const recovered = await recoverUnlockProbeWithRetry(target, probe);
+        if (!recovered) {
+          throw new Error(
+            `Failed to restore the core binary after the lock probe; it may currently be named ${probe}: ${
+              (secondErr as Error).message
+            }`,
+          );
+        }
       }
     } catch {
       await sleep(delay);

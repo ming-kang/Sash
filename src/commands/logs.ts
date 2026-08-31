@@ -2,6 +2,10 @@ import fs from "node:fs";
 import { log } from "../log.js";
 import { runtimeContext } from "./shared.js";
 
+export function normalizeLines(input: unknown, fallback = 50): number {
+  return typeof input === "number" && Number.isInteger(input) && input > 0 ? input : fallback;
+}
+
 /** Print the last N lines of the core logs; with follow, keep streaming. */
 export async function runLogs(
   opts: { lines?: number; follow?: boolean; errors?: boolean } = {},
@@ -12,7 +16,7 @@ export async function runLogs(
     log.info(`no log file yet at ${file}`);
     return;
   }
-  const lines = opts.lines ?? 50;
+  const lines = normalizeLines(opts.lines);
   printTail(file, lines);
 
   if (opts.follow) {

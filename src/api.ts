@@ -80,28 +80,6 @@ export class MihomoApi {
     }
   }
 
-  async traffic(): Promise<{ up: number; down: number } | undefined> {
-    try {
-      // /traffic in Mihomo is a streaming/websocket endpoint (chunked JSON).
-      // fetchWithRetry returns when response headers arrive; attempting to read the full body
-      // of an infinite stream will timeout unless closed. We attempt with a short timeout and catch.
-      const res = await this.request("/traffic", { timeoutMs: 1_500, attempts: 1 });
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        return undefined;
-      }
-      const text = await res.text();
-      const firstLine = text.trim().split("\n")[0] ?? "";
-      if (!firstLine) return undefined;
-      const data = JSON.parse(firstLine) as { up?: unknown; down?: unknown };
-      if (typeof data.up === "number" && typeof data.down === "number") {
-        return { up: data.up, down: data.down };
-      }
-      return undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
   async reloadConfig(configPath: string): Promise<void> {
     const body = JSON.stringify({ path: configPath, force: true });
     const res = await this.request("/configs", {
