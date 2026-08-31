@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Supervisor daemon (`sashd`) architecture: CLI commands act as thin clients communicating over an authenticated loopback REST API (`127.0.0.1:17890`).
+- Cross-platform OS system proxy support (`sash proxy on` / `off` / `status`) with automatic disable on core exit/daemon shutdown and boot-time crash reconciliation.
+- Platform-native system proxy adapters for Windows (HKCU registry + WinINet refresh via PowerShell), macOS (`networksetup`), and Linux (GNOME `gsettings`).
+- `sash logs --daemon` flag to inspect supervisor logs.
+
+### Changed
+
+- Process supervision: `sashd` manages the core process as a direct child, handling crash cleanup, automatic system proxy tear-down, and configuration reload orchestration.
+- `settings.ts` added `daemonPort`, `daemonSecret`, and `systemProxy` fields with automatic migration.
+
 ## [0.1.0] - 2026-08-31
 
 ### Added
