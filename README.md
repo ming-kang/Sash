@@ -4,13 +4,13 @@
 
 Sash is a **network toolbox for developers and advanced users**. It installs, runs, and maintains a rule-based network core on your machine: local HTTP/SOCKS endpoints, rule-driven traffic routing, remote profile management, live traffic inspection through a web dashboard, and an optional TUN mode for device-level traffic takeover.
 
-Sash is designed for developers and therefore requires professional networking knowledge to use. **Sash does not provide any proxy or VPN service, nor any server resources of any kind — you need to configure your own servers and profiles.**
+Sash is designed for developers and therefore requires professional networking knowledge to use. It runs entirely on infrastructure you control: you bring the servers and profiles, Sash brings the routing, the dashboard, and the tooling.
 
 ## Features
 
 - **One-command lifecycle** — `sash start` / `stop` / `restart` / `status` / `logs`
 - **Zero-config bootstrap** — the core and dashboard are fetched on first run; no manual downloads
-- **Integrated web dashboard** — served by the core itself, no extra port or process
+- **Integrated web dashboard** — served by the core itself, no extra port or process; it signs in to the local controller automatically (loopback only)
 - **Remote profiles** — point Sash at a subscription/profile URL and it keeps the local configuration in sync (`sash sub`)
 - **Safe core upgrades** — atomic binary swap with automatic rollback (`sash update`)
 - **Self upgrade** — `sash upgrade` updates Sash itself via npm
@@ -46,15 +46,16 @@ That's it: the core runs as a detached background process, and the dashboard is 
 | --- | --- |
 | `sash start [--no-ui]` | Install missing components and start the core |
 | `sash stop` | Stop the running core |
-| `sash restart` | Restart the core |
+| `sash restart [--no-ui]` | Restart the core |
 | `sash status [--json]` | Show runtime state, versions, and endpoints |
-| `sash logs [-n N] [-f]` | Print (or follow) core logs |
+| `sash logs [-n N] [-f] [--errors]` | Print (or follow) core logs |
 | `sash update [--version T] [--force]` | Upgrade the core binary (atomic, with rollback) |
-| `sash upgrade` | Upgrade Sash itself via npm |
+| `sash upgrade [--version V]` | Upgrade Sash itself via npm |
 | `sash ui [--no-open]` | Open the web dashboard (starts components as needed) |
 | `sash sub set <url>` | Set the remote profile URL and regenerate the config |
 | `sash sub update` | Refetch the profile and hot-reload the running core |
-| `sash sub show` / `unset` | Show or remove the current profile |
+| `sash sub show` | Show the current profile |
+| `sash sub unset` | Remove the profile and revert to the default config |
 | `sash config show` | Show paths and current settings |
 | `sash config set <k> [v]` | Adjust `tun`, `allow-lan`, `mixed-port`, `controller`, `secret` |
 
@@ -81,13 +82,26 @@ TUN creates a virtual network interface to take over device traffic, so the core
 
 Override with the `SASH_HOME` environment variable (absolute path). The directory holds the core binary, configuration, dashboard assets, logs, and state — everything Sash needs, in one place.
 
+## Troubleshooting
+
+- `sash logs` prints the core's stdout log, `sash logs --errors` its stderr log; add `-f` to follow. Both live under `logs/` in the data directory.
+- `sash status` shows whether the core is alive and the controller answers.
+
+## Uninstall
+
+```sh
+npm uninstall -g @astralyn/sash
+```
+
+Then delete the data directory (see the table above) to remove the core, dashboard, configuration, and logs.
+
 ## Resilient downloads
 
 Release downloads try the direct upstream channel first and automatically fall back to public GitHub mirrors (`ghfast.top`, `gh-proxy.com`). If the GitHub API is rate-limited, set `GITHUB_TOKEN` or `GH_TOKEN`. Standard `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` (and `ALL_PROXY`) environment variables are honoured for remote downloads; local controller traffic always goes direct.
 
 ## Disclaimer
 
-Sash is a network tool created for **learning, research, and development debugging**. It provides no proxy or VPN service and no server-side resources. You are solely responsible for how you configure and use it, and for complying with the laws and regulations of your jurisdiction.
+Sash is a network tool created for **learning, research, and development debugging**. It runs on servers and profiles that you source and configure yourself. You are responsible for how you use it and for complying with the laws and regulations of your jurisdiction.
 
 ## Upstream components
 
@@ -96,4 +110,4 @@ Sash itself is MIT-licensed open source and an independent project. On first run
 - the network core: [`MetaCubeX/mihomo`](https://github.com/MetaCubeX/mihomo)
 - the web dashboard: [`MetaCubeX/metacubexd`](https://github.com/MetaCubeX/metacubexd)
 
-Sash is not affiliated with, sponsored by, or endorsed by MetaCubeX.
+Both components remain the work of their respective authors; all credit belongs upstream.
