@@ -6,12 +6,18 @@ export function normalizeLines(input: unknown, fallback = 50): number {
   return typeof input === "number" && Number.isInteger(input) && input > 0 ? input : fallback;
 }
 
-/** Print the last N lines of the core logs; with follow, keep streaming. */
+/** Print the last N lines of logs; with follow, keep streaming. */
 export async function runLogs(
-  opts: { lines?: number; follow?: boolean; errors?: boolean } = {},
+  opts: { lines?: number; follow?: boolean; errors?: boolean; daemon?: boolean } = {},
 ): Promise<void> {
   const ctx = runtimeContext();
-  const file = opts.errors ? ctx.layout.coreErrLogFile : ctx.layout.coreLogFile;
+  let file: string;
+  if (opts.daemon) {
+    file = opts.errors ? ctx.layout.daemonErrLogFile : ctx.layout.daemonLogFile;
+  } else {
+    file = opts.errors ? ctx.layout.coreErrLogFile : ctx.layout.coreLogFile;
+  }
+
   if (!fs.existsSync(file)) {
     log.info(`no log file yet at ${file}`);
     return;
@@ -36,7 +42,7 @@ export async function runLogs(
             offset = 0; // log rotated/truncated
           }
         } catch {
-          // transient read errors while the core writes; keep following
+          // transient read errors while writing; keep following
         }
       }, 500);
       process.on("SIGINT", () => {

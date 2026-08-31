@@ -26,6 +26,9 @@ describe("mihomo-config", () => {
     coreVersion: "v1.19.30",
     uiVersion: "",
     allowLan: false,
+    daemonPort: 17890,
+    daemonSecret: "test-daemon-secret-1234",
+    systemProxy: false,
   };
 
   beforeEach(() => {
@@ -103,6 +106,9 @@ describe("mihomo-config", () => {
         coreVersion: "",
         uiVersion: "",
         allowLan: false,
+        daemonPort: 17890,
+        daemonSecret: "daemon-secret",
+        systemProxy: false,
       };
 
       const overlaid = overlayManagedKeys(subscriptionBase, settings);

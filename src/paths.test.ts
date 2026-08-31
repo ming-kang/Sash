@@ -81,11 +81,14 @@ describe("paths", () => {
       assert.equal(layout.uiDir, path.join(customRoot, "ui"));
       assert.equal(layout.stateDir, path.join(customRoot, "state"));
       assert.equal(layout.pidFile, path.join(customRoot, "state", "sash.pid"));
+      assert.equal(layout.daemonPidFile, path.join(customRoot, "state", "sashd.pid"));
       assert.equal(layout.installFile, path.join(customRoot, "state", "install.json"));
       assert.equal(layout.logsDir, path.join(customRoot, "logs"));
       assert.equal(layout.coreLogFile, path.join(customRoot, "logs", "mihomo.log"));
       assert.equal(layout.coreErrLogFile, path.join(customRoot, "logs", "mihomo.err.log"));
       assert.equal(layout.sashLogFile, path.join(customRoot, "logs", "sash.log"));
+      assert.equal(layout.daemonLogFile, path.join(customRoot, "logs", "sashd.log"));
+      assert.equal(layout.daemonErrLogFile, path.join(customRoot, "logs", "sashd.err.log"));
       assert.equal(layout.tempDir, path.join(customRoot, "temp"));
     });
 

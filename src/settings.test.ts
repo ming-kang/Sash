@@ -5,9 +5,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { type SashLayout, sashLayout } from "./paths.js";
 import {
+  applyManagedKey,
   DEFAULT_SETTINGS,
   generateSecret,
   loadSettings,
+  requiresCoreRestart,
   type SashSettings,
   saveSettings,
 } from "./settings.js";
@@ -60,6 +62,28 @@ describe("settings", () => {
       assert.deepEqual(second, first);
     });
 
+    it("generates and persists a daemon secret alongside the controller secret", () => {
+      const first = loadSettings(layout);
+      assert.ok(first.daemonSecret.length > 0, "daemonSecret should not be empty");
+      assert.notEqual(first.daemonSecret, first.secret);
+      const second = loadSettings(layout);
+      assert.equal(second.daemonSecret, first.daemonSecret);
+    });
+
+    it("backfills new fields for settings files written by older versions", () => {
+      fs.mkdirSync(path.dirname(layout.settingsFile), { recursive: true });
+      fs.writeFileSync(
+        layout.settingsFile,
+        JSON.stringify({ secret: "old-secret", mixedPort: 7891 }),
+      );
+      const loaded = loadSettings(layout);
+      assert.equal(loaded.secret, "old-secret");
+      assert.equal(loaded.mixedPort, 7891);
+      assert.equal(loaded.daemonPort, DEFAULT_SETTINGS.daemonPort);
+      assert.equal(loaded.systemProxy, false);
+      assert.ok(loaded.daemonSecret.length > 0);
+    });
+
     it("falls back to default settings without throwing when sash.json is corrupted", () => {
       fs.mkdirSync(path.dirname(layout.settingsFile), { recursive: true });
       fs.writeFileSync(layout.settingsFile, "{ corrupted invalid json content @#$%! ]]");
@@ -77,6 +101,47 @@ describe("settings", () => {
     });
   });
 
+  describe("applyManagedKey", () => {
+    it("applies boolean keys", () => {
+      const settings = { ...DEFAULT_SETTINGS };
+      applyManagedKey(settings, "tun", "on");
+      assert.equal(settings.tun, true);
+      applyManagedKey(settings, "system-proxy", "1");
+      assert.equal(settings.systemProxy, true);
+      applyManagedKey(settings, "allow-lan", "off");
+      assert.equal(settings.allowLan, false);
+    });
+
+    it("applies mixed-port with strict validation", () => {
+      const settings = { ...DEFAULT_SETTINGS };
+      applyManagedKey(settings, "mixed-port", "10808");
+      assert.equal(settings.mixedPort, 10808);
+      assert.throws(() => applyManagedKey(settings, "mixed-port", "0x10"), /invalid port/);
+      assert.throws(() => applyManagedKey(settings, "mixed-port", "70000"), /invalid port/);
+    });
+
+    it("regenerates the controller secret on demand", () => {
+      const settings = { ...DEFAULT_SETTINGS, secret: "fixed" };
+      applyManagedKey(settings, "secret", "regenerate");
+      assert.notEqual(settings.secret, "fixed");
+      assert.equal(settings.secret.length, 48);
+    });
+
+    it("rejects unknown keys", () => {
+      const settings = { ...DEFAULT_SETTINGS };
+      assert.throws(() => applyManagedKey(settings, "daemon-port", "1234"), /unknown key/);
+    });
+  });
+
+  describe("requiresCoreRestart", () => {
+    it("classifies listener/auth keys as restart-requiring", () => {
+      for (const key of ["controller", "secret", "tun", "mixed-port", "allow-lan"]) {
+        assert.equal(requiresCoreRestart(key), true, key);
+      }
+      assert.equal(requiresCoreRestart("system-proxy"), false);
+    });
+  });
+
   describe("saveSettings", () => {
     it("saves settings to disk and performs an exact round-trip", () => {
       const customSettings: SashSettings = {
@@ -88,6 +153,9 @@ describe("settings", () => {
         coreVersion: "v1.19.30",
         uiVersion: "v2.5.0",
         allowLan: true,
+        daemonPort: 27890,
+        daemonSecret: "custom-daemon-secret-67890",
+        systemProxy: true,
       };
 
       saveSettings(customSettings, layout);

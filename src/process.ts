@@ -1,34 +1,18 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { MihomoApi } from "./api.js";
-import { atomicWriteFileSync } from "./fs-atomic.js";
-import { log } from "./log.js";
-import { type SashLayout, sashLayout } from "./paths.js";
-import { loadSettings, type SashSettings } from "./settings.js";
+
+/**
+ * Low-level process toolkit: liveness probes, fail-closed identity
+ * classification, graceful termination, PID records and sanitized child
+ * environments. Contains no daemon- or core-specific policy — that lives in
+ * daemon.ts (core child supervision) and daemon-lifecycle.ts (sashd control).
+ */
 
 export interface PidRecord {
   pid: number;
   exe: string;
   startedAt: string;
-}
-
-export interface RunningInfo {
-  /** True when PID is alive and identity probe verified (or safely unknown). */
-  running: boolean;
-  pid?: number;
-  /** True when external-controller API /version responds with 2xx. */
-  healthy?: boolean;
-  /** Core version string returned by external-controller API /version. */
-  version?: string;
-  /** True when a PID file was found on disk but the process is dead or mismatched. */
-  stalePidFile?: boolean;
-}
-
-export interface StartOptions {
-  layout?: SashLayout;
-  settings?: SashSettings;
-  timeoutMs?: number;
 }
 
 export type ProcessIdentity = "match" | "mismatch" | "unknown";
@@ -201,7 +185,7 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
   return "unknown";
 }
 
-function hasMihomoImageEvidence(pid: number, expectedExe: string): boolean {
+export function hasMihomoImageEvidence(pid: number, expectedExe: string): boolean {
   try {
     if (process.platform === "win32") {
       const out = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
@@ -233,78 +217,44 @@ function hasMihomoImageEvidence(pid: number, expectedExe: string): boolean {
   return false;
 }
 
-export function readPidRecord(layout: SashLayout = sashLayout()): PidRecord | undefined {
-  try {
-    if (!fs.existsSync(layout.pidFile)) return undefined;
-    const raw = fs.readFileSync(layout.pidFile, "utf8");
-    const parsed = JSON.parse(raw) as Partial<PidRecord>;
-    if (
-      typeof parsed.pid === "number" &&
-      Number.isInteger(parsed.pid) &&
-      parsed.pid > 0 &&
-      typeof parsed.exe === "string" &&
-      typeof parsed.startedAt === "string"
-    ) {
-      return {
-        pid: parsed.pid,
-        exe: parsed.exe,
-        startedAt: parsed.startedAt,
-      };
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export function clearPidRecord(layout: SashLayout = sashLayout()): void {
-  try {
-    fs.rmSync(layout.pidFile, { force: true });
-  } catch {
-    // best effort
-  }
-}
-
 /**
- * Inspect whether Sash daemon is currently running, healthy, and report state.
+ * Best-effort full command line of a process. Needed because the sash daemon
+ * is a Node process: its executable path (node.exe) is shared by unrelated
+ * programs, so identity must come from the script argument instead.
  */
-export async function evaluateRunning(
-  layout: SashLayout = sashLayout(),
-  settings?: SashSettings,
-): Promise<RunningInfo> {
-  const record = readPidRecord(layout);
-  if (!record) {
-    return { running: false };
-  }
-
-  if (!isProcessAlive(record.pid)) {
-    return { running: false, stalePidFile: true, pid: record.pid };
-  }
-
-  const identity = classifyProcessIdentity(record.pid, record.exe);
-  if (identity === "mismatch") {
-    return { running: false, stalePidFile: true, pid: record.pid };
-  }
-
-  // Identity is "match" or "unknown" (conservative: considered running).
-  const s = settings ?? loadSettings(layout);
-  const api = new MihomoApi(s.controller, s.secret);
-  let healthy = false;
-  let version: string | undefined;
+export function readProcessCommandLine(pid: number): string | undefined {
   try {
-    version = await api.version();
-    healthy = true;
+    if (process.platform === "linux") {
+      const raw = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8");
+      const parts = raw.split("\0").filter((s) => s.length > 0);
+      return parts.length > 0 ? parts.join(" ") : undefined;
+    }
+    if (process.platform === "win32") {
+      const script = [
+        `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction Stop`,
+        "if ($p.CommandLine) { [Console]::Out.Write($p.CommandLine) }",
+      ].join("; ");
+      return runPowerShell(script);
+    }
+    if (process.platform === "darwin") {
+      const out = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
+        encoding: "utf8",
+        timeout: 3000,
+      }).trim();
+      return out || undefined;
+    }
   } catch {
-    healthy = false;
-    version = undefined;
+    return undefined;
   }
+  return undefined;
+}
 
-  return {
-    running: true,
-    pid: record.pid,
-    healthy,
-    version,
-  };
+/** True when the process command line contains the given marker (path fragment). */
+export function commandLineContains(pid: number, marker: string): boolean {
+  const cmdline = readProcessCommandLine(pid);
+  if (!cmdline) return false;
+  const normalize = (s: string) => s.replace(/\\/g, "/").toLowerCase();
+  return normalize(cmdline).includes(normalize(marker));
 }
 
 const STRIPPED_ENV_KEYS = new Set([
@@ -337,7 +287,8 @@ export function buildSanitizedEnv(sourceEnv: NodeJS.ProcessEnv = process.env): N
   return childEnv;
 }
 
-function tailFile(filePath: string, lineCount = 20): string {
+/** Last non-empty lines of a file, for surfacing daemon/core startup errors. */
+export function tailFile(filePath: string, lineCount = 20): string {
   try {
     if (!fs.existsSync(filePath)) return "";
     const content = fs.readFileSync(filePath, "utf8");
@@ -360,200 +311,22 @@ async function runTaskkill(pid: number, force: boolean): Promise<boolean> {
   });
 }
 
-async function killUntrackedProcess(pid: number): Promise<void> {
-  if (process.platform === "win32") {
-    try {
-      await runTaskkill(pid, true);
-    } catch {
-      // best effort
-    }
-    return;
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // best effort
-  }
-}
-
 /**
- * Launch the background Mihomo daemon, record PID, and wait for API health.
+ * Terminate a process: graceful signal first, force after half the timeout.
+ * Callers MUST have verified the process identity before invoking this —
+ * the function itself performs no identity checks.
  */
-export async function startDaemon(opts?: StartOptions): Promise<{ pid: number }> {
-  const layout = opts?.layout ?? sashLayout();
-  const settings = opts?.settings ?? loadSettings(layout);
-  const timeoutMs = opts?.timeoutMs ?? 10_000;
+export async function killProcessGracefully(
+  pid: number,
+  opts: { timeoutMs?: number } = {},
+): Promise<boolean> {
+  if (!isProcessAlive(pid)) return true;
 
-  const runningInfo = await evaluateRunning(layout, settings);
-  if (runningInfo.running) {
-    throw new Error(`Sash daemon is already running (PID=${runningInfo.pid})`);
-  }
-  if (runningInfo.stalePidFile) {
-    clearPidRecord(layout);
-  }
-
-  if (!fs.existsSync(layout.coreExe)) {
-    throw new Error(
-      `Mihomo executable not found at ${layout.coreExe}. Run \`sash start\` to install it.`,
-    );
-  }
-  if (!fs.existsSync(layout.configFile)) {
-    throw new Error(
-      `Mihomo config not found at ${layout.configFile}. Run \`sash start\` or \`sash sub set <url>\` first.`,
-    );
-  }
-
-  fs.mkdirSync(layout.logsDir, { recursive: true });
-  fs.mkdirSync(layout.stateDir, { recursive: true });
-
-  const outFd = fs.openSync(layout.coreLogFile, "a", 0o600);
-  let errFd: number;
-  try {
-    if (process.platform !== "win32") {
-      try {
-        fs.chmodSync(layout.coreLogFile, 0o600);
-      } catch {
-        // ignore
-      }
-    }
-    errFd = fs.openSync(layout.coreErrLogFile, "a", 0o600);
-    if (process.platform !== "win32") {
-      try {
-        fs.chmodSync(layout.coreErrLogFile, 0o600);
-      } catch {
-        // ignore
-      }
-    }
-  } catch (err) {
-    fs.closeSync(outFd);
-    throw err;
-  }
-
-  const sanitizedEnv = buildSanitizedEnv();
-  const child = spawn(layout.coreExe, ["-d", layout.root, "-f", layout.configFile], {
-    cwd: layout.root,
-    detached: true,
-    stdio: ["ignore", outFd, errFd],
-    windowsHide: true,
-    env: sanitizedEnv,
-  });
-
-  let spawnError: Error | undefined;
-  child.once("error", (err) => {
-    spawnError = err;
-  });
-
-  child.unref();
-  try {
-    fs.closeSync(outFd);
-    fs.closeSync(errFd);
-  } catch {
-    // ignore
-  }
-
-  const pid = child.pid;
-  if (!pid) {
-    throw new Error("Failed to start Mihomo daemon process (no PID returned)");
-  }
-
-  const startedAt = new Date().toISOString();
-  const record: PidRecord = { pid, exe: layout.coreExe, startedAt };
-  atomicWriteFileSync(layout.pidFile, `${JSON.stringify(record, null, 2)}\n`);
-
-  const api = new MihomoApi(settings.controller, settings.secret);
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (spawnError) {
-      clearPidRecord(layout);
-      const recentErr = tailFile(layout.coreErrLogFile, 20);
-      const details = recentErr ? `\n${recentErr}` : "";
-      throw new Error(`Failed to start Mihomo daemon: ${spawnError.message}${details}`);
-    }
-
-    if (!isProcessAlive(pid)) {
-      clearPidRecord(layout);
-      const recentErr = tailFile(layout.coreErrLogFile, 20);
-      const details = recentErr
-        ? `\nRecent errors from ${layout.coreErrLogFile}:\n${recentErr}`
-        : "";
-      throw new Error(
-        `Mihomo daemon (PID=${pid}) exited unexpectedly during startup.${details}\nCheck logs at: ${layout.coreErrLogFile}`,
-      );
-    }
-
-    // Poll lightly: process liveness + API answer only. Do NOT call
-    // evaluateRunning here — its identity probe spawns PowerShell on Windows
-    // and would starve the event loop inside a 300ms loop.
-    try {
-      await api.version();
-      return { pid };
-    } catch {
-      // core not listening yet
-    }
-
-    await sleep(300);
-  }
-
-  // Timed out waiting for healthy API
-  await killUntrackedProcess(pid);
-  clearPidRecord(layout);
-  const recentErr = tailFile(layout.coreErrLogFile, 20);
-  const details = recentErr ? `\nRecent errors from ${layout.coreErrLogFile}:\n${recentErr}` : "";
-  throw new Error(
-    `Mihomo daemon started (PID=${pid}) but external-controller API did not become healthy within ${timeoutMs}ms.${details}\nCheck logs at: ${layout.coreErrLogFile}`,
-  );
-}
-
-/**
- * Stop the running Mihomo daemon.
- *
- * Verifies process identity to avoid terminating unrelated processes.
- * Returns true if stopped or was not running; returns false if termination failed.
- */
-export async function stopDaemon(opts?: {
-  layout?: SashLayout;
-  timeoutMs?: number;
-}): Promise<boolean> {
-  const layout = opts?.layout ?? sashLayout();
-  const record = readPidRecord(layout);
-  if (!record) {
-    return true;
-  }
-
-  const pid = record.pid;
-  if (!isProcessAlive(pid)) {
-    clearPidRecord(layout);
-    return true;
-  }
-
-  const identity = classifyProcessIdentity(pid, record.exe);
-  if (identity === "mismatch") {
-    log.warn(
-      `PID ${pid} does not match expected executable ${record.exe}; removing stale PID file without killing.`,
-    );
-    clearPidRecord(layout);
-    return true;
-  }
-
-  if (identity === "unknown") {
-    const hasEvidence = hasMihomoImageEvidence(pid, record.exe);
-    if (!hasEvidence) {
-      // Keep the pid record: the process may still be ours, and dropping the
-      // record would orphan it from Sash's tracking entirely.
-      log.warn(
-        `Refusing to stop PID ${pid}: process identity cannot be verified. ` +
-          `The process may still be running; verify it manually (or delete ${layout.pidFile} if it is not ours).`,
-      );
-      return false;
-    }
-  }
-
-  const totalTimeout = opts?.timeoutMs ?? 10_000;
+  const totalTimeout = opts.timeoutMs ?? 10_000;
   const graceMs = Math.min(5000, Math.floor(totalTimeout / 2));
   const forceMs = Math.max(1000, totalTimeout - graceMs);
 
   if (process.platform === "win32") {
-    // Windows: graceful taskkill first
     const gracefulOk = await runTaskkill(pid, false);
     if (gracefulOk) {
       const deadline = Date.now() + graceMs;
@@ -561,7 +334,6 @@ export async function stopDaemon(opts?: {
         await sleep(200);
       }
     }
-    // If still alive, force kill
     if (isProcessAlive(pid)) {
       await runTaskkill(pid, true);
       const hardDeadline = Date.now() + forceMs;
@@ -570,7 +342,6 @@ export async function stopDaemon(opts?: {
       }
     }
   } else {
-    // POSIX: SIGTERM first
     try {
       process.kill(pid, "SIGTERM");
     } catch (err) {
@@ -583,7 +354,6 @@ export async function stopDaemon(opts?: {
       await sleep(200);
     }
 
-    // If still alive, SIGKILL
     if (isProcessAlive(pid)) {
       try {
         process.kill(pid, "SIGKILL");
@@ -598,13 +368,44 @@ export async function stopDaemon(opts?: {
     }
   }
 
-  if (isProcessAlive(pid)) {
-    log.error(`Mihomo daemon is still running after stop attempt (PID=${pid}).`);
-    return false;
-  }
+  return !isProcessAlive(pid);
+}
 
-  clearPidRecord(layout);
-  return true;
+export function readPidRecord(pidFile: string): PidRecord | undefined {
+  try {
+    if (!fs.existsSync(pidFile)) return undefined;
+    const raw = fs.readFileSync(pidFile, "utf8");
+    const parsed = JSON.parse(raw) as Partial<PidRecord>;
+    if (
+      typeof parsed.pid === "number" &&
+      Number.isInteger(parsed.pid) &&
+      parsed.pid > 0 &&
+      typeof parsed.exe === "string" &&
+      typeof parsed.startedAt === "string"
+    ) {
+      return {
+        pid: parsed.pid,
+        exe: parsed.exe,
+        startedAt: parsed.startedAt,
+      };
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function writePidRecord(pidFile: string, record: PidRecord): void {
+  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+  fs.writeFileSync(pidFile, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+}
+
+export function clearPidRecord(pidFile: string): void {
+  try {
+    fs.rmSync(pidFile, { force: true });
+  } catch {
+    // best effort
+  }
 }
 
 function recoverUnlockProbeBinary(target: string, probe: string): boolean {
@@ -629,18 +430,14 @@ async function recoverUnlockProbeWithRetry(target: string, probe: string): Promi
 }
 
 /**
- * Wait until the Mihomo binary file is unlocked by Windows file handles/antivirus.
+ * Wait until a binary file is unlocked by Windows file handles/antivirus.
  * On POSIX platforms, returns immediately.
  */
-export async function waitForBinaryUnlocked(
-  layout: SashLayout = sashLayout(),
-  timeoutMs = 30_000,
-): Promise<void> {
+export async function waitForBinaryUnlocked(target: string, timeoutMs = 30_000): Promise<void> {
   if (process.platform !== "win32") {
     return;
   }
 
-  const target = layout.coreExe;
   if (!fs.existsSync(target)) {
     return;
   }
@@ -661,12 +458,12 @@ export async function waitForBinaryUnlocked(
         return;
       } catch (secondErr) {
         // Antivirus may grab the freshly renamed file; retry the recovery a
-        // few times before giving up so the core binary is never stranded
-        // under the probe name.
+        // few times before giving up so the binary is never stranded under
+        // the probe name.
         const recovered = await recoverUnlockProbeWithRetry(target, probe);
         if (!recovered) {
           throw new Error(
-            `Failed to restore the core binary after the lock probe; it may currently be named ${probe}: ${
+            `Failed to restore the binary after the lock probe; it may currently be named ${probe}: ${
               (secondErr as Error).message
             }`,
           );
@@ -680,6 +477,6 @@ export async function waitForBinaryUnlocked(
 
   recoverUnlockProbeBinary(target, probe);
   throw new Error(
-    `Mihomo binary is still locked after ${timeoutMs}ms: ${target}. Close programs using it and retry.`,
+    `Binary is still locked after ${timeoutMs}ms: ${target}. Close programs using it and retry.`,
   );
 }

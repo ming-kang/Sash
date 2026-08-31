@@ -1,21 +1,58 @@
 import { MihomoApi } from "../api.js";
+import { SashDaemonClient } from "../daemon-client.js";
+import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { evaluateRunning } from "../process.js";
+import { getSystemProxyState } from "../sysproxy.js";
 import { uiInstalled } from "../webui.js";
 import { runtimeContext } from "./shared.js";
 
 export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
   const ctx = runtimeContext();
-  const state = await evaluateRunning(ctx.layout, ctx.settings);
+  const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
   const api = new MihomoApi(ctx.settings.controller, ctx.settings.secret);
 
   if (opts.json) {
+    let coreRunning = false;
+    let corePid: number | null = null;
+    let coreVersion: string | null = ctx.settings.coreVersion || null;
+    let proxyApplied = false;
+    let osProxy = false;
+
+    if (daemonState.running && daemonState.healthy) {
+      try {
+        const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
+        const status = await client.status();
+        coreRunning = status.core.running;
+        corePid = status.core.pid ?? null;
+        if (status.core.version) coreVersion = status.core.version;
+        proxyApplied = status.systemProxy.applied;
+        osProxy = Boolean(status.systemProxy.actual?.enabled);
+      } catch {
+        // ignore
+      }
+    } else {
+      const actual = getSystemProxyState();
+      osProxy = actual.enabled;
+    }
+
     console.log(
       JSON.stringify(
         {
-          running: state.running,
-          pid: state.pid ?? null,
-          coreVersion: state.version ?? (ctx.settings.coreVersion || null),
+          daemon: {
+            running: daemonState.running,
+            pid: daemonState.pid ?? null,
+            port: ctx.settings.daemonPort,
+          },
+          core: {
+            running: coreRunning,
+            pid: corePid,
+            version: coreVersion,
+          },
+          systemProxy: {
+            desired: ctx.settings.systemProxy,
+            applied: proxyApplied,
+            osEnabled: osProxy,
+          },
           uiVersion: ctx.settings.uiVersion || null,
           uiInstalled: uiInstalled(ctx.layout),
           mixedPort: ctx.settings.mixedPort,
@@ -32,16 +69,26 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
     return;
   }
 
-  if (!state.running) {
-    log.info("mihomo is not running");
-    if (state.stalePidFile) log.warn("a stale pid file was found and ignored");
+  if (!daemonState.running) {
+    log.info("sash is not running");
+    if (daemonState.stalePidFile) log.warn("a stale sashd pid file was found and ignored");
   } else {
-    log.ok(`mihomo running (pid ${state.pid}${state.version ? `, core ${state.version}` : ""})`);
-    if (!state.healthy) log.warn("external-controller is not responding yet");
+    try {
+      const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
+      const status = await client.status();
+      const coreInfo = status.core.running
+        ? `core running (PID=${status.core.pid}${status.core.version ? `, ${status.core.version}` : ""})`
+        : "core stopped";
+      log.ok(`sashd running (PID=${daemonState.pid}), ${coreInfo}`);
+    } catch {
+      log.ok(`sashd running (PID=${daemonState.pid})`);
+    }
   }
+
   log.kv("root", ctx.layout.root);
   log.kv("config", ctx.layout.configFile);
   log.kv("mixed port", `127.0.0.1:${ctx.settings.mixedPort}`);
+  log.kv("system proxy", ctx.settings.systemProxy ? "enabled" : "disabled");
   log.kv("controller", api.baseUrl);
   log.kv("dashboard", uiInstalled(ctx.layout) ? api.uiUrl() : "(not installed)");
   log.kv("subscription", ctx.settings.subscriptionUrl || "(none)");

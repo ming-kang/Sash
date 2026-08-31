@@ -42,11 +42,14 @@ export interface SashLayout {
   uiDir: string;
   stateDir: string;
   pidFile: string;
+  daemonPidFile: string;
   installFile: string;
   logsDir: string;
   coreLogFile: string;
   coreErrLogFile: string;
   sashLogFile: string;
+  daemonLogFile: string;
+  daemonErrLogFile: string;
   tempDir: string;
 }
 
@@ -61,11 +64,14 @@ export function sashLayout(root: string = sashRoot()): SashLayout {
     uiDir: path.join(root, "ui"),
     stateDir: path.join(root, "state"),
     pidFile: path.join(root, "state", "sash.pid"),
+    daemonPidFile: path.join(root, "state", "sashd.pid"),
     installFile: path.join(root, "state", "install.json"),
     logsDir: path.join(root, "logs"),
     coreLogFile: path.join(root, "logs", "mihomo.log"),
     coreErrLogFile: path.join(root, "logs", "mihomo.err.log"),
     sashLogFile: path.join(root, "logs", "sash.log"),
+    daemonLogFile: path.join(root, "logs", "sashd.log"),
+    daemonErrLogFile: path.join(root, "logs", "sashd.err.log"),
     tempDir: path.join(root, "temp"),
   };
 }
