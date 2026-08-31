@@ -10,7 +10,7 @@ Sash is designed for developers and therefore requires professional networking k
 
 - **One-command lifecycle** — `sash start` / `stop` / `restart` / `status` / `logs`
 - **Zero-config bootstrap** — the core and dashboard are fetched on first run; no manual downloads
-- **Integrated web dashboard** — served by the core itself, no extra port or process; it signs in to the local controller automatically (loopback only)
+- **Integrated web dashboard** — served by the core itself, no extra port or process; `sash web` opens it already signed in to your controller
 - **Remote profiles** — point Sash at a subscription/profile URL and it keeps the local configuration in sync (`sash sub`)
 - **Safe core upgrades** — atomic binary swap with automatic rollback (`sash update`)
 - **Self upgrade** — `sash upgrade` updates Sash itself via npm
@@ -33,12 +33,12 @@ npm install -g @astralyn/sash
 ```sh
 sash start                 # first run downloads the core and dashboard, then launches
 sash sub set <profile>     # import a remote profile (subscription URL, native YAML format)
-sash ui                    # open the web dashboard
+sash web                   # open the web dashboard
 sash status                # runtime state and endpoints
 sash stop
 ```
 
-That's it: the core runs as a detached background process, and the dashboard is available at the address printed by `sash status` (default `http://127.0.0.1:9090/ui`).
+That's it: the core runs as a detached background process, and the dashboard is available at the address printed by `sash status` (default `http://127.0.0.1:9090/ui/`). Use `sash web` to open it — it hands the controller address and secret to the dashboard, so there is no sign-in step.
 
 ## Commands
 
@@ -51,7 +51,7 @@ That's it: the core runs as a detached background process, and the dashboard is 
 | `sash logs [-n N] [-f] [--errors]` | Print (or follow) core logs |
 | `sash update [--version T] [--force]` | Upgrade the core binary (atomic, with rollback) |
 | `sash upgrade [--version V]` | Upgrade Sash itself via npm |
-| `sash ui [--no-open]` | Open the web dashboard (starts components as needed) |
+| `sash web [--no-open]` | Open the web dashboard (starts components as needed) |
 | `sash sub set <url>` | Set the remote profile URL and regenerate the config |
 | `sash sub update` | Refetch the profile and hot-reload the running core |
 | `sash sub show` | Show the current profile |

@@ -17,7 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `sash config`: managed keys (`tun`, `allow-lan`, `mixed-port`, `controller`, `secret`) with config regeneration and reload.
 - Cross-platform data directory conventions with `SASH_HOME` override.
 - Background process supervision with PID identity verification and safe, conservative termination.
-- Dashboard auto-authentication: on loopback controllers, Sash seeds the dashboard's endpoint list so it connects without prompting for credentials.
+- Dashboard auto-authentication: `sash web` opens the dashboard through its own setup deep-link, passing the controller address and secret as query parameters, so the panel connects without a sign-in step. No credentials are written to disk.
 
 ### Fixed
 
