@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Cross-platform data directory conventions with `SASH_HOME` override.
 - Background process supervision with PID identity verification and safe, conservative termination.
 - Dashboard auto-authentication: `sash web` opens the dashboard through its own setup deep-link, passing the controller address and secret as query parameters, so the panel connects without a sign-in step. No credentials are written to disk.
+- README now documents behavior that was previously only in code: Sash-owned operational keys override profile values (`mixed-port`/`controller`/`secret`/`tun`/`allow-lan` etc.), the `sash.json` settings file (defaults, auto-generated secret, `secret regenerate`), restart-on-config-change and profile refetch semantics, `web --no-open` printing a credential-bearing URL, the fail-closed `stop` refusal mode, best-effort dashboard installation, and the pre-x86-64-v3 CPU workaround.
 
 ### Fixed
 

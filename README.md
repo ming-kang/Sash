@@ -16,6 +16,7 @@ Sash is designed for developers and therefore requires professional networking k
 - **Self upgrade** — `sash upgrade` updates Sash itself via npm
 - **Resilient downloads** — automatic fallback to public GitHub mirrors when direct access fails
 - **TUN mode** — optional device-level traffic takeover (requires elevated privileges)
+- **Credential hygiene** — the core runs with a scrubbed environment; tokens like `GITHUB_TOKEN` or npm credentials are never passed to it
 
 ## Requirements
 
@@ -38,7 +39,7 @@ sash status                # runtime state and endpoints
 sash stop
 ```
 
-That's it: the core runs as a detached background process, and the dashboard is available at the address printed by `sash status` (default `http://127.0.0.1:9090/ui/`). Use `sash web` to open it — it hands the controller address and secret to the dashboard, so there is no sign-in step.
+That's it: the core runs as a detached background process, and the dashboard is available at the address printed by `sash status` (default `http://127.0.0.1:9090/ui/`). Use `sash web` to open it — it hands the controller address and secret to the dashboard, so there is no sign-in step. `sash web --no-open` prints that URL instead of opening it; the URL embeds the secret, so treat it as a credential.
 
 ## Commands
 
@@ -52,16 +53,39 @@ That's it: the core runs as a detached background process, and the dashboard is 
 | `sash update [--version T] [--force]` | Upgrade the core binary (atomic, with rollback) |
 | `sash upgrade [--version V]` | Upgrade Sash itself via npm |
 | `sash web [--no-open]` | Open the web dashboard (starts components as needed) |
-| `sash sub set <url>` | Set the remote profile URL and regenerate the config |
+| `sash sub set <url>` | Set the remote profile URL; reloads a running core |
 | `sash sub update` | Refetch the profile and hot-reload the running core |
 | `sash sub show` | Show the current profile |
-| `sash sub unset` | Remove the profile and revert to the default config |
+| `sash sub unset` | Remove the profile and revert to the default config; reloads a running core |
 | `sash config show` | Show paths and current settings |
-| `sash config set <k> [v]` | Adjust `tun`, `allow-lan`, `mixed-port`, `controller`, `secret` |
+| `sash config set <k> [v]` | Adjust `tun`, `allow-lan`, `mixed-port`, `controller`, `secret`; restarts a running core |
+| `sash version` | Print the Sash version |
+
+## Settings
+
+Sash's own settings live in `sash.json` inside the data directory; `sash config show` displays them (the secret is masked). Five keys are adjustable with `sash config set <key> [value]`:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `mixed-port` | `7890` | Port of the local HTTP/SOCKS mixed listener |
+| `controller` | `127.0.0.1:9090` | Listen address of the core's API controller (`host:port`; IPv6 accepted, e.g. `[::1]:9090`) |
+| `secret` | *(random)* | Controller credential; auto-generated on first run, never empty |
+| `tun` | `off` | Device-level traffic takeover — see TUN mode |
+| `allow-lan` | `off` | Let other LAN devices use the proxy |
+
+- All five control where or how the core listens and authenticates, so changing any of them **restarts a running core** to apply.
+- With a profile configured, `config set` refetches the profile to regenerate the merged configuration, so the profile source must be reachable.
+- `sash config set secret <value>` sets an explicit secret; `sash config set secret regenerate` (or omitting the value) generates a fresh random one.
+- Binding `controller` to a wildcard address (`0.0.0.0`, `::`) is accepted; `sash web` maps it to the matching loopback address, since a wildcard is a listen target, not a connect target. Note this also exposes the API to the LAN — it stays protected by `secret`.
+- `sash.json` may be hand-edited while the core is stopped (writes are atomic and owner-only on POSIX), but `config set` is the supported path: it validates values and applies them.
 
 ## Profiles
 
-A profile is a remote YAML document in the core's native format (endpoints, groups, and rules). Sash fetches it, merges it with its own operational settings (ports, controller, dashboard, TUN), and writes the result as the core's configuration file. Profiles in other formats must be converted first.
+A profile is a remote YAML document in the core's native format (endpoints, groups, and rules), fetched over http(s). Sash fetches it, merges it with its own operational settings, and writes the result as the core's configuration file. Documents that are not valid profiles (base64 blobs, share-link lists, YAML without `proxies` or `rules`) are rejected — convert them first, e.g. with a subconverter.
+
+**Sash owns the operational keys.** Profile values for `mixed-port`, `port`, `socks-port`, `external-controller`, `external-ui*`, `secret`, `tun`, and `allow-lan` are discarded and replaced with your Sash settings — adjust them with `sash config set`, not in the profile. Everything else (proxies, groups, rules, dns, sniffer) passes through untouched.
+
+`sash sub set`, `sub unset`, and `sub update` take effect immediately: a running core is hot-reloaded in place, without a restart.
 
 ## TUN mode
 
@@ -70,7 +94,7 @@ sash config set tun on
 sash restart
 ```
 
-TUN creates a virtual network interface to take over device traffic, so the core must run with elevated privileges: use an Administrator terminal on Windows, or root/sudo on macOS and Linux.
+TUN creates a virtual network interface to take over device traffic, so the core must run with elevated privileges: use an Administrator terminal on Windows, or root/sudo on macOS and Linux. The generated TUN configuration is fixed (stack `mixed`, auto-route, dns-hijack), and `tun:` sections in profiles are ignored — TUN can only ever be enabled explicitly through `sash config`.
 
 ## Data directory
 
@@ -86,6 +110,9 @@ Override with the `SASH_HOME` environment variable (absolute path). The director
 
 - `sash logs` prints the core's stdout log, `sash logs --errors` its stderr log; add `-f` to follow. Both live under `logs/` in the data directory.
 - `sash status` shows whether the core is alive and the controller answers.
+- `sash stop` verifies the recorded process's identity before terminating it and refuses when verification is impossible, keeping the pid record rather than killing an unrelated process. If you hit this: inspect the process yourself; if it is not Sash's core, delete `state/sash.pid` in the data directory — otherwise terminate it manually.
+- Dashboard installation is best-effort: if the download fails, the core still proxies traffic, just without the web UI. Re-run `sash web` to retry; `sash status` shows whether the dashboard is installed.
+- On CPUs without x86-64-v3 support, the default amd64 core build crashes (`illegal instruction`). Replace the binary under `bin/` in the data directory with the `-compatible` build of the same version from the core's release page (`state/install.json` records the installed version).
 
 ## Uninstall
 
