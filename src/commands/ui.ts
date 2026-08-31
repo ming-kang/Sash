@@ -20,7 +20,12 @@ export async function runUi(opts: { noOpen?: boolean } = {}): Promise<void> {
   }
 
   const api = new MihomoApi(ctx.settings.controller, ctx.settings.secret);
-  const url = api.uiUrl();
-  log.ok(`dashboard: ${url}`);
-  if (!opts.noOpen) openInBrowser(url);
+  if (opts.noOpen) {
+    // Asked for an address to copy, so it has to carry the credential.
+    log.ok(`dashboard: ${api.dashboardAuthUrl()}`);
+    log.warn("the URL above embeds the controller secret; treat it as a credential");
+    return;
+  }
+  log.ok(`dashboard: ${api.uiUrl()}`);
+  openInBrowser(api.dashboardAuthUrl());
 }

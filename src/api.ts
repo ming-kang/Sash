@@ -1,6 +1,16 @@
 import { fetchWithRetry } from "./http.js";
 
 /**
+ * Wildcard binds are listen targets, not connect targets: a browser cannot
+ * open http://0.0.0.0. Map them onto the matching loopback address.
+ */
+function browserHost(hostname: string): string {
+  if (hostname === "0.0.0.0") return "127.0.0.1";
+  if (hostname === "[::]") return "[::1]";
+  return hostname;
+}
+
+/**
  * Mihomo (Clash.Meta) external-controller REST client.
  *
  * All requests use direct dispatching so local loopback traffic is never
@@ -22,8 +32,41 @@ export class MihomoApi {
     this.secret = (secret || "").trim();
   }
 
+  /** Plain dashboard URL. Carries no credentials; safe to print and log. */
   uiUrl(): string {
-    return `${this.baseUrl}/ui`;
+    return `${this.browserOrigin().origin}/ui/`;
+  }
+
+  /**
+   * Dashboard URL that hands the controller address and secret to MetaCubeXD's
+   * setup deep-link: its `autoLogin` (packages/ui/composables/useConnect.ts)
+   * connects immediately when the hash route carries a `hostname`, reading
+   * `port` and `secret` alongside it. The protocol is deliberately omitted so
+   * the dashboard reuses whatever the page itself was served over.
+   *
+   * Values are percent-encoded rather than form-encoded: the dashboard parses
+   * this with Vue Router, which decodes via decodeURIComponent and would leave
+   * a `+` literal, corrupting any secret containing a space.
+   *
+   * Embeds the secret — open this URL, do not print it.
+   */
+  dashboardAuthUrl(): string {
+    const url = this.browserOrigin();
+    const query = Object.entries({
+      hostname: url.hostname,
+      port: url.port || (url.protocol === "https:" ? "443" : "80"),
+      secret: this.secret,
+    })
+      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+      .join("&");
+    return `${url.origin}/ui/#/setup?${query}`;
+  }
+
+  /** Origin a browser on this machine can actually reach. */
+  private browserOrigin(): URL {
+    const url = new URL(this.baseUrl);
+    url.hostname = browserHost(url.hostname);
+    return url;
   }
 
   private async request(
