@@ -6,8 +6,8 @@ import { uiInstalled } from "../webui.js";
 import { runStart } from "./lifecycle.js";
 import { ensureWebUi, persistContext, runtimeContext } from "./shared.js";
 
-/** `sash ui`: make sure the dashboard is installed and the core is up, then open it. */
-export async function runUi(opts: { noOpen?: boolean } = {}): Promise<void> {
+/** `sash web`: make sure the dashboard is installed and the core is up, then open it. */
+export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
   const ctx = runtimeContext();
 
   const state = await evaluateRunning(ctx.layout, ctx.settings);

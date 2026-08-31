@@ -55,6 +55,6 @@ export function printEndpoints(ctx: RuntimeContext): void {
   log.kv("mixed port", `127.0.0.1:${ctx.settings.mixedPort}`);
   log.kv("controller", api.baseUrl);
   if (uiInstalled(ctx.layout)) {
-    log.kv("dashboard", `${api.uiUrl()}  (sash ui to open)`);
+    log.kv("dashboard", `${api.uiUrl()}  (sash web to open)`);
   }
 }

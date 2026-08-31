@@ -10,9 +10,9 @@ import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
 import { runStatus } from "./commands/status.js";
 import { runSubSet, runSubShow, runSubUnset, runSubUpdate } from "./commands/sub.js";
-import { runUi } from "./commands/ui.js";
 import { runUpdate } from "./commands/update.js";
 import { runUpgrade } from "./commands/upgrade.js";
+import { runWeb } from "./commands/web.js";
 
 function packageVersion(): string {
   try {
@@ -42,7 +42,7 @@ program
 Examples:
   $ sash start                 install the core if needed and launch it
   $ sash sub set <url>         import a Clash/mihomo subscription URL
-  $ sash ui                    open the MetaCubeXD dashboard
+  $ sash web                   open the MetaCubeXD dashboard
   $ sash status                show runtime state and endpoints
   $ sash update                upgrade the mihomo core
   $ sash upgrade               upgrade Sash itself via npm
@@ -100,10 +100,10 @@ program
   .action(withCliErrors((opts: { version?: string }) => runUpgrade(opts)));
 
 program
-  .command("ui")
+  .command("web")
   .description("open the MetaCubeXD dashboard (installs/starts components as needed)")
   .option("--no-open", "print the URL without opening a browser")
-  .action(withCliErrors((opts: { open: boolean }) => runUi({ noOpen: !opts.open })));
+  .action(withCliErrors((opts: { open: boolean }) => runWeb({ noOpen: !opts.open })));
 
 const sub = program.command("sub").description("manage the Clash/mihomo subscription");
 sub
