@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Core supervisor: a late `exit` event from the replaced process after `restart()` could clear the new child handle and PID record, making status report the core as stopped while it was running. Stale exit events are now ignored.
+
 ### Added
 
 - Built-in zero-external-download WebUI dashboard (`web/` SPA built directly into `dist/ui/`) with real-time bandwidth charts, outbound mode switcher, proxy group selection with latency testing, subscription management, active connection monitor, routing rule browser, and live log terminal.

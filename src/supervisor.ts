@@ -150,6 +150,9 @@ export class CoreSupervisor {
     });
 
     child.once("exit", (code, signal) => {
+      // A stale exit from a replaced process (restart race) must not clobber
+      // the new child handle, the new PID record, or trigger onExit actions.
+      if (this.child !== child) return;
       const wasStopping = this.stopping;
       this.child = null;
       this.childStartedAt = undefined;
