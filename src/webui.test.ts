@@ -1,40 +1,34 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
-import { isSafeUiEntry } from "./webui.js";
+import { sashLayout } from "./paths.js";
+import { resolveUiDir, uiInstalled } from "./webui.js";
 
-const file = { type: "File" } as const;
-const directory = { type: "Directory" } as const;
-
-describe("isSafeUiEntry", () => {
-  it("accepts regular files and directories at relative paths", () => {
-    assert.equal(isSafeUiEntry("index.html", file), true);
-    assert.equal(isSafeUiEntry("assets/app.js", file), true);
-    assert.equal(isSafeUiEntry("assets", directory), true);
-  });
-
-  it("accepts filenames that merely contain consecutive dots", () => {
-    // A substring test for ".." rejected legitimate names like this one.
-    assert.equal(isSafeUiEntry("assets/vendor..chunk.js", file), true);
-  });
-
-  it("rejects parent-directory traversal in any segment", () => {
-    for (const entryPath of ["..", "../evil", "a/../../evil", "..\\evil", "a/.."]) {
-      assert.equal(isSafeUiEntry(entryPath, file), false, entryPath);
+describe("webui resolution", () => {
+  it("resolves built-in UI directory if dist/ui exists", () => {
+    const dir = resolveUiDir();
+    // In build/test environment dist/ui should be found
+    if (dir) {
+      assert.equal(fs.existsSync(path.join(dir, "index.html")), true);
+      assert.equal(uiInstalled(), true);
     }
   });
 
-  it("rejects absolute paths on both path flavours", () => {
-    for (const entryPath of ["/etc/passwd", "C:\\Windows\\system32\\x.dll", "c:/x"]) {
-      assert.equal(isSafeUiEntry(entryPath, file), false, entryPath);
-    }
-  });
+  it("recognizes custom UI override in layout.uiDir", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sash-ui-test-"));
+    const layout = sashLayout(tempRoot);
+    try {
+      const customUi = layout.uiDir;
+      fs.mkdirSync(customUi, { recursive: true });
+      fs.writeFileSync(path.join(customUi, "index.html"), "<html>custom</html>");
 
-  it("rejects links and device nodes regardless of path", () => {
-    // A symlink or hardlink entry could otherwise redirect a later write
-    // outside the staging directory.
-    const types = ["SymbolicLink", "Link", "CharacterDevice", "BlockDevice", "FIFO"] as const;
-    for (const type of types) {
-      assert.equal(isSafeUiEntry("index.html", { type }), false, type);
+      const resolved = resolveUiDir(layout);
+      assert.equal(resolved, customUi);
+      assert.equal(uiInstalled(layout), true);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 });

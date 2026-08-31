@@ -57,8 +57,7 @@ $XDG_DATA_HOME/sash (Linux). Override with the SASH_HOME environment variable.`,
 program
   .command("start")
   .description("install components if needed and start sash in the background")
-  .option("--no-ui", "skip dashboard installation")
-  .action(withCliErrors((opts: { ui: boolean }) => runStart({ noUi: !opts.ui })));
+  .action(withCliErrors(() => runStart()));
 
 program
   .command("stop")
@@ -68,8 +67,7 @@ program
 program
   .command("restart")
   .description("restart the core process")
-  .option("--no-ui", "skip dashboard installation")
-  .action(withCliErrors((opts: { ui: boolean }) => runRestart({ noUi: !opts.ui })));
+  .action(withCliErrors(() => runRestart()));
 
 program
   .command("status")

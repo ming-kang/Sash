@@ -1,25 +1,14 @@
-import type { ChildProcess } from "node:child_process";
-import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
-import path from "node:path";
 import type { Duplex } from "node:stream";
-import { fileURLToPath } from "node:url";
 import { MihomoApi } from "./api.js";
+import { forwardHttpToCore, forwardWsToCore } from "./daemon-proxy.js";
+import { serveStaticUi } from "./daemon-static.js";
 import { fetchSubscription, generateConfig } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import {
-  buildSanitizedEnv,
-  classifyProcessIdentity,
-  clearPidRecord,
-  isProcessAlive,
-  killProcessGracefully,
-  readPidRecord,
-  tailFile,
-  writePidRecord,
-} from "./process.js";
+import { clearPidRecord } from "./process.js";
 import {
   applyManagedKey,
   loadSettings,
@@ -27,6 +16,7 @@ import {
   type SashSettings,
   saveSettings,
 } from "./settings.js";
+import { type CoreState, CoreSupervisor, type SysproxyAdapter } from "./supervisor.js";
 import {
   disableSystemProxy,
   enableSystemProxy,
@@ -34,19 +24,13 @@ import {
   type SystemProxyState,
 } from "./sysproxy.js";
 
+export { type CoreState, CoreSupervisor, type SysproxyAdapter };
+
 export interface DaemonPidRecord {
   pid: number;
   token: string;
   port: number;
   startedAt: string;
-}
-
-export interface CoreState {
-  running: boolean;
-  pid?: number;
-  startedAt?: string;
-  healthy?: boolean;
-  version?: string;
 }
 
 export interface DaemonStatus {
@@ -62,249 +46,6 @@ export interface DaemonStatus {
     actual?: SystemProxyState;
   };
   settings: SashSettings;
-}
-
-export interface SysproxyAdapter {
-  enable(opts: { host?: string; port: number }): Promise<void>;
-  disable(): Promise<void>;
-  getState(): SystemProxyState;
-}
-
-export interface CoreSupervisorOptions {
-  layout: SashLayout;
-  settings: () => SashSettings;
-  spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
-  waitHealthyMs?: number;
-  onExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Supervise the child mihomo process directly. The child is NOT detached:
- * sashd holds its handle, monitors exit events, and cleans up state on exit.
- */
-export class CoreSupervisor {
-  private child: ChildProcess | null = null;
-  private childStartedAt: string | undefined;
-  private stopping = false;
-  private readonly layout: SashLayout;
-  private readonly getSettings: () => SashSettings;
-  private readonly spawnFn: (layout: SashLayout, settings: SashSettings) => ChildProcess;
-  private readonly waitHealthyMs: number;
-  private readonly onExitCallback?: (code: number | null, signal: NodeJS.Signals | null) => void;
-
-  constructor(opts: CoreSupervisorOptions) {
-    this.layout = opts.layout;
-    this.getSettings = opts.settings;
-    this.waitHealthyMs = opts.waitHealthyMs ?? 10_000;
-    this.onExitCallback = opts.onExit;
-    this.spawnFn = opts.spawnFn ?? this.defaultSpawn.bind(this);
-  }
-
-  private defaultSpawn(layout: SashLayout, _settings: SashSettings): ChildProcess {
-    fs.mkdirSync(layout.logsDir, { recursive: true });
-    fs.mkdirSync(layout.stateDir, { recursive: true });
-
-    const outFd = fs.openSync(layout.coreLogFile, "a", 0o600);
-    let errFd: number;
-    try {
-      if (process.platform !== "win32") {
-        try {
-          fs.chmodSync(layout.coreLogFile, 0o600);
-        } catch {
-          // ignore
-        }
-      }
-      errFd = fs.openSync(layout.coreErrLogFile, "a", 0o600);
-      if (process.platform !== "win32") {
-        try {
-          fs.chmodSync(layout.coreErrLogFile, 0o600);
-        } catch {
-          // ignore
-        }
-      }
-    } catch (err) {
-      fs.closeSync(outFd);
-      throw err;
-    }
-
-    const sanitizedEnv = buildSanitizedEnv();
-    const child = spawn(layout.coreExe, ["-d", layout.root, "-f", layout.configFile], {
-      cwd: layout.root,
-      stdio: ["ignore", outFd, errFd],
-      windowsHide: true,
-      env: sanitizedEnv,
-    });
-
-    try {
-      fs.closeSync(outFd);
-      fs.closeSync(errFd);
-    } catch {
-      // ignore
-    }
-
-    return child;
-  }
-
-  async start(): Promise<{ pid: number; version?: string }> {
-    if (this.child && isProcessAlive(this.child.pid ?? -1)) {
-      throw new Error(`Core is already running (PID=${this.child.pid})`);
-    }
-
-    if (!fs.existsSync(this.layout.coreExe)) {
-      throw new Error(`Core executable not found at ${this.layout.coreExe}`);
-    }
-    if (!fs.existsSync(this.layout.configFile)) {
-      throw new Error(`Core config not found at ${this.layout.configFile}`);
-    }
-
-    this.stopping = false;
-    const settings = this.getSettings();
-    const child = this.spawnFn(this.layout, settings);
-    const pid = child.pid;
-    if (!pid) {
-      throw new Error("Failed to start core process (no PID returned)");
-    }
-
-    this.child = child;
-    this.childStartedAt = new Date().toISOString();
-    writePidRecord(this.layout.pidFile, {
-      pid,
-      exe: this.layout.coreExe,
-      startedAt: this.childStartedAt,
-    });
-
-    let spawnError: Error | undefined;
-    child.once("error", (err) => {
-      spawnError = err;
-    });
-
-    child.once("exit", (code, signal) => {
-      const wasStopping = this.stopping;
-      this.child = null;
-      this.childStartedAt = undefined;
-      clearPidRecord(this.layout.pidFile);
-      if (!wasStopping) {
-        this.onExitCallback?.(code, signal);
-      }
-    });
-
-    const api = new MihomoApi(settings.controller, settings.secret);
-    const deadline = Date.now() + this.waitHealthyMs;
-    let version: string | undefined;
-
-    while (Date.now() < deadline) {
-      if (spawnError) {
-        clearPidRecord(this.layout.pidFile);
-        const details = tailFile(this.layout.coreErrLogFile, 20);
-        throw new Error(
-          `Failed to start core: ${spawnError.message}${details ? `\n${details}` : ""}`,
-        );
-      }
-
-      if (!isProcessAlive(pid)) {
-        clearPidRecord(this.layout.pidFile);
-        const details = tailFile(this.layout.coreErrLogFile, 20);
-        throw new Error(
-          `Core exited during startup.${details ? `\nRecent errors:\n${details}` : ""}`,
-        );
-      }
-
-      try {
-        version = await api.version();
-        return { pid, version };
-      } catch {
-        // keep polling
-      }
-      await sleep(250);
-    }
-
-    // Health check timed out
-    this.stopping = true;
-    await killProcessGracefully(pid, { timeoutMs: 3000 });
-    clearPidRecord(this.layout.pidFile);
-    this.child = null;
-    const details = tailFile(this.layout.coreErrLogFile, 20);
-    throw new Error(
-      `Core started (PID=${pid}) but external-controller did not become healthy within ${this.waitHealthyMs}ms.${
-        details ? `\nRecent errors:\n${details}` : ""
-      }`,
-    );
-  }
-
-  async stop(): Promise<void> {
-    const child = this.child;
-    if (!child?.pid || !isProcessAlive(child.pid)) {
-      this.child = null;
-      clearPidRecord(this.layout.pidFile);
-      return;
-    }
-
-    this.stopping = true;
-    const pid = child.pid;
-    await killProcessGracefully(pid, { timeoutMs: 8000 });
-    this.child = null;
-    this.childStartedAt = undefined;
-    clearPidRecord(this.layout.pidFile);
-  }
-
-  async restart(): Promise<{ pid: number; version?: string }> {
-    await this.stop();
-    return this.start();
-  }
-
-  async status(): Promise<CoreState> {
-    const child = this.child;
-    if (!child?.pid || !isProcessAlive(child.pid)) {
-      return { running: false };
-    }
-
-    const settings = this.getSettings();
-    const api = new MihomoApi(settings.controller, settings.secret);
-    let healthy = false;
-    let version: string | undefined;
-    try {
-      version = await api.version();
-      healthy = true;
-    } catch {
-      healthy = false;
-    }
-
-    return {
-      running: true,
-      pid: child.pid,
-      startedAt: this.childStartedAt,
-      healthy,
-      version,
-    };
-  }
-
-  isRunning(): boolean {
-    return Boolean(this.child && isProcessAlive(this.child.pid ?? -1));
-  }
-
-  /**
-   * Reconcile stale core processes on daemon startup: if a previous core
-   * was orphaned, verify its executable identity before killing it.
-   */
-  async cleanStaleCore(): Promise<void> {
-    const record = readPidRecord(this.layout.pidFile);
-    if (!record) return;
-
-    if (!isProcessAlive(record.pid)) {
-      clearPidRecord(this.layout.pidFile);
-      return;
-    }
-
-    const identity = classifyProcessIdentity(record.pid, record.exe);
-    if (identity === "match") {
-      await killProcessGracefully(record.pid, { timeoutMs: 5000 });
-    }
-    clearPidRecord(this.layout.pidFile);
-  }
 }
 
 export interface DaemonDeps {
@@ -367,49 +108,6 @@ function sendError(res: ServerResponse, statusCode: number, message: string): vo
   sendJson(res, statusCode, { error: message });
 }
 
-function parseHostPort(address: string): { host: string; port: number } {
-  const trimmed = address.trim();
-  const match = trimmed.match(/^(?:https?:\/\/)?(?:\[([0-9a-fA-F:]+)\]|([^:]+)):(\d+)$/);
-  if (match) {
-    const host = match[1] ?? match[2] ?? "127.0.0.1";
-    const port = Number.parseInt(match[3] ?? "9090", 10);
-    return { host, port };
-  }
-  return { host: "127.0.0.1", port: 9090 };
-}
-
-function resolveUiDir(layout: SashLayout): string | null {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const distUi = path.join(here, "ui");
-  if (fs.existsSync(path.join(distUi, "index.html"))) {
-    return distUi;
-  }
-  const devUi = path.join(path.dirname(here), "dist", "ui");
-  if (fs.existsSync(path.join(devUi, "index.html"))) {
-    return devUi;
-  }
-  if (fs.existsSync(path.join(layout.uiDir, "index.html"))) {
-    return layout.uiDir;
-  }
-  return null;
-}
-
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".wasm": "application/wasm",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-};
-
 export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   const layout = deps.layout;
   const settings = { ...deps.settings };
@@ -447,6 +145,27 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     }
   };
 
+  const syncSystemProxy = async (enable: boolean): Promise<void> => {
+    settings.systemProxy = enable;
+    saveSettings(settings, layout);
+    if (enable) {
+      await sysproxyAdapter.enable({ port: settings.mixedPort });
+      proxyApplied = true;
+    } else {
+      await sysproxyAdapter.disable();
+      proxyApplied = false;
+    }
+  };
+
+  const recompileAndReload = async (subscriptionDoc?: Record<string, unknown>) => {
+    const result = await generateConfig({ layout, settings, subscription: subscriptionDoc });
+    if (supervisor.isRunning()) {
+      const api = new MihomoApi(settings.controller, settings.secret);
+      await api.reloadConfig(layout.configFile);
+    }
+    return result;
+  };
+
   const supervisor =
     deps.supervisor ??
     new CoreSupervisor({
@@ -457,51 +176,14 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       },
     });
 
-  const forwardToCore = (req: IncomingMessage, res: ServerResponse, targetPath: string): void => {
-    const { host, port } = parseHostPort(settings.controller);
-    const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
-    delete upstreamHeaders.host;
-    if (settings.secret) {
-      upstreamHeaders.authorization = `Bearer ${settings.secret}`;
-    }
-
-    const proxyReq = http.request(
-      {
-        hostname: host,
-        port,
-        path: targetPath,
-        method: req.method,
-        headers: upstreamHeaders,
-        timeout: 30_000,
-      },
-      (proxyRes) => {
-        res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
-        proxyRes.pipe(res);
-      },
-    );
-
-    proxyReq.on("error", (err) => {
-      if (!res.headersSent) {
-        sendError(res, 502, `Core controller unavailable: ${(err as Error).message}`);
-      }
-    });
-
-    req.pipe(proxyReq);
-  };
-
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     const method = req.method?.toUpperCase() ?? "GET";
 
-    // 1. Unauthenticated identity probe (/sash/health and /health alias)
+    // 1. Health probe
     if (method === "GET" && (pathname === "/sash/health" || pathname === "/health")) {
-      sendJson(res, 200, {
-        ok: true,
-        token,
-        pid: process.pid,
-        startedAt,
-      });
+      sendJson(res, 200, { ok: true, token, pid: process.pid, startedAt });
       return;
     }
 
@@ -512,54 +194,24 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    // 3. Static UI serving (for /ui and /ui/*) - public dashboard assets
-    if (method === "GET" && (pathname === "/ui" || pathname.startsWith("/ui/"))) {
-      const uiRoot = resolveUiDir(layout);
-      if (uiRoot) {
-        let relative = pathname.startsWith("/ui/") ? pathname.slice("/ui/".length) : "";
-        if (!relative || relative === "ui") relative = "index.html";
-        const candidate = path.join(uiRoot, relative);
-        const hasExt = Boolean(path.extname(relative));
-
-        let targetFile: string | null = null;
-        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-          targetFile = candidate;
-        } else if (!hasExt) {
-          targetFile = path.join(uiRoot, "index.html");
-        }
-
-        if (targetFile && fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
-          const ext = path.extname(targetFile);
-          const mime = MIME_TYPES[ext] ?? "application/octet-stream";
-          const headers: Record<string, string> = { "Content-Type": mime };
-          if (ext === ".html") {
-            headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
-            headers.Pragma = "no-cache";
-            headers.Expires = "0";
-          }
-          res.writeHead(200, headers);
-          fs.createReadStream(targetFile).pipe(res);
-          return;
-        }
-
-        sendError(res, 404, `File not found: ${pathname}`);
-        return;
-      }
+    // 3. Static WebUI assets
+    if (method === "GET" && serveStaticUi(req, res, pathname, layout)) {
+      return;
     }
 
-    // 4. API routes (loopback accessible)
+    // 4. API routes
     try {
       /* ==================================================================== */
       /* /core/api/* — Reverse Proxy to Mihomo external-controller             */
       /* ==================================================================== */
       if (pathname.startsWith("/core/api")) {
         const targetSubPath = (pathname.slice("/core/api".length) || "/") + url.search;
-        forwardToCore(req, res, targetSubPath);
+        forwardHttpToCore(req, res, targetSubPath, settings.controller, settings.secret);
         return;
       }
 
       /* ==================================================================== */
-      /* Standard Controller Fallback Proxy (e.g. /version, /proxies, etc.)   */
+      /* Fallback proxy for standard core endpoints                           */
       /* ==================================================================== */
       if (
         pathname === "/version" ||
@@ -569,12 +221,12 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         pathname.startsWith("/providers") ||
         pathname.startsWith("/dns")
       ) {
-        forwardToCore(req, res, pathname + url.search);
+        forwardHttpToCore(req, res, pathname + url.search, settings.controller, settings.secret);
         return;
       }
 
       /* ==================================================================== */
-      /* /sash/* — Sash Supervisor Domain                                     */
+      /* /sash/* — Supervisor Domain                                          */
       /* ==================================================================== */
       if (method === "GET" && (pathname === "/sash/status" || pathname === "/status")) {
         const core = await supervisor.status();
@@ -620,10 +272,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           sendError(res, 400, "Cannot enable system proxy: core is not running");
           return;
         }
-        settings.systemProxy = true;
-        saveSettings(settings, layout);
-        await sysproxyAdapter.enable({ port: settings.mixedPort });
-        proxyApplied = true;
+        await syncSystemProxy(true);
         sendJson(res, 200, { ok: true, systemProxy: true });
         return;
       }
@@ -632,10 +281,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         method === "POST" &&
         (pathname === "/sash/proxy/disable" || pathname === "/proxy/disable")
       ) {
-        settings.systemProxy = false;
-        saveSettings(settings, layout);
-        await sysproxyAdapter.disable();
-        proxyApplied = false;
+        await syncSystemProxy(false);
         sendJson(res, 200, { ok: true, systemProxy: false });
         return;
       }
@@ -658,11 +304,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         const doc = await fetchSub(urlStr);
         settings.subscriptionUrl = urlStr;
         saveSettings(settings, layout);
-        const result = await generateConfig({ layout, settings, subscription: doc });
-        if (supervisor.isRunning()) {
-          const api = new MihomoApi(settings.controller, settings.secret);
-          await api.reloadConfig(layout.configFile);
-        }
+        const result = await recompileAndReload(doc);
         sendJson(res, 200, { ok: true, proxyCount: result.proxyCount });
         return;
       }
@@ -673,11 +315,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       ) {
         settings.subscriptionUrl = "";
         saveSettings(settings, layout);
-        await generateConfig({ layout, settings });
-        if (supervisor.isRunning()) {
-          const api = new MihomoApi(settings.controller, settings.secret);
-          await api.reloadConfig(layout.configFile);
-        }
+        await recompileAndReload();
         sendJson(res, 200, { ok: true });
         return;
       }
@@ -691,11 +329,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           return;
         }
         const doc = await fetchSub(settings.subscriptionUrl);
-        const result = await generateConfig({ layout, settings, subscription: doc });
-        if (supervisor.isRunning()) {
-          const api = new MihomoApi(settings.controller, settings.secret);
-          await api.reloadConfig(layout.configFile);
-        }
+        const result = await recompileAndReload(doc);
         sendJson(res, 200, { ok: true, proxyCount: result.proxyCount });
         return;
       }
@@ -714,16 +348,19 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           return;
         }
 
-        applyManagedKey(settings, key, value);
+        try {
+          applyManagedKey(settings, key, value);
+        } catch (err) {
+          sendError(res, 400, (err as Error).message);
+          return;
+        }
         saveSettings(settings, layout);
 
         if (key === "system-proxy") {
           if (settings.systemProxy && supervisor.isRunning()) {
-            await sysproxyAdapter.enable({ port: settings.mixedPort });
-            proxyApplied = true;
+            await syncSystemProxy(true);
           } else {
-            await sysproxyAdapter.disable();
-            proxyApplied = false;
+            await syncSystemProxy(false);
           }
         } else {
           const doc = settings.subscriptionUrl
@@ -785,11 +422,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         (pathname === "/core/config/reload" || pathname === "/config/reload")
       ) {
         const doc = settings.subscriptionUrl ? await fetchSub(settings.subscriptionUrl) : undefined;
-        const result = await generateConfig({ layout, settings, subscription: doc });
-        if (supervisor.isRunning()) {
-          const api = new MihomoApi(settings.controller, settings.secret);
-          await api.reloadConfig(layout.configFile);
-        }
+        const result = await recompileAndReload(doc);
         sendJson(res, 200, { ok: true, proxyCount: result.proxyCount, source: result.source });
         return;
       }
@@ -812,44 +445,11 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    const { host, port } = parseHostPort(settings.controller);
     const targetSubPath = pathname.startsWith("/core/api")
       ? (pathname.slice("/core/api".length) || "/") + url.search
       : pathname + url.search;
 
-    const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
-    delete upstreamHeaders.host;
-    if (settings.secret) {
-      upstreamHeaders.authorization = `Bearer ${settings.secret}`;
-    }
-
-    const proxyReq = http.request({
-      hostname: host,
-      port,
-      path: targetSubPath,
-      method: "GET",
-      headers: upstreamHeaders,
-    });
-
-    proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
-      const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 101} ${proxyRes.statusMessage ?? "Switching Protocols"}\r\n`;
-      const headerLines = Object.entries(proxyRes.headers)
-        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
-        .join("\r\n");
-      socket.write(`${statusLine}${headerLines}\r\n\r\n`);
-
-      if (proxyHead.length > 0) socket.write(proxyHead);
-      if (head.length > 0) proxySocket.write(head);
-
-      proxySocket.pipe(socket);
-      socket.pipe(proxySocket);
-    });
-
-    proxyReq.on("error", () => {
-      socket.destroy();
-    });
-
-    proxyReq.end();
+    forwardWsToCore(req, socket, head, targetSubPath, settings.controller, settings.secret);
   });
 
   return {

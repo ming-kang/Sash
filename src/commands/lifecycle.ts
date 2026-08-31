@@ -4,21 +4,15 @@ import { log } from "../log.js";
 import {
   ensureConfig,
   ensureCore,
-  ensureWebUi,
   persistContext,
   type RuntimeContext,
   runtimeContext,
 } from "./shared.js";
 
-export interface StartCommandOptions {
-  noUi?: boolean;
-}
-
-export async function runStart(opts: StartCommandOptions = {}): Promise<void> {
+export async function runStart(): Promise<void> {
   const ctx = runtimeContext();
   await ensureCore(ctx);
   await ensureConfig(ctx);
-  if (!opts.noUi) await ensureWebUi(ctx);
   persistContext(ctx);
 
   await ensureDaemon({ layout: ctx.layout, settings: ctx.settings });
@@ -56,11 +50,10 @@ export async function runStop(): Promise<void> {
   if (stopped) log.ok("sash stopped (core and system proxy disabled)");
 }
 
-export async function runRestart(opts: StartCommandOptions = {}): Promise<void> {
+export async function runRestart(): Promise<void> {
   const ctx = runtimeContext();
   await ensureCore(ctx);
   await ensureConfig(ctx);
-  if (!opts.noUi) await ensureWebUi(ctx);
   persistContext(ctx);
 
   await ensureDaemon({ layout: ctx.layout, settings: ctx.settings });

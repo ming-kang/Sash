@@ -8,12 +8,11 @@ import { downloadToFile, fetchWithRetry, USER_AGENT } from "./http.js";
  *    mirrors such as ghfast.top.
  * 2. Asset listing uses the REST API when reachable (supports GITHUB_TOKEN /
  *    GH_TOKEN); otherwise falls back to synthesized candidate names since
- *    mihomo/metacubexd use deterministic asset naming.
+ *    mihomo uses deterministic asset naming.
  * 3. Downloads try each candidate through every mirror in order.
  */
 
 export const MIHOMO_REPO = "MetaCubeX/mihomo";
-export const METACUBEXD_REPO = "MetaCubeX/metacubexd";
 
 /** Mirrors that proxy github.com URLs. Direct first. */
 export const GITHUB_MIRRORS = [
@@ -52,93 +51,100 @@ export async function resolveLatestTag(repo: string): Promise<string> {
       // try next mirror
     }
   }
-  // Fallback: REST API.
+
+  // Fallback: GitHub REST API (consumes rate limit, direct only)
   const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`;
   const res = await fetchWithRetry(apiUrl, {
+    headers: {
+      accept: "application/vnd.github+json",
+      ...ghTokenHeaders(),
+    },
     attempts: 2,
     timeoutMs: 15_000,
-    headers: { accept: "application/vnd.github+json", ...ghTokenHeaders() },
   });
-  if (res.statusCode !== 200)
-    throw new Error(`Failed to resolve latest tag for ${repo} (HTTP ${res.statusCode})`);
-  const data = JSON.parse(await res.text()) as { tag_name?: string };
-  if (!data.tag_name) throw new Error(`GitHub API response missing tag_name for ${repo}`);
+  if (res.statusCode !== 200) {
+    throw new Error(`Failed to resolve latest release for ${repo}: HTTP ${res.statusCode}`);
+  }
+  const text = await res.text();
+  let data: { tag_name?: string } | undefined;
+  try {
+    data = JSON.parse(text) as { tag_name?: string };
+  } catch {
+    // ignore
+  }
+  if (!data?.tag_name) {
+    throw new Error(`GitHub release response for ${repo} missing tag_name`);
+  }
   return data.tag_name;
 }
 
 export interface ReleaseAsset {
   name: string;
-  url: string; // browser_download_url
+  browser_download_url: string;
+  size: number;
 }
 
 export async function listReleaseAssets(repo: string, tag: string): Promise<ReleaseAsset[]> {
   const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
   const res = await fetchWithRetry(apiUrl, {
+    headers: {
+      accept: "application/vnd.github+json",
+      ...ghTokenHeaders(),
+    },
     attempts: 2,
     timeoutMs: 15_000,
-    headers: { accept: "application/vnd.github+json", ...ghTokenHeaders() },
   });
-  if (res.statusCode !== 200) return [];
-  const data = JSON.parse(await res.text()) as {
-    assets?: Array<{ name: string; browser_download_url: string }>;
-  };
-  return (data.assets ?? []).map((a) => ({ name: a.name, url: a.browser_download_url }));
-}
-
-const ALLOWED_DOWNLOAD_HOSTS = new Set([
-  "github.com",
-  "objects.githubusercontent.com",
-  "ghfast.top",
-  "gh-proxy.com",
-]);
-
-function assertAllowedDownload(url: string): void {
-  let host: string;
+  if (res.statusCode !== 200) {
+    throw new Error(`Failed to list release assets for ${repo}@${tag}: HTTP ${res.statusCode}`);
+  }
+  const text = await res.text();
+  let data: { assets?: ReleaseAsset[] } | undefined;
   try {
-    host = new URL(url).hostname.toLowerCase();
+    data = JSON.parse(text) as { assets?: ReleaseAsset[] };
   } catch {
-    throw new Error(`Invalid download URL: ${url}`);
+    // ignore
   }
-  if (!ALLOWED_DOWNLOAD_HOSTS.has(host)) {
-    throw new Error(`Refusing to download from untrusted host: ${host}`);
-  }
+  return Array.isArray(data?.assets) ? data.assets : [];
 }
 
-export interface DownloadAssetOptions {
-  dest: string;
-  /** Exact asset names to try, most preferred first. */
-  candidates: string[];
-  /** Asset list from the REST API; when empty, names are synthesized from the tag. */
-  assets?: ReleaseAsset[];
-  tag: string;
+export interface DownloadOptions {
   repo: string;
+  tag: string;
+  assets: ReleaseAsset[];
+  candidates: string[];
+  dest: string;
   onProgress?: (downloaded: number, total: number | undefined) => void;
 }
 
-/**
- * Download the first matching release asset, trying every mirror for each
- * candidate name. Returns the asset name that succeeded.
- */
-export async function downloadReleaseAsset(opts: DownloadAssetOptions): Promise<string> {
-  const errors: string[] = [];
-  for (const name of opts.candidates) {
-    const direct =
-      opts.assets?.find((a) => a.name === name)?.url ??
-      `https://github.com/${opts.repo}/releases/download/${opts.tag}/${name}`;
-    for (const url of mirrorize(direct)) {
-      assertAllowedDownload(url);
-      try {
-        await downloadToFile(url, opts.dest, {
-          onProgress: opts.onProgress,
-          allowedHosts: ALLOWED_DOWNLOAD_HOSTS,
-        });
-        return name;
-      } catch (err) {
-        errors.push(`${name} via ${new URL(url).host}: ${(err as Error).message}`);
-      }
+export async function downloadReleaseAsset(opts: DownloadOptions): Promise<string> {
+  const matched = opts.candidates.find((candidate) =>
+    opts.assets.some((a) => a.name.toLowerCase() === candidate.toLowerCase()),
+  );
+  const chosenName = matched ?? opts.candidates[0];
+  if (!chosenName) {
+    throw new Error(`No candidate asset name provided for ${opts.repo}@${opts.tag}`);
+  }
+
+  const directUrl = `https://github.com/${opts.repo}/releases/download/${opts.tag}/${chosenName}`;
+  const urls = mirrorize(directUrl);
+
+  let lastError: Error | undefined;
+  for (const url of urls) {
+    try {
+      await downloadToFile(url, opts.dest, {
+        onProgress: opts.onProgress,
+        stallMs: 60_000,
+      });
+      return chosenName;
+    } catch (err) {
+      lastError = err as Error;
+      // try next mirror
     }
   }
-  throw new Error(`All download attempts failed:\n  ${errors.join("\n  ")}`);
+
+  throw new Error(
+    `Failed to download ${chosenName} from all mirrors: ${lastError?.message ?? "unknown error"}`,
+  );
 }
 
 export { USER_AGENT };

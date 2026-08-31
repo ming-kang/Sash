@@ -102,7 +102,6 @@ export function overlayManagedKeys(
   out["mixed-port"] = settings.mixedPort;
   out["allow-lan"] = settings.allowLan;
   out["external-controller"] = settings.controller;
-  out["external-ui"] = "ui"; // relative to mihomo -d <root>
   out.secret = settings.secret;
   if (settings.tun) {
     out.tun = {

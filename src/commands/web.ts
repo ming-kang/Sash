@@ -27,7 +27,7 @@ export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
 
   if (!coreRunning) {
     log.info("sash is not running; starting it first...");
-    await runStart({});
+    await runStart();
   }
 
   const url = dashboardUrl(ctx.settings.daemonPort);

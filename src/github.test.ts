@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { GITHUB_MIRRORS, METACUBEXD_REPO, MIHOMO_REPO, USER_AGENT } from "./github.js";
+import { GITHUB_MIRRORS, MIHOMO_REPO, USER_AGENT } from "./github.js";
 
 describe("github", () => {
   it("defines repository constants", () => {
     assert.equal(MIHOMO_REPO, "MetaCubeX/mihomo");
-    assert.equal(METACUBEXD_REPO, "MetaCubeX/metacubexd");
   });
 
   it("defines GitHub mirrors starting with direct connection (empty string)", () => {

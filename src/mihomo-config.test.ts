@@ -117,8 +117,8 @@ describe("mihomo-config", () => {
       assert.equal(overlaid["mixed-port"], 7890);
       assert.equal(overlaid["allow-lan"], false);
       assert.equal(overlaid["external-controller"], "127.0.0.1:9090");
-      assert.equal(overlaid["external-ui"], "ui");
       assert.equal(overlaid.secret, "managed-secret");
+      assert.equal("external-ui" in overlaid, false);
       assert.equal("port" in overlaid, false);
       assert.equal("socks-port" in overlaid, false);
       assert.equal("external-ui-url" in overlaid, false);

@@ -1,4 +1,3 @@
-import { MihomoApi } from "../api.js";
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
@@ -10,7 +9,6 @@ import { runtimeContext } from "./shared.js";
 export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  const api = new MihomoApi(ctx.settings.controller, ctx.settings.secret);
 
   if (opts.json) {
     let coreRunning = false;
@@ -57,7 +55,7 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
           uiVersion: ctx.settings.uiVersion || null,
           uiInstalled: uiInstalled(ctx.layout),
           mixedPort: ctx.settings.mixedPort,
-          controller: api.baseUrl,
+          controller: ctx.settings.controller,
           daemonApi: `http://127.0.0.1:${ctx.settings.daemonPort}`,
           dashboard: `http://127.0.0.1:${ctx.settings.daemonPort}/ui/`,
           subscription: ctx.settings.subscriptionUrl || null,

@@ -1,89 +1,47 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import { describe, it } from "node:test";
 import { MihomoApi } from "./api.js";
 
-/**
- * Read the query out of a `.../ui/#/setup?a=b` deep-link the way the dashboard
- * does: Vue Router splits on `&`/`=` and decodes with decodeURIComponent.
- */
-function setupQuery(url: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const pair of url.slice(url.indexOf("?") + 1).split("&")) {
-    const [key, value] = pair.split("=");
-    if (key) out[key] = decodeURIComponent(value ?? "");
-  }
-  return out;
-}
-
-describe("MihomoApi.uiUrl", () => {
-  it("builds a credential-free dashboard URL", () => {
-    assert.equal(new MihomoApi("127.0.0.1:9090", "s3cr3t").uiUrl(), "http://127.0.0.1:9090/ui/");
+describe("MihomoApi", () => {
+  it("normalizes controller URL without protocol", () => {
+    const api = new MihomoApi("127.0.0.1:9090", "secret");
+    assert.equal(api.baseUrl, "http://127.0.0.1:9090");
   });
 
-  it("falls back to the default controller when none is configured", () => {
-    assert.equal(new MihomoApi("", "").uiUrl(), "http://127.0.0.1:9090/ui/");
+  it("falls back to default controller if empty", () => {
+    const api = new MihomoApi("", "");
+    assert.equal(api.baseUrl, "http://127.0.0.1:9090");
   });
 
-  it("rewrites wildcard binds to a reachable loopback address", () => {
-    // 0.0.0.0 is a listen target, not something a browser can open.
-    assert.equal(new MihomoApi("0.0.0.0:9090", "s").uiUrl(), "http://127.0.0.1:9090/ui/");
-    assert.equal(new MihomoApi("[::]:9090", "s").uiUrl(), "http://[::1]:9090/ui/");
-  });
+  it("queries version and checks reachability", async () => {
+    const server = http.createServer((req, res) => {
+      if (req.url === "/version" && req.headers.authorization === "Bearer test-secret") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ version: "v1.19.30-meta" }));
+        return;
+      }
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+    });
 
-  it("preserves an explicit IPv6 loopback controller", () => {
-    assert.equal(new MihomoApi("[::1]:9090", "s").uiUrl(), "http://[::1]:9090/ui/");
-  });
-});
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
 
-describe("MihomoApi.dashboardAuthUrl", () => {
-  it("targets the dashboard's setup deep-link on the hash route", () => {
-    const url = new MihomoApi("127.0.0.1:9090", "abc").dashboardAuthUrl();
-    assert.ok(url.startsWith("http://127.0.0.1:9090/ui/#/setup?"), url);
-    assert.deepEqual(setupQuery(url), { hostname: "127.0.0.1", port: "9090", secret: "abc" });
-  });
+    try {
+      const api = new MihomoApi(`127.0.0.1:${port}`, "test-secret");
+      const reachable = await api.isReachable();
+      assert.equal(reachable, true);
 
-  it("omits the protocol so the dashboard reuses the one the page was served over", () => {
-    const query = setupQuery(new MihomoApi("127.0.0.1:9090", "abc").dashboardAuthUrl());
-    assert.equal(query.http, undefined);
-    assert.equal(query.https, undefined);
-  });
+      const ver = await api.version();
+      assert.equal(ver, "v1.19.30-meta");
 
-  it("rewrites wildcard binds so the browser gets a connectable host", () => {
-    const v4 = new MihomoApi("0.0.0.0:9090", "s").dashboardAuthUrl();
-    const v6 = new MihomoApi("[::]:9090", "s").dashboardAuthUrl();
-    assert.equal(setupQuery(v4).hostname, "127.0.0.1");
-    assert.equal(setupQuery(v6).hostname, "[::1]");
-  });
-
-  it("keeps an explicit port that URL normalisation would otherwise drop", () => {
-    const url = new MihomoApi("example.com:80", "s").dashboardAuthUrl();
-    assert.equal(setupQuery(url).port, "80");
-  });
-
-  it("round-trips secrets containing URL, HTML and replacement-pattern metacharacters", () => {
-    // The previous implementation spliced the secret into a <script> block with
-    // String.replace, so `$&` expanded to the placeholder and `</script>` broke
-    // out of the tag entirely.
-    const secrets = [
-      "a&b=c",
-      "a</script><script>alert(1)</script>",
-      "abc$&def",
-      "x$`y",
-      "x#y",
-      "a b",
-      'a"b',
-      "p/q?r",
-    ];
-    for (const secret of secrets) {
-      const url = new MihomoApi("127.0.0.1:9090", secret).dashboardAuthUrl();
-      assert.equal(setupQuery(url).secret, secret, secret);
+      const badApi = new MihomoApi(`127.0.0.1:${port}`, "wrong-secret");
+      const badReachable = await badApi.isReachable();
+      assert.equal(badReachable, false);
+    } finally {
+      server.close();
     }
-  });
-
-  it("percent-encodes spaces instead of form-encoding them", () => {
-    // Vue Router decodes with decodeURIComponent, which leaves `+` untouched.
-    const url = new MihomoApi("127.0.0.1:9090", "a b").dashboardAuthUrl();
-    assert.ok(url.includes("secret=a%20b"), url);
-    assert.ok(!url.includes("+"), url);
   });
 });

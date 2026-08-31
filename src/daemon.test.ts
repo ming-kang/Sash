@@ -235,13 +235,13 @@ describe("daemon server", () => {
       assert.equal(raw.tun, true);
     });
 
-    it("rejects unknown keys with 500 containing message", async () => {
+    it("rejects unknown keys with 400 containing message", async () => {
       await startServer();
       const res = await apiRequest("/sash/settings", {
         method: "PATCH",
         body: { key: "invalid-key", value: "value" },
       });
-      assert.equal(res.statusCode, 500);
+      assert.equal(res.statusCode, 400);
       assert.match((res.data as { error: string }).error, /unknown key/);
     });
   });
