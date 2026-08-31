@@ -48,8 +48,9 @@ export async function installWebUi(opts: UiInstallOptions = {}): Promise<string>
     await tar.x({
       file: archivePath,
       cwd: staging,
-      // Strip symlink entries outright: the dashboard is plain static files.
-      filter: (entryPath) => !entryPath.includes(".."),
+      // tar shares this signature with the create path, where the second
+      // argument is an fs.Stats; on extraction it is always a ReadEntry.
+      filter: (entryPath, entry) => isSafeUiEntry(entryPath, entry as tar.ReadEntry),
     });
 
     // The tarball may nest everything under a single top-level directory.
@@ -73,4 +74,15 @@ function flattenSingleDir(dir: string): string {
     return path.join(dir, entries[0].name);
   }
   return dir;
+}
+
+/**
+ * The dashboard is plain static files. Accept only regular files and
+ * directories at relative, non-traversing paths — no symlinks, hardlinks or
+ * device nodes, which an archive could otherwise use to write outside <root>.
+ */
+export function isSafeUiEntry(entryPath: string, entry: Pick<tar.ReadEntry, "type">): boolean {
+  if (path.isAbsolute(entryPath) || /^[a-z]:/i.test(entryPath)) return false;
+  if (entryPath.split(/[\\/]/).includes("..")) return false;
+  return entry.type === "File" || entry.type === "Directory";
 }
