@@ -3,6 +3,8 @@ import type {
   ConnectionsResponse,
   LogMessage,
   OutboundMode,
+  ProfileMeta,
+  ProfilesResponse,
   ProxiesResponse,
   RulesResponse,
   SashStatus,
@@ -95,18 +97,43 @@ export const api = {
   disableSystemProxy: () =>
     request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/disable", { method: "POST" }),
 
-  setSubscription: (url: string) =>
-    request<{ ok: boolean; proxyCount: number }>("/sash/subscription", {
+  getProfiles: () => request<ProfilesResponse>("/sash/profiles"),
+
+  addProfile: (url: string) =>
+    request<{ ok: boolean; profile: ProfileMeta; activated: boolean; proxyCount?: number }>(
+      "/sash/profiles",
+      { method: "POST", body: { url } },
+    ),
+
+  importProfile: (name: string, content: string) =>
+    request<{ ok: boolean; profile: ProfileMeta; activated: boolean; proxyCount?: number }>(
+      "/sash/profiles/import",
+      { method: "POST", body: { name, content } },
+    ),
+
+  updateProfile: (id: string) =>
+    request<{ ok: boolean; proxyCount?: number }>(`/sash/profiles/${id}/update`, {
       method: "POST",
-      body: { url },
     }),
 
-  refreshSubscription: () =>
-    request<{ ok: boolean; proxyCount: number }>("/sash/subscription/refresh", {
-      method: "POST",
-    }),
+  updateAllProfiles: () =>
+    request<{
+      ok: boolean;
+      updated: number;
+      failed: Array<{ id: string; name: string; error: string }>;
+      proxyCount?: number;
+    }>("/sash/profiles/update-all", { method: "POST" }),
 
-  unsetSubscription: () => request<{ ok: boolean }>("/sash/subscription", { method: "DELETE" }),
+  setActiveProfile: (id: string | null) =>
+    request<{ ok: boolean; activeId: string | null; proxyCount: number }>(
+      "/sash/profiles/active",
+      { method: "PUT", body: { id } },
+    ),
+
+  deleteProfile: (id: string) =>
+    request<{ ok: boolean; wasActive: boolean; proxyCount?: number }>(`/sash/profiles/${id}`, {
+      method: "DELETE",
+    }),
 
   patchSetting: (key: string, value: string) =>
     request<{ ok: boolean }>("/sash/settings", { method: "PATCH", body: { key, value } }),

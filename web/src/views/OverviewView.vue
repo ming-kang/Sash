@@ -73,33 +73,33 @@
           </div>
         </UiCard>
 
-        <!-- Subscription -->
+        <!-- Active profile -->
         <UiCard :title="t('overview.subTitle')">
           <template #actions>
             <button
-              v-if="hasSubscription"
+              v-if="activeProfile?.url"
               class="icon-btn"
               :class="{ spin: refreshingSub }"
-              :title="t('subscription.refreshNow')"
+              :title="t('profiles.update')"
               :disabled="refreshingSub"
-              @click="refreshSubscription"
+              @click="refreshActiveProfile"
             >
               <Icon name="refresh" :size="13" />
             </button>
           </template>
-          <template v-if="hasSubscription">
+          <template v-if="activeProfile">
             <div class="kv-row">
-              <span class="kv-label sub-host" :title="store.status?.settings.subscriptionUrl">{{ subHost }}</span>
+              <span class="kv-label sub-host" :title="activeProfile.url || activeProfile.name">{{ activeProfile.name }}</span>
               <span class="badge badge-accent">{{ t('common.nodesCount', { n: totalNodes }) }}</span>
             </div>
             <div class="kv-row">
-              <span class="kv-label">{{ t('subscription.statGroups') }}</span>
+              <span class="kv-label">{{ t('profiles.statGroups') }}</span>
               <span class="kv-value">{{ store.proxyGroups.length }}</span>
             </div>
           </template>
           <template v-else>
             <p class="sub-empty">{{ t('overview.subEmpty') }}</p>
-            <button class="btn btn-primary btn-sm btn-block" @click="navigate('subscription')">
+            <button class="btn btn-primary btn-sm btn-block" @click="navigate('profiles')">
               {{ t('overview.subSet') }}
             </button>
           </template>
@@ -346,16 +346,7 @@ const coreVersion = computed(() => {
 
 const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
 
-const hasSubscription = computed(() => Boolean(store.status?.settings.subscriptionUrl));
-
-const subHost = computed(() => {
-  const url = store.status?.settings.subscriptionUrl ?? "";
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-});
+const activeProfile = computed(() => store.status?.activeProfile ?? null);
 
 const totalNodes = computed(
   () => Object.values(store.proxies).filter((p) => !(Array.isArray(p.all) && p.all.length > 0)).length,
@@ -535,14 +526,15 @@ async function restartCore(): Promise<void> {
   }
 }
 
-async function refreshSubscription(): Promise<void> {
-  if (refreshingSub.value) return;
+async function refreshActiveProfile(): Promise<void> {
+  const p = activeProfile.value;
+  if (!p?.url || refreshingSub.value) return;
   refreshingSub.value = true;
   try {
-    const r = await api.refreshSubscription();
+    await api.updateProfile(p.id);
     store.status = await api.getStatus();
     await refreshProxies();
-    toast.success(t("toast.subRefreshed", { n: r.proxyCount }));
+    toast.success(t("toast.profileUpdated", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {

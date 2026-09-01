@@ -3,6 +3,8 @@ import type {
   ConnectionItem,
   LogMessage,
   OutboundMode,
+  ProfileMeta,
+  ProfilesResponse,
   ProxyItem,
   RuleItem,
   SashStatus,
@@ -32,6 +34,8 @@ export interface StoreState {
   connectionsDownloadTotal: number;
   rules: RuleItem[];
   logs: LogMessage[];
+  profiles: ProfileMeta[];
+  activeProfileId: string | null;
   activeGroup: string;
   toasts: ToastItem[];
 }
@@ -56,12 +60,19 @@ export const store = reactive<StoreState>({
   connectionsDownloadTotal: 0,
   rules: [],
   logs: [],
+  profiles: [],
+  activeProfileId: null,
   activeGroup: "",
   toasts: [],
 });
 
 export const isSysProxyOn = computed(() => store.status?.systemProxy.applied ?? false);
 export const isCoreRunning = computed(() => store.status?.core.running ?? false);
+
+export function setProfiles(res: ProfilesResponse): void {
+  store.profiles = res.profiles;
+  store.activeProfileId = res.activeId;
+}
 
 export function setProxies(proxies: Record<string, ProxyItem>): void {
   store.proxies = proxies;

@@ -12,10 +12,10 @@
 
       <div class="page-container">
         <OverviewView v-if="currentRoute === 'overview'" />
+        <ProfilesView v-else-if="currentRoute === 'profiles'" />
+        <LogsView v-else-if="currentRoute === 'logs'" />
         <ConnectionsView v-else-if="currentRoute === 'connections'" />
         <RulesView v-else-if="currentRoute === 'rules'" />
-        <SubscriptionView v-else-if="currentRoute === 'subscription'" />
-        <LogsView v-else-if="currentRoute === 'logs'" />
         <SettingsView v-else-if="currentRoute === 'settings'" />
       </div>
     </main>
@@ -34,13 +34,13 @@ import Icon from "./components/Icon.vue";
 import ToastHost from "./components/ToastHost.vue";
 import { t } from "./i18n/index.js";
 import { currentRoute } from "./router.js";
-import { addLog, addTraffic, setProxies, store } from "./stores/index.js";
+import { addLog, addTraffic, setProfiles, setProxies, store } from "./stores/index.js";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import LogsView from "./views/LogsView.vue";
 import OverviewView from "./views/OverviewView.vue";
+import ProfilesView from "./views/ProfilesView.vue";
 import RulesView from "./views/RulesView.vue";
 import SettingsView from "./views/SettingsView.vue";
-import SubscriptionView from "./views/SubscriptionView.vue";
 
 let pollTimer: number | null = null;
 let unsubTraffic: (() => void) | null = null;
@@ -76,10 +76,11 @@ async function bootstrap(): Promise<void> {
   if (status) store.status = status;
   if (configs) store.mode = configs.mode;
 
-  Promise.all([api.getProxies(), api.getRules()])
-    .then(([p, r]) => {
+  Promise.all([api.getProxies(), api.getRules(), api.getProfiles()])
+    .then(([p, r, prof]) => {
       setProxies(p.proxies);
       store.rules = r.rules;
+      setProfiles(prof);
     })
     .catch(() => {});
 

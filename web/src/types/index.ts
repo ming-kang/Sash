@@ -36,6 +36,33 @@ export interface SashStatus {
     daemonSecret: string;
     systemProxy: boolean;
   };
+  activeProfile?: { id: string; name: string; url: string } | null;
+}
+
+export interface ProfileSubInfo {
+  upload: number;
+  download: number;
+  total: number;
+  /** Unix epoch seconds. */
+  expire?: number;
+}
+
+export interface ProfileMeta {
+  id: string;
+  name: string;
+  /** Remote subscription URL; "" for imported/local files. */
+  url: string;
+  intervalHours: number;
+  createdAt: string;
+  updatedAt: string;
+  subInfo?: ProfileSubInfo;
+  homePage?: string;
+  lastError?: string;
+}
+
+export interface ProfilesResponse {
+  activeId: string | null;
+  profiles: ProfileMeta[];
 }
 
 export interface ProxyItem {

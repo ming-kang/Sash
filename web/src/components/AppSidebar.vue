@@ -64,10 +64,10 @@ import { formatSpeed } from "../utils/format.js";
 
 const navItems: Array<{ route: Route; icon: string }> = [
   { route: "overview", icon: "grid" },
+  { route: "profiles", icon: "layers" },
+  { route: "logs", icon: "terminal" },
   { route: "connections", icon: "swap" },
   { route: "rules", icon: "list-filter" },
-  { route: "subscription", icon: "link" },
-  { route: "logs", icon: "terminal" },
   { route: "settings", icon: "settings" },
 ];
 

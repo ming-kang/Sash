@@ -37,6 +37,31 @@ export function formatTime(date: Date = new Date()): string {
   return `${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`;
 }
 
+/** ISO timestamp → compact relative age ("12 min ago" / "12 分钟前"). */
+export function formatAgo(iso: string, locale: string): string {
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return "-";
+  const mins = Math.floor(Math.max(0, Date.now() - ms) / 60000);
+  const zh = locale === "zh";
+  if (mins < 1) return zh ? "刚刚" : "just now";
+  if (mins < 60) return zh ? `${mins} 分钟前` : `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return zh ? `${hours} 小时前` : `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return zh ? `${days} 天前` : `${days} d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return zh ? `${months} 个月前` : `${months} mo ago`;
+  const years = Math.floor(months / 12);
+  return zh ? `${years} 年前` : `${years} y ago`;
+}
+
+/** Unix epoch seconds → yyyy-mm-dd. */
+export function formatDate(epochSec: number): string {
+  const d = new Date(epochSec * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /** Delay in ms → semantic level used for colors. 0/undefined handled by caller. */
 export function delayLevel(delay: number): "good" | "mid" | "bad" {
   if (delay <= 0) return "bad";
