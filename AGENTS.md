@@ -12,7 +12,7 @@
 Sash is a strict TypeScript ESM CLI (Node.js >= 20). Entry point: `src/cli.ts`.
 
 - `src/commands/` — one module per command group; thin wiring only, no business logic.
-- `src/` root modules — `paths.ts` (data dir layout), `settings.ts` (`sash.json`), `core.ts` (core download/install), `webui.ts` (dashboard install), `mihomo-config.ts` (config.yaml generation), `process.ts` (daemon lifecycle, PID identity), `api.ts` (external-controller client), `http.ts` / `github.ts` (networking, mirrors), `fs-atomic.ts`.
+- `src/` root modules — `paths.ts` (data dir layout), `settings.ts` (`sash.json`), `core.ts` (core download/install), `webui.ts` (dashboard asset path resolution), `mihomo-config.ts` (config.yaml generation), `process.ts` (daemon lifecycle, PID identity), `api.ts` (external-controller client), `http.ts` / `github.ts` (networking, mirrors), `fs-atomic.ts`.
 - Tests live beside their module as `*.test.ts`. `dist/` is generated; never edit it manually.
 
 ## Code Quality

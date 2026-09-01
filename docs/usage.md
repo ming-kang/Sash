@@ -86,7 +86,7 @@ Core updates download and validate before shutdown, then use an authenticated ma
 | Key | Default | Description |
 | :--- | :--- | :--- |
 | `schemaVersion` | `1` | On-disk settings schema; managed by Sash. |
-| `mixedPort` / `mixed-port` | `17890` | Local HTTP/SOCKS5 mixed inbound port. |
+| `mixedPort` | `17890` | Local HTTP/SOCKS5 mixed inbound port. The CLI key is `mixed-port`. |
 | `controller` | `127.0.0.1:9090` | Internal controller listen address; only loopback hosts are accepted. |
 | `daemonPort` | `19090` | Daemon API and WebUI port. |
 | `secret` | *(random)* | Internal controller secret. It is never returned by the public status API. |

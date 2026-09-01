@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Built-in Vue 3 dashboard is bundled in the npm package under `dist/ui/`, with no runtime dashboard download.
+- WebUI includes Chinese and English localization with a Settings-page language switcher.
+- Dedicated `sash proxy on|off|status` commands manage explicit OS system-proxy ownership and recovery.
 - Immutable `SettingsService` coordinates shared daemon/offline settings candidates, config validation and durable settings/config publication.
 - Local profile library under `<root>/profiles/`: one timestamp-named YAML file per profile plus `index.json` metadata, active selection, provider update interval, quota/expiry data and persisted update errors.
 - WebUI Profiles page with URL download, clipboard paste, local YAML import, Update All, profile cards, active selection, quota display and delete confirmation.
