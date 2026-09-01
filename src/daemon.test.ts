@@ -16,7 +16,7 @@ import {
 } from "./daemon.js";
 import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { addProfile } from "./profiles.js";
+import { loadProfiles, NEVER_UPDATED, type ProfileMeta, saveProfiles } from "./profiles.js";
 import { DEFAULT_SETTINGS, type SashSettings } from "./settings.js";
 import type { SystemProxyState } from "./sysproxy.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
@@ -865,7 +865,16 @@ describe("daemon server", () => {
       await startServer({ fetchProfile: mockFetchProfile });
       await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
       // Seed a remote profile without fetching (meta-only, content pending).
-      addProfile({ name: "bad", url: "https://bad.test/x" }, layout);
+      const index = loadProfiles(layout);
+      const bad: ProfileMeta = {
+        id: "9999999999999",
+        name: "bad",
+        url: "https://bad.test/x",
+        intervalHours: 24,
+        createdAt: new Date().toISOString(),
+        updatedAt: NEVER_UPDATED,
+      };
+      saveProfiles({ ...index, profiles: [...index.profiles, bad] }, layout);
 
       const res = await apiRequest("/sash/profiles/update-all", { method: "POST" });
       assert.equal(res.statusCode, 200);

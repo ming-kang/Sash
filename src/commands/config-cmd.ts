@@ -5,7 +5,12 @@ import { ProfileService } from "../profile-service.js";
 import { requiresCoreRestart, SETTABLE_KEYS, validateController } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { SystemProxyManager } from "../system-proxy-manager.js";
-import { createProfileService, runOfflineMutation, runtimeContext } from "./shared.js";
+import {
+  createProfileService,
+  prepareOfflineProfileMutation,
+  runOfflineMutation,
+  runtimeContext,
+} from "./shared.js";
 
 /** Re-export for backwards compatibility */
 export const requiresRestart = requiresCoreRestart;
@@ -55,6 +60,7 @@ export async function runConfigSet(key: string, value: string | undefined): Prom
   }
 
   try {
+    if (key !== "system-proxy") await prepareOfflineProfileMutation(ctx);
     const service = new SettingsService({
       layout: ctx.layout,
       getCommitted: () => ctx.settings,

@@ -230,7 +230,7 @@ async function commitStagedUpdate(
           await activeVerifier?.stop();
         }
       },
-      { allowOrphanCore: true },
+      { allowOrphanCore: true, migrateProfiles: true },
     );
     resultVersion = result.version;
   } catch (err) {

@@ -95,7 +95,9 @@ Core updates download and validate before shutdown, then use an authenticated ma
 | `tun` | `false` | Enable the TUN inbound; requires elevated privileges. |
 | `allowLan` | `false` | Accept proxy traffic from other devices. |
 
-A legacy `subscriptionUrl` key is migrated once into `profiles/index.json` and then removed. Installed core version metadata lives in `state/install.json`, not in `sash.json`.
+A legacy `subscriptionUrl` key is migrated once into `profiles/index.json` and then removed. It has priority over legacy `config.yaml` import. If no `profiles/index.json` has ever been created, startup/offline initialization may import an existing `config.yaml` once as the active local profile named `Imported config` (`url: ""`, updates disabled). A present empty index opts out. To avoid importing Sash's own generated default, the file must be valid core-format YAML and contain non-default routing content after managed keys are removed: nonempty proxies/providers, or nonempty rules/groups differing from the DIRECT-only default. The runtime `config.yaml` is kept unchanged during import; later profile application re-renders and validates it. Invalid YAML/config fails closed without overwriting the file.
+
+Installed core version metadata lives in `state/install.json`, not in `sash.json`.
 
 Malformed, future-version or unknown-field `sash.json` documents and malformed `profiles/index.json` files are rejected without being overwritten. Secrets cannot be blank or contain control characters, the controller must remain loopback-only, and the mixed, controller and daemon ports must all differ. Repair or move a damaged file explicitly instead of relying on silent defaults.
 
@@ -125,7 +127,7 @@ TUN mode normally requires Administrator/root privileges. Do not enable it in au
 Override the root with an absolute `SASH_HOME` path.
 
 - `bin/`: installed core executable; `.bak` is retained during an update transaction.
-- `config.yaml`: generated active runtime configuration.
+- `config.yaml`: active runtime configuration rendered from the active profile or the DIRECT-only default; qualifying pre-profile files are preserved during one-time import.
 - `sash.json`: Sash settings and local control secrets.
 - `profiles/index.json`: profile metadata and active profile id.
 - `profiles/<id>.yaml`: validated local copy of each downloaded/imported profile.

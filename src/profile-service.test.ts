@@ -7,11 +7,45 @@ import { defaultManagedStateFileOperations } from "./managed-state-transaction.j
 import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { ProfileService } from "./profile-service.js";
-import { addProfile, loadProfiles, profileFilePath, setActiveProfile } from "./profiles.js";
+import {
+  loadProfiles,
+  NEVER_UPDATED,
+  type ProfileMeta,
+  profileFilePath,
+  saveProfiles,
+} from "./profiles.js";
 import { DEFAULT_SETTINGS, type SashSettings } from "./settings.js";
 
 const yamlA = "proxies:\n  - name: node-a\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
 const yamlB = "proxies:\n  - name: node-b\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+
+function seedProfile(
+  layout: SashLayout,
+  init: { name: string; url: string; yamlText?: string },
+): ProfileMeta {
+  const index = loadProfiles(layout);
+  const id = String(index.profiles.length + 1);
+  const now = new Date().toISOString();
+  const profile: ProfileMeta = {
+    id,
+    name: init.name,
+    url: init.url,
+    intervalHours: init.url ? 24 : 0,
+    createdAt: now,
+    updatedAt: init.yamlText === undefined ? NEVER_UPDATED : now,
+  };
+  if (init.yamlText !== undefined) {
+    fs.mkdirSync(layout.profilesDir, { recursive: true });
+    fs.writeFileSync(profileFilePath(layout, id), init.yamlText);
+  }
+  saveProfiles({ ...index, profiles: [...index.profiles, profile] }, layout);
+  return profile;
+}
+
+function activateSeed(layout: SashLayout, id: string): void {
+  const index = loadProfiles(layout);
+  saveProfiles({ ...index, activeId: id }, layout);
+}
 
 function fetched(yamlText: string, name = "remote"): SubscriptionFetch {
   return {
@@ -142,8 +176,11 @@ describe("ProfileService", () => {
   });
 
   it("does not persist fetched missing-profile content before validation or reload succeeds", async () => {
-    const seeded = addProfile({ name: "remote", url: "https://example.test/a" }, layout).profile;
-    setActiveProfile(seeded.id, layout);
+    const seeded = seedProfile(layout, {
+      name: "remote",
+      url: "https://example.test/a",
+    });
+    activateSeed(layout, seeded.id);
     const validatorFailure = new ProfileService({
       layout,
       settings: () => settings,
@@ -279,8 +316,16 @@ describe("ProfileService", () => {
   });
 
   it("fetches independent update-all profiles concurrently and commits safely", async () => {
-    const a = addProfile({ name: "a", url: "https://example.test/a", yamlText: yamlA }, layout);
-    const b = addProfile({ name: "b", url: "https://example.test/b", yamlText: yamlA }, layout);
+    const a = seedProfile(layout, {
+      name: "a",
+      url: "https://example.test/a",
+      yamlText: yamlA,
+    });
+    const b = seedProfile(layout, {
+      name: "b",
+      url: "https://example.test/b",
+      yamlText: yamlA,
+    });
     let concurrent = 0;
     let maxConcurrent = 0;
     const service = new ProfileService({
@@ -300,8 +345,8 @@ describe("ProfileService", () => {
     assert.equal(result.updated, 2);
     assert.equal(result.failed.length, 0);
     assert.equal(maxConcurrent, 2);
-    assert.match(fs.readFileSync(profileFilePath(layout, a.profile.id), "utf8"), /node-b/);
-    assert.match(fs.readFileSync(profileFilePath(layout, b.profile.id), "utf8"), /node-b/);
+    assert.match(fs.readFileSync(profileFilePath(layout, a.id), "utf8"), /node-b/);
+    assert.match(fs.readFileSync(profileFilePath(layout, b.id), "utf8"), /node-b/);
     assert.equal(loadProfiles(layout).profiles.length, 2);
   });
 });

@@ -123,6 +123,8 @@ Requests are forwarded to the internal controller. `sashd` strips Sash credentia
 
 `sash.json` has explicit `schemaVersion: 1`. Loading validates the JSON root, every field type, nonblank control-character-free secrets, port range, loopback controller address, unknown keys and all three listener ports (`mixedPort`, controller and daemon) for collisions. Version-0 files and removed version metadata migrate to canonical v1. Invalid or future-version files are never overwritten.
 
+After managed-state recovery, daemon and offline initialization first migrate a nonblank legacy `subscriptionUrl` into an active meta-only profile. That URL has priority over any pre-profile `config.yaml`. Only when `profiles/index.json` does not exist may Sash import `config.yaml` once as the active local `Imported config` profile. A present empty index is an explicit opt-out. The candidate must be bounded, regular, valid core-format YAML and contain non-default routing content after managed operational keys are stripped: nonempty proxies/providers, or nonempty rules/groups that differ from the Sash DIRECT-only default. Exact generated defaults are not imported. Invalid candidates fail initialization without changing `config.yaml`; successful import journals the profile YAML and index under `mutation.lock` while leaving `config.yaml` byte-for-byte in place. Later `ProfileService` preparation re-renders and, when Core is installed, validates the canonical profile-derived candidate before runtime use.
+
 `SettingsService` snapshots committed settings, creates an immutable canonical candidate, then fetches/renders/Core-validates active profile configuration outside the mutation lock. Under the short commit boundary it rechecks settings/profile snapshots and journals settings plus generated config before publication. The daemon exposes only `committedSettings` to GET/status/auth handlers; Core spawn/restart can temporarily use `runtimeSettings` while a candidate transition is in progress. The committed in-memory snapshot changes only after the journaled transition succeeds; failure restores disk/config and the old runtime.
 
 Profile application follows:
@@ -196,7 +198,7 @@ Atomic state writes use a same-directory temporary file, file `fsync`, rename an
 
 - `sash.json`: versioned desired settings and local secrets.
 - `profiles/index.json`, `profiles/<id>.yaml`: profile metadata/content.
-- `config.yaml`: generated runtime config.
+- `config.yaml`: runtime config rendered from the active profile or the DIRECT-only default; a qualifying pre-profile file is preserved during its one-time local-profile import.
 - `state/sash.pid`, `state/sashd.pid`: discovery records.
 - `state/system-proxy.json`: durable proxy ownership transaction.
 - `state/managed-state-transaction.json`: recoverable settings/profile/index/config publication snapshots.

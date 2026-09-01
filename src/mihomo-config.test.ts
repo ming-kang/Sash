@@ -1,25 +1,17 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
-import YAML from "yaml";
+import { describe, it } from "node:test";
 import {
   buildDefaultConfig,
-  configExists,
-  generateConfig,
   isValidMihomoConfig,
   overlayManagedKeys,
   parseContentDispositionFilename,
   parseSafeHttpUrl,
   resolveSubscriptionRedirect,
+  stripManagedKeys,
 } from "./mihomo-config.js";
-import { type SashLayout, sashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
 
 describe("mihomo-config", () => {
-  let tmpDir: string;
-  let layout: SashLayout;
   const mockSettings: SashSettings = {
     schemaVersion: 1,
     subscriptionUrl: "",
@@ -32,19 +24,6 @@ describe("mihomo-config", () => {
     daemonSecret: "test-daemon-secret-1234",
     systemProxy: false,
   };
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-config-test-"));
-    layout = sashLayout(tmpDir);
-  });
-
-  afterEach(() => {
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
-  });
 
   describe("isValidMihomoConfig", () => {
     it("returns true for objects with proxies, proxy-providers, or rules", () => {
@@ -187,6 +166,24 @@ describe("mihomo-config", () => {
       assert.deepEqual(overlaid.rules, ["DOMAIN,example.com,DIRECT", "MATCH,PROXY"]);
     });
 
+    it("strips every managed operational key without changing profile routing content", () => {
+      const stripped = stripManagedKeys({
+        "mixed-port": 7890,
+        port: 8080,
+        "external-controller": "127.0.0.1:9090",
+        secret: "secret",
+        tun: { enable: true },
+        "allow-lan": true,
+        proxies: [{ name: "node" }],
+        rules: ["MATCH,DIRECT"],
+      });
+
+      assert.deepEqual(stripped, {
+        proxies: [{ name: "node" }],
+        rules: ["MATCH,DIRECT"],
+      });
+    });
+
     it("generates tun config with enable and auto-route when tun is true", () => {
       const settings: SashSettings = { ...mockSettings, tun: true };
       const overlaid = overlayManagedKeys({}, settings);
@@ -205,59 +202,6 @@ describe("mihomo-config", () => {
       const overlaid = overlayManagedKeys({ tun: { enable: true } }, settings);
 
       assert.equal("tun" in overlaid, false);
-    });
-  });
-
-  describe("generateConfig & configExists", () => {
-    it("generates default config to disk containing MATCH,PROXY and external-controller when no subscription provided", async () => {
-      assert.equal(configExists(layout), false);
-
-      const result = await generateConfig({ layout, settings: mockSettings });
-
-      assert.equal(result.source, "default");
-      assert.equal(result.proxyCount, 0);
-      assert.ok(result.yaml.includes("MATCH,PROXY"));
-      assert.ok(result.yaml.includes("external-controller: 127.0.0.1:9090"));
-
-      assert.equal(configExists(layout), true);
-      assert.equal(fs.existsSync(layout.configFile), true);
-
-      const diskContent = fs.readFileSync(layout.configFile, "utf8");
-      assert.equal(diskContent, result.yaml);
-
-      const parsed = YAML.parse(diskContent) as Record<string, unknown>;
-      assert.equal(parsed["mixed-port"], 7890);
-      assert.equal(parsed["external-controller"], "127.0.0.1:9090");
-      assert.equal(parsed.secret, mockSettings.secret);
-      assert.deepEqual(parsed.rules, ["MATCH,PROXY"]);
-    });
-
-    it("generates config with subscription and reports accurate proxyCount", async () => {
-      const subscription = {
-        proxies: [
-          { name: "Node A", type: "ss", server: "1.1.1.1", port: 8388 },
-          { name: "Node B", type: "vmess", server: "2.2.2.2", port: 443 },
-          { name: "Node C", type: "trojan", server: "3.3.3.3", port: 443 },
-        ],
-        rules: ["MATCH,DIRECT"],
-      };
-
-      const result = await generateConfig({
-        layout,
-        settings: mockSettings,
-        subscription,
-      });
-
-      assert.equal(result.source, "subscription");
-      assert.equal(result.proxyCount, 3);
-      assert.equal(configExists(layout), true);
-
-      const parsed = YAML.parse(fs.readFileSync(layout.configFile, "utf8")) as {
-        proxies: unknown[];
-        secret: string;
-      };
-      assert.equal(parsed.proxies.length, 3);
-      assert.equal(parsed.secret, mockSettings.secret);
     });
   });
 });

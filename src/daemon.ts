@@ -24,7 +24,7 @@ import { recoverManagedStateTransaction } from "./managed-state-transaction.js";
 import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { clearPidRecord } from "./process.js";
-import { migrateLegacyProfileSetting } from "./profile-migration.js";
+import { migrateProfileState } from "./profile-migration.js";
 import { ProfileService } from "./profile-service.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { loadSettings, publicSettings, type SashSettings, saveSettings } from "./settings.js";
@@ -593,13 +593,13 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
 
   try {
     const initialization = new StateMutationQueue(layout.mutationLockFile);
-    const settings = await initialization.run("initialize daemon state", () => {
+    const settings = await initialization.run("initialize daemon state", async () => {
       recoverCoreInstallTransaction(layout);
       recoverManagedStateTransaction(layout);
       const loaded = loadSettings(layout);
-      // One-time migration: a legacy single subscription becomes an active,
-      // meta-only profile whose content the scheduler can fetch.
-      migrateLegacyProfileSetting(loaded, layout);
+      // Recover first, then give the legacy URL priority. An unmanaged
+      // config.yaml is imported only if the URL migration did not create an index.
+      await migrateProfileState(loaded, layout);
       return loaded;
     });
 

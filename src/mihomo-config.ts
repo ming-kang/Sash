@@ -1,9 +1,6 @@
-import fs from "node:fs";
 import { isIP } from "node:net";
 import YAML from "yaml";
-import { atomicWriteFileSync } from "./fs-atomic.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
-import { type SashLayout, sashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
 
 /**
@@ -11,14 +8,14 @@ import type { SashSettings } from "./settings.js";
  *
  * Sash owns a fixed set of operational keys (ports, controller, secret,
  * tun, allow-lan). Everything else — proxies, proxy-groups, rules, dns —
- * comes from the user's Clash/mihomo-format subscription, or from existing
- * config on disk, or from a built-in DIRECT-only default.
+ * comes from the active local/remote profile or from a built-in DIRECT-only
+ * default.
  */
 
 export interface GeneratedConfig {
   yaml: string;
   proxyCount: number;
-  source: "subscription" | "existing" | "default";
+  source: "subscription" | "default";
 }
 
 export function buildDefaultConfig(): Record<string, unknown> {
@@ -43,22 +40,6 @@ export function isValidMihomoConfig(doc: unknown): doc is Record<string, unknown
       !Array.isArray(rec["proxy-providers"])) ||
     ("rules" in rec && Array.isArray(rec.rules))
   );
-}
-
-export function readExistingConfigDoc(
-  layout: SashLayout = sashLayout(),
-): Record<string, unknown> | undefined {
-  try {
-    if (!fs.existsSync(layout.configFile)) return undefined;
-    const raw = fs.readFileSync(layout.configFile, "utf8");
-    const doc = YAML.parse(raw);
-    if (isValidMihomoConfig(doc)) {
-      return doc;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /** Traffic quota advertised by a subscription gateway (`subscription-userinfo`). */
@@ -295,11 +276,6 @@ export async function fetchSubscriptionProfile(url: string): Promise<Subscriptio
   };
 }
 
-export async function fetchSubscription(url: string): Promise<Record<string, unknown>> {
-  const { doc } = await fetchSubscriptionProfile(url);
-  return doc;
-}
-
 /** Keys Sash always controls; user/subscription values for these are dropped. */
 const MANAGED_KEYS = new Set([
   "mixed-port",
@@ -318,14 +294,15 @@ const MANAGED_KEYS = new Set([
   "allow-lan",
 ]);
 
+export function stripManagedKeys(base: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(base).filter(([key]) => !MANAGED_KEYS.has(key)));
+}
+
 export function overlayManagedKeys(
   base: Record<string, unknown>,
   settings: SashSettings,
 ): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(base)) {
-    if (!MANAGED_KEYS.has(key)) out[key] = value;
-  }
+  const out = stripManagedKeys(base);
   out["mixed-port"] = settings.mixedPort;
   out["allow-lan"] = settings.allowLan;
   out["external-controller"] = settings.controller;
@@ -342,13 +319,6 @@ export function overlayManagedKeys(
   return out;
 }
 
-export interface GenerateOptions {
-  layout?: SashLayout;
-  settings: SashSettings;
-  /** Subscription document; when absent, existing config or default is used. */
-  subscription?: Record<string, unknown>;
-}
-
 export function renderConfig(
   base: Record<string, unknown>,
   settings: SashSettings,
@@ -361,20 +331,4 @@ export function renderConfig(
     proxyCount: Array.isArray(proxies) ? proxies.length : 0,
     source,
   };
-}
-
-export async function generateConfig(opts: GenerateOptions): Promise<GeneratedConfig> {
-  const layout = opts.layout ?? sashLayout();
-  const existing = opts.subscription === undefined ? readExistingConfigDoc(layout) : undefined;
-  const result = opts.subscription
-    ? renderConfig(opts.subscription, opts.settings, "subscription")
-    : existing
-      ? renderConfig(existing, opts.settings, "existing")
-      : renderConfig(buildDefaultConfig(), opts.settings, "default");
-  atomicWriteFileSync(layout.configFile, result.yaml);
-  return result;
-}
-
-export function configExists(layout: SashLayout = sashLayout()): boolean {
-  return fs.existsSync(layout.configFile);
 }

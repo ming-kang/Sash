@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - State-changing daemon requests now accept the persistent CLI bearer or a per-boot WebUI token, with loopback Host validation.
 - WebUI store and confirm-dialog regression tests are included in the normal test runner.
 - Exact generated configurations are validated by the installed Core in an isolated temporary file before profile/config state is committed.
+- One-time, crash-recoverable import of a qualifying pre-profile `config.yaml` into an active local profile, with conservative default-config detection and fail-closed validation.
 - Versioned `sash.json` runtime schema with strict field validation and explicit v0 migration.
 - Atomic daemon/start/runtime/mutation/settings leases for single-instance and cross-process state ownership.
 - Durable first-install Core publication journal with publishing/committed crash recovery.
@@ -34,7 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - WebUI navigation is Overview, Profiles, Logs, Connections, Rules, Settings; the legacy `#/subscription` hash redirects to `#/profiles`.
 - Profile behavior is owned by a single `ProfileService` used by daemon routes and offline CLI commands. Config activation/update transitions snapshot and restore prior state on failure.
 - Remote profile refreshes use in-flight deduplication, bounded network concurrency and serialized state commits.
-- The legacy `subscriptionUrl` setting migrates once into the profile index and is then removed instead of remaining as a second source of truth.
+- The legacy `subscriptionUrl` setting migrates once into the profile index and is then removed instead of remaining as a second source of truth; it takes priority over unmanaged-config import.
+- Runtime config generation now has only two canonical inputs: the active profile or the built-in DIRECT-only default. The dead existing-`config.yaml` fallback pipeline was removed.
 - Every Core start recompiles and validates `config.yaml` from the active profile and current settings. Remote profile responses are limited to 8 MiB.
 - The default mixed port is consistently `17890`. Installed core version is read from `state/install.json` instead of duplicated in settings.
 - Core updates download and validate the staged binary before stopping the existing runtime, and commit install metadata only after health checks pass.
@@ -59,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Settings, Profile YAML, index and generated config publish through one fixed-role durable transaction; failed activations, missing-profile fetches, updates and deletes compensate immediately, while interrupted publication recovers on daemon or offline initialization.
 - Profile request parsing, fetch, rendering and Core validation now run outside the short mutation lock; daemon and offline commits recheck profile identity/selection under the lock before publication.
 - Profile index loading now rejects duplicate IDs, non-plain roots and unexpected root fields.
+- Invalid unmanaged `config.yaml` migration candidates are left untouched and block migration instead of being silently replaced.
 - System-proxy backends are split into focused platform modules; macOS empty fields and malformed Windows registry output now fail safely.
 - System-proxy recovery persists a `restoring` phase so partial multi-field restoration can continue after a crash.
 - Atomic state writes fsync the parent directory on POSIX after publication.

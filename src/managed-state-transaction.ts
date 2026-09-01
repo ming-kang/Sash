@@ -200,7 +200,7 @@ function journalFromSnapshots(
     (configEntry?.data?.length ?? 0) +
     (settingsEntry?.data?.length ?? 0);
   if (size > MAX_SNAPSHOT_BYTES) {
-    throw new Error("Profile transaction snapshots exceed the journal size limit");
+    throw new Error("Managed-state transaction snapshots exceed the journal size limit");
   }
   return {
     version: 2,

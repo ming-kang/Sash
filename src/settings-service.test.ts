@@ -5,11 +5,30 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { ProfileService } from "./profile-service.js";
-import { addProfile, loadProfiles, profileFilePath, setActiveProfile } from "./profiles.js";
+import {
+  loadProfiles,
+  NEVER_UPDATED,
+  type ProfileMeta,
+  profileFilePath,
+  saveProfiles,
+} from "./profiles.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { DEFAULT_SETTINGS, loadSettings, type SashSettings, saveSettings } from "./settings.js";
 import { SettingsService } from "./settings-service.js";
 import type { CoreSupervisor } from "./supervisor.js";
+
+function seedActiveRemote(layout: SashLayout, url: string): ProfileMeta {
+  const profile: ProfileMeta = {
+    id: "1",
+    name: "remote",
+    url,
+    intervalHours: 24,
+    createdAt: new Date().toISOString(),
+    updatedAt: NEVER_UPDATED,
+  };
+  saveProfiles({ activeId: profile.id, profiles: [profile] }, layout);
+  return profile;
+}
 
 function initialSettings(): SashSettings {
   return {
@@ -109,11 +128,7 @@ describe("SettingsService", () => {
   it("persists a fetched missing active profile with the settings config transaction", async () => {
     let committed = saveSettings(initialSettings(), layout);
     let runtime = committed;
-    const seeded = addProfile(
-      { name: "remote", url: "https://example.test/profile" },
-      layout,
-    ).profile;
-    setActiveProfile(seeded.id, layout);
+    const seeded = seedActiveRemote(layout, "https://example.test/profile");
     let profileChanges = 0;
     const service = new SettingsService({
       layout,

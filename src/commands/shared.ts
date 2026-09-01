@@ -8,7 +8,7 @@ import { log } from "../log.js";
 import { recoverManagedStateTransaction } from "../managed-state-transaction.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import { isProcessAlive, readPidRecord } from "../process.js";
-import { migrateLegacyProfileSetting } from "../profile-migration.js";
+import { migrateProfileState } from "../profile-migration.js";
 import { type ProfileCommitBoundary, ProfileService } from "../profile-service.js";
 import { loadSettings, type SashSettings } from "../settings.js";
 import { withStateLock } from "../state-lock.js";
@@ -20,6 +20,7 @@ export interface RuntimeContext {
 
 export interface OfflineMutationOptions {
   allowOrphanCore?: boolean;
+  migrateProfiles?: boolean;
 }
 
 export function runtimeContext(): RuntimeContext {
@@ -65,7 +66,13 @@ export async function runOfflineMutation<T>(
     recoverCoreInstallTransaction(ctx.layout);
     assertCoreInstallationConsistent(ctx.layout);
     recoverManagedStateTransaction(ctx.layout);
-    migrateLegacyProfileSetting(ctx.settings, ctx.layout);
+    // Recovery may have restored sash.json from an interrupted transaction.
+    ctx.settings = loadSettings(ctx.layout);
+    if (options.migrateProfiles) {
+      // Legacy subscriptionUrl migration runs first so it remains canonical;
+      // only a still-uninitialized profile store may import config.yaml.
+      await migrateProfileState(ctx.settings, ctx.layout);
+    }
     return action();
   });
 }
@@ -88,9 +95,11 @@ export function offlineProfileCommit(ctx: RuntimeContext): ProfileCommitBoundary
   return (purpose, action) => runOfflineMutation(ctx, purpose, action);
 }
 
-/** Commit a legacy-setting migration before an offline profile snapshot is read. */
+/** Recover and run one-time profile migrations before an offline profile snapshot is read. */
 export async function prepareOfflineProfileMutation(ctx: RuntimeContext): Promise<void> {
-  await runOfflineMutation(ctx, "prepare profile mutation", () => undefined);
+  await runOfflineMutation(ctx, "prepare profile mutation", () => undefined, {
+    migrateProfiles: true,
+  });
 }
 
 export function createProfileService(

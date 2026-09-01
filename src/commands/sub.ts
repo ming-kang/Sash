@@ -107,8 +107,11 @@ export async function runSubShow(): Promise<void> {
   const index =
     daemonState.running && daemonState.healthy
       ? await new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret).getProfiles()
-      : await runOfflineMutation(ctx, "read profiles offline", () =>
-          createProfileService(ctx).list(),
+      : await runOfflineMutation(
+          ctx,
+          "read profiles offline",
+          () => createProfileService(ctx).list(),
+          { migrateProfiles: true },
         );
   if (index.profiles.length === 0) {
     log.kv("profiles", "(none)");

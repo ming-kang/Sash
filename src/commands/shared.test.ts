@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "../paths.js";
 import { writePidRecord } from "../process.js";
-import { loadProfiles } from "../profiles.js";
+import { loadProfiles, profileFilePath } from "../profiles.js";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "../settings.js";
 import { ensureCore, type RuntimeContext, runOfflineMutation } from "./shared.js";
 
@@ -62,6 +62,39 @@ describe("offline mutation coordination", () => {
       assert.deepEqual(loadProfiles(ctx.layout), { activeId: null, profiles: [] });
       assert.equal(fs.existsSync(ctx.layout.managedStateTransactionFile), false);
     });
+  });
+
+  it("imports unmanaged config before an offline action reads profile state", async () => {
+    const unmanaged = "proxies:\n  - name: imported\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+    fs.writeFileSync(ctx.layout.configFile, unmanaged);
+
+    await runOfflineMutation(
+      ctx,
+      "import unmanaged config",
+      () => {
+        const index = loadProfiles(ctx.layout);
+        assert.equal(index.profiles.length, 1);
+        assert.equal(index.activeId, index.profiles[0]?.id);
+        assert.equal(
+          fs.readFileSync(profileFilePath(ctx.layout, index.profiles[0]?.id ?? ""), "utf8"),
+          unmanaged,
+        );
+        assert.equal(fs.readFileSync(ctx.layout.configFile, "utf8"), unmanaged);
+      },
+      { migrateProfiles: true },
+    );
+  });
+
+  it("does not let invalid unmanaged config block non-profile recovery mutations", async () => {
+    fs.writeFileSync(ctx.layout.configFile, "proxies: [\n");
+    let called = false;
+
+    await runOfflineMutation(ctx, "proxy recovery", () => {
+      called = true;
+    });
+
+    assert.equal(called, true);
+    assert.equal(fs.existsSync(ctx.layout.profilesIndexFile), false);
   });
 
   it("fails closed when the Core PID record is corrupt", async () => {
