@@ -1,14 +1,9 @@
 import { coreInstalled, currentCoreVersion, installCore } from "../core.js";
 import { log } from "../log.js";
-import { configExists, fetchSubscriptionProfile, generateConfig } from "../mihomo-config.js";
+import { configExists } from "../mihomo-config.js";
 import { type SashLayout, sashLayout } from "../paths.js";
-import {
-  applySubscriptionFetch,
-  getActiveProfile,
-  loadProfiles,
-  migrateLegacySubscription,
-  readProfileDoc,
-} from "../profiles.js";
+import { migrateLegacyProfileSetting } from "../profile-migration.js";
+import { ProfileService } from "../profile-service.js";
 import { loadSettings, type SashSettings, saveSettings } from "../settings.js";
 
 export interface RuntimeContext {
@@ -18,7 +13,9 @@ export interface RuntimeContext {
 
 export function runtimeContext(): RuntimeContext {
   const layout = sashLayout();
-  return { layout, settings: loadSettings(layout) };
+  const settings = loadSettings(layout);
+  migrateLegacyProfileSetting(settings, layout);
+  return { layout, settings };
 }
 
 export async function ensureCore(ctx: RuntimeContext): Promise<void> {
@@ -37,27 +34,13 @@ export async function ensureCore(ctx: RuntimeContext): Promise<void> {
  */
 export async function ensureConfig(ctx: RuntimeContext, force = false): Promise<void> {
   if (!force && configExists(ctx.layout)) return;
-  if (ctx.settings.subscriptionUrl) {
-    migrateLegacySubscription(ctx.settings.subscriptionUrl, ctx.layout);
-  }
-  const active = getActiveProfile(loadProfiles(ctx.layout));
+  const profiles = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings });
+  const active = profiles.active();
+  const result = await profiles.reloadActive(false);
   if (!active) {
-    await generateConfig({ layout: ctx.layout, settings: ctx.settings });
     log.ok("config generated (DIRECT-only default; set one up with `sash sub set <url>`)");
     return;
   }
-  let doc = readProfileDoc(ctx.layout, active.id);
-  if (doc === undefined && active.url) {
-    log.info(`fetching subscription: ${active.url}`);
-    const fetched = await fetchSubscriptionProfile(active.url);
-    applySubscriptionFetch(active.id, fetched, ctx.layout);
-    doc = fetched.doc;
-  }
-  const result = await generateConfig({
-    layout: ctx.layout,
-    settings: ctx.settings,
-    subscription: doc,
-  });
   log.ok(`config generated from profile "${active.name}" (${result.proxyCount} proxies)`);
 }
 

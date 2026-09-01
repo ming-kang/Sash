@@ -47,28 +47,26 @@ describe("profiles store", () => {
     assert.deepEqual(index, { activeId: null, profiles: [] });
   });
 
-  it("addProfile writes the yaml file, indexes it, and auto-activates the first profile", () => {
+  it("addProfile writes the yaml file and leaves activation to the service layer", () => {
     const first = addProfile(
       { name: "meow", url: "https://example.com/sub", yamlText: VALID_YAML },
       layout,
     );
-    assert.equal(first.activated, true);
-    assert.equal(first.index.activeId, first.profile.id);
+    assert.equal(first.index.activeId, null);
     assert.equal(fs.readFileSync(profileFilePath(layout, first.profile.id), "utf8"), VALID_YAML);
 
     const second = addProfile(
       { name: "other", url: "https://example.com/2", yamlText: VALID_YAML_2 },
       layout,
     );
-    assert.equal(second.activated, false);
-    assert.equal(second.index.activeId, first.profile.id);
+    assert.equal(second.index.activeId, null);
 
     // Adding twice in the same millisecond must still produce unique ids.
     assert.notEqual(first.profile.id, second.profile.id);
 
     const loaded = loadProfiles(layout);
     assert.equal(loaded.profiles.length, 2);
-    assert.equal(loaded.activeId, first.profile.id);
+    assert.equal(loaded.activeId, null);
   });
 
   it("readProfileDoc parses stored content and rejects junk", () => {
@@ -78,7 +76,7 @@ describe("profiles store", () => {
     assert.deepEqual(doc.rules, ["MATCH,DIRECT"]);
 
     fs.writeFileSync(profileFilePath(layout, profile.id), "just a string\n");
-    assert.equal(readProfileDoc(layout, profile.id), undefined);
+    assert.throws(() => readProfileDoc(layout, profile.id), /not a valid core configuration/);
     assert.equal(readProfileDoc(layout, "9999999999999"), undefined);
   });
 
@@ -127,9 +125,9 @@ describe("profiles store", () => {
   });
 
   it("setActiveProfile selects, deselects and rejects unknown ids", () => {
-    const a = addProfile({ name: "a", url: "", yamlText: VALID_YAML }, layout);
+    addProfile({ name: "a", url: "", yamlText: VALID_YAML }, layout);
     const b = addProfile({ name: "b", url: "", yamlText: VALID_YAML_2 }, layout);
-    assert.equal(getActiveProfile(loadProfiles(layout))?.id, a.profile.id);
+    assert.equal(getActiveProfile(loadProfiles(layout)), null);
 
     setActiveProfile(b.profile.id, layout);
     assert.equal(getActiveProfile(loadProfiles(layout))?.id, b.profile.id);
@@ -143,6 +141,7 @@ describe("profiles store", () => {
   it("removeProfile deletes the file and clears activeId when active", () => {
     const a = addProfile({ name: "a", url: "", yamlText: VALID_YAML }, layout);
     const b = addProfile({ name: "b", url: "", yamlText: VALID_YAML_2 }, layout);
+    setActiveProfile(a.profile.id, layout);
 
     const r1 = removeProfile(a.profile.id, layout);
     assert.equal(r1.wasActive, true);
@@ -153,6 +152,14 @@ describe("profiles store", () => {
     assert.equal(r2.wasActive, false);
     assert.equal(loadProfiles(layout).profiles.length, 0);
     assert.throws(() => removeProfile("1234567890123", layout));
+  });
+
+  it("loadProfiles rejects a corrupt index without overwriting it", () => {
+    fs.mkdirSync(layout.profilesDir, { recursive: true });
+    const corrupt = "{ definitely not json";
+    fs.writeFileSync(layout.profilesIndexFile, corrupt);
+    assert.throws(() => loadProfiles(layout), /invalid JSON/);
+    assert.equal(fs.readFileSync(layout.profilesIndexFile, "utf8"), corrupt);
   });
 
   it("loadProfiles drops a dangling activeId", () => {

@@ -53,29 +53,69 @@ export function profileFilePath(layout: SashLayout, id: string): string {
   return path.join(layout.profilesDir, `${id}.yaml`);
 }
 
+function isSubscriptionUserinfo(value: unknown): value is SubscriptionUserinfo {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const info = value as Partial<SubscriptionUserinfo>;
+  return (
+    Number.isFinite(info.upload) &&
+    Number.isFinite(info.download) &&
+    Number.isFinite(info.total) &&
+    (info.expire === undefined || Number.isFinite(info.expire))
+  );
+}
+
+function isProfileMeta(value: unknown): value is ProfileMeta {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const p = value as Partial<ProfileMeta>;
+  return (
+    typeof p.id === "string" &&
+    /^[0-9]+$/.test(p.id) &&
+    typeof p.name === "string" &&
+    typeof p.url === "string" &&
+    typeof p.intervalHours === "number" &&
+    Number.isFinite(p.intervalHours) &&
+    p.intervalHours >= 0 &&
+    typeof p.createdAt === "string" &&
+    Number.isFinite(new Date(p.createdAt).getTime()) &&
+    typeof p.updatedAt === "string" &&
+    Number.isFinite(new Date(p.updatedAt).getTime()) &&
+    (p.subInfo === undefined || isSubscriptionUserinfo(p.subInfo)) &&
+    (p.homePage === undefined || typeof p.homePage === "string") &&
+    (p.lastError === undefined || typeof p.lastError === "string")
+  );
+}
+
 export function loadProfiles(layout: SashLayout = sashLayout()): ProfilesIndex {
+  let text: string;
   try {
-    const raw = JSON.parse(fs.readFileSync(layout.profilesIndexFile, "utf8")) as {
-      activeId?: unknown;
-      profiles?: unknown;
-    };
-    const profiles = (Array.isArray(raw.profiles) ? raw.profiles : []).filter(
-      (p): p is ProfileMeta =>
-        typeof p === "object" &&
-        p !== null &&
-        typeof (p as ProfileMeta).id === "string" &&
-        /^[0-9]+$/.test((p as ProfileMeta).id) &&
-        typeof (p as ProfileMeta).name === "string" &&
-        typeof (p as ProfileMeta).url === "string",
-    );
-    const activeId =
-      typeof raw.activeId === "string" && profiles.some((p) => p.id === raw.activeId)
-        ? raw.activeId
-        : null;
-    return { activeId, profiles };
-  } catch {
-    return { activeId: null, profiles: [] };
+    text = fs.readFileSync(layout.profilesIndexFile, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { activeId: null, profiles: [] };
+    }
+    throw err;
   }
+
+  let raw: { activeId?: unknown; profiles?: unknown };
+  try {
+    raw = JSON.parse(text) as typeof raw;
+  } catch (err) {
+    throw new Error(
+      `Profiles index is invalid JSON: ${layout.profilesIndexFile}: ${(err as Error).message}`,
+    );
+  }
+  if (!Array.isArray(raw.profiles) || !raw.profiles.every(isProfileMeta)) {
+    throw new Error(`Profiles index has invalid profile metadata: ${layout.profilesIndexFile}`);
+  }
+  if (raw.activeId !== null && raw.activeId !== undefined && typeof raw.activeId !== "string") {
+    throw new Error(`Profiles index has an invalid activeId: ${layout.profilesIndexFile}`);
+  }
+  const profiles = raw.profiles;
+  const activeId =
+    typeof raw.activeId === "string" && profiles.some((p) => p.id === raw.activeId)
+      ? raw.activeId
+      : null;
+  return { activeId, profiles };
 }
 
 export function saveProfiles(index: ProfilesIndex, layout: SashLayout = sashLayout()): void {
@@ -94,19 +134,23 @@ export function findProfileByUrl(index: ProfilesIndex, url: string): ProfileMeta
   return index.profiles.find((p) => p.url !== "" && p.url === url) ?? null;
 }
 
-/** Read and validate a profile's stored document; undefined when absent/invalid. */
+/** Read and validate a profile's stored document; undefined only when the file is absent. */
 export function readProfileDoc(
   layout: SashLayout,
   id: string,
 ): Record<string, unknown> | undefined {
+  const file = profileFilePath(layout, id);
+  if (!fs.existsSync(file)) return undefined;
+  let doc: unknown;
   try {
-    const file = profileFilePath(layout, id);
-    if (!fs.existsSync(file)) return undefined;
-    const doc = YAML.parse(fs.readFileSync(file, "utf8"));
-    return isValidMihomoConfig(doc) ? doc : undefined;
-  } catch {
-    return undefined;
+    doc = YAML.parse(fs.readFileSync(file, "utf8"));
+  } catch (err) {
+    throw new Error(`Profile ${id} contains invalid YAML: ${(err as Error).message}`);
   }
+  if (!isValidMihomoConfig(doc)) {
+    throw new Error(`Profile ${id} is not a valid core configuration`);
+  }
+  return doc;
 }
 
 export interface AddProfileInit {
@@ -119,14 +163,11 @@ export interface AddProfileInit {
   homePage?: string;
 }
 
-/**
- * Append a new profile. When no profile is currently active, the new one
- * becomes active (first-run convenience); `activated` reports that.
- */
+/** Append a new inactive profile; activation policy belongs to the application service. */
 export function addProfile(
   init: AddProfileInit,
   layout: SashLayout = sashLayout(),
-): { index: ProfilesIndex; profile: ProfileMeta; activated: boolean } {
+): { index: ProfilesIndex; profile: ProfileMeta } {
   const index = loadProfiles(layout);
   let id = String(Date.now());
   while (index.profiles.some((p) => p.id === id)) {
@@ -147,10 +188,8 @@ export function addProfile(
     atomicWriteFileSync(profileFilePath(layout, id), init.yamlText);
   }
   index.profiles.push(profile);
-  const activated = index.activeId === null;
-  if (activated) index.activeId = id;
   saveProfiles(index, layout);
-  return { index, profile, activated };
+  return { index, profile };
 }
 
 export interface UpdateProfilePatch {

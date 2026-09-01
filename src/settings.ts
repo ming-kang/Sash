@@ -5,8 +5,8 @@ import { type SashLayout, sashLayout } from "./paths.js";
 
 /** Sash's own settings, persisted to <root>/sash.json. */
 export interface SashSettings {
-  /** Clash/mihomo-format subscription URL; empty means unmanaged config. */
-  subscriptionUrl: string;
+  /** Legacy single-subscription field; removed after one-time profile migration. */
+  subscriptionUrl?: string;
   mixedPort: number;
   /** external-controller listen address, e.g. 127.0.0.1:9090 */
   controller: string;
@@ -29,8 +29,7 @@ export interface SashSettings {
 }
 
 export const DEFAULT_SETTINGS: SashSettings = {
-  subscriptionUrl: "",
-  mixedPort: 7890,
+  mixedPort: 17890,
   controller: "127.0.0.1:9090",
   secret: "",
   tun: false,
@@ -49,9 +48,16 @@ export function generateSecret(): string {
 export function loadSettings(layout: SashLayout = sashLayout()): SashSettings {
   let raw: Partial<SashSettings> = {};
   try {
-    raw = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as Partial<SashSettings>;
-  } catch {
-    // missing or corrupt: fall back to defaults
+    const text = fs.readFileSync(layout.settingsFile, "utf8");
+    try {
+      raw = JSON.parse(text) as Partial<SashSettings>;
+    } catch (err) {
+      throw new Error(
+        `Settings file is invalid JSON: ${layout.settingsFile}: ${(err as Error).message}`,
+      );
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
   const merged: SashSettings = {
     ...DEFAULT_SETTINGS,

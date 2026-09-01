@@ -2,6 +2,7 @@ import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { clearPidRecord } from "../process.js";
+import { ProfileService } from "../profile-service.js";
 import { getSystemProxyState } from "../sysproxy.js";
 import { uiInstalled } from "../webui.js";
 import { runtimeContext } from "./shared.js";
@@ -9,6 +10,10 @@ import { runtimeContext } from "./shared.js";
 export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
+  const activeProfile = new ProfileService({
+    layout: ctx.layout,
+    settings: () => ctx.settings,
+  }).active();
 
   if (opts.json) {
     let coreRunning = false;
@@ -58,7 +63,9 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
           controller: ctx.settings.controller,
           daemonApi: `http://127.0.0.1:${ctx.settings.daemonPort}`,
           dashboard: `http://127.0.0.1:${ctx.settings.daemonPort}/ui/`,
-          subscription: ctx.settings.subscriptionUrl || null,
+          activeProfile: activeProfile
+            ? { id: activeProfile.id, name: activeProfile.name, url: activeProfile.url }
+            : null,
           tun: ctx.settings.tun,
           root: ctx.layout.root,
         },
@@ -94,7 +101,10 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
   log.kv("system proxy", ctx.settings.systemProxy ? "enabled" : "disabled");
   log.kv("sash api", `http://127.0.0.1:${ctx.settings.daemonPort}`);
   log.kv("dashboard", `http://127.0.0.1:${ctx.settings.daemonPort}/ui/`);
-  log.kv("subscription", ctx.settings.subscriptionUrl || "(none)");
+  log.kv(
+    "active profile",
+    activeProfile ? `${activeProfile.name} (${activeProfile.url || "local file"})` : "(none)",
+  );
   log.kv("tun", ctx.settings.tun ? "on" : "off");
   log.kv("core version", ctx.settings.coreVersion || "(not installed)");
 }

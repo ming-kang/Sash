@@ -84,20 +84,13 @@ describe("settings", () => {
       assert.ok(loaded.daemonSecret.length > 0);
     });
 
-    it("falls back to default settings without throwing when sash.json is corrupted", () => {
+    it("rejects corrupted sash.json without overwriting it", () => {
       fs.mkdirSync(path.dirname(layout.settingsFile), { recursive: true });
-      fs.writeFileSync(layout.settingsFile, "{ corrupted invalid json content @#$%! ]]");
+      const corrupt = "{ corrupted invalid json content @#$%! ]]";
+      fs.writeFileSync(layout.settingsFile, corrupt);
 
-      let settings: SashSettings | undefined;
-      assert.doesNotThrow(() => {
-        settings = loadSettings(layout);
-      });
-
-      assert.ok(settings);
-      assert.equal(settings.mixedPort, DEFAULT_SETTINGS.mixedPort);
-      assert.equal(settings.controller, DEFAULT_SETTINGS.controller);
-      assert.equal(settings.tun, DEFAULT_SETTINGS.tun);
-      assert.ok(settings.secret.length > 0);
+      assert.throws(() => loadSettings(layout), /Settings file is invalid JSON/);
+      assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), corrupt);
     });
   });
 

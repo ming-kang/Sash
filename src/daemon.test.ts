@@ -289,7 +289,7 @@ describe("daemon server", () => {
       assert.deepEqual(res.data, { activeId: null, profiles: [] });
     });
 
-    it("POST downloads, auto-activates the first profile and mirrors settings", async () => {
+    it("POST downloads, auto-activates the first profile and stores metadata", async () => {
       await startServer({ fetchProfile: mockFetchProfile });
       const res = await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
       assert.equal(res.statusCode, 200);
@@ -310,10 +310,7 @@ describe("daemon server", () => {
       assert.equal(list.activeId, data.profile.id);
       assert.equal(list.profiles[0]?.subInfo?.total, 100);
 
-      // config.yaml compiled from the profile, settings mirror updated
       assert.ok(fs.readFileSync(layout.configFile, "utf8").includes("node-a"));
-      const savedSettings = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8"));
-      assert.equal(savedSettings.subscriptionUrl, subUrl);
 
       // Re-downloading the same URL updates in place instead of duplicating.
       const again = await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
@@ -436,10 +433,6 @@ describe("daemon server", () => {
       assert.equal(list.activeId, null);
       assert.equal(list.profiles.length, 0);
       assert.equal(fs.existsSync(`${layout.profilesDir}/${created.profile.id}.yaml`), false);
-
-      // Settings mirror cleared after the active profile was deleted.
-      const savedSettings = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8"));
-      assert.equal(savedSettings.subscriptionUrl, "");
 
       const missing = await apiRequest("/sash/profiles/1234567890123", { method: "DELETE" });
       assert.equal(missing.statusCode, 404);

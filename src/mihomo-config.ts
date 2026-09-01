@@ -17,7 +17,7 @@ import type { SashSettings } from "./settings.js";
 export interface GeneratedConfig {
   yaml: string;
   proxyCount: number;
-  source: "subscription" | "default";
+  source: "subscription" | "existing" | "default";
 }
 
 export function buildDefaultConfig(): Record<string, unknown> {
@@ -35,9 +35,12 @@ export function isValidMihomoConfig(doc: unknown): doc is Record<string, unknown
   if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return false;
   const rec = doc as Record<string, unknown>;
   return (
-    ("proxies" in rec && (Array.isArray(rec.proxies) || rec.proxies === undefined)) ||
-    ("proxy-providers" in rec && typeof rec["proxy-providers"] === "object") ||
-    ("rules" in rec && (Array.isArray(rec.rules) || rec.rules === undefined))
+    ("proxies" in rec && Array.isArray(rec.proxies)) ||
+    ("proxy-providers" in rec &&
+      typeof rec["proxy-providers"] === "object" &&
+      rec["proxy-providers"] !== null &&
+      !Array.isArray(rec["proxy-providers"])) ||
+    ("rules" in rec && Array.isArray(rec.rules))
   );
 }
 
@@ -138,6 +141,16 @@ function parseIntervalHours(header: string | undefined): number | undefined {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
 }
 
+export function parseSafeHttpUrl(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Fetch a subscription URL, validating the document and extracting the
  * metadata headers subscription gateways send (usage quota, update interval,
@@ -182,7 +195,7 @@ export async function fetchSubscriptionProfile(url: string): Promise<Subscriptio
     yamlText: text,
     name: parseContentDispositionFilename(firstHeader(res.headers["content-disposition"])),
     subInfo: parseSubscriptionUserinfo(firstHeader(res.headers["subscription-userinfo"])),
-    homePage: firstHeader(res.headers["profile-web-page-url"])?.trim() || undefined,
+    homePage: parseSafeHttpUrl(firstHeader(res.headers["profile-web-page-url"])),
     intervalHours: parseIntervalHours(firstHeader(res.headers["profile-update-interval"])),
   };
 }
@@ -241,19 +254,30 @@ export interface GenerateOptions {
   subscription?: Record<string, unknown>;
 }
 
+export function renderConfig(
+  base: Record<string, unknown>,
+  settings: SashSettings,
+  source: GeneratedConfig["source"],
+): GeneratedConfig {
+  const merged = overlayManagedKeys(base, settings);
+  const proxies = merged.proxies;
+  return {
+    yaml: YAML.stringify(merged, { indent: 2 }),
+    proxyCount: Array.isArray(proxies) ? proxies.length : 0,
+    source,
+  };
+}
+
 export async function generateConfig(opts: GenerateOptions): Promise<GeneratedConfig> {
   const layout = opts.layout ?? sashLayout();
-  const base = opts.subscription ?? readExistingConfigDoc(layout) ?? buildDefaultConfig();
-  const merged = overlayManagedKeys(base, opts.settings);
-  const proxies = merged.proxies;
-  const proxyCount = Array.isArray(proxies) ? proxies.length : 0;
-  const yamlText = YAML.stringify(merged, { indent: 2 });
-  atomicWriteFileSync(layout.configFile, yamlText);
-  return {
-    yaml: yamlText,
-    proxyCount,
-    source: opts.subscription ? "subscription" : "default",
-  };
+  const existing = opts.subscription === undefined ? readExistingConfigDoc(layout) : undefined;
+  const result = opts.subscription
+    ? renderConfig(opts.subscription, opts.settings, "subscription")
+    : existing
+      ? renderConfig(existing, opts.settings, "existing")
+      : renderConfig(buildDefaultConfig(), opts.settings, "default");
+  atomicWriteFileSync(layout.configFile, result.yaml);
+  return result;
 }
 
 export function configExists(layout: SashLayout = sashLayout()): boolean {

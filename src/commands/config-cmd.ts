@@ -1,7 +1,7 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { generateConfig } from "../mihomo-config.js";
+import { ProfileService } from "../profile-service.js";
 import {
   applyManagedKey,
   requiresCoreRestart,
@@ -23,7 +23,11 @@ export async function runConfigShow(): Promise<void> {
   log.kv("core binary", ctx.layout.coreExe);
   log.kv("logs", ctx.layout.logsDir);
   console.log("");
-  log.kv("subscription", ctx.settings.subscriptionUrl || "(none)");
+  const active = new ProfileService({
+    layout: ctx.layout,
+    settings: () => ctx.settings,
+  }).active();
+  log.kv("active profile", active ? `${active.name} (${active.url || "local file"})` : "(none)");
   log.kv("mixed-port", String(ctx.settings.mixedPort));
   log.kv("controller", ctx.settings.controller);
   log.kv("secret", maskSecret(ctx.settings.secret));
@@ -59,6 +63,9 @@ export async function runConfigSet(key: string, value: string | undefined): Prom
   saveSettings(ctx.settings, ctx.layout);
   log.ok(`${key} updated`);
 
-  await generateConfig({ layout: ctx.layout, settings: ctx.settings });
+  await new ProfileService({
+    layout: ctx.layout,
+    settings: () => ctx.settings,
+  }).reloadActive(false);
   log.info("takes effect on next `sash start`");
 }

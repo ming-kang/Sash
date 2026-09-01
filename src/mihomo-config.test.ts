@@ -10,6 +10,7 @@ import {
   generateConfig,
   isValidMihomoConfig,
   overlayManagedKeys,
+  parseSafeHttpUrl,
 } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
@@ -61,6 +62,17 @@ describe("mihomo-config", () => {
       assert.equal(isValidMihomoConfig("str"), false);
       assert.equal(isValidMihomoConfig(12345), false);
       assert.equal(isValidMihomoConfig(true), false);
+      assert.equal(isValidMihomoConfig({ "proxy-providers": null }), false);
+      assert.equal(isValidMihomoConfig({ "proxy-providers": [] }), false);
+    });
+  });
+
+  describe("parseSafeHttpUrl", () => {
+    it("accepts only valid http(s) URLs", () => {
+      assert.equal(parseSafeHttpUrl("https://example.com/path"), "https://example.com/path");
+      assert.equal(parseSafeHttpUrl("http://example.com"), "http://example.com/");
+      assert.equal(parseSafeHttpUrl("javascript:alert(1)"), undefined);
+      assert.equal(parseSafeHttpUrl("not a url"), undefined);
     });
   });
 

@@ -1,33 +1,10 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { buildDefaultConfig, fetchSubscriptionProfile, generateConfig } from "../mihomo-config.js";
-import {
-  addProfile,
-  applySubscriptionFetch,
-  findProfileByUrl,
-  getActiveProfile,
-  loadProfiles,
-  migrateLegacySubscription,
-  profileNameFromUrl,
-  setActiveProfile,
-} from "../profiles.js";
-import { saveSettings } from "../settings.js";
+import { ProfileService } from "../profile-service.js";
 import { runtimeContext } from "./shared.js";
 
-/**
- * `sash sub ...`: manage subscription profiles.
- * When the daemon is running, mutations go through the daemon API so
- * config is regenerated and the running core reloaded in one step.
- * When offline, changes are written to disk directly.
- */
-
-/** Fold a legacy settings.subscriptionUrl into the profiles store, once. */
-function migrateLegacy(ctx: ReturnType<typeof runtimeContext>): void {
-  if (ctx.settings.subscriptionUrl) {
-    migrateLegacySubscription(ctx.settings.subscriptionUrl, ctx.layout);
-  }
-}
+/** `sash sub ...`: manage subscription profiles through the canonical service. */
 
 export async function runSubSet(url: string): Promise<void> {
   const ctx = runtimeContext();
@@ -43,41 +20,19 @@ export async function runSubSet(url: string): Promise<void> {
     return;
   }
 
-  // Offline path
-  migrateLegacy(ctx);
-  const fetched = await fetchSubscriptionProfile(url);
-  const existing = findProfileByUrl(loadProfiles(ctx.layout), url);
-  let name: string;
-  if (existing) {
-    applySubscriptionFetch(existing.id, fetched, ctx.layout);
-    name = existing.name;
-    setActiveProfile(existing.id, ctx.layout);
-  } else {
-    const added = addProfile(
-      { name: fetched.name || profileNameFromUrl(url), url, yamlText: fetched.yamlText },
-      ctx.layout,
-    );
-    name = added.profile.name;
-    setActiveProfile(added.profile.id, ctx.layout);
-  }
-  ctx.settings.subscriptionUrl = url;
-  saveSettings(ctx.settings, ctx.layout);
-  const result = await generateConfig({
-    layout: ctx.layout,
-    settings: ctx.settings,
-    subscription: fetched.doc,
-  });
-  log.ok(`profile "${name}" saved and activated; config generated (${result.proxyCount} proxies)`);
+  const profiles = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings });
+  const result = await profiles.addRemote(url, { activate: true });
+  log.ok(
+    `profile "${result.profile.name}" saved and activated; config generated (${result.proxyCount ?? 0} proxies)`,
+  );
   log.info("takes effect on next `sash start`");
 }
 
 export async function runSubUpdate(): Promise<void> {
   const ctx = runtimeContext();
-  migrateLegacy(ctx);
-  const active = getActiveProfile(loadProfiles(ctx.layout));
-  if (!active) {
-    throw new Error("no active profile; use `sash sub set <url>` first");
-  }
+  const profiles = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings });
+  const active = profiles.active();
+  if (!active) throw new Error("no active profile; use `sash sub set <url>` first");
   if (!active.url) {
     throw new Error(`profile "${active.name}" is a local file; nothing to update from`);
   }
@@ -92,22 +47,15 @@ export async function runSubUpdate(): Promise<void> {
     return;
   }
 
-  // Offline path
-  const fetched = await fetchSubscriptionProfile(active.url);
-  applySubscriptionFetch(active.id, fetched, ctx.layout);
-  const result = await generateConfig({
-    layout: ctx.layout,
-    settings: ctx.settings,
-    subscription: fetched.doc,
-  });
-  log.ok(`profile "${active.name}" updated; config generated (${result.proxyCount} proxies)`);
+  const result = await profiles.update(active.id);
+  log.ok(`profile "${active.name}" updated; config generated (${result.proxyCount ?? 0} proxies)`);
   log.info("takes effect on next `sash start`");
 }
 
 export async function runSubUnset(): Promise<void> {
   const ctx = runtimeContext();
-  migrateLegacy(ctx);
-  const active = getActiveProfile(loadProfiles(ctx.layout));
+  const profiles = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings });
+  const active = profiles.active();
   if (!active) {
     log.info("no active profile");
     return;
@@ -121,36 +69,26 @@ export async function runSubUnset(): Promise<void> {
     return;
   }
 
-  // Offline path: the profile files stay on disk, only the selection is cleared.
-  setActiveProfile(null, ctx.layout);
-  ctx.settings.subscriptionUrl = "";
-  saveSettings(ctx.settings, ctx.layout);
-  await generateConfig({
-    layout: ctx.layout,
-    settings: ctx.settings,
-    subscription: buildDefaultConfig(),
-  });
+  await profiles.activate(null);
   log.ok(`profile "${active.name}" deselected; reverted to the DIRECT-only default config`);
 }
 
 export async function runSubShow(): Promise<void> {
   const ctx = runtimeContext();
-  const index = loadProfiles(ctx.layout);
+  const index = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings }).list();
   if (index.profiles.length === 0) {
     log.kv("profiles", "(none)");
-    if (ctx.settings.subscriptionUrl) {
-      log.kv("legacy subscription", `${ctx.settings.subscriptionUrl} (migrates on next start)`);
-    }
     log.kv("profiles dir", ctx.layout.profilesDir);
     return;
   }
-  for (const p of index.profiles) {
-    const marker = p.id === index.activeId ? "*" : " ";
-    const source = p.url || "local file";
-    const usage = p.subInfo
-      ? ` ${Math.round(((p.subInfo.upload + p.subInfo.download) / p.subInfo.total) * 100)}% used`
-      : "";
-    log.info(`${marker} ${p.name}  ${source}  (updated ${p.updatedAt})${usage}`);
+  for (const profile of index.profiles) {
+    const marker = profile.id === index.activeId ? "*" : " ";
+    const source = profile.url || "local file";
+    const usage =
+      profile.subInfo && profile.subInfo.total > 0
+        ? ` ${Math.round(((profile.subInfo.upload + profile.subInfo.download) / profile.subInfo.total) * 100)}% used`
+        : "";
+    log.info(`${marker} ${profile.name}  ${source}  (updated ${profile.updatedAt})${usage}`);
   }
   log.kv("profiles dir", ctx.layout.profilesDir);
 }
