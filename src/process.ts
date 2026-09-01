@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { atomicWriteFileSync } from "./fs-atomic.js";
 
 /**
  * Low-level process toolkit: liveness probes, fail-closed identity
@@ -364,8 +365,7 @@ export function readPidRecord(pidFile: string): PidRecord | undefined {
 }
 
 export function writePidRecord(pidFile: string, record: PidRecord): void {
-  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-  fs.writeFileSync(pidFile, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+  atomicWriteFileSync(pidFile, `${JSON.stringify(record, null, 2)}\n`);
 }
 
 export function clearPidRecord(pidFile: string): void {

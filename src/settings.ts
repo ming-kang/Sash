@@ -28,6 +28,31 @@ export interface SashSettings {
   systemProxy: boolean;
 }
 
+export type PublicSashSettings = Pick<
+  SashSettings,
+  | "mixedPort"
+  | "controller"
+  | "tun"
+  | "coreVersion"
+  | "uiVersion"
+  | "allowLan"
+  | "daemonPort"
+  | "systemProxy"
+>;
+
+export function publicSettings(settings: SashSettings): PublicSashSettings {
+  return {
+    mixedPort: settings.mixedPort,
+    controller: settings.controller,
+    tun: settings.tun,
+    coreVersion: settings.coreVersion,
+    uiVersion: settings.uiVersion,
+    allowLan: settings.allowLan,
+    daemonPort: settings.daemonPort,
+    systemProxy: settings.systemProxy,
+  };
+}
+
 export const DEFAULT_SETTINGS: SashSettings = {
   mixedPort: 17890,
   controller: "127.0.0.1:9090",

@@ -67,6 +67,7 @@ async function pollOnce(): Promise<void> {
 }
 
 async function bootstrap(): Promise<void> {
+  await api.initialize().catch(() => null);
   const [status, configs] = await Promise.all([
     api.getStatus().catch(() => null),
     api.getConfigs().catch(() => null),

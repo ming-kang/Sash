@@ -12,11 +12,14 @@ import type {
 } from "../types/index.js";
 import { formatTime } from "../utils/format.js";
 
+let controlToken = "";
+
 async function request<T>(
   endpoint: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
+  if (controlToken) headers["X-Sash-Token"] = controlToken;
   let bodyStr: string | undefined;
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -86,6 +89,12 @@ function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
 
 export const api = {
   /* /sash/* ------------------------------------------------------------- */
+
+  initialize: async () => {
+    const health = await request<{ ok: boolean; token: string; pid: number }>("/sash/health");
+    controlToken = health.token;
+    return health;
+  },
 
   getHealth: () => request<{ ok: boolean; token: string; pid: number }>("/sash/health"),
 

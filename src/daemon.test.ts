@@ -98,11 +98,14 @@ describe("daemon server", () => {
       method?: string;
       body?: unknown;
       token?: string;
+      webToken?: string;
     } = {},
   ) {
     const method = opts.method ?? "GET";
     const headers: Record<string, string> = {};
-    if (opts.token !== undefined) {
+    if (opts.webToken) {
+      headers["X-Sash-Token"] = opts.webToken;
+    } else if (opts.token !== undefined) {
       if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
     } else {
       headers.Authorization = `Bearer ${settings.daemonSecret}`;
@@ -131,7 +134,7 @@ describe("daemon server", () => {
   describe("authentication and namespaces", () => {
     it("allows unauthenticated GET /sash/health returning token and pid", async () => {
       await startServer();
-      const res = await apiRequest("/sash/health");
+      const res = await apiRequest("/sash/health", { token: "" });
       assert.equal(res.statusCode, 200);
       const data = res.data as { ok: boolean; token: string; pid: number };
       assert.equal(data.ok, true);
@@ -139,12 +142,30 @@ describe("daemon server", () => {
       assert.equal(data.pid, process.pid);
     });
 
-    it("allows direct local loopback access to /sash/status", async () => {
+    it("allows public status reads without exposing control secrets", async () => {
       await startServer();
-      const res = await apiRequest("/sash/status");
+      const res = await apiRequest("/sash/status", { token: "" });
       assert.equal(res.statusCode, 200);
-      const data = res.data as { daemon: { pid: number } };
+      const data = res.data as {
+        daemon: { pid: number };
+        settings: Record<string, unknown>;
+      };
       assert.equal(data.daemon.pid, process.pid);
+      assert.equal("secret" in data.settings, false);
+      assert.equal("daemonSecret" in data.settings, false);
+    });
+
+    it("rejects unauthenticated mutations and accepts the per-boot WebUI token", async () => {
+      const inst = await startServer();
+      const denied = await apiRequest("/core/start", { method: "POST", token: "" });
+      assert.equal(denied.statusCode, 401);
+
+      const allowed = await apiRequest("/sash/proxy/disable", {
+        method: "POST",
+        token: "",
+        webToken: inst.token,
+      });
+      assert.equal(allowed.statusCode, 200);
     });
   });
 
@@ -246,6 +267,45 @@ describe("daemon server", () => {
       assert.equal(res.statusCode, 400);
       assert.match((res.data as { error: string }).error, /unknown key/);
     });
+
+    it("rebinds an enabled system proxy after mixed-port restarts the core", async () => {
+      let running = true;
+      const enabledPorts: number[] = [];
+      let disabled = 0;
+      const supervisor = {
+        isRunning: () => running,
+        status: async (): Promise<CoreState> => ({ running }),
+        start: async () => ({ pid: 1234 }),
+        stop: async () => {
+          running = false;
+        },
+        restart: async () => {
+          running = true;
+          return { pid: 1234 };
+        },
+        cleanStaleCore: async () => {},
+      } as unknown as CoreSupervisor;
+      const sysproxy: SysproxyAdapter = {
+        enable: async ({ port }) => {
+          enabledPorts.push(port);
+        },
+        disable: async () => {
+          disabled += 1;
+        },
+        getState: () => ({ supported: true, enabled: enabledPorts.length > disabled }),
+      };
+      await startServer({ supervisor, sysproxy });
+      await apiRequest("/sash/proxy/enable", { method: "POST" });
+
+      const res = await apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { key: "mixed-port", value: "18888" },
+      });
+
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(enabledPorts, [17890, 18888]);
+      assert.equal(disabled, 1);
+    });
   });
 
   describe("web UI serving", () => {
@@ -265,6 +325,15 @@ describe("daemon server", () => {
       const text = await res.body.text();
       assert.equal(res.statusCode, 200);
       assert.match(text, /<html>ui<\/html>/);
+    });
+
+    it("supports HEAD for dashboard assets without streaming a body", async () => {
+      fs.mkdirSync(layout.uiDir, { recursive: true });
+      fs.writeFileSync(path.join(layout.uiDir, "index.html"), "<html>ui</html>");
+      await startServer();
+      const res = await request(`http://127.0.0.1:${boundPort}/ui/`, { method: "HEAD" });
+      assert.equal(res.statusCode, 200);
+      assert.equal(await res.body.text(), "");
     });
   });
 

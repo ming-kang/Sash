@@ -9,6 +9,7 @@ import {
   DEFAULT_SETTINGS,
   generateSecret,
   loadSettings,
+  publicSettings,
   requiresCoreRestart,
   type SashSettings,
   saveSettings,
@@ -91,6 +92,20 @@ describe("settings", () => {
 
       assert.throws(() => loadSettings(layout), /Settings file is invalid JSON/);
       assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), corrupt);
+    });
+  });
+
+  describe("publicSettings", () => {
+    it("omits controller and daemon secrets from API-safe settings", () => {
+      const settings: SashSettings = {
+        ...DEFAULT_SETTINGS,
+        secret: "core-secret",
+        daemonSecret: "daemon-secret",
+      };
+      const exposed = publicSettings(settings) as Record<string, unknown>;
+      assert.equal("secret" in exposed, false);
+      assert.equal("daemonSecret" in exposed, false);
+      assert.equal(exposed.mixedPort, DEFAULT_SETTINGS.mixedPort);
     });
   });
 

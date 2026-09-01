@@ -25,7 +25,7 @@ const MIME_TYPES: Record<string, string> = {
  * Returns true if the request was handled, false otherwise.
  */
 export function serveStaticUi(
-  _req: IncomingMessage,
+  req: IncomingMessage,
   res: ServerResponse,
   pathname: string,
   layout: SashLayout,
@@ -52,14 +52,22 @@ export function serveStaticUi(
   const candidate = path.join(uiRoot, relative);
   const hasExt = Boolean(path.extname(relative));
 
+  const isFile = (file: string): boolean => {
+    try {
+      return fs.statSync(file).isFile();
+    } catch {
+      return false;
+    }
+  };
+
   let targetFile: string | null = null;
-  if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+  if (isFile(candidate)) {
     targetFile = candidate;
   } else if (!hasExt) {
     targetFile = path.join(uiRoot, "index.html");
   }
 
-  if (targetFile && fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
+  if (targetFile && isFile(targetFile)) {
     const ext = path.extname(targetFile);
     const mime = MIME_TYPES[ext] ?? "application/octet-stream";
     const headers: Record<string, string> = { "Content-Type": mime };
@@ -68,8 +76,24 @@ export function serveStaticUi(
       headers.Pragma = "no-cache";
       headers.Expires = "0";
     }
-    res.writeHead(200, headers);
-    fs.createReadStream(targetFile).pipe(res);
+    if (req.method === "HEAD") {
+      res.writeHead(200, headers);
+      res.end();
+      return true;
+    }
+    const stream = fs.createReadStream(targetFile);
+    stream.once("open", () => {
+      res.writeHead(200, headers);
+      stream.pipe(res);
+    });
+    stream.once("error", () => {
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Failed to read dashboard asset");
+      } else {
+        res.destroy();
+      }
+    });
     return true;
   }
 

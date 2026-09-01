@@ -1,13 +1,18 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
 import type { IncomingMessage, Server } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { MihomoApi } from "./api.js";
+import {
+  isControlMutation,
+  isControlRequestAuthorized,
+  isLoopbackHostHeader,
+} from "./daemon-auth.js";
 import { parseJsonBody, sendError, sendJson } from "./daemon-http.js";
 import { handleProfileRoutes } from "./daemon-profile-routes.js";
 import { forwardHttpToCore, forwardWsToCore } from "./daemon-proxy.js";
 import { serveStaticUi } from "./daemon-static.js";
+import { atomicWriteFileSync } from "./fs-atomic.js";
 import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { clearPidRecord } from "./process.js";
@@ -16,6 +21,8 @@ import { ProfileService } from "./profile-service.js";
 import {
   applyManagedKey,
   loadSettings,
+  type PublicSashSettings,
+  publicSettings,
   requiresCoreRestart,
   type SashSettings,
   saveSettings,
@@ -49,7 +56,7 @@ export interface DaemonStatus {
     applied: boolean;
     actual?: SystemProxyState;
   };
-  settings: SashSettings;
+  settings: PublicSashSettings;
   /** Active subscription profile, if any (profiles are the source of truth). */
   activeProfile: { id: string; name: string; url: string } | null;
 }
@@ -85,14 +92,21 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
 
   let proxyApplied = false;
 
-  const applyProxyIfDesired = async (): Promise<void> => {
-    if (settings.systemProxy && supervisor.isRunning()) {
+  const reconcileSystemProxy = async (forceDisable = false): Promise<void> => {
+    const shouldApply = settings.systemProxy && supervisor.isRunning();
+    if (shouldApply) {
       try {
         await sysproxyAdapter.enable({ port: settings.mixedPort });
         proxyApplied = true;
-      } catch {
+      } catch (err) {
         proxyApplied = false;
+        throw err;
       }
+      return;
+    }
+    if (proxyApplied || forceDisable) {
+      await sysproxyAdapter.disable();
+      proxyApplied = false;
     }
   };
 
@@ -110,13 +124,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   const syncSystemProxy = async (enable: boolean): Promise<void> => {
     settings.systemProxy = enable;
     saveSettings(settings, layout);
-    if (enable) {
-      await sysproxyAdapter.enable({ port: settings.mixedPort });
-      proxyApplied = true;
-    } else {
-      await sysproxyAdapter.disable();
-      proxyApplied = false;
-    }
+    await reconcileSystemProxy(!enable);
   };
 
   const supervisor =
@@ -141,7 +149,11 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   });
 
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+    if (!isLoopbackHostHeader(req.headers.host)) {
+      sendError(res, 421, "Invalid Host header");
+      return;
+    }
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     const method = req.method?.toUpperCase() ?? "GET";
 
@@ -160,18 +172,27 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
 
     // 3. Redirect /ui to /ui/ so the dashboard's relative asset URLs resolve
     //    (must use the raw pathname: the normalized one maps /ui/ to /ui)
-    if (method === "GET" && url.pathname === "/ui") {
+    if ((method === "GET" || method === "HEAD") && url.pathname === "/ui") {
       res.writeHead(302, { Location: `/ui/${url.search}` });
       res.end();
       return;
     }
 
     // 4. Static WebUI assets
-    if (method === "GET" && serveStaticUi(req, res, pathname, layout)) {
+    if ((method === "GET" || method === "HEAD") && serveStaticUi(req, res, pathname, layout)) {
       return;
     }
 
-    // 5. API routes
+    // 5. State-changing control requests require a CLI bearer or WebUI boot token.
+    if (
+      isControlMutation(method) &&
+      !isControlRequestAuthorized(req, { daemonSecret: settings.daemonSecret, bootToken: token })
+    ) {
+      sendError(res, 401, "Unauthorized control request");
+      return;
+    }
+
+    // 6. API routes
     try {
       /* ==================================================================== */
       /* /core/api/* — Reverse Proxy to Mihomo external-controller             */
@@ -224,7 +245,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             applied: proxyApplied,
             actual: actualProxy,
           },
-          settings,
+          settings: publicSettings(settings),
           activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
         };
         sendJson(res, 200, status);
@@ -268,7 +289,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       }
 
       if (method === "GET" && pathname === "/sash/settings") {
-        sendJson(res, 200, { ok: true, settings });
+        sendJson(res, 200, { ok: true, settings: publicSettings(settings) });
         return;
       }
 
@@ -298,10 +319,19 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         } else {
           const restartRequired = supervisor.isRunning() && requiresCoreRestart(key);
           await profiles.reloadActive(!restartRequired);
-          if (restartRequired) await supervisor.restart();
+          if (restartRequired) {
+            await removeProxyIfApplied();
+            try {
+              await supervisor.restart();
+              await reconcileSystemProxy();
+            } catch (err) {
+              await removeProxyIfApplied();
+              throw err;
+            }
+          }
         }
 
-        sendJson(res, 200, { ok: true, settings });
+        sendJson(res, 200, { ok: true, settings: publicSettings(settings) });
         return;
       }
 
@@ -321,7 +351,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       /* ==================================================================== */
       if (method === "POST" && pathname === "/core/start") {
         const result = await supervisor.start();
-        await applyProxyIfDesired();
+        await reconcileSystemProxy();
         sendJson(res, 200, { ok: true, ...result });
         return;
       }
@@ -336,7 +366,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       if (method === "POST" && pathname === "/core/restart") {
         await removeProxyIfApplied();
         const result = await supervisor.restart();
-        await applyProxyIfDesired();
+        await reconcileSystemProxy();
         sendJson(res, 200, { ok: true, ...result });
         return;
       }
@@ -460,10 +490,7 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
     port,
     startedAt: new Date().toISOString(),
   };
-  fs.mkdirSync(layout.stateDir, { recursive: true });
-  fs.writeFileSync(layout.daemonPidFile, `${JSON.stringify(pidRecord, null, 2)}\n`, {
-    mode: 0o600,
-  });
+  atomicWriteFileSync(layout.daemonPidFile, `${JSON.stringify(pidRecord, null, 2)}\n`);
 
   const onSignal = async () => {
     try {
