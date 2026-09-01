@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { GITHUB_MIRRORS, MIHOMO_REPO, USER_AGENT } from "./github.js";
+import { GITHUB_DOWNLOAD_HOSTS, GITHUB_MIRRORS, MIHOMO_REPO, USER_AGENT } from "./github.js";
 
 describe("github", () => {
   it("defines repository constants", () => {
@@ -17,6 +17,14 @@ describe("github", () => {
         assert.ok(mirror.startsWith("https://"));
         assert.ok(mirror.endsWith("/"));
       }
+    }
+  });
+
+  it("allows only GitHub release and configured mirror hosts for downloads", () => {
+    assert.ok(GITHUB_DOWNLOAD_HOSTS.has("github.com"));
+    assert.ok(GITHUB_DOWNLOAD_HOSTS.has("release-assets.githubusercontent.com"));
+    for (const mirror of GITHUB_MIRRORS.filter(Boolean)) {
+      assert.ok(GITHUB_DOWNLOAD_HOSTS.has(new URL(mirror).hostname));
     }
   });
 

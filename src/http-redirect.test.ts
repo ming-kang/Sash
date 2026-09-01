@@ -62,6 +62,15 @@ describe("downloadToFile redirect allowlist", () => {
     assert.equal(fs.readFileSync(dest, "utf8"), "payload-bytes");
   });
 
+  it("rejects an initial URL outside the allowlist before downloading", async () => {
+    const dest = path.join(tmpDir, "initial-evil.bin");
+    await assert.rejects(
+      () => downloadToFile(`${baseUrl}/target`, dest, { allowedHosts: new Set(["example.com"]) }),
+      /untrusted host: 127\.0\.0\.1/,
+    );
+    assert.equal(fs.existsSync(dest), false);
+  });
+
   it("rejects a redirect to a host outside the allowlist and removes the partial file", async () => {
     const dest = path.join(tmpDir, "evil.bin");
     await assert.rejects(
@@ -90,7 +99,9 @@ describe("downloadToFile redirect allowlist", () => {
 
   it("sends the sash user agent", async () => {
     const dest = path.join(tmpDir, "ua.bin");
-    await downloadToFile(`${baseUrl}/ua-check`, dest);
+    await downloadToFile(`${baseUrl}/ua-check`, dest, {
+      allowedHosts: new Set(["127.0.0.1"]),
+    });
     assert.equal(fs.readFileSync(dest, "utf8"), USER_AGENT);
   });
 });

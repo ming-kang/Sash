@@ -21,6 +21,15 @@ export const GITHUB_MIRRORS = [
   "https://gh-proxy.com/",
 ];
 
+/** Trusted initial and redirect hosts for release artifact downloads. */
+export const GITHUB_DOWNLOAD_HOSTS: ReadonlySet<string> = new Set([
+  "github.com",
+  "release-assets.githubusercontent.com",
+  "objects.githubusercontent.com",
+  "github-releases.githubusercontent.com",
+  ...GITHUB_MIRRORS.filter(Boolean).map((mirror) => new URL(mirror).hostname.toLowerCase()),
+]);
+
 function mirrorize(githubUrl: string): string[] {
   return GITHUB_MIRRORS.map((prefix) => (prefix ? `${prefix}${githubUrl}` : githubUrl));
 }
@@ -132,6 +141,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
   for (const url of urls) {
     try {
       await downloadToFile(url, opts.dest, {
+        allowedHosts: GITHUB_DOWNLOAD_HOSTS,
         onProgress: opts.onProgress,
         stallMs: 60_000,
       });

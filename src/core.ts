@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { Transform } from "node:stream";
@@ -12,6 +13,7 @@ import {
   resolveLatestTag,
 } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
+import { buildSanitizedEnv } from "./process.js";
 
 /**
  * Mihomo core acquisition: platform asset selection, download, decompression,
@@ -75,9 +77,13 @@ export async function extractCoreArchive(
         executables.find((e) => /^mihomo.*\.exe$/i.test(path.basename(e.entryName))) ??
         executables[0];
       if (!entry) throw new Error(`No .exe found inside ${assetName}`);
-      const data = entry.getData();
-      if (data.length > EXTRACT_SIZE_LIMIT)
+      if (entry.header.size > EXTRACT_SIZE_LIMIT) {
         throw new Error("Extracted binary exceeds 512MB safety limit");
+      }
+      const data = entry.getData();
+      if (data.length > EXTRACT_SIZE_LIMIT) {
+        throw new Error("Extracted binary exceeds 512MB safety limit");
+      }
       fs.writeFileSync(extracted, data, { mode: 0o755 });
     } else if (assetName.endsWith(".gz")) {
       // Stream decompression with a hard size cap instead of buffering the
@@ -140,21 +146,36 @@ export interface CoreInstallOptions {
   onProgress?: (downloaded: number, total: number | undefined) => void;
 }
 
-/**
- * Download and install a mihomo core binary. The binary is staged next to the
- * existing one and swapped in atomically; on Windows the running binary keeps
- * its file locked, so callers must stop the daemon first when replacing it.
- */
-export async function installCore(
-  opts: CoreInstallOptions = {},
-): Promise<{ version: string; exe: string }> {
+export interface StagedCore {
+  version: string;
+  exe: string;
+}
+
+/** Execute a staged binary before it is allowed to replace the installed core. */
+export function verifyCoreExecutable(exe: string, timeoutMs = 5000): void {
+  try {
+    execFileSync(exe, ["-v"], {
+      encoding: "utf8",
+      env: buildSanitizedEnv(),
+      timeout: timeoutMs,
+      windowsHide: true,
+    });
+  } catch (err) {
+    throw new Error(`Downloaded core binary failed validation: ${(err as Error).message}`);
+  }
+}
+
+/** Download, extract and validate a core binary without changing installed state. */
+export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCore> {
   const layout = opts.layout ?? sashLayout();
   const tag = opts.tag ?? (await resolveLatestTag(MIHOMO_REPO));
   const assets = await listReleaseAssets(MIHOMO_REPO, tag).catch(() => []);
   const candidates = mihomoAssetCandidates(tag);
 
   fs.mkdirSync(layout.tempDir, { recursive: true });
-  const archivePath = path.join(layout.tempDir, `mihomo-${tag}.download`);
+  fs.mkdirSync(layout.binDir, { recursive: true });
+  const archivePath = path.join(layout.tempDir, `mihomo-${tag}-${process.pid}.download`);
+  const stagedExe = `${layout.coreExe}.${process.pid}.new`;
   try {
     const assetName = await downloadReleaseAsset({
       repo: MIHOMO_REPO,
@@ -164,16 +185,36 @@ export async function installCore(
       dest: archivePath,
       onProgress: opts.onProgress,
     });
-
-    fs.mkdirSync(layout.binDir, { recursive: true });
-    const stagedExe = `${layout.coreExe}.new`;
     await extractCoreArchive(archivePath, assetName, stagedExe);
     fs.chmodSync(stagedExe, 0o755);
-    fs.renameSync(stagedExe, layout.coreExe);
-    writeInstallRecord({ coreVersion: tag, installedAt: new Date().toISOString() }, layout);
-    return { version: tag, exe: layout.coreExe };
+    verifyCoreExecutable(stagedExe);
+    return { version: tag, exe: stagedExe };
+  } catch (err) {
+    fs.rmSync(stagedExe, { force: true });
+    throw err;
   } finally {
     fs.rmSync(archivePath, { force: true });
+  }
+}
+
+/** Download and install a core when no previous binary exists. */
+export async function installCore(
+  opts: CoreInstallOptions = {},
+): Promise<{ version: string; exe: string }> {
+  const layout = opts.layout ?? sashLayout();
+  if (fs.existsSync(layout.coreExe)) {
+    throw new Error(`Core executable already exists at ${layout.coreExe}; use the update flow`);
+  }
+  const staged = await stageCore({ ...opts, layout });
+  try {
+    fs.renameSync(staged.exe, layout.coreExe);
+    writeInstallRecord(
+      { coreVersion: staged.version, installedAt: new Date().toISOString() },
+      layout,
+    );
+    return { version: staged.version, exe: layout.coreExe };
+  } finally {
+    fs.rmSync(staged.exe, { force: true });
   }
 }
 

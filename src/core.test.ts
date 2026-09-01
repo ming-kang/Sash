@@ -12,6 +12,7 @@ import {
   goOsArch,
   mihomoAssetCandidates,
   readInstallRecord,
+  verifyCoreExecutable,
   writeInstallRecord,
 } from "./core.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -166,6 +167,18 @@ describe("core", () => {
         () => extractCoreArchive(tarPath, "archive.tar", destExe),
         /Unsupported archive type: archive\.tar/,
       );
+    });
+  });
+
+  describe("staged binary validation", () => {
+    it("accepts an executable that exits successfully for -v", () => {
+      assert.doesNotThrow(() => verifyCoreExecutable(process.execPath));
+    });
+
+    it("rejects a non-executable or invalid binary", () => {
+      const invalid = path.join(tmpDir, "invalid-core.exe");
+      fs.writeFileSync(invalid, "not an executable");
+      assert.throws(() => verifyCoreExecutable(invalid, 1000), /failed validation/);
     });
   });
 

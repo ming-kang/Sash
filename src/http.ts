@@ -140,12 +140,8 @@ export interface DownloadOptions {
   stallMs?: number;
   onProgress?: DownloadProgress;
   headers?: Record<string, string>;
-  /**
-   * When provided, redirects are followed manually hop-by-hop and every
-   * redirect target host must be in this set; otherwise redirects are
-   * followed automatically by undici's redirect interceptor.
-   */
-  allowedHosts?: ReadonlySet<string>;
+  /** Every initial and redirected download host must be in this set. */
+  allowedHosts: ReadonlySet<string>;
 }
 
 function validateRedirectTarget(
@@ -170,45 +166,35 @@ function validateRedirectTarget(
 export async function downloadToFile(
   url: string,
   dest: string,
-  opts: DownloadOptions = {},
+  opts: DownloadOptions,
 ): Promise<number> {
   const stallMs = opts.stallMs ?? 60_000;
   const maxRedirects = 5;
 
-  let currentUrl = url;
+  let currentUrl = validateRedirectTarget(url, url, opts.allowedHosts);
   let res: Awaited<ReturnType<typeof request>>;
-  if (opts.allowedHosts) {
-    const dispatcher = pickDispatcher({ direct: false, manualRedirect: true });
-    let hops = 0;
-    for (;;) {
-      res = await request(currentUrl, {
-        method: "GET",
-        headers: { "user-agent": USER_AGENT, ...opts.headers },
-        headersTimeout: 30_000,
-        bodyTimeout: stallMs,
-        dispatcher,
-      });
-      const isRedirect =
-        res.statusCode >= 300 && res.statusCode < 400 && Boolean(res.headers.location);
-      if (!isRedirect) break;
-      const locationHeader = res.headers.location;
-      const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader;
-      await res.body.dump();
-      if (!location) throw new Error(`Redirect without Location header from ${currentUrl}`);
-      hops += 1;
-      if (hops > maxRedirects) {
-        throw new Error(`Too many redirects (>${maxRedirects}) downloading ${url}`);
-      }
-      currentUrl = validateRedirectTarget(location, currentUrl, opts.allowedHosts);
-    }
-  } else {
+  const dispatcher = pickDispatcher({ direct: false, manualRedirect: true });
+  let hops = 0;
+  for (;;) {
     res = await request(currentUrl, {
       method: "GET",
       headers: { "user-agent": USER_AGENT, ...opts.headers },
       headersTimeout: 30_000,
       bodyTimeout: stallMs,
-      dispatcher: pickDispatcher({ direct: false, manualRedirect: false }),
+      dispatcher,
     });
+    const isRedirect =
+      res.statusCode >= 300 && res.statusCode < 400 && Boolean(res.headers.location);
+    if (!isRedirect) break;
+    const locationHeader = res.headers.location;
+    const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader;
+    await res.body.dump();
+    if (!location) throw new Error(`Redirect without Location header from ${currentUrl}`);
+    hops += 1;
+    if (hops > maxRedirects) {
+      throw new Error(`Too many redirects (>${maxRedirects}) downloading ${url}`);
+    }
+    currentUrl = validateRedirectTarget(location, currentUrl, opts.allowedHosts);
   }
 
   if (res.statusCode < 200 || res.statusCode >= 300) {
