@@ -1,8 +1,9 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
+import { saveSettings } from "../settings.js";
 import { disableSystemProxy, getSystemProxyState } from "../sysproxy.js";
-import { runtimeContext } from "./shared.js";
+import { type RuntimeContext, runtimeContext } from "./shared.js";
 
 /** `sash proxy on`: enable OS system proxy via the running sashd. */
 export async function runProxyOn(): Promise<void> {
@@ -22,6 +23,15 @@ export async function runProxyOn(): Promise<void> {
   log.ok(`system proxy enabled -> 127.0.0.1:${ctx.settings.mixedPort}`);
 }
 
+export async function disableProxyOffline(
+  ctx: RuntimeContext,
+  disable: () => Promise<void> = disableSystemProxy,
+): Promise<void> {
+  ctx.settings.systemProxy = false;
+  saveSettings(ctx.settings, ctx.layout);
+  await disable();
+}
+
 /** `sash proxy off`: disable OS system proxy (works even if daemon is stopped). */
 export async function runProxyOff(): Promise<void> {
   const ctx = runtimeContext();
@@ -31,8 +41,8 @@ export async function runProxyOff(): Promise<void> {
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
     await client.disableProxy();
   } else {
-    // Daemon is down; perform direct OS cleanup
-    await disableSystemProxy();
+    // Daemon is down; persist the desired state before direct OS cleanup.
+    await disableProxyOffline(ctx);
   }
   log.ok("system proxy disabled");
 }
