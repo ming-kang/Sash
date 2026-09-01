@@ -45,6 +45,12 @@ export interface SashLayout {
   stateDir: string;
   pidFile: string;
   daemonPidFile: string;
+  daemonLeaseFile: string;
+  daemonStartLockFile: string;
+  runtimeOperationLockFile: string;
+  mutationLockFile: string;
+  settingsLockFile: string;
+  systemProxyStateFile: string;
   installFile: string;
   logsDir: string;
   coreLogFile: string;
@@ -69,6 +75,12 @@ export function sashLayout(root: string = sashRoot()): SashLayout {
     stateDir: path.join(root, "state"),
     pidFile: path.join(root, "state", "sash.pid"),
     daemonPidFile: path.join(root, "state", "sashd.pid"),
+    daemonLeaseFile: path.join(root, "state", "sashd.lock"),
+    daemonStartLockFile: path.join(root, "state", "sashd-start.lock"),
+    runtimeOperationLockFile: path.join(root, "state", "runtime.lock"),
+    mutationLockFile: path.join(root, "state", "mutation.lock"),
+    settingsLockFile: path.join(root, "state", "settings.lock"),
+    systemProxyStateFile: path.join(root, "state", "system-proxy.json"),
     installFile: path.join(root, "state", "install.json"),
     logsDir: path.join(root, "logs"),
     coreLogFile: path.join(root, "logs", "mihomo.log"),

@@ -12,6 +12,7 @@ import {
   goOsArch,
   mihomoAssetCandidates,
   readInstallRecord,
+  validateCoreReleaseTag,
   verifyCoreExecutable,
   writeInstallRecord,
 } from "./core.js";
@@ -170,6 +171,16 @@ describe("core", () => {
     });
   });
 
+  describe("release tag validation", () => {
+    it("accepts release tokens and rejects path/control characters", () => {
+      assert.equal(validateCoreReleaseTag("v1.19.30"), "v1.19.30");
+      assert.equal(validateCoreReleaseTag("Prerelease-Alpha"), "Prerelease-Alpha");
+      assert.throws(() => validateCoreReleaseTag("../../escape"), /Invalid Core release tag/);
+      assert.throws(() => validateCoreReleaseTag("tag/asset"), /Invalid Core release tag/);
+      assert.throws(() => validateCoreReleaseTag("bad\ntag"), /Invalid Core release tag/);
+    });
+  });
+
   describe("staged binary validation", () => {
     it("accepts an executable that exits successfully for -v", () => {
       assert.doesNotThrow(() => verifyCoreExecutable(process.execPath));
@@ -180,9 +191,35 @@ describe("core", () => {
       fs.writeFileSync(invalid, "not an executable");
       assert.throws(() => verifyCoreExecutable(invalid, 1000), /failed validation/);
     });
+
+    it("rejects a binary whose version output does not match the requested release", () => {
+      assert.throws(
+        () => verifyCoreExecutable(process.execPath, 5000, "v0.0.0-impossible"),
+        /does not contain expected release/,
+      );
+      assert.throws(
+        () => verifyCoreExecutable(process.execPath, 5000, process.version.split(".")[0]),
+        /does not contain expected release/,
+      );
+    });
   });
 
   describe("install records & coreInstalled", () => {
+    it("rejects malformed or unknown install metadata", () => {
+      fs.mkdirSync(layout.stateDir, { recursive: true });
+      fs.writeFileSync(layout.installFile, JSON.stringify({ coreVersion: null }));
+      assert.equal(readInstallRecord(layout), undefined);
+      fs.writeFileSync(
+        layout.installFile,
+        JSON.stringify({
+          coreVersion: "v1.19.30",
+          installedAt: "2025-01-01T00:00:00.000Z",
+          unexpected: true,
+        }),
+      );
+      assert.equal(readInstallRecord(layout), undefined);
+    });
+
     it("writes and reads install record", () => {
       assert.equal(readInstallRecord(layout), undefined);
       assert.equal(currentCoreVersion(layout), "");

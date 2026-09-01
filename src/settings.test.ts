@@ -32,6 +32,26 @@ describe("settings", () => {
     }
   });
 
+  function writeSettingsText(text: string): void {
+    fs.mkdirSync(path.dirname(layout.settingsFile), { recursive: true });
+    fs.writeFileSync(layout.settingsFile, text);
+  }
+
+  function completeSettings(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      ...DEFAULT_SETTINGS,
+      secret: "test-core-secret",
+      daemonSecret: "test-daemon-secret",
+      ...overrides,
+    };
+  }
+
+  function assertLoadRejectsWithoutOverwrite(text: string, pattern: RegExp): void {
+    writeSettingsText(text);
+    assert.throws(() => loadSettings(layout), pattern);
+    assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), text);
+  }
+
   describe("generateSecret", () => {
     it("generates a 48-character hex string", () => {
       const secret = generateSecret();
@@ -52,6 +72,7 @@ describe("settings", () => {
       assert.equal(fs.existsSync(layout.settingsFile), false);
 
       const first = loadSettings(layout);
+      assert.equal(first.schemaVersion, 1);
       assert.ok(first.secret.length > 0, "secret should not be empty");
       assert.equal(first.mixedPort, DEFAULT_SETTINGS.mixedPort);
       assert.equal(first.controller, DEFAULT_SETTINGS.controller);
@@ -72,12 +93,10 @@ describe("settings", () => {
     });
 
     it("backfills new fields for settings files written by older versions", () => {
-      fs.mkdirSync(path.dirname(layout.settingsFile), { recursive: true });
-      fs.writeFileSync(
-        layout.settingsFile,
-        JSON.stringify({ secret: "old-secret", mixedPort: 7891 }),
-      );
+      writeSettingsText(JSON.stringify({ secret: "old-secret", mixedPort: 7891 }));
+
       const loaded = loadSettings(layout);
+      assert.equal(loaded.schemaVersion, 1);
       assert.equal(loaded.secret, "old-secret");
       assert.equal(loaded.mixedPort, 7891);
       assert.equal(loaded.daemonPort, DEFAULT_SETTINGS.daemonPort);
@@ -85,24 +104,137 @@ describe("settings", () => {
       assert.ok(loaded.daemonSecret.length > 0);
     });
 
-    it("rejects corrupted sash.json without overwriting it", () => {
-      fs.mkdirSync(path.dirname(layout.settingsFile), { recursive: true });
-      const corrupt = "{ corrupted invalid json content @#$%! ]]";
-      fs.writeFileSync(layout.settingsFile, corrupt);
+    it("regenerates empty persisted secrets", () => {
+      writeSettingsText(JSON.stringify(completeSettings({ secret: "", daemonSecret: "" })));
 
-      assert.throws(() => loadSettings(layout), /Settings file is invalid JSON/);
-      assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), corrupt);
+      const loaded = loadSettings(layout);
+      assert.match(loaded.secret, /^[0-9a-f]{48}$/);
+      assert.match(loaded.daemonSecret, /^[0-9a-f]{48}$/);
+      assert.notEqual(loaded.secret, loaded.daemonSecret);
+
+      const persisted = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      assert.equal(persisted.secret, loaded.secret);
+      assert.equal(persisted.daemonSecret, loaded.daemonSecret);
+    });
+
+    it("rejects corrupted sash.json without overwriting it", () => {
+      const corrupt = "{ corrupted invalid json content @#$%! ]]";
+      assertLoadRejectsWithoutOverwrite(corrupt, /Settings file is invalid JSON/);
+    });
+
+    it("rejects non-object JSON roots without overwriting them", () => {
+      for (const text of ["null", "[]", '"settings"', "42"]) {
+        assertLoadRejectsWithoutOverwrite(text, /JSON root must be a plain object/);
+      }
+    });
+
+    it("rejects null fields, wrong field types, and invalid port ranges", () => {
+      const fields = [
+        "schemaVersion",
+        "subscriptionUrl",
+        "mixedPort",
+        "controller",
+        "secret",
+        "tun",
+        "allowLan",
+        "daemonPort",
+        "daemonSecret",
+        "systemProxy",
+      ];
+      for (const field of fields) {
+        const text = JSON.stringify(completeSettings({ [field]: null }));
+        assertLoadRejectsWithoutOverwrite(text, /must not be null/);
+      }
+
+      const invalidDocuments: Array<{ name: string; document: Record<string, unknown> }> = [
+        { name: "schemaVersion string", document: completeSettings({ schemaVersion: "1" }) },
+        { name: "subscriptionUrl number", document: completeSettings({ subscriptionUrl: 123 }) },
+        { name: "mixedPort string", document: completeSettings({ mixedPort: "17890" }) },
+        { name: "mixedPort zero", document: completeSettings({ mixedPort: 0 }) },
+        { name: "mixedPort above range", document: completeSettings({ mixedPort: 65_536 }) },
+        { name: "mixedPort fractional", document: completeSettings({ mixedPort: 17890.5 }) },
+        {
+          name: "invalid controller",
+          document: completeSettings({ controller: "not-a-controller" }),
+        },
+        { name: "secret number", document: completeSettings({ secret: 123 }) },
+        { name: "tun string", document: completeSettings({ tun: "false" }) },
+        { name: "allowLan number", document: completeSettings({ allowLan: 0 }) },
+        { name: "daemonPort string", document: completeSettings({ daemonPort: "19090" }) },
+        { name: "daemonPort zero", document: completeSettings({ daemonPort: 0 }) },
+        { name: "daemonSecret boolean", document: completeSettings({ daemonSecret: false }) },
+        { name: "systemProxy string", document: completeSettings({ systemProxy: "true" }) },
+      ];
+
+      for (const { document } of invalidDocuments) {
+        const text = JSON.stringify(document);
+        assertLoadRejectsWithoutOverwrite(text, /Settings are invalid/);
+      }
+    });
+
+    it("rejects unknown fields without overwriting the file", () => {
+      const text = JSON.stringify(completeSettings({ unexpected: true }));
+      assertLoadRejectsWithoutOverwrite(text, /unknown field/);
+    });
+
+    it("rejects future schema versions without overwriting the file", () => {
+      const text = JSON.stringify(completeSettings({ schemaVersion: 2 }));
+      assertLoadRejectsWithoutOverwrite(text, /future version/);
+    });
+
+    it("migrates v0 and historical fields to canonical v1 settings", () => {
+      writeSettingsText(
+        JSON.stringify(
+          completeSettings({
+            schemaVersion: 0,
+            subscriptionUrl: "https://example.test/legacy",
+            coreVersion: "v1.0.0",
+            uiVersion: "v2.0.0",
+          }),
+        ),
+      );
+
+      const loaded = loadSettings(layout);
+      assert.equal(loaded.schemaVersion, 1);
+      assert.equal(loaded.subscriptionUrl, "https://example.test/legacy");
+      assert.equal(Object.hasOwn(loaded, "coreVersion"), false);
+      assert.equal(Object.hasOwn(loaded, "uiVersion"), false);
+
+      const persisted = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      assert.equal(persisted.schemaVersion, 1);
+      assert.equal(persisted.subscriptionUrl, "https://example.test/legacy");
+      assert.equal(Object.hasOwn(persisted, "coreVersion"), false);
+      assert.equal(Object.hasOwn(persisted, "uiVersion"), false);
+      assert.deepEqual(Object.keys(persisted).sort(), [
+        "allowLan",
+        "controller",
+        "daemonPort",
+        "daemonSecret",
+        "mixedPort",
+        "schemaVersion",
+        "secret",
+        "subscriptionUrl",
+        "systemProxy",
+        "tun",
+      ]);
     });
   });
 
   describe("publicSettings", () => {
-    it("omits controller and daemon secrets from API-safe settings", () => {
+    it("omits schema and secrets from API-safe settings", () => {
       const settings: SashSettings = {
         ...DEFAULT_SETTINGS,
         secret: "core-secret",
         daemonSecret: "daemon-secret",
       };
       const exposed = publicSettings(settings) as Record<string, unknown>;
+      assert.equal("schemaVersion" in exposed, false);
       assert.equal("secret" in exposed, false);
       assert.equal("daemonSecret" in exposed, false);
       assert.equal(exposed.mixedPort, DEFAULT_SETTINGS.mixedPort);
@@ -153,6 +285,7 @@ describe("settings", () => {
   describe("saveSettings", () => {
     it("saves settings to disk and performs an exact round-trip", () => {
       const customSettings: SashSettings = {
+        schemaVersion: 1,
         subscriptionUrl: "https://example.com/subscription.yaml",
         mixedPort: 10808,
         controller: "127.0.0.1:9999",
@@ -168,11 +301,60 @@ describe("settings", () => {
 
       assert.equal(fs.existsSync(layout.settingsFile), true);
       const raw = fs.readFileSync(layout.settingsFile, "utf8");
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
       assert.deepEqual(parsed, customSettings);
 
       const loaded = loadSettings(layout);
       assert.deepEqual(loaded, customSettings);
+    });
+
+    it("rejects incomplete or invalid settings without overwriting an existing file", () => {
+      const valid: SashSettings = {
+        ...DEFAULT_SETTINGS,
+        secret: "existing-secret",
+        daemonSecret: "existing-daemon-secret",
+      };
+      saveSettings(valid, layout);
+      const original = fs.readFileSync(layout.settingsFile, "utf8");
+
+      const incomplete = {
+        mixedPort: 17890,
+      } as unknown as SashSettings;
+      assert.throws(() => saveSettings(incomplete, layout), /schemaVersion is required/);
+      assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), original);
+
+      const invalid = {
+        ...valid,
+        mixedPort: 0,
+      } as unknown as SashSettings;
+      assert.throws(() => saveSettings(invalid, layout), /mixedPort must be an integer/);
+      assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), original);
+
+      const unknownField = {
+        ...valid,
+        unexpected: true,
+      };
+      assert.throws(() => saveSettings(unknownField, layout), /unknown field/);
+      assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), original);
+    });
+
+    it("drops historical fields when saving canonical settings", () => {
+      const settingsWithHistory = {
+        ...DEFAULT_SETTINGS,
+        secret: "core-secret",
+        daemonSecret: "daemon-secret",
+        coreVersion: "v1.0.0",
+        uiVersion: "v2.0.0",
+      };
+      saveSettings(settingsWithHistory, layout);
+
+      const parsed = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      assert.equal(Object.hasOwn(parsed, "coreVersion"), false);
+      assert.equal(Object.hasOwn(parsed, "uiVersion"), false);
+      assert.equal(parsed.schemaVersion, 1);
     });
   });
 });

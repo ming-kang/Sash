@@ -2,9 +2,12 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { type SashLayout, sashLayout } from "./paths.js";
+import { acquireStateLockSync } from "./state-lock.js";
 
 /** Sash's own settings, persisted to <root>/sash.json. */
 export interface SashSettings {
+  /** Version of the on-disk sash.json schema. */
+  schemaVersion: 1;
   /** Legacy single-subscription field; removed after one-time profile migration. */
   subscriptionUrl?: string;
   mixedPort: number;
@@ -29,6 +32,25 @@ export type PublicSashSettings = Pick<
   "mixedPort" | "controller" | "tun" | "allowLan" | "daemonPort" | "systemProxy"
 >;
 
+const CANONICAL_SETTINGS_KEYS = [
+  "schemaVersion",
+  "subscriptionUrl",
+  "mixedPort",
+  "controller",
+  "secret",
+  "tun",
+  "allowLan",
+  "daemonPort",
+  "daemonSecret",
+  "systemProxy",
+] as const;
+
+const LEGACY_SETTINGS_KEYS = ["coreVersion", "uiVersion"] as const;
+const ACCEPTED_SETTINGS_KEYS = new Set<string>([
+  ...CANONICAL_SETTINGS_KEYS,
+  ...LEGACY_SETTINGS_KEYS,
+]);
+
 export function publicSettings(settings: SashSettings): PublicSashSettings {
   return {
     mixedPort: settings.mixedPort,
@@ -41,6 +63,7 @@ export function publicSettings(settings: SashSettings): PublicSashSettings {
 }
 
 export const DEFAULT_SETTINGS: SashSettings = {
+  schemaVersion: 1,
   mixedPort: 17890,
   controller: "127.0.0.1:9090",
   secret: "",
@@ -51,43 +74,308 @@ export const DEFAULT_SETTINGS: SashSettings = {
   systemProxy: false,
 };
 
+interface ParsedSettings {
+  settings: SashSettings;
+  needsRewrite: boolean;
+}
+
+interface FieldResult<T> {
+  value: T;
+  missing: boolean;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function hasOwn(object: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(object, key);
+}
+
+function invalidSettings(file: string, message: string): Error {
+  return new Error(`Settings are invalid: ${file}: ${message}`);
+}
+
+function readRequiredField<T>(
+  source: Record<string, unknown>,
+  key: string,
+  defaultValue: T,
+  allowMissing: boolean,
+  file: string,
+  parse: (value: unknown, key: string, file: string) => T,
+): FieldResult<T> {
+  if (!hasOwn(source, key)) {
+    if (!allowMissing) throw invalidSettings(file, `${key} is required`);
+    return { value: defaultValue, missing: true };
+  }
+
+  const value = source[key];
+  if (value === null) throw invalidSettings(file, `${key} must not be null`);
+  return { value: parse(value, key, file), missing: false };
+}
+
+function readOptionalString(
+  source: Record<string, unknown>,
+  key: string,
+  file: string,
+): string | undefined {
+  if (!hasOwn(source, key)) return undefined;
+  const value = source[key];
+  if (value === null) throw invalidSettings(file, `${key} must not be null`);
+  return parseString(value, key, file);
+}
+
+function parseString(value: unknown, key: string, file: string): string {
+  if (typeof value !== "string") throw invalidSettings(file, `${key} must be a string`);
+  return value;
+}
+
+function parseBoolean(value: unknown, key: string, file: string): boolean {
+  if (typeof value !== "boolean") throw invalidSettings(file, `${key} must be a boolean`);
+  return value;
+}
+
+function parsePort(value: unknown, key: string, file: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 65_535) {
+    throw invalidSettings(file, `${key} must be an integer from 1 to 65535`);
+  }
+  return value;
+}
+
+function parseController(value: unknown, key: string, file: string): string {
+  const controller = parseString(value, key, file);
+  if (!validateController(controller)) {
+    throw invalidSettings(file, `${key} must be a valid host:port controller address`);
+  }
+  return controller;
+}
+
+function parseSchemaVersion(
+  source: Record<string, unknown>,
+  allowMissing: boolean,
+  file: string,
+): FieldResult<0 | 1> {
+  if (!hasOwn(source, "schemaVersion")) {
+    if (!allowMissing) throw invalidSettings(file, "schemaVersion is required");
+    return { value: 0, missing: true };
+  }
+
+  const value = source.schemaVersion;
+  if (value === null) throw invalidSettings(file, "schemaVersion must not be null");
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw invalidSettings(file, "schemaVersion must be an integer");
+  }
+  if (value === 0 || value === 1) return { value, missing: false };
+  if (value > 1) {
+    throw invalidSettings(file, `schemaVersion ${value} is from a future version`);
+  }
+  throw invalidSettings(file, "schemaVersion must be 0 or 1");
+}
+
+function parseSettings(document: unknown, file: string, allowMissing: boolean): ParsedSettings {
+  if (!isPlainObject(document)) {
+    throw invalidSettings(file, "JSON root must be a plain object");
+  }
+
+  for (const key of Object.keys(document)) {
+    if (!ACCEPTED_SETTINGS_KEYS.has(key)) {
+      throw invalidSettings(file, `unknown field ${JSON.stringify(key)}`);
+    }
+  }
+
+  const schemaVersion = parseSchemaVersion(document, allowMissing, file);
+  const subscriptionUrl = readOptionalString(document, "subscriptionUrl", file);
+  const mixedPort = readRequiredField(
+    document,
+    "mixedPort",
+    DEFAULT_SETTINGS.mixedPort,
+    allowMissing,
+    file,
+    parsePort,
+  );
+  const controller = readRequiredField(
+    document,
+    "controller",
+    DEFAULT_SETTINGS.controller,
+    allowMissing,
+    file,
+    parseController,
+  );
+  const secret = readRequiredField(
+    document,
+    "secret",
+    DEFAULT_SETTINGS.secret,
+    allowMissing,
+    file,
+    parseString,
+  );
+  const tun = readRequiredField(
+    document,
+    "tun",
+    DEFAULT_SETTINGS.tun,
+    allowMissing,
+    file,
+    parseBoolean,
+  );
+  const allowLan = readRequiredField(
+    document,
+    "allowLan",
+    DEFAULT_SETTINGS.allowLan,
+    allowMissing,
+    file,
+    parseBoolean,
+  );
+  const daemonPort = readRequiredField(
+    document,
+    "daemonPort",
+    DEFAULT_SETTINGS.daemonPort,
+    allowMissing,
+    file,
+    parsePort,
+  );
+  const daemonSecret = readRequiredField(
+    document,
+    "daemonSecret",
+    DEFAULT_SETTINGS.daemonSecret,
+    allowMissing,
+    file,
+    parseString,
+  );
+  const systemProxy = readRequiredField(
+    document,
+    "systemProxy",
+    DEFAULT_SETTINGS.systemProxy,
+    allowMissing,
+    file,
+    parseBoolean,
+  );
+
+  let needsRewrite =
+    schemaVersion.missing ||
+    schemaVersion.value === 0 ||
+    mixedPort.missing ||
+    controller.missing ||
+    secret.missing ||
+    tun.missing ||
+    allowLan.missing ||
+    daemonPort.missing ||
+    daemonSecret.missing ||
+    systemProxy.missing;
+
+  for (const key of LEGACY_SETTINGS_KEYS) {
+    if (!hasOwn(document, key)) continue;
+    const value = document[key];
+    if (value === null) throw invalidSettings(file, `${key} must not be null`);
+    parseString(value, key, file);
+    needsRewrite = true;
+  }
+
+  let normalizedSecret = secret.value;
+  if (!normalizedSecret) {
+    normalizedSecret = generateSecret();
+    needsRewrite = true;
+  }
+
+  let normalizedDaemonSecret = daemonSecret.value;
+  if (!normalizedDaemonSecret) {
+    normalizedDaemonSecret = generateSecret();
+    needsRewrite = true;
+  }
+
+  const settings: SashSettings = {
+    schemaVersion: 1,
+    mixedPort: mixedPort.value,
+    controller: controller.value,
+    secret: normalizedSecret,
+    tun: tun.value,
+    allowLan: allowLan.value,
+    daemonPort: daemonPort.value,
+    daemonSecret: normalizedDaemonSecret,
+    systemProxy: systemProxy.value,
+  };
+  if (subscriptionUrl !== undefined) settings.subscriptionUrl = subscriptionUrl;
+
+  return { settings, needsRewrite };
+}
+
+function readSettingsFile(file: string): { exists: boolean; document: unknown } {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { exists: false, document: {} };
+    }
+    throw err;
+  }
+
+  try {
+    return { exists: true, document: JSON.parse(text) as unknown };
+  } catch (err) {
+    throw new Error(
+      `Settings file is invalid JSON: ${file}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+function canonicalSettings(settings: SashSettings): SashSettings {
+  const canonical: SashSettings = {
+    schemaVersion: 1,
+    mixedPort: settings.mixedPort,
+    controller: settings.controller,
+    secret: settings.secret,
+    tun: settings.tun,
+    allowLan: settings.allowLan,
+    daemonPort: settings.daemonPort,
+    daemonSecret: settings.daemonSecret,
+    systemProxy: settings.systemProxy,
+  };
+  if (settings.subscriptionUrl !== undefined) canonical.subscriptionUrl = settings.subscriptionUrl;
+  return canonical;
+}
+
+function writeCanonicalSettings(settings: SashSettings, layout: SashLayout): void {
+  atomicWriteFileSync(
+    layout.settingsFile,
+    `${JSON.stringify(canonicalSettings(settings), null, 2)}\n`,
+  );
+}
+
+function loadSettingsUnlocked(layout: SashLayout): SashSettings {
+  const source = readSettingsFile(layout.settingsFile);
+  const parsed = parseSettings(source.document, layout.settingsFile, true);
+  if (!source.exists || parsed.needsRewrite) {
+    writeCanonicalSettings(parsed.settings, layout);
+  }
+  return parsed.settings;
+}
+
 export function generateSecret(): string {
   return crypto.randomBytes(24).toString("hex");
 }
 
 export function loadSettings(layout: SashLayout = sashLayout()): SashSettings {
-  let raw: Partial<SashSettings> = {};
+  const lease = acquireStateLockSync(layout.settingsLockFile, { purpose: "settings" });
   try {
-    const text = fs.readFileSync(layout.settingsFile, "utf8");
-    try {
-      raw = JSON.parse(text) as Partial<SashSettings>;
-    } catch (err) {
-      throw new Error(
-        `Settings file is invalid JSON: ${layout.settingsFile}: ${(err as Error).message}`,
-      );
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    return loadSettingsUnlocked(layout);
+  } finally {
+    lease.release();
   }
-  const merged: SashSettings = {
-    ...DEFAULT_SETTINGS,
-    ...Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined && v !== null)),
-  } as SashSettings;
-  let dirty = false;
-  if (!merged.secret) {
-    merged.secret = generateSecret();
-    dirty = true;
-  }
-  if (!merged.daemonSecret) {
-    merged.daemonSecret = generateSecret();
-    dirty = true;
-  }
-  if (dirty) saveSettings(merged, layout);
-  return merged;
 }
 
 export function saveSettings(settings: SashSettings, layout: SashLayout = sashLayout()): void {
-  atomicWriteFileSync(layout.settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
+  const lease = acquireStateLockSync(layout.settingsLockFile, { purpose: "settings" });
+  try {
+    const parsed = parseSettings(settings, layout.settingsFile, false);
+    writeCanonicalSettings(parsed.settings, layout);
+  } finally {
+    lease.release();
+  }
 }
 
 /** Keys accepted by `sash config set` and the sashd PATCH /settings route. */

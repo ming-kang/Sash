@@ -44,4 +44,22 @@ describe("MihomoApi", () => {
       server.close();
     }
   });
+
+  it("rejects successful responses without a version string", async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ meta: true }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+
+    try {
+      const api = new MihomoApi(`127.0.0.1:${port}`, "");
+      await assert.rejects(api.version(), /missing a non-empty version/);
+      assert.equal(await api.isReachable(), false);
+    } finally {
+      server.close();
+    }
+  });
 });

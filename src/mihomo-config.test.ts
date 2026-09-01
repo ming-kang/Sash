@@ -19,6 +19,7 @@ describe("mihomo-config", () => {
   let tmpDir: string;
   let layout: SashLayout;
   const mockSettings: SashSettings = {
+    schemaVersion: 1,
     subscriptionUrl: "",
     mixedPort: 7890,
     controller: "127.0.0.1:9090",
@@ -108,6 +109,7 @@ describe("mihomo-config", () => {
       };
 
       const settings: SashSettings = {
+        schemaVersion: 1,
         subscriptionUrl: "https://example.com/sub",
         mixedPort: 7890,
         controller: "127.0.0.1:9090",

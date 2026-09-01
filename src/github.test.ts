@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
-import { GITHUB_DOWNLOAD_HOSTS, GITHUB_MIRRORS, MIHOMO_REPO, USER_AGENT } from "./github.js";
+import {
+  GITHUB_DOWNLOAD_HOSTS,
+  GITHUB_MIRRORS,
+  MIHOMO_REPO,
+  parseSha256Digest,
+  sha256File,
+  USER_AGENT,
+} from "./github.js";
 
 describe("github", () => {
   it("defines repository constants", () => {
@@ -31,5 +41,27 @@ describe("github", () => {
   it("defines USER_AGENT string", () => {
     assert.equal(typeof USER_AGENT, "string");
     assert.ok(USER_AGENT.length > 0);
+  });
+
+  it("parses only canonical SHA-256 release digests", () => {
+    const digest = "a".repeat(64);
+    assert.equal(parseSha256Digest(`sha256:${digest}`), digest);
+    assert.equal(parseSha256Digest(`sha256:${digest.toUpperCase()}`), digest);
+    assert.throws(() => parseSha256Digest(digest), /invalid SHA-256 digest/);
+    assert.throws(() => parseSha256Digest("sha256:abcd"), /invalid SHA-256 digest/);
+  });
+
+  it("computes release file SHA-256 without buffering the whole asset", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-github-digest-test-"));
+    const file = path.join(root, "asset.bin");
+    try {
+      fs.writeFileSync(file, "verified release bytes");
+      assert.equal(
+        await sha256File(file),
+        "783559651bb22d0eda76ae7f87c7a7d3f91264cf5d8f20c4bb5238bce5d20234",
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

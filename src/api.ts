@@ -52,8 +52,7 @@ export class MihomoApi {
 
   async isReachable(): Promise<boolean> {
     try {
-      const res = await this.request("/version", { timeoutMs: 5_000, attempts: 2 });
-      return res.statusCode >= 200 && res.statusCode < 300;
+      return Boolean(await this.version());
     } catch {
       return false;
     }
@@ -61,20 +60,21 @@ export class MihomoApi {
 
   async version(): Promise<string> {
     const res = await this.request("/version", { timeoutMs: 5_000, attempts: 2 });
-    const text = await res.text();
+    const text = await res.text(1024 * 1024);
     if (res.statusCode < 200 || res.statusCode >= 300) {
       const summary = text.slice(0, 200).trim();
       throw new Error(`Mihomo API returned HTTP ${res.statusCode}: ${summary}`);
     }
+    let data: { version?: unknown; meta?: unknown };
     try {
-      const data = JSON.parse(text) as { version?: unknown; meta?: unknown };
-      if (typeof data.version === "string") {
-        return data.version;
-      }
-      return "";
+      data = JSON.parse(text) as { version?: unknown; meta?: unknown };
     } catch {
       throw new Error(`Invalid JSON response from Mihomo /version: ${text.slice(0, 200).trim()}`);
     }
+    if (typeof data.version === "string" && data.version.trim()) {
+      return data.version.trim();
+    }
+    throw new Error("Mihomo /version response is missing a non-empty version");
   }
 
   async reloadConfig(configPath: string): Promise<void> {

@@ -1,6 +1,6 @@
 # Backend Architecture & Supervisor Design
 
-Sash uses a local supervisor daemon (`sashd`) to own the core process, generated configuration, profile state, system proxy reconciliation and the HTTP/WebSocket gateway.
+Sash uses a loopback-only supervisor daemon (`sashd`) to own the Core process, generated configuration, profile state, system-proxy ownership and the HTTP/WebSocket gateway.
 
 ```text
 CLI / WebUI
@@ -8,134 +8,189 @@ CLI / WebUI
     ▼
 sashd
 ├── /sash/*       settings, profiles, status, system proxy
-├── /core/*       core lifecycle and config reload
-├── /core/api/*   controller reverse proxy with secret injection
+├── /core/*       serialized Core lifecycle and config reload
+├── /core/api/*   authenticated controller reverse proxy
 ├── ProfileService
-│   ├── profiles/index.json + profiles/<id>.yaml
-│   └── transactional config generation/reload
-├── CoreSupervisor
-└── platform system-proxy adapter
+├── RuntimeLifecycle
+│   ├── CoreSupervisor
+│   └── SystemProxyManager
+└── state locks / atomic persistence
 ```
 
-The daemon binds only to `127.0.0.1`. The managed core is a non-detached child process so sashd can observe exits, clear PID state and disable the system proxy after an unexpected crash.
+The Core remains a non-detached child of `sashd`. Runtime transitions, disk mutations and daemon startup are serialized at separate boundaries instead of relying on PID files as locks.
 
 ---
 
 ## 1. Module Boundaries
 
-- `src/daemon.ts`: daemon assembly, lifecycle and top-level route dispatch.
-- `src/daemon-profile-routes.ts`: HTTP transport for `/sash/profiles*`.
-- `src/profile-service.ts`: canonical profile application service used by daemon and offline CLI paths.
-- `src/profiles.ts`: synchronous profile file/index store; no network or runtime policy.
-- `src/mihomo-config.ts`: untrusted YAML validation, managed-key overlay and config rendering.
-- `src/supervisor.ts`: direct child process lifecycle and health checks.
-- `src/daemon-proxy.ts`: controller HTTP/WebSocket reverse proxy.
-- `src/daemon-auth.ts`: loopback Host validation and control-request credentials.
-- `src/core-update.ts`: binary/install-record update transaction.
-- `src/http.ts` / `src/github.ts`: proxy-aware remote networking and trusted download origins.
+- `src/daemon.ts`: daemon assembly, routing, scheduler and shutdown.
+- `src/runtime-lifecycle.ts`: serialized Core/proxy state transitions.
+- `src/supervisor.ts`: child ownership, readiness probes and verified termination.
+- `src/daemon-lifecycle.ts`: daemon discovery, singleton startup and CLI shutdown.
+- `src/state-lock.ts`: atomic file leases and cross-process mutation queues.
+- `src/system-proxy-manager.ts`: durable proxy ownership journal and conditional recovery.
+- `src/sysproxy.ts`: Windows, macOS and GNOME snapshot/apply backends.
+- `src/profile-service.ts`: profile/config application transactions.
+- `src/core-update.ts`: executable/install-record update transaction and crash recovery.
+- `src/http.ts` / `src/github.ts`: bounded networking and trusted release downloads.
+- `src/settings.ts`: versioned runtime schema for `sash.json`.
 - `src/contracts.ts`: API contracts shared by the daemon client and WebUI.
 
 ---
 
-## 2. API Namespaces
+## 2. Ownership and Serialization
 
-### 2.1 `/sash/*`
+### Daemon ownership
+
+`sashd` acquires `state/sashd.lock` before reading or migrating persistent state. The lock record contains a random token, PID, purpose and timestamp. A PID file is discovery metadata only; it is never the singleton authority.
+
+- `state/sashd-start.lock` serializes concurrent CLI spawn attempts.
+- `state/runtime.lock` serializes top-level `start`, `stop`, `restart` and Core update operations.
+- `state/mutation.lock` separates daemon-owned mutations from offline CLI mutations.
+- `state/settings.lock` prevents concurrent first-run secret generation and settings rewrites.
+- `state/system-proxy.json.lock` serializes proxy journal operations.
+
+Lock records are fully written and fsynced before an atomic hard-link publishes them. A live owner is never displaced. Dead owners can be reclaimed; corrupt records fail closed and require explicit repair.
+
+Offline commands reload settings after acquiring `mutation.lock`. They refuse to write when a daemon lease, live orphan Core PID or corrupt Core PID record makes ownership uncertain.
+
+### Runtime lifecycle
+
+`RuntimeLifecycle` is the only daemon layer that combines Core and system-proxy transitions. Operations enter one promise queue and update a small phase model (`stopped`, `starting`, `running`, `stopping`, `restarting`, `failed`) with a monotonic generation.
+
+Invariants:
+
+1. A start prepares and Core-validates the exact active config before spawn.
+2. The Core must pass two readiness probes before it is considered healthy.
+3. Desired system proxy is applied only after readiness.
+4. A deliberate stop restores the previous OS proxy before stopping the Core.
+5. If proxy restoration cannot be proved, the healthy Core is left running.
+6. Late child-exit events and delayed cleanup callbacks cannot clear a replacement child.
+7. Failed termination preserves PID ownership instead of pretending the process stopped.
+
+Unexpected Core exit retries proxy restoration and records failures in daemon error logs.
+
+---
+
+## 3. API Namespaces
+
+### `/sash/*`
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/sash/health` | `GET` | Readiness probe with PID, start time and per-boot WebUI token. |
-| `/sash/status` | `GET` | Daemon/core/proxy/public-settings snapshot and active profile. Secrets are omitted. |
-| `/sash/proxy` | `GET` | Desired, daemon-applied and OS-reported system proxy state. |
-| `/sash/proxy/enable` | `POST` | Persist and apply system proxy; core must be running. |
-| `/sash/proxy/disable` | `POST` | Persist and disable system proxy. |
-| `/sash/profiles` | `GET` | Return profile index. |
-| `/sash/profiles` | `POST` | Download/add or update a remote profile. First profile auto-activates. |
-| `/sash/profiles/import` | `POST` | Validate and import local YAML (8 MiB request limit). |
-| `/sash/profiles/active` | `PUT` | Activate a profile, or pass `null` to use the default config. |
-| `/sash/profiles/:id/update` | `POST` | Update one remote profile. |
-| `/sash/profiles/update-all` | `POST` | Update all remote profiles with bounded network concurrency. |
-| `/sash/profiles/:id` | `DELETE` | Delete a profile; deleting the active profile loads the default config. |
-| `/sash/settings` | `GET` | Return public managed settings only. |
-| `/sash/settings` | `PATCH` | Validate/apply a managed key and restart or reload as required. |
-| `/sash/shutdown` | `POST` | Disable system proxy, stop core and close sashd. |
+| `/sash/health` | `GET` | Readiness, PID, start time and per-boot WebUI token. |
+| `/sash/status` | `GET` | Daemon/Core/proxy/public-settings snapshot. |
+| `/sash/proxy` | `GET` | Desired, Sash-owned and observed OS proxy state. |
+| `/sash/proxy/enable` | `POST` | Persist and apply proxy ownership; requires a healthy Core. |
+| `/sash/proxy/disable` | `POST` | Persist off and restore the pre-Sash proxy snapshot. |
+| `/sash/profiles*` | mixed | List, add/import, activate, update and delete profiles. |
+| `/sash/settings` | `GET` / `PATCH` | Read or transactionally update managed settings. |
+| `/sash/shutdown` | `POST` | Restore proxy, stop Core and close `sashd`. |
 
-### 2.2 `/core/*`
+Appending `?fresh=1` to status/proxy reads bypasses the short OS-state cache used by normal WebUI polling.
+
+### `/core/*`
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/core/start` | `POST` | Spawn the child and wait for controller health. |
-| `/core/stop` | `POST` | Disable system proxy and stop the child. |
-| `/core/restart` | `POST` | Stop/start the child and reconcile system proxy. |
-| `/core/config/reload` | `POST` | Re-render the active profile and reload it transactionally. |
+| `/core/start` | `POST` | Rebuild config, start and wait for readiness. |
+| `/core/stop` | `POST` | Restore proxy, then stop the child. |
+| `/core/restart` | `POST` | Rebuild config and execute one serialized replacement. |
+| `/core/config/reload` | `POST` | Re-render, validate and reload active config. |
 
-### 2.3 `/core/api/*`
+### `/core/api/*`
 
-Requests are forwarded to the configured controller. sashd removes daemon credentials and the browser-supplied Host header, then injects the internal controller bearer secret. `/traffic` and `/logs` upgrades are proxied as WebSockets. Upgrade requests must pass loopback Host/Origin checks and authenticate with the CLI bearer/header token or the WebUI's private `sash-token.<bootToken>` subprotocol; that credential subprotocol is stripped before forwarding.
-
----
-
-## 3. Control-Request Security
-
-- Requests with a non-loopback Host header are rejected (`421`). This prevents DNS-rebinding origins from reading the loopback API.
-- `GET`, `HEAD` and `OPTIONS` are read-only/public on the loopback listener.
-- Every state-changing method requires either:
-  - `Authorization: Bearer <daemonSecret>` from the CLI; or
-  - `X-Sash-Token: <bootToken>` from the same-origin WebUI.
-- The WebUI refreshes the boot token through `/sash/health`, including after daemon restart. WebSocket streams carry it in a private subprotocol because browser WebSocket clients cannot set arbitrary authorization headers.
-- HTTP and WebSocket route prefixes use segment boundaries; lookalike paths such as `/core/apiX` are not proxied.
-- `/sash/status` and `/sash/settings` expose `PublicSashSettings`; controller and daemon secrets never appear in those responses.
-- The controller secret stays server-side and is injected only by the reverse proxy.
+Requests are forwarded to the internal controller. `sashd` strips Sash credentials and the browser Host header, then injects the internal controller bearer. Traffic/log streams use authenticated WebSocket upgrades.
 
 ---
 
-## 4. Profile and Config Transactions
+## 4. Control-Request Security
 
-`ProfileService` is the only application layer allowed to combine network fetches, profile mutations and core reloads. Both daemon routes and offline CLI commands use it, so behavior no longer depends on whether sashd is running.
-
-Activation flow:
-
-1. Load and structurally validate the requested local profile file; a missing remote file may be fetched, but a missing local import is an error.
-2. Render the exact candidate config with Sash-managed operational keys.
-3. Write the candidate to an isolated temporary file and run the installed Core with `-t -d <root> -f <candidate>`. Rejected candidates never reach profile/config state.
-4. Snapshot the current config and affected profile state.
-5. Atomically write the candidate `config.yaml`.
-6. Reload the running core when applicable.
-7. Commit the active profile/index mutation.
-8. Restore config/state and reload the previous config if any step fails.
-
-Every Core start now reconciles `config.yaml` from the active profile and current settings instead of trusting an existing generated file. Remote profile bodies are capped at 8 MiB. Failed settings validation/restart restores `sash.json`, the previous generated config and the previous runtime where possible.
-
-Remote Update All performs network fetches with bounded concurrency, deduplicates in-flight requests, then serializes short state commits. Each commit rechecks that the profile still exists and still has the same URL.
-
-The scheduler checks every 15 minutes, with a startup check after 10 seconds. Provider `profile-update-interval` is respected; the default is 24 hours. Per-profile failures are persisted as `lastError` while the previous valid content remains available.
-
-A legacy `sash.json.subscriptionUrl` is migrated once and removed. Corrupt settings or profile indexes are rejected rather than silently replaced.
+- The listener binds only to `127.0.0.1` and rejects non-loopback Host headers.
+- State-changing methods require the persistent CLI bearer or per-boot WebUI token.
+- WebSocket upgrades additionally validate loopback Origin and route boundaries.
+- Public settings/status contracts omit controller and daemon secrets.
+- Controller and daemon clients use a direct dispatcher; proxy environment variables apply only to remote downloads.
+- Child environments remove GitHub/npm tokens and npm authentication variables.
 
 ---
 
-## 5. Core Update Transaction and Download Trust
+## 5. Settings, Profiles and Config Transactions
 
-Release downloads are restricted by `GITHUB_DOWNLOAD_HOSTS`. The initial URL and every redirect target must use HTTP(S) and match the allowlist. The allowlist parameter is mandatory at the download helper type boundary.
+`sash.json` has explicit `schemaVersion: 1`. Loading validates the JSON root, every field type, port range, controller address and unknown keys. Version-0 files and removed version metadata migrate to canonical v1. Invalid or future-version files are never overwritten.
 
-Update flow:
+Profile application follows:
 
-1. Download to a unique temporary path.
-2. Extract with the 512 MiB uncompressed-size cap.
-3. Execute the staged binary with `-v` under a credential-scrubbed environment.
-4. Stop the old runtime only after staging succeeds.
-5. Rename the old binary to `.bak` and install the staged binary.
-6. If the core was running, start it and wait for controller health.
-7. Commit `state/install.json`, then delete `.bak`.
-8. On failure, stop the candidate, restore binary and install record, and restart the old runtime.
+1. Parse the untrusted source profile.
+2. Overlay Sash-owned operational keys.
+3. Write an isolated candidate.
+4. Run the installed Core with `-t -d <root> -f <candidate>`.
+5. Snapshot affected config/profile/index state.
+6. Atomically publish `config.yaml`.
+7. Reload or restart the runtime.
+8. Commit metadata only after runtime success; otherwise restore the snapshot.
+
+Remote bodies are capped at 8 MiB. Scheduled network fetches use bounded concurrency; state commits remain serialized and recheck profile identity/URL before publication.
 
 ---
 
-## 6. Runtime and Process Safety
+## 6. System-Proxy Ownership
 
-- PID termination is fail-closed: identity must match before a signal is sent.
-- Core and daemon PID records use `atomicWriteFileSync` and mode `0o600` on POSIX.
-- Child environments remove GitHub/npm tokens and npm auth variables.
-- Controller and daemon loopback requests use the direct dispatcher and never inherit proxy environment routing.
-- Unexpected core exit disables the system proxy.
-- Changes requiring restart remove the applied proxy before restart and reconcile it afterward, including `mixed-port` changes.
-- Daemon startup clears a leftover OS proxy only when settings do not request it.
+`settings.systemProxy` stores desired state. `state/system-proxy.json` separately records ownership:
+
+```text
+prepared: original snapshot + intended target persisted before OS writes
+applied:  target was written and read back exactly
+```
+
+Enable flow:
+
+1. Capture all fields Sash will modify.
+2. Derive the target and persist `prepared` atomically.
+3. Re-read the OS state to detect changes during preparation.
+4. Apply and verify the target.
+5. Mark the journal `applied`.
+
+Release/recovery restores only when every managed value still equals either the original or Sash target. A third-party value is never overwritten. Failed or partial restoration retains the journal and blocks deliberate Core shutdown.
+
+Platform scope:
+
+- Windows: manual proxy, bypass list, PAC URL and automatic detection registry values.
+- macOS: HTTP, HTTPS, SOCKS and automatic proxy URL/state for every active network service. Existing authenticated proxy settings are not taken over because credentials cannot be restored safely.
+- Linux: GNOME `gsettings` mode, automatic URL, HTTP authentication toggle and HTTP/HTTPS/SOCKS endpoints. Other desktop environments are reported unsupported.
+
+A missing journal never authorizes Sash to disable an unrelated system proxy.
+
+---
+
+## 7. Core Download and Update Trust
+
+Release identity and asset metadata come only from official GitHub endpoints. Asset mirrors are byte transports, not trust roots.
+
+- Release tags are restricted to safe path tokens.
+- Every initial/redirect URL is HTTPS and host-allowlisted.
+- Downloads are streamed with a 128 MiB archive cap and backpressure.
+- The complete archive must match the SHA-256 digest published in GitHub release metadata.
+- Extraction has a 512 MiB output cap; ZIP deflate is streamed rather than fully inflated in memory.
+- The staged executable must report the exact requested release token via `-v`.
+- The staged executable validates the freshly generated active configuration before publication.
+
+Update flow stops `sashd`, restores proxy ownership, reconciles stale Core/update state, swaps the executable, verifies a previously running runtime, commits `state/install.json`, then restores the daemon/runtime. The rollback slot is deleted only after that external runtime restoration succeeds; otherwise it is retained. `current + .bak` crash states are resolved by matching binaries against strictly validated version metadata; ambiguous states fail closed without deleting either file.
+
+Official digest metadata is mandatory. If the metadata API is unavailable, Sash refuses an unverifiable mirror download instead of falling back to executing unverified bytes.
+
+---
+
+## 8. Persistence Safety
+
+Atomic state writes use a same-directory temporary file, `fsync` and rename. Sensitive files use mode `0o600` on POSIX. Important files are:
+
+- `sash.json`: versioned desired settings and local secrets.
+- `profiles/index.json`, `profiles/<id>.yaml`: profile metadata/content.
+- `config.yaml`: generated runtime config.
+- `state/sash.pid`, `state/sashd.pid`: discovery records.
+- `state/system-proxy.json`: durable proxy ownership transaction.
+- `state/install.json`: committed Core version metadata.
+- `state/*.lock`: local-filesystem ownership records.
+
+`SASH_HOME` should reside on a local filesystem that supports atomic rename, hard links and normal per-user permissions.

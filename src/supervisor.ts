@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import { MihomoApi } from "./api.js";
 import type { SashLayout } from "./paths.js";
 import {
@@ -14,7 +15,6 @@ import {
   writePidRecord,
 } from "./process.js";
 import type { SashSettings } from "./settings.js";
-import type { SystemProxyState } from "./sysproxy.js";
 
 export interface CoreState {
   running: boolean;
@@ -24,22 +24,31 @@ export interface CoreState {
   version?: string;
 }
 
-export interface SysproxyAdapter {
-  enable(opts: { host?: string; port: number }): Promise<void>;
-  disable(): Promise<void>;
-  getState(): SystemProxyState;
-}
-
 export interface CoreSupervisorOptions {
   layout: SashLayout;
   settings: () => SashSettings;
   spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   waitHealthyMs?: number;
+  expectedVersion?: string;
+  isAliveFn?: typeof isProcessAlive;
+  killFn?: typeof killProcessGracefully;
+  classifyIdentityFn?: typeof classifyProcessIdentity;
   onExit?: (code: number | null, signal: NodeJS.Signals | null) => Promise<void> | void;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function versionMatches(observed: string, expected: string): boolean {
+  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9._-])${escaped}($|[^A-Za-z0-9._-])`).test(observed);
+}
+
+function managedPathsMatch(a: string, b: string): boolean {
+  const left = path.resolve(a);
+  const right = path.resolve(b);
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
 /**
@@ -54,6 +63,10 @@ export class CoreSupervisor {
   private readonly getSettings: () => SashSettings;
   private readonly spawnFn: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   private readonly waitHealthyMs: number;
+  private readonly expectedVersion?: string;
+  private readonly isAlive: typeof isProcessAlive;
+  private readonly kill: typeof killProcessGracefully;
+  private readonly classifyIdentity: typeof classifyProcessIdentity;
   private readonly onExitCallback?: (
     code: number | null,
     signal: NodeJS.Signals | null,
@@ -63,6 +76,10 @@ export class CoreSupervisor {
     this.layout = opts.layout;
     this.getSettings = opts.settings;
     this.waitHealthyMs = opts.waitHealthyMs ?? 10_000;
+    this.expectedVersion = opts.expectedVersion;
+    this.isAlive = opts.isAliveFn ?? isProcessAlive;
+    this.kill = opts.killFn ?? killProcessGracefully;
+    this.classifyIdentity = opts.classifyIdentityFn ?? classifyProcessIdentity;
     this.onExitCallback = opts.onExit;
     this.spawnFn = opts.spawnFn ?? this.defaultSpawn.bind(this);
   }
@@ -117,7 +134,7 @@ export class CoreSupervisor {
   }
 
   async start(): Promise<{ pid: number; version?: string }> {
-    if (this.child && isProcessAlive(this.child.pid ?? -1)) {
+    if (this.child && this.isAlive(this.child.pid ?? -1)) {
       throw new Error(`Core is already running (PID=${this.child.pid})`);
     }
 
@@ -138,12 +155,6 @@ export class CoreSupervisor {
 
     this.child = child;
     this.childStartedAt = new Date().toISOString();
-    writePidRecord(this.layout.pidFile, {
-      pid,
-      exe: this.layout.coreExe,
-      startedAt: this.childStartedAt,
-    });
-
     let spawnError: Error | undefined;
     child.on("error", (err) => {
       spawnError = err;
@@ -164,20 +175,45 @@ export class CoreSupervisor {
       }
     });
 
+    try {
+      writePidRecord(this.layout.pidFile, {
+        pid,
+        exe: this.layout.coreExe,
+        startedAt: this.childStartedAt,
+      });
+    } catch (err) {
+      this.stopping = true;
+      const terminated = await this.kill(pid, { timeoutMs: 3000 });
+      if (terminated && this.child === child) {
+        this.child = null;
+        this.childStartedAt = undefined;
+      }
+      const cleanup = terminated ? "" : `; process ${pid} could not be confirmed stopped`;
+      throw new Error(`Failed to persist Core PID ownership: ${(err as Error).message}${cleanup}`);
+    }
+
     const api = new MihomoApi(settings.controller, settings.secret);
     const deadline = Date.now() + this.waitHealthyMs;
     let version: string | undefined;
+    let healthyProbes = 0;
 
     while (Date.now() < deadline) {
       if (spawnError) {
-        clearPidRecord(this.layout.pidFile);
+        this.stopping = true;
+        const terminated = await this.kill(pid, { timeoutMs: 3000 });
+        if (terminated && this.child === child) {
+          this.child = null;
+          this.childStartedAt = undefined;
+          clearPidRecord(this.layout.pidFile);
+        }
         const details = tailFile(this.layout.coreErrLogFile, 20);
+        const cleanup = terminated ? "" : `; process ${pid} could not be confirmed stopped`;
         throw new Error(
-          `Failed to start core: ${spawnError.message}${details ? `\n${details}` : ""}`,
+          `Failed to start core: ${spawnError.message}${cleanup}${details ? `\n${details}` : ""}`,
         );
       }
 
-      if (!isProcessAlive(pid)) {
+      if (!this.isAlive(pid)) {
         clearPidRecord(this.layout.pidFile);
         const details = tailFile(this.layout.coreErrLogFile, 20);
         throw new Error(
@@ -187,21 +223,34 @@ export class CoreSupervisor {
 
       try {
         version = await api.version();
-        return { pid, version };
+        if (this.expectedVersion && !versionMatches(version, this.expectedVersion)) {
+          throw new Error(
+            `Controller version ${version} does not match expected ${this.expectedVersion}`,
+          );
+        }
+        healthyProbes++;
+        if (healthyProbes >= 2 && this.isAlive(pid)) return { pid, version };
       } catch {
-        // keep polling
+        healthyProbes = 0;
       }
       await sleep(250);
     }
 
-    // Health check timed out
+    // Health check timed out. Preserve ownership records unless termination
+    // is positively confirmed, so later recovery can still identify the Core.
     this.stopping = true;
-    await killProcessGracefully(pid, { timeoutMs: 3000 });
-    clearPidRecord(this.layout.pidFile);
-    this.child = null;
+    const terminated = await this.kill(pid, { timeoutMs: 3000 });
+    if (terminated && this.child === child) {
+      clearPidRecord(this.layout.pidFile);
+      this.child = null;
+      this.childStartedAt = undefined;
+    }
     const details = tailFile(this.layout.coreErrLogFile, 20);
+    const cleanup = terminated
+      ? ""
+      : " The process could not be confirmed stopped; PID state was preserved.";
     throw new Error(
-      `Core started (PID=${pid}) but external-controller did not become healthy within ${this.waitHealthyMs}ms.${
+      `Core started (PID=${pid}) but external-controller did not become healthy within ${this.waitHealthyMs}ms.${cleanup}${
         details ? `\nRecent errors:\n${details}` : ""
       }`,
     );
@@ -209,7 +258,7 @@ export class CoreSupervisor {
 
   async stop(): Promise<void> {
     const child = this.child;
-    if (!child?.pid || !isProcessAlive(child.pid)) {
+    if (!child?.pid || !this.isAlive(child.pid)) {
       this.child = null;
       clearPidRecord(this.layout.pidFile);
       return;
@@ -217,10 +266,15 @@ export class CoreSupervisor {
 
     this.stopping = true;
     const pid = child.pid;
-    await killProcessGracefully(pid, { timeoutMs: 8000 });
-    this.child = null;
-    this.childStartedAt = undefined;
-    clearPidRecord(this.layout.pidFile);
+    const terminated = await this.kill(pid, { timeoutMs: 8000 });
+    if (!terminated) {
+      throw new Error(`Core process is still running after termination attempt (PID=${pid})`);
+    }
+    if (this.child === child) {
+      this.child = null;
+      this.childStartedAt = undefined;
+      clearPidRecord(this.layout.pidFile);
+    }
   }
 
   async restart(): Promise<{ pid: number; version?: string }> {
@@ -230,7 +284,7 @@ export class CoreSupervisor {
 
   async status(): Promise<CoreState> {
     const child = this.child;
-    if (!child?.pid || !isProcessAlive(child.pid)) {
+    if (!child?.pid || !this.isAlive(child.pid)) {
       return { running: false };
     }
 
@@ -255,7 +309,7 @@ export class CoreSupervisor {
   }
 
   isRunning(): boolean {
-    return Boolean(this.child && isProcessAlive(this.child.pid ?? -1));
+    return Boolean(this.child && this.isAlive(this.child.pid ?? -1));
   }
 
   /**
@@ -264,16 +318,37 @@ export class CoreSupervisor {
    */
   async cleanStaleCore(): Promise<void> {
     const record = readPidRecord(this.layout.pidFile);
-    if (!record) return;
+    if (!record) {
+      if (fs.existsSync(this.layout.pidFile)) {
+        throw new Error(`Core PID record is corrupt: ${this.layout.pidFile}`);
+      }
+      return;
+    }
 
-    if (!isProcessAlive(record.pid)) {
+    if (!managedPathsMatch(record.exe, this.layout.coreExe)) {
+      throw new Error(`Core PID record executable does not match the managed path: ${record.exe}`);
+    }
+    if (!this.isAlive(record.pid)) {
       clearPidRecord(this.layout.pidFile);
       return;
     }
 
-    const identity = classifyProcessIdentity(record.pid, record.exe);
-    if (identity === "match") {
-      await killProcessGracefully(record.pid, { timeoutMs: 5000 });
+    const identity = this.classifyIdentity(record.pid, this.layout.coreExe);
+    if (identity === "mismatch") {
+      clearPidRecord(this.layout.pidFile);
+      return;
+    }
+    if (identity === "unknown") {
+      throw new Error(
+        `Refusing to terminate stale Core PID ${record.pid}: process identity could not be verified`,
+      );
+    }
+
+    const terminated = await this.kill(record.pid, { timeoutMs: 5000 });
+    if (!terminated) {
+      throw new Error(
+        `Stale Core process is still running after termination attempt (PID=${record.pid})`,
+      );
     }
     clearPidRecord(this.layout.pidFile);
   }

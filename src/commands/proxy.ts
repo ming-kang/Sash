@@ -2,8 +2,8 @@ import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { saveSettings } from "../settings.js";
-import { disableSystemProxy, getSystemProxyState } from "../sysproxy.js";
-import { type RuntimeContext, runtimeContext } from "./shared.js";
+import { SystemProxyManager } from "../system-proxy-manager.js";
+import { type RuntimeContext, runOfflineMutation, runtimeContext } from "./shared.js";
 
 /** `sash proxy on`: enable OS system proxy via the running sashd. */
 export async function runProxyOn(): Promise<void> {
@@ -15,8 +15,8 @@ export async function runProxyOn(): Promise<void> {
 
   const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
   const status = await client.status();
-  if (!status.core.running) {
-    throw new Error("core is not running; start it first before enabling system proxy");
+  if (!status.core.running || !status.core.healthy) {
+    throw new Error("core is not healthy; start or recover it before enabling system proxy");
   }
 
   await client.enableProxy();
@@ -25,11 +25,11 @@ export async function runProxyOn(): Promise<void> {
 
 export async function disableProxyOffline(
   ctx: RuntimeContext,
-  disable: () => Promise<void> = disableSystemProxy,
+  release: () => Promise<void> = () => new SystemProxyManager({ layout: ctx.layout }).release(),
 ): Promise<void> {
   ctx.settings.systemProxy = false;
   saveSettings(ctx.settings, ctx.layout);
-  await disable();
+  await release();
 }
 
 /** `sash proxy off`: disable OS system proxy (works even if daemon is stopped). */
@@ -37,14 +37,16 @@ export async function runProxyOff(): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
 
-  if (daemonState.running && daemonState.healthy) {
+  if (daemonState.running) {
+    if (!daemonState.healthy) {
+      throw new Error("sashd is running but unresponsive; refusing a competing proxy mutation");
+    }
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
     await client.disableProxy();
   } else {
-    // Daemon is down; persist the desired state before direct OS cleanup.
-    await disableProxyOffline(ctx);
+    await runOfflineMutation(ctx, "restore system proxy offline", () => disableProxyOffline(ctx));
   }
-  log.ok("system proxy disabled");
+  log.ok("system proxy restored to its pre-Sash state");
 }
 
 /** `sash proxy status`: inspect current system proxy state. */
@@ -62,8 +64,11 @@ export async function runProxyStatus(): Promise<void> {
       log.warn(`system proxy unsupported on this platform: ${proxy.details || "unknown"}`);
     }
   } else {
-    const state = getSystemProxyState();
+    const manager = new SystemProxyManager({ layout: ctx.layout });
+    const inspection = manager.inspect();
+    const state = inspection.state;
     log.kv("sash status", "not running");
+    log.kv("applied by sash", inspection.applied ? "yes" : "no");
     log.kv("os proxy state", state.enabled ? `on (${state.server || "unknown"})` : "off");
     if (!state.supported) {
       log.warn(`system proxy unsupported on this platform: ${state.details || "unknown"}`);

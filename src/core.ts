@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { Transform } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import AdmZip from "adm-zip";
@@ -10,6 +10,7 @@ import {
   downloadReleaseAsset,
   listReleaseAssets,
   MIHOMO_REPO,
+  RELEASE_ASSET_SIZE_LIMIT,
   resolveLatestTag,
 } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -69,6 +70,9 @@ export async function extractCoreArchive(
   const extracted = `${destExe}.extracted`;
   try {
     if (assetName.endsWith(".zip")) {
+      if (fs.statSync(archivePath).size > RELEASE_ASSET_SIZE_LIMIT) {
+        throw new Error("Core archive exceeds the download safety limit");
+      }
       const zip = new AdmZip(archivePath);
       const executables = zip
         .getEntries()
@@ -80,11 +84,31 @@ export async function extractCoreArchive(
       if (entry.header.size > EXTRACT_SIZE_LIMIT) {
         throw new Error("Extracted binary exceeds 512MB safety limit");
       }
-      const data = entry.getData();
-      if (data.length > EXTRACT_SIZE_LIMIT) {
-        throw new Error("Extracted binary exceeds 512MB safety limit");
+      const header = entry.header as typeof entry.header & { readonly encrypted?: boolean };
+      if (header.encrypted) {
+        throw new Error("Encrypted Core archives are not supported");
       }
-      fs.writeFileSync(extracted, data, { mode: 0o755 });
+      if (header.method !== 0 && header.method !== 8) {
+        throw new Error(`Unsupported ZIP compression method: ${header.method}`);
+      }
+      const compressed = entry.getCompressedData();
+      let bytes = 0;
+      const limiter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          bytes += chunk.length;
+          if (bytes > EXTRACT_SIZE_LIMIT) {
+            callback(new Error("Extracted binary exceeds 512MB safety limit"));
+            return;
+          }
+          callback(null, chunk);
+        },
+      });
+      const output = fs.createWriteStream(extracted, { mode: 0o755 });
+      if (header.method === 0) {
+        await pipeline(Readable.from([compressed]), limiter, output);
+      } else {
+        await pipeline(Readable.from([compressed]), zlib.createInflateRaw(), limiter, output);
+      }
     } else if (assetName.endsWith(".gz")) {
       // Stream decompression with a hard size cap instead of buffering the
       // whole archive in memory.
@@ -122,14 +146,41 @@ export interface InstallRecord {
 
 export function readInstallRecord(layout: SashLayout = sashLayout()): InstallRecord | undefined {
   try {
-    return JSON.parse(fs.readFileSync(layout.installFile, "utf8")) as InstallRecord;
+    const value = JSON.parse(fs.readFileSync(layout.installFile, "utf8")) as unknown;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    if (Object.keys(record).some((key) => key !== "coreVersion" && key !== "installedAt")) {
+      return undefined;
+    }
+    if (typeof record.coreVersion !== "string" || typeof record.installedAt !== "string") {
+      return undefined;
+    }
+    const coreVersion = validateCoreReleaseTag(record.coreVersion);
+    const installedAt = record.installedAt;
+    if (
+      !Number.isFinite(Date.parse(installedAt)) ||
+      new Date(installedAt).toISOString() !== installedAt
+    ) {
+      return undefined;
+    }
+    return { coreVersion, installedAt };
   } catch {
     return undefined;
   }
 }
 
 export function writeInstallRecord(record: InstallRecord, layout: SashLayout = sashLayout()): void {
-  atomicWriteFileSync(layout.installFile, `${JSON.stringify(record, null, 2)}\n`);
+  const coreVersion = validateCoreReleaseTag(record.coreVersion);
+  if (
+    !Number.isFinite(Date.parse(record.installedAt)) ||
+    new Date(record.installedAt).toISOString() !== record.installedAt
+  ) {
+    throw new Error(`Invalid Core install timestamp: ${record.installedAt}`);
+  }
+  atomicWriteFileSync(
+    layout.installFile,
+    `${JSON.stringify({ coreVersion, installedAt: record.installedAt }, null, 2)}\n`,
+  );
 }
 
 /** Best-effort current core version, read from the install record ("" when absent). */
@@ -151,15 +202,37 @@ export interface StagedCore {
   exe: string;
 }
 
+export function validateCoreReleaseTag(tag: string): string {
+  const normalized = tag.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(normalized)) {
+    throw new Error(`Invalid Core release tag: ${tag}`);
+  }
+  return normalized;
+}
+
 /** Execute a staged binary before it is allowed to replace the installed core. */
-export function verifyCoreExecutable(exe: string, timeoutMs = 5000): void {
+function versionOutputMatches(output: string, expected: string): boolean {
+  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9._-])${escaped}($|[^A-Za-z0-9._-])`).test(output);
+}
+
+export function verifyCoreExecutable(
+  exe: string,
+  timeoutMs = 5000,
+  expectedVersion?: string,
+): void {
   try {
-    execFileSync(exe, ["-v"], {
+    const output = execFileSync(exe, ["-v"], {
       encoding: "utf8",
       env: buildSanitizedEnv(),
       timeout: timeoutMs,
       windowsHide: true,
     });
+    if (expectedVersion && !versionOutputMatches(output, expectedVersion)) {
+      throw new Error(
+        `version output does not contain expected release ${expectedVersion}: ${output.trim()}`,
+      );
+    }
   } catch (err) {
     throw new Error(`Downloaded core binary failed validation: ${(err as Error).message}`);
   }
@@ -168,8 +241,8 @@ export function verifyCoreExecutable(exe: string, timeoutMs = 5000): void {
 /** Download, extract and validate a core binary without changing installed state. */
 export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCore> {
   const layout = opts.layout ?? sashLayout();
-  const tag = opts.tag ?? (await resolveLatestTag(MIHOMO_REPO));
-  const assets = await listReleaseAssets(MIHOMO_REPO, tag).catch(() => []);
+  const tag = validateCoreReleaseTag(opts.tag ?? (await resolveLatestTag(MIHOMO_REPO)));
+  const assets = await listReleaseAssets(MIHOMO_REPO, tag);
   const candidates = mihomoAssetCandidates(tag);
 
   fs.mkdirSync(layout.tempDir, { recursive: true });
@@ -187,7 +260,7 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
     });
     await extractCoreArchive(archivePath, assetName, stagedExe);
     fs.chmodSync(stagedExe, 0o755);
-    verifyCoreExecutable(stagedExe);
+    verifyCoreExecutable(stagedExe, 5000, tag);
     return { version: tag, exe: stagedExe };
   } catch (err) {
     fs.rmSync(stagedExe, { force: true });

@@ -87,8 +87,8 @@ export class SashDaemonClient {
     }
   }
 
-  async status(): Promise<DaemonStatus> {
-    return this.request<DaemonStatus>("/sash/status");
+  async status(fresh = false): Promise<DaemonStatus> {
+    return this.request<DaemonStatus>(fresh ? "/sash/status?fresh=1" : "/sash/status");
   }
 
   async startCore(): Promise<CoreStartResult> {

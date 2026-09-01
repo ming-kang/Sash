@@ -42,6 +42,25 @@ function errorOutput(err: unknown): string {
   return "unknown validation error";
 }
 
+export async function validateCoreConfigFile(
+  executable: string,
+  configFile: string,
+  layout: SashLayout,
+  runner: CoreConfigTestRunner = defaultRunner,
+): Promise<void> {
+  if (!fs.existsSync(executable)) {
+    throw new Error(`Core executable is missing: ${executable}`);
+  }
+  if (!fs.existsSync(configFile)) {
+    throw new Error(`Core configuration is missing: ${configFile}`);
+  }
+  try {
+    await runner(executable, ["-t", "-d", layout.root, "-f", configFile]);
+  } catch (err) {
+    throw new Error(`Core rejected generated configuration: ${errorOutput(err)}`);
+  }
+}
+
 /** Validate the exact generated YAML with the installed Core before committing it. */
 export async function validateCoreConfigText(
   yaml: string,
@@ -58,8 +77,11 @@ export async function validateCoreConfigText(
   );
   try {
     atomicWriteFileSync(candidate, yaml);
-    await runner(layout.coreExe, ["-t", "-d", layout.root, "-f", candidate]);
+    await validateCoreConfigFile(layout.coreExe, candidate, layout, runner);
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Core rejected generated configuration:")) {
+      throw err;
+    }
     throw new Error(`Core rejected generated configuration: ${errorOutput(err)}`);
   } finally {
     fs.rmSync(candidate, { force: true });

@@ -82,6 +82,15 @@ describe("paths", () => {
       assert.equal(layout.stateDir, path.join(customRoot, "state"));
       assert.equal(layout.pidFile, path.join(customRoot, "state", "sash.pid"));
       assert.equal(layout.daemonPidFile, path.join(customRoot, "state", "sashd.pid"));
+      assert.equal(layout.daemonLeaseFile, path.join(customRoot, "state", "sashd.lock"));
+      assert.equal(layout.daemonStartLockFile, path.join(customRoot, "state", "sashd-start.lock"));
+      assert.equal(layout.runtimeOperationLockFile, path.join(customRoot, "state", "runtime.lock"));
+      assert.equal(layout.mutationLockFile, path.join(customRoot, "state", "mutation.lock"));
+      assert.equal(layout.settingsLockFile, path.join(customRoot, "state", "settings.lock"));
+      assert.equal(
+        layout.systemProxyStateFile,
+        path.join(customRoot, "state", "system-proxy.json"),
+      );
       assert.equal(layout.installFile, path.join(customRoot, "state", "install.json"));
       assert.equal(layout.logsDir, path.join(customRoot, "logs"));
       assert.equal(layout.coreLogFile, path.join(customRoot, "logs", "mihomo.log"));

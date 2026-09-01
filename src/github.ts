@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
 import { downloadToFile, fetchWithRetry, USER_AGENT } from "./http.js";
 
 /**
@@ -6,10 +8,10 @@ import { downloadToFile, fetchWithRetry, USER_AGENT } from "./http.js";
  * 1. Latest tag is resolved from the `releases/latest` 302 redirect, which does
  *    not consume the (60/h anonymous) REST rate limit and works through page
  *    mirrors such as ghfast.top.
- * 2. Asset listing uses the REST API when reachable (supports GITHUB_TOKEN /
- *    GH_TOKEN); otherwise falls back to synthesized candidate names since
- *    mihomo uses deterministic asset naming.
- * 3. Downloads try each candidate through every mirror in order.
+ * 2. Asset metadata comes from the REST API (supports GITHUB_TOKEN / GH_TOKEN)
+ *    because its publisher-provided SHA-256 digest is the trust anchor.
+ * 3. Downloads may use mirrors as transports, but bytes are accepted only
+ *    after matching that official digest.
  */
 
 export const MIHOMO_REPO = "MetaCubeX/mihomo";
@@ -40,25 +42,29 @@ function ghTokenHeaders(): Record<string, string> {
 }
 
 export async function resolveLatestTag(repo: string): Promise<string> {
-  // Preferred: 302 redirect from releases/latest (no REST quota, mirror-friendly).
+  // Resolve the release identity only from GitHub itself. Mirrors remain byte
+  // transports and cannot choose or downgrade the version being installed.
   const latestUrl = `https://github.com/${repo}/releases/latest`;
-  for (const url of mirrorize(latestUrl)) {
-    try {
-      const res = await fetchWithRetry(url, {
-        manualRedirect: true,
-        attempts: 2,
-        timeoutMs: 15_000,
-      });
-      if (res.statusCode >= 300 && res.statusCode < 400) {
-        const location = res.headers.location;
-        const loc = Array.isArray(location) ? location[0] : location;
-        const tag = loc?.match(/\/releases\/tag\/([^/?#]+)\/?$/)?.[1];
-        if (tag) return decodeURIComponent(tag);
+  try {
+    const res = await fetchWithRetry(latestUrl, {
+      manualRedirect: true,
+      attempts: 2,
+      timeoutMs: 15_000,
+    });
+    if (res.statusCode >= 300 && res.statusCode < 400) {
+      const location = res.headers.location;
+      const loc = Array.isArray(location) ? location[0] : location;
+      if (loc) {
+        const target = new URL(loc, latestUrl);
+        if (target.protocol === "https:" && target.hostname.toLowerCase() === "github.com") {
+          const tag = target.pathname.match(/\/releases\/tag\/([^/]+)\/?$/)?.[1];
+          if (tag) return decodeURIComponent(tag);
+        }
       }
-      await res.text(); // drain
-    } catch {
-      // try next mirror
     }
+    await res.text(1024 * 1024); // drain a bounded error/page response
+  } catch {
+    // Fall through to the official REST API.
   }
 
   // Fallback: GitHub REST API (consumes rate limit, direct only)
@@ -70,11 +76,12 @@ export async function resolveLatestTag(repo: string): Promise<string> {
     },
     attempts: 2,
     timeoutMs: 15_000,
+    manualRedirect: true,
   });
   if (res.statusCode !== 200) {
     throw new Error(`Failed to resolve latest release for ${repo}: HTTP ${res.statusCode}`);
   }
-  const text = await res.text();
+  const text = await res.text(2 * 1024 * 1024);
   let data: { tag_name?: string } | undefined;
   try {
     data = JSON.parse(text) as { tag_name?: string };
@@ -91,6 +98,7 @@ export interface ReleaseAsset {
   name: string;
   browser_download_url: string;
   size: number;
+  digest: string;
 }
 
 export async function listReleaseAssets(repo: string, tag: string): Promise<ReleaseAsset[]> {
@@ -102,18 +110,58 @@ export async function listReleaseAssets(repo: string, tag: string): Promise<Rele
     },
     attempts: 2,
     timeoutMs: 15_000,
+    manualRedirect: true,
   });
   if (res.statusCode !== 200) {
     throw new Error(`Failed to list release assets for ${repo}@${tag}: HTTP ${res.statusCode}`);
   }
-  const text = await res.text();
-  let data: { assets?: ReleaseAsset[] } | undefined;
+  const text = await res.text(8 * 1024 * 1024);
+  let data: { assets?: unknown } | undefined;
   try {
-    data = JSON.parse(text) as { assets?: ReleaseAsset[] };
+    data = JSON.parse(text) as { assets?: unknown };
   } catch {
-    // ignore
+    // handled below
   }
-  return Array.isArray(data?.assets) ? data.assets : [];
+  if (!Array.isArray(data?.assets)) {
+    throw new Error(`GitHub release response for ${repo}@${tag} is missing assets`);
+  }
+
+  return data.assets.flatMap((value): ReleaseAsset[] => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+    const asset = value as Record<string, unknown>;
+    if (
+      typeof asset.name !== "string" ||
+      typeof asset.browser_download_url !== "string" ||
+      typeof asset.size !== "number" ||
+      !Number.isSafeInteger(asset.size) ||
+      asset.size <= 0 ||
+      typeof asset.digest !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        name: asset.name,
+        browser_download_url: asset.browser_download_url,
+        size: asset.size,
+        digest: asset.digest,
+      },
+    ];
+  });
+}
+
+export const RELEASE_ASSET_SIZE_LIMIT = 128 * 1024 * 1024;
+
+export function parseSha256Digest(value: string): string {
+  const match = value.match(/^sha256:([0-9a-f]{64})$/i);
+  if (!match?.[1]) throw new Error(`Release asset has an invalid SHA-256 digest: ${value}`);
+  return match[1].toLowerCase();
+}
+
+export async function sha256File(file: string): Promise<string> {
+  const hash = crypto.createHash("sha256");
+  for await (const chunk of fs.createReadStream(file)) hash.update(chunk as Buffer);
+  return hash.digest("hex");
 }
 
 export interface DownloadOptions {
@@ -126,15 +174,24 @@ export interface DownloadOptions {
 }
 
 export async function downloadReleaseAsset(opts: DownloadOptions): Promise<string> {
-  const matched = opts.candidates.find((candidate) =>
-    opts.assets.some((a) => a.name.toLowerCase() === candidate.toLowerCase()),
-  );
-  const chosenName = matched ?? opts.candidates[0];
-  if (!chosenName) {
-    throw new Error(`No candidate asset name provided for ${opts.repo}@${opts.tag}`);
+  const chosen = opts.candidates
+    .map((candidate) =>
+      opts.assets.find((asset) => asset.name.toLowerCase() === candidate.toLowerCase()),
+    )
+    .find((asset): asset is ReleaseAsset => asset !== undefined);
+  if (!chosen) {
+    throw new Error(
+      `No trusted release asset matched ${opts.candidates.join(", ")} for ${opts.repo}@${opts.tag}`,
+    );
   }
+  if (chosen.size > RELEASE_ASSET_SIZE_LIMIT) {
+    throw new Error(
+      `Release asset ${chosen.name} exceeds the ${RELEASE_ASSET_SIZE_LIMIT} byte safety limit`,
+    );
+  }
+  const expectedDigest = parseSha256Digest(chosen.digest);
 
-  const directUrl = `https://github.com/${opts.repo}/releases/download/${opts.tag}/${chosenName}`;
+  const directUrl = `https://github.com/${opts.repo}/releases/download/${opts.tag}/${chosen.name}`;
   const urls = mirrorize(directUrl);
 
   let lastError: Error | undefined;
@@ -142,18 +199,28 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
     try {
       await downloadToFile(url, opts.dest, {
         allowedHosts: GITHUB_DOWNLOAD_HOSTS,
+        maxBytes: RELEASE_ASSET_SIZE_LIMIT,
+        requireHttps: true,
         onProgress: opts.onProgress,
         stallMs: 60_000,
       });
-      return chosenName;
+      const actualDigest = await sha256File(opts.dest);
+      if (actualDigest !== expectedDigest) {
+        throw new Error(
+          `SHA-256 mismatch for ${chosen.name}: expected ${expectedDigest}, got ${actualDigest}`,
+        );
+      }
+      return chosen.name;
     } catch (err) {
+      fs.rmSync(opts.dest, { force: true });
       lastError = err as Error;
-      // try next mirror
+      // A mirror is only a transport. Try the next source, but never accept
+      // bytes that differ from the digest published by GitHub's release API.
     }
   }
 
   throw new Error(
-    `Failed to download ${chosenName} from all mirrors: ${lastError?.message ?? "unknown error"}`,
+    `Failed to download and verify ${chosen.name} from all mirrors: ${lastError?.message ?? "unknown error"}`,
   );
 }
 

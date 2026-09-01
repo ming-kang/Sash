@@ -25,7 +25,7 @@ sash status
 | Command | Description |
 | :--- | :--- |
 | `sash start` | Install missing components and start the background daemon and core. |
-| `sash stop` | Disable system proxy, stop the core and shut down the daemon. |
+| `sash stop` | Restore the pre-Sash system proxy, stop the Core and shut down the daemon. |
 | `sash restart` | Restart the managed core process. |
 | `sash status [--json]` | Show daemon/core state, active profile, endpoints and system proxy state. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | View core or daemon logs; `-f` follows new output. |
@@ -35,10 +35,12 @@ sash status
 | Command | Description |
 | :--- | :--- |
 | `sash proxy on` | Route OS-level traffic through the configured mixed port. |
-| `sash proxy off` | Disable the OS-level proxy; also works when the daemon is stopped and persists the desired state as off. |
+| `sash proxy off` | Restore the proxy snapshot captured before Sash took ownership; also works while the daemon is stopped. |
 | `sash proxy status` | Show desired, daemon-applied and OS-reported proxy state. |
 
-Changing `mixed-port` while the system proxy is enabled restarts the core and rebinds the OS proxy to the new port.
+Changing `mixed-port` while the system proxy is enabled restores the old binding before restart and takes a fresh snapshot before applying the new port.
+
+Sash does not blindly turn off an existing proxy. It stores a private ownership journal before takeover and restores only while managed OS values still match the original/Sash transition. If another application changes those values, Sash refuses to overwrite them. Windows and macOS include manual and automatic proxy state; Linux system-proxy automation currently requires GNOME `gsettings`.
 
 ### Web Dashboard
 
@@ -70,10 +72,10 @@ The WebUI Profiles page additionally supports local YAML import, per-profile upd
 | Command | Description |
 | :--- | :--- |
 | `sash update [--version V] [--force]` | Download and validate a replacement core, then swap it in transactionally. |
-| `sash upgrade [--version V]` | Upgrade the Sash package through npm. |
+| `sash upgrade [--version V]` | Upgrade the Sash package through npm; requires `sashd` to be stopped first. |
 | `sash version` | Print the Sash package version. |
 
-Core updates retain `<core>.bak` until the staged binary and, when previously running, its controller health check pass. A failure restores both the previous binary and install metadata.
+Core updates temporarily stop `sashd`, retain `<core>.bak`, and restore the previous daemon/Core state afterward. Downloads require official GitHub SHA-256 asset metadata; mirrors are accepted only as transports for bytes matching that digest. Archives are capped at 128 MiB, staged binaries must report the exact requested version, and the staged Core validates the freshly generated active configuration before publication.
 
 ---
 
@@ -81,6 +83,7 @@ Core updates retain `<core>.bak` until the staged binary and, when previously ru
 
 | Key | Default | Description |
 | :--- | :--- | :--- |
+| `schemaVersion` | `1` | On-disk settings schema; managed by Sash. |
 | `mixedPort` / `mixed-port` | `17890` | Local HTTP/SOCKS5 mixed inbound port. |
 | `controller` | `127.0.0.1:9090` | Internal controller listen address. |
 | `daemonPort` | `19090` | Daemon API and WebUI port. |
@@ -92,7 +95,7 @@ Core updates retain `<core>.bak` until the staged binary and, when previously ru
 
 A legacy `subscriptionUrl` key is migrated once into `profiles/index.json` and then removed. Installed core version metadata lives in `state/install.json`, not in `sash.json`.
 
-Malformed `sash.json` or `profiles/index.json` is rejected without being overwritten. Repair or remove the damaged file explicitly instead of relying on silent defaults.
+Malformed, future-version or unknown-field `sash.json` documents and malformed `profiles/index.json` files are rejected without being overwritten. Repair or move the damaged file explicitly instead of relying on silent defaults.
 
 ---
 
@@ -122,18 +125,21 @@ Override the root with an absolute `SASH_HOME` path.
 - `sash.json`: Sash settings and local control secrets.
 - `profiles/index.json`: profile metadata and active profile id.
 - `profiles/<id>.yaml`: validated local copy of each downloaded/imported profile.
-- `state/sashd.pid`, `state/mihomo.pid`: atomic PID records.
-- `state/install.json`: canonical installed core version record.
+- `state/sashd.pid`, `state/sash.pid`: atomic daemon/Core discovery records.
+- `state/system-proxy.json`: pre-takeover proxy snapshot and ownership phase.
+- `state/install.json`: canonical installed Core version record.
+- `state/*.lock`: daemon, runtime, mutation, settings and proxy ownership leases.
 - `logs/`: core and daemon stdout/stderr logs.
 - `ui/` *(optional)*: custom dashboard override.
 
-State files are written with mode `0o600` on POSIX where applicable.
+State files are written with mode `0o600` on POSIX where applicable. `SASH_HOME` must be on a local filesystem supporting atomic rename and hard links.
 
 ---
 
 ## 6. Troubleshooting
 
-- **System proxy points to a dead port:** run `sash proxy off`, inspect `sash status`, then start/restart again.
+- **System proxy recovery is blocked:** another application changed managed values or the ownership journal is corrupt. Keep the Core running, inspect `state/system-proxy.json` and the current OS proxy, then repair explicitly; Sash will not overwrite an unrecognized state.
+- **Daemon/Core ownership is corrupt:** inspect `state/*.lock` and PID records. Sash intentionally fails closed instead of deleting uncertain ownership records.
 - **Profile update failed:** inspect the profile card's error or run `sash sub update`; generated candidates are checked by the installed Core before commit, and the last valid running config remains active on validation/reload failure.
 - **Corrupt settings/profile index:** repair the JSON file or move it aside; Sash intentionally does not overwrite corrupt state.
 - **Daemon errors:** `sash logs --daemon --errors`.

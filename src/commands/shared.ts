@@ -1,24 +1,72 @@
-import { coreInstalled, currentCoreVersion, installCore } from "../core.js";
+import fs from "node:fs";
+import { coreInstalled, installCore } from "../core.js";
 import { validateCoreConfigText } from "../core-config-validation.js";
+import { recoverInterruptedCoreUpdate } from "../core-update.js";
+import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { type SashLayout, sashLayout } from "../paths.js";
+import { isProcessAlive, readPidRecord } from "../process.js";
 import { migrateLegacyProfileSetting } from "../profile-migration.js";
 import { ProfileService } from "../profile-service.js";
 import { loadSettings, type SashSettings } from "../settings.js";
+import { withStateLock } from "../state-lock.js";
 
 export interface RuntimeContext {
   layout: SashLayout;
   settings: SashSettings;
 }
 
+export interface OfflineMutationOptions {
+  allowOrphanCore?: boolean;
+}
+
 export function runtimeContext(): RuntimeContext {
   const layout = sashLayout();
   const settings = loadSettings(layout);
-  migrateLegacyProfileSetting(settings, layout);
   return { layout, settings };
 }
 
+/**
+ * Run a disk mutation only when no daemon owns the data directory. The daemon
+ * takes the same lock during initialization and all control mutations.
+ */
+export async function runOfflineMutation<T>(
+  ctx: RuntimeContext,
+  purpose: string,
+  action: () => T | Promise<T>,
+  options: OfflineMutationOptions = {},
+): Promise<T> {
+  return withStateLock(ctx.layout.mutationLockFile, { purpose, timeoutMs: 30_000 }, async () => {
+    // The context may have waited behind another CLI. Refresh the committed
+    // snapshot only after acquiring the cross-process mutation lock.
+    ctx.settings = loadSettings(ctx.layout);
+    const daemon = await evaluateDaemon(ctx.layout, ctx.settings);
+    if (daemon.running) {
+      const owner = daemon.pid ? ` (PID=${daemon.pid})` : "";
+      throw new Error(
+        `sashd owns the data directory${owner} but is not accepting this operation; stop or recover it before retrying`,
+      );
+    }
+    if (!options.allowOrphanCore) {
+      const core = readPidRecord(ctx.layout.pidFile);
+      if (!core && fs.existsSync(ctx.layout.pidFile)) {
+        throw new Error(
+          `Core PID record is corrupt: ${ctx.layout.pidFile}; reconcile it before modifying state`,
+        );
+      }
+      if (core && isProcessAlive(core.pid)) {
+        throw new Error(
+          `Core PID ${core.pid} is still alive without sashd; run \`sash stop\` to reconcile it before modifying state`,
+        );
+      }
+    }
+    migrateLegacyProfileSetting(ctx.settings, ctx.layout);
+    return action();
+  });
+}
+
 export async function ensureCore(ctx: RuntimeContext): Promise<void> {
+  recoverInterruptedCoreUpdate(ctx.layout);
   if (coreInstalled(ctx.layout)) return;
   log.info("mihomo core not installed; downloading latest release...");
   const { version } = await installCore({ layout: ctx.layout });
@@ -34,21 +82,3 @@ export function createProfileService(ctx: RuntimeContext): ProfileService {
       : {}),
   });
 }
-
-/**
- * Reconcile config.yaml from the active profile and current settings before
- * every Core start. A missing remote profile is fetched once; with no active
- * profile a DIRECT-only default is generated.
- */
-export async function ensureConfig(ctx: RuntimeContext): Promise<void> {
-  const profiles = createProfileService(ctx);
-  const active = profiles.active();
-  const result = await profiles.reloadActive(false);
-  if (!active) {
-    log.ok("config generated (DIRECT-only default; set one up with `sash sub set <url>`)");
-    return;
-  }
-  log.ok(`config generated from profile "${active.name}" (${result.proxyCount} proxies)`);
-}
-
-export { currentCoreVersion };

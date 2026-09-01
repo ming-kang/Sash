@@ -8,10 +8,10 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 
 - **Supervisor daemon (`sashd`)** — background supervisor on port `19090` managing the core lifecycle, recovery, and reverse proxying
 - **Zero-download web dashboard** — built-in modern Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
-- **System proxy management** — native Windows, macOS, and Linux system proxy toggling with automatic crash reconciliation
+- **Reversible system proxy ownership** — snapshots and conditionally restores prior Windows, macOS, or GNOME proxy/PAC state after stop or crash
 - **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
 - **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles (`sash sub`)
-- **Safe upgrades** — atomic core binary swap with rollback (`sash update`) and npm self-upgrade (`sash upgrade`)
+- **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)
 - **TUN mode** — device-level traffic takeover (requires elevated privileges)
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
 
@@ -19,6 +19,8 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 
 - Node.js **20 or newer**
 - Windows 10+, macOS, or Linux — x64 and arm64
+
+Automatic Linux system-proxy integration currently requires a GNOME desktop with `gsettings`; Core lifecycle and local endpoints do not have that desktop requirement.
 
 ## Install
 
@@ -30,11 +32,11 @@ npm install -g @astralyn/sash
 
 ```sh
 sash start                 # downloads core if needed, launches sashd and core
-sash proxy on              # enable OS-level system proxy
+sash proxy on              # take ownership of OS proxy state
 sash sub set <url>         # download and activate a remote profile
 sash web                   # open the web dashboard
 sash status                # runtime state, endpoints, and proxy status
-sash stop                  # stops core, disables system proxy, shuts down sashd
+sash stop                  # restores prior proxy state, stops core and sashd
 ```
 
 ## Documentation

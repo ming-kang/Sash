@@ -12,13 +12,13 @@ import {
   type CoreSupervisor,
   createDaemonServer,
   type DaemonInstance,
-  type SysproxyAdapter,
 } from "./daemon.js";
 import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { addProfile } from "./profiles.js";
 import { DEFAULT_SETTINGS, type SashSettings } from "./settings.js";
 import type { SystemProxyState } from "./sysproxy.js";
+import type { SystemProxyController } from "./system-proxy-manager.js";
 
 describe("daemon server", () => {
   let tmpDir: string;
@@ -34,7 +34,6 @@ describe("daemon server", () => {
     layout = sashLayout(tmpDir);
     settings = {
       ...DEFAULT_SETTINGS,
-      daemonPort: 0,
       daemonSecret: "test-daemon-secret-1234567890",
       controller: "127.0.0.1:9090",
       secret: "test-core-secret-1234567890",
@@ -57,10 +56,29 @@ describe("daemon server", () => {
     }
   });
 
+  function fakeSystemProxy(): SystemProxyController {
+    let applied = false;
+    const state = (): SystemProxyState => ({ supported: true, enabled: applied });
+    return {
+      apply: async () => {
+        applied = true;
+      },
+      release: async () => {
+        applied = false;
+      },
+      recover: async () => {
+        applied = false;
+      },
+      inspect: () => ({ applied, state: state() }),
+      isApplied: () => applied,
+      getState: state,
+    };
+  }
+
   async function startServer(
     overrides: {
       supervisor?: CoreSupervisor;
-      sysproxy?: SysproxyAdapter;
+      systemProxy?: SystemProxyController;
       fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
       validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
     } = {},
@@ -80,7 +98,7 @@ describe("daemon server", () => {
       layout,
       settings,
       supervisor: fakeSupervisor,
-      sysproxy: overrides.sysproxy,
+      systemProxy: overrides.systemProxy ?? fakeSystemProxy(),
       fetchProfileFn: overrides.fetchProfile,
       validateConfigFn: overrides.validateConfig ?? (() => undefined),
     });
@@ -232,19 +250,33 @@ describe("daemon server", () => {
   });
 
   describe("system proxy management", () => {
-    it("persists system proxy enable/disable and dispatches to adapter", async () => {
+    it("persists system proxy enable/disable and dispatches to the controller", async () => {
       let enabledCalls = 0;
       let disabledCalls = 0;
-      const fakeSysproxy: SysproxyAdapter = {
-        enable: async () => {
+      let applied = false;
+      const systemProxy: SystemProxyController = {
+        apply: async () => {
           enabledCalls++;
+          applied = true;
         },
-        disable: async () => {
+        release: async () => {
+          if (!applied) return;
           disabledCalls++;
+          applied = false;
         },
-        getState: (): SystemProxyState => ({
+        recover: async () => {
+          if (!applied) return;
+          disabledCalls++;
+          applied = false;
+        },
+        inspect: () => ({
+          applied,
+          state: { supported: true, enabled: applied, server: "127.0.0.1:7890" },
+        }),
+        isApplied: () => applied,
+        getState: () => ({
           supported: true,
-          enabled: enabledCalls > disabledCalls,
+          enabled: applied,
           server: "127.0.0.1:7890",
         }),
       };
@@ -252,7 +284,7 @@ describe("daemon server", () => {
       let running = false;
       const fakeSupervisor = {
         isRunning: () => running,
-        status: async (): Promise<CoreState> => ({ running }),
+        status: async (): Promise<CoreState> => ({ running, healthy: running }),
         start: async () => {
           running = true;
           return { pid: 1234, version: "v1.0.0" };
@@ -264,7 +296,7 @@ describe("daemon server", () => {
         cleanStaleCore: async () => {},
       } as unknown as CoreSupervisor;
 
-      await startServer({ supervisor: fakeSupervisor, sysproxy: fakeSysproxy });
+      await startServer({ supervisor: fakeSupervisor, systemProxy });
 
       // Core not running -> enable should fail
       const failRes = await apiRequest("/sash/proxy/enable", { method: "POST" });
@@ -288,6 +320,31 @@ describe("daemon server", () => {
       const disableRes = await apiRequest("/sash/proxy/disable", { method: "POST" });
       assert.equal(disableRes.statusCode, 200);
       assert.equal(disabledCalls, 1);
+    });
+
+    it("allows daemon close to be retried after a transient cleanup failure", async () => {
+      let releases = 0;
+      const systemProxy: SystemProxyController = {
+        apply: async () => {},
+        release: async () => {
+          releases++;
+          if (releases === 1) throw new Error("transient restore failure");
+        },
+        recover: async () => {},
+        inspect: () => ({
+          applied: false,
+          state: { supported: true, enabled: false },
+        }),
+        isApplied: () => false,
+        getState: () => ({ supported: true, enabled: false }),
+      };
+      const inst = await startServer({ systemProxy });
+
+      await assert.rejects(inst.close(), /transient restore failure/);
+      await inst.close();
+
+      assert.equal(releases, 2);
+      assert.equal(inst.server.listening, false);
     });
   });
 
@@ -320,7 +377,7 @@ describe("daemon server", () => {
       let disabled = 0;
       const supervisor = {
         isRunning: () => running,
-        status: async (): Promise<CoreState> => ({ running }),
+        status: async (): Promise<CoreState> => ({ running, healthy: running }),
         start: async () => ({ pid: 1234 }),
         stop: async () => {
           running = false;
@@ -331,16 +388,30 @@ describe("daemon server", () => {
         },
         cleanStaleCore: async () => {},
       } as unknown as CoreSupervisor;
-      const sysproxy: SysproxyAdapter = {
-        enable: async ({ port }) => {
+      let applied = false;
+      const systemProxy: SystemProxyController = {
+        apply: async ({ port }) => {
           enabledPorts.push(port);
+          applied = true;
         },
-        disable: async () => {
+        release: async () => {
+          if (!applied) return;
           disabled += 1;
+          applied = false;
         },
-        getState: () => ({ supported: true, enabled: enabledPorts.length > disabled }),
+        recover: async () => {
+          if (!applied) return;
+          disabled += 1;
+          applied = false;
+        },
+        inspect: () => ({
+          applied,
+          state: { supported: true, enabled: applied },
+        }),
+        isApplied: () => applied,
+        getState: () => ({ supported: true, enabled: applied }),
       };
-      await startServer({ supervisor, sysproxy });
+      await startServer({ supervisor, systemProxy });
       await apiRequest("/sash/proxy/enable", { method: "POST" });
 
       const res = await apiRequest("/sash/settings", {
@@ -380,7 +451,7 @@ describe("daemon server", () => {
       let recoveryStarts = 0;
       const supervisor = {
         isRunning: () => running,
-        status: async (): Promise<CoreState> => ({ running }),
+        status: async (): Promise<CoreState> => ({ running, healthy: running }),
         start: async () => {
           running = true;
           recoveryStarts += 1;

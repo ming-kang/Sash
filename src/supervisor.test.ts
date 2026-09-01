@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -7,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { sashLayout } from "./paths.js";
-import { readPidRecord } from "./process.js";
+import { readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import { CoreSupervisor } from "./supervisor.js";
 
@@ -93,6 +94,175 @@ test("restart: stale exit event from the replaced core does not clobber the new 
       }
     }
     server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("stop preserves Core ownership when termination cannot be confirmed", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-stop-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+
+  const server = http.createServer((req, res) => {
+    if (req.url === "/version") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ version: "v-test", meta: true }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const fakeChild = Object.assign(new EventEmitter(), { pid: 4242 }) as ChildProcess;
+  const settings = { ...DEFAULT_SETTINGS, controller: `127.0.0.1:${port}` };
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => settings,
+    spawnFn: () => fakeChild,
+    isAliveFn: (pid) => pid === fakeChild.pid,
+    killFn: async () => false,
+  });
+
+  try {
+    await supervisor.start();
+    await assert.rejects(supervisor.stop(), /still running after termination attempt/);
+    assert.equal(supervisor.isRunning(), true);
+    assert.equal(readPidRecord(layout.pidFile)?.pid, fakeChild.pid);
+  } finally {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("stale Core cleanup preserves PID state when identity is unknown", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-stale-test-"));
+  const layout = sashLayout(root);
+  writePidRecord(layout.pidFile, {
+    pid: 4242,
+    exe: layout.coreExe,
+    startedAt: "2026-01-01T00:00:00.000Z",
+  });
+  let killCalled = false;
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS }),
+    isAliveFn: () => true,
+    classifyIdentityFn: () => "unknown",
+    killFn: async () => {
+      killCalled = true;
+      return true;
+    },
+  });
+
+  try {
+    await assert.rejects(supervisor.cleanStaleCore(), /identity could not be verified/);
+    assert.equal(killCalled, false);
+    assert.equal(readPidRecord(layout.pidFile)?.pid, 4242);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("stale Core cleanup clears a PID record that belongs to another executable", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-mismatch-test-"));
+  const layout = sashLayout(root);
+  writePidRecord(layout.pidFile, {
+    pid: 4242,
+    exe: layout.coreExe,
+    startedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS }),
+    isAliveFn: () => true,
+    classifyIdentityFn: () => "mismatch",
+  });
+
+  try {
+    await supervisor.cleanStaleCore();
+    assert.equal(readPidRecord(layout.pidFile), undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("start terminates the child when PID ownership cannot be persisted", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-pid-write-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+  fs.mkdirSync(layout.pidFile, { recursive: true });
+  const fakeChild = Object.assign(new EventEmitter(), { pid: 4343 }) as ChildProcess;
+  let alive = true;
+  let killCalls = 0;
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS }),
+    spawnFn: () => fakeChild,
+    isAliveFn: () => alive,
+    killFn: async () => {
+      killCalls++;
+      alive = false;
+      return true;
+    },
+  });
+
+  try {
+    await assert.rejects(supervisor.start(), /Failed to persist Core PID ownership/);
+    assert.equal(killCalls, 1);
+    assert.equal(supervisor.isRunning(), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("stale Core cleanup rejects a corrupt PID record", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-corrupt-pid-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(layout.stateDir, { recursive: true });
+  fs.writeFileSync(layout.pidFile, "{ broken");
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS }),
+  });
+
+  try {
+    await assert.rejects(supervisor.cleanStaleCore(), /Core PID record is corrupt/);
+    assert.equal(fs.readFileSync(layout.pidFile, "utf8"), "{ broken");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("stale Core cleanup never trusts an executable path supplied by the PID record", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-recorded-exe-test-"));
+  const layout = sashLayout(root);
+  writePidRecord(layout.pidFile, {
+    pid: process.pid,
+    exe: process.execPath,
+    startedAt: "2026-01-01T00:00:00.000Z",
+  });
+  let killCalled = false;
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS }),
+    isAliveFn: () => true,
+    classifyIdentityFn: () => "match",
+    killFn: async () => {
+      killCalled = true;
+      return true;
+    },
+  });
+
+  try {
+    await assert.rejects(supervisor.cleanStaleCore(), /does not match the managed path/);
+    assert.equal(killCalled, false);
+    assert.equal(readPidRecord(layout.pidFile)?.pid, process.pid);
+  } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

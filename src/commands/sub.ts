@@ -1,7 +1,7 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { createProfileService, runtimeContext } from "./shared.js";
+import { createProfileService, runOfflineMutation, runtimeContext } from "./shared.js";
 
 /** `sash sub ...`: manage subscription profiles through the canonical service. */
 
@@ -10,7 +10,10 @@ export async function runSubSet(url: string): Promise<void> {
   log.info(`validating subscription: ${url}`);
 
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.running && daemonState.healthy) {
+  if (daemonState.running) {
+    if (!daemonState.healthy) {
+      throw new Error("sashd is running but unresponsive; refusing a competing profile mutation");
+    }
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
     const result = await client.addProfile(url, { activate: true });
     const proxies =
@@ -19,8 +22,9 @@ export async function runSubSet(url: string): Promise<void> {
     return;
   }
 
-  const profiles = createProfileService(ctx);
-  const result = await profiles.addRemote(url, { activate: true });
+  const result = await runOfflineMutation(ctx, "add profile offline", () =>
+    createProfileService(ctx).addRemote(url, { activate: true }),
+  );
   log.ok(
     `profile "${result.profile.name}" saved and activated; config generated (${result.proxyCount ?? 0} proxies)`,
   );
@@ -29,16 +33,18 @@ export async function runSubSet(url: string): Promise<void> {
 
 export async function runSubUpdate(): Promise<void> {
   const ctx = runtimeContext();
-  const profiles = createProfileService(ctx);
-  const active = profiles.active();
-  if (!active) throw new Error("no active profile; use `sash sub set <url>` first");
-  if (!active.url) {
-    throw new Error(`profile "${active.name}" is a local file; nothing to update from`);
-  }
-
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.running && daemonState.healthy) {
+  if (daemonState.running) {
+    if (!daemonState.healthy) {
+      throw new Error("sashd is running but unresponsive; refusing a competing profile mutation");
+    }
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
+    const index = await client.getProfiles();
+    const active = index.profiles.find((profile) => profile.id === index.activeId);
+    if (!active) throw new Error("no active profile; use `sash sub set <url>` first");
+    if (!active.url) {
+      throw new Error(`profile "${active.name}" is a local file; nothing to update from`);
+    }
     const result = await client.updateProfile(active.id);
     const proxies =
       result.proxyCount !== undefined ? ` (${result.proxyCount} proxies) and reloaded` : "";
@@ -46,35 +52,61 @@ export async function runSubUpdate(): Promise<void> {
     return;
   }
 
-  const result = await profiles.update(active.id);
+  const { active, result } = await runOfflineMutation(ctx, "update profile offline", async () => {
+    const profiles = createProfileService(ctx);
+    const active = profiles.active();
+    if (!active) throw new Error("no active profile; use `sash sub set <url>` first");
+    if (!active.url) {
+      throw new Error(`profile "${active.name}" is a local file; nothing to update from`);
+    }
+    return { active, result: await profiles.update(active.id) };
+  });
   log.ok(`profile "${active.name}" updated; config generated (${result.proxyCount ?? 0} proxies)`);
   log.info("takes effect on next `sash start`");
 }
 
 export async function runSubUnset(): Promise<void> {
   const ctx = runtimeContext();
-  const profiles = createProfileService(ctx);
-  const active = profiles.active();
-  if (!active) {
-    log.info("no active profile");
-    return;
-  }
-
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.running && daemonState.healthy) {
+  if (daemonState.running) {
+    if (!daemonState.healthy) {
+      throw new Error("sashd is running but unresponsive; refusing a competing profile mutation");
+    }
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
+    const index = await client.getProfiles();
+    const active = index.profiles.find((profile) => profile.id === index.activeId);
+    if (!active) {
+      log.info("no active profile");
+      return;
+    }
     await client.setActiveProfile(null);
     log.ok(`profile "${active.name}" deselected; reverted to default config and reloaded`);
     return;
   }
 
-  await profiles.activate(null);
+  const active = await runOfflineMutation(ctx, "deselect profile offline", async () => {
+    const profiles = createProfileService(ctx);
+    const active = profiles.active();
+    if (!active) return undefined;
+    await profiles.activate(null);
+    return active;
+  });
+  if (!active) {
+    log.info("no active profile");
+    return;
+  }
   log.ok(`profile "${active.name}" deselected; reverted to the DIRECT-only default config`);
 }
 
 export async function runSubShow(): Promise<void> {
   const ctx = runtimeContext();
-  const index = createProfileService(ctx).list();
+  const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
+  const index =
+    daemonState.running && daemonState.healthy
+      ? await new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret).getProfiles()
+      : await runOfflineMutation(ctx, "read profiles offline", () =>
+          createProfileService(ctx).list(),
+        );
   if (index.profiles.length === 0) {
     log.kv("profiles", "(none)");
     log.kv("profiles dir", ctx.layout.profilesDir);

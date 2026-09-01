@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - State-changing daemon requests now accept the persistent CLI bearer or a per-boot WebUI token, with loopback Host validation.
 - WebUI store and confirm-dialog regression tests are included in the normal test runner.
 - Exact generated configurations are validated by the installed Core in an isolated temporary file before profile/config state is committed.
+- Versioned `sash.json` runtime schema with strict field validation and explicit v0 migration.
+- Atomic daemon/start/runtime/mutation/settings leases for single-instance and cross-process state ownership.
+- Durable system-proxy ownership journal that snapshots and conditionally restores prior manual/PAC state.
+- Windows/macOS/Linux and Node.js 20/22 CI matrix covering lint, tests, builds and package dry-runs.
 
 ### Changed
 
@@ -28,6 +32,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Overview proxy groups share a reusable component; WebUI runtime refresh and polling are centralized in store actions.
 - `npm test` now runs server TypeScript, `vue-tsc`, backend tests and WebUI tests. WebUI TypeScript is included in Biome checks.
 - Vite uses its Node API and a Node-20-compatible release line; unused archive/version dependencies were removed. Published backend source maps are disabled.
+- Core/proxy transitions now pass through one serialized runtime lifecycle; proxy restoration precedes deliberate Core shutdown and readiness precedes proxy apply.
+- Offline mutations reload committed settings under lock and refuse uncertain daemon/orphan-Core ownership.
+- Core release mirrors are transport-only: official GitHub metadata selects the release and supplies the mandatory SHA-256 digest.
+- Core updates serialize against start/stop, temporarily stop the daemon, validate the staged binary/config and recover interrupted `.bak` states before publication.
+- System-proxy backends preserve manual, automatic/PAC and authentication-mode fields they modify; Linux automation is explicitly GNOME `gsettings` only.
+- npm packages now include `docs/`, lint is part of `prepublishOnly`, and package self-upgrade requires the daemon to be stopped so runtime/schema versions cannot overlap.
 
 ### Fixed
 
@@ -49,6 +59,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Confirm dialogs no longer leave older Promises pending; Escape and route changes cancel the active dialog.
 - Empty `204 No Content` responses are handled through typed void requests instead of JSON parsing/casts.
 - A late exit event from a replaced core process no longer clears the new child handle or PID record.
+- Concurrent daemon starts now converge on one singleton; stale PID metadata no longer authorizes replacement or deletion of a live owner.
+- Failed Core/daemon termination preserves ownership records, and corrupt PID/lock records fail closed.
+- System-proxy shutdown no longer destroys a user's prior proxy/PAC configuration or overwrites third-party changes made after takeover.
+- Windows proxy refresh uses the correct WinINet refresh option; GNOME `uint16` ports and automatic mode are parsed correctly.
+- Release downloads enforce HTTPS, redirect host boundaries, backpressure and compressed-size limits; ZIP extraction is streamed with a hard output cap.
+- Core version checks use exact tokens instead of substring matching, and controller readiness requires a non-empty version across consecutive probes.
+- Core update rollback slots remain available until daemon/runtime restoration succeeds; malformed install metadata and backup-only mismatch states are rejected before execution.
 
 ## [0.1.0] - 2026-08-31
 

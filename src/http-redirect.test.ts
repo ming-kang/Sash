@@ -36,6 +36,13 @@ describe("downloadToFile redirect allowlist", () => {
       } else if (url === "/ua-check") {
         res.writeHead(200);
         res.end(req.headers["user-agent"] ?? "");
+      } else if (url === "/oversized-header") {
+        res.writeHead(200, { "content-length": "100" });
+        res.end("too large");
+      } else if (url === "/oversized-stream") {
+        res.writeHead(200, { "transfer-encoding": "chunked" });
+        res.write("12345");
+        res.end("67890");
       } else {
         res.writeHead(404);
         res.end();
@@ -60,6 +67,19 @@ describe("downloadToFile redirect allowlist", () => {
     });
     assert.equal(bytes, "payload-bytes".length);
     assert.equal(fs.readFileSync(dest, "utf8"), "payload-bytes");
+  });
+
+  it("rejects HTTP when a caller requires an HTTPS trust boundary", async () => {
+    const dest = path.join(tmpDir, "https-required.bin");
+    await assert.rejects(
+      () =>
+        downloadToFile(`${baseUrl}/target`, dest, {
+          allowedHosts: new Set(["127.0.0.1"]),
+          requireHttps: true,
+        }),
+      /non-HTTPS download URL/,
+    );
+    assert.equal(fs.existsSync(dest), false);
   });
 
   it("rejects an initial URL outside the allowlist before downloading", async () => {
@@ -103,6 +123,32 @@ describe("downloadToFile redirect allowlist", () => {
       allowedHosts: new Set(["127.0.0.1"]),
     });
     assert.equal(fs.readFileSync(dest, "utf8"), USER_AGENT);
+  });
+
+  it("rejects an oversized Content-Length before writing a file", async () => {
+    const dest = path.join(tmpDir, "oversized-header.bin");
+    await assert.rejects(
+      () =>
+        downloadToFile(`${baseUrl}/oversized-header`, dest, {
+          allowedHosts: new Set(["127.0.0.1"]),
+          maxBytes: 10,
+        }),
+      /exceeds 10 byte safety limit/,
+    );
+    assert.equal(fs.existsSync(dest), false);
+  });
+
+  it("enforces the size limit for chunked responses and removes partial bytes", async () => {
+    const dest = path.join(tmpDir, "oversized-stream.bin");
+    await assert.rejects(
+      () =>
+        downloadToFile(`${baseUrl}/oversized-stream`, dest, {
+          allowedHosts: new Set(["127.0.0.1"]),
+          maxBytes: 5,
+        }),
+      /exceeds 5 byte safety limit/,
+    );
+    assert.equal(fs.existsSync(dest), false);
   });
 });
 

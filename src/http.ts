@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { Dispatcher } from "undici";
 import { Agent, EnvHttpProxyAgent, interceptors, request } from "undici";
 
@@ -152,8 +154,10 @@ export type DownloadProgress = (downloaded: number, total: number | undefined) =
 
 export interface DownloadOptions {
   stallMs?: number;
+  maxBytes?: number;
   onProgress?: DownloadProgress;
   headers?: Record<string, string>;
+  requireHttps?: boolean;
   /** Every initial and redirected download host must be in this set. */
   allowedHosts: ReadonlySet<string>;
 }
@@ -162,10 +166,14 @@ function validateRedirectTarget(
   location: string,
   currentUrl: string,
   allowedHosts: ReadonlySet<string>,
+  requireHttps = false,
 ): string {
   const target = new URL(location, currentUrl);
   if (target.protocol !== "http:" && target.protocol !== "https:") {
     throw new Error(`Refusing redirect to non-http(s) URL: ${target.href}`);
+  }
+  if (requireHttps && target.protocol !== "https:") {
+    throw new Error(`Refusing non-HTTPS download URL: ${target.href}`);
   }
   if (!allowedHosts.has(target.hostname.toLowerCase())) {
     throw new Error(`Refusing redirect to untrusted host: ${target.hostname}`);
@@ -185,7 +193,7 @@ export async function downloadToFile(
   const stallMs = opts.stallMs ?? 60_000;
   const maxRedirects = 5;
 
-  let currentUrl = validateRedirectTarget(url, url, opts.allowedHosts);
+  let currentUrl = validateRedirectTarget(url, url, opts.allowedHosts, opts.requireHttps);
   let res: Awaited<ReturnType<typeof request>>;
   const dispatcher = pickDispatcher({ direct: false, manualRedirect: true });
   let hops = 0;
@@ -208,7 +216,7 @@ export async function downloadToFile(
     if (hops > maxRedirects) {
       throw new Error(`Too many redirects (>${maxRedirects}) downloading ${url}`);
     }
-    currentUrl = validateRedirectTarget(location, currentUrl, opts.allowedHosts);
+    currentUrl = validateRedirectTarget(location, currentUrl, opts.allowedHosts, opts.requireHttps);
   }
 
   if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -218,23 +226,37 @@ export async function downloadToFile(
   const totalHeader = res.headers["content-length"];
   const parsedTotal =
     typeof totalHeader === "string" ? Number.parseInt(totalHeader, 10) : Number.NaN;
-  const total = Number.isFinite(parsedTotal) ? parsedTotal : undefined;
+  const total = Number.isFinite(parsedTotal) && parsedTotal >= 0 ? parsedTotal : undefined;
+  const maxBytes = opts.maxBytes;
+  if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)) {
+    res.body.destroy();
+    throw new Error(`Invalid download size limit: ${maxBytes}`);
+  }
+  if (maxBytes !== undefined && total !== undefined && total > maxBytes) {
+    res.body.destroy();
+    throw new Error(`Download exceeds ${maxBytes} byte safety limit: ${currentUrl}`);
+  }
 
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  const out = fs.createWriteStream(dest, { mode: 0o755 });
   let downloaded = 0;
-  let success = false;
-  try {
-    for await (const chunk of res.body) {
-      out.write(chunk);
-      downloaded += (chunk as Buffer).length;
+  const limiter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      downloaded += chunk.length;
+      if (maxBytes !== undefined && downloaded > maxBytes) {
+        callback(new Error(`Download exceeds ${maxBytes} byte safety limit: ${currentUrl}`));
+        return;
+      }
       opts.onProgress?.(downloaded, total);
-    }
+      callback(null, chunk);
+    },
+  });
+
+  try {
+    await pipeline(res.body, limiter, fs.createWriteStream(dest, { mode: 0o755 }));
     if (downloaded === 0) throw new Error(`Empty download from ${currentUrl}`);
-    success = true;
     return downloaded;
-  } finally {
-    await new Promise<void>((resolve) => out.close(() => resolve()));
-    if (!success) fs.rmSync(dest, { force: true });
+  } catch (err) {
+    fs.rmSync(dest, { force: true });
+    throw err;
   }
 }
