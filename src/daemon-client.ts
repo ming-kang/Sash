@@ -1,20 +1,14 @@
-import type { DaemonStatus } from "./daemon.js";
+import type {
+  CoreStartResult,
+  DaemonStatus,
+  HealthInfo,
+  ProfileActionResponse,
+  ProfilesIndex,
+  ProfilesUpdateAllResponse,
+  ProfileUpdateResponse,
+} from "./contracts.js";
 import { fetchWithRetry } from "./http.js";
-import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { SystemProxyState } from "./sysproxy.js";
-
-export interface HealthInfo {
-  ok: boolean;
-  token: string;
-  pid: number;
-  startedAt: string;
-}
-
-export interface CoreStartResult {
-  ok: boolean;
-  pid: number;
-  version?: string;
-}
 
 export class SashDaemonClient {
   readonly baseUrl: string;
@@ -140,7 +134,7 @@ export class SashDaemonClient {
   async addProfile(
     url: string,
     opts: { name?: string; activate?: boolean } = {},
-  ): Promise<{ ok: boolean; profile: ProfileMeta; activated: boolean; proxyCount?: number }> {
+  ): Promise<ProfileActionResponse> {
     return this.request("/sash/profiles", {
       method: "POST",
       body: { url, ...(opts.name ? { name: opts.name } : {}), activate: opts.activate === true },
@@ -149,7 +143,7 @@ export class SashDaemonClient {
     });
   }
 
-  async updateProfile(id: string): Promise<{ ok: boolean; proxyCount?: number }> {
+  async updateProfile(id: string): Promise<ProfileUpdateResponse> {
     return this.request(`/sash/profiles/${id}/update`, {
       method: "POST",
       timeoutMs: 35_000,
@@ -157,11 +151,7 @@ export class SashDaemonClient {
     });
   }
 
-  async updateAllProfiles(): Promise<{
-    ok: boolean;
-    updated: number;
-    failed: Array<{ id: string; name: string; error: string }>;
-  }> {
+  async updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
     return this.request("/sash/profiles/update-all", {
       method: "POST",
       timeoutMs: 120_000,

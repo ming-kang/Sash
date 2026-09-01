@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { en } from "./en.js";
-import { zh } from "./zh.js";
+import { type Messages, zh } from "./zh.js";
 
 export type Locale = "zh" | "en";
 
@@ -20,7 +20,7 @@ function detectLocale(): Locale {
 
 export const locale = ref<Locale>(detectLocale());
 
-const dicts: Record<Locale, typeof zh> = { zh, en };
+const dicts: Record<Locale, Messages> = { zh, en };
 
 export function setLocale(next: Locale): void {
   locale.value = next;

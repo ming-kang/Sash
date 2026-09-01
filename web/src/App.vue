@@ -34,7 +34,14 @@ import Icon from "./components/Icon.vue";
 import ToastHost from "./components/ToastHost.vue";
 import { t } from "./i18n/index.js";
 import { currentRoute } from "./router.js";
-import { addLog, addTraffic, setProfiles, setProxies, store } from "./stores/index.js";
+import {
+  addLog,
+  addTraffic,
+  refreshConnections,
+  refreshRuntimeState,
+  startRuntimePolling,
+  store,
+} from "./stores/index.js";
 import ConnectionsView from "./views/ConnectionsView.vue";
 import LogsView from "./views/LogsView.vue";
 import OverviewView from "./views/OverviewView.vue";
@@ -42,55 +49,21 @@ import ProfilesView from "./views/ProfilesView.vue";
 import RulesView from "./views/RulesView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
-let pollTimer: number | null = null;
+let stopPolling: (() => void) | null = null;
 let unsubTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
 
-async function pollOnce(): Promise<void> {
+async function bootstrap(): Promise<void> {
   try {
-    const [status, conn] = await Promise.all([
-      api.getStatus(),
-      api.getConnections().catch(() => ({
-        connections: [],
-        uploadTotal: 0,
-        downloadTotal: 0,
-      })),
-    ]);
-    store.status = status;
-    store.daemonOnline = true;
-    store.connections = conn.connections;
-    store.connectionsUploadTotal = conn.uploadTotal;
-    store.connectionsDownloadTotal = conn.downloadTotal;
+    await api.initialize();
+    await Promise.all([refreshRuntimeState(), refreshConnections().catch(() => undefined)]);
   } catch {
     store.daemonOnline = false;
   }
-}
 
-async function bootstrap(): Promise<void> {
-  await api.initialize().catch(() => null);
-  const [status, configs] = await Promise.all([
-    api.getStatus().catch(() => null),
-    api.getConfigs().catch(() => null),
-  ]);
-
-  store.daemonOnline = status !== null;
-  if (status) store.status = status;
-  if (configs) store.mode = configs.mode;
-
-  Promise.all([api.getProxies(), api.getRules(), api.getProfiles()])
-    .then(([p, r, prof]) => {
-      setProxies(p.proxies);
-      store.rules = r.rules;
-      setProfiles(prof);
-    })
-    .catch(() => {});
-
-  unsubTraffic = api.connectTraffic((msg) => addTraffic(msg));
-  unsubLogs = api.connectLogs((msg) => addLog(msg));
-
-  pollTimer = window.setInterval(() => {
-    void pollOnce();
-  }, 2000);
+  unsubTraffic = api.connectTraffic(addTraffic);
+  unsubLogs = api.connectLogs(addLog);
+  stopPolling = startRuntimePolling();
 }
 
 onMounted(() => {
@@ -98,7 +71,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  if (pollTimer !== null) clearInterval(pollTimer);
+  stopPolling?.();
   unsubTraffic?.();
   unsubLogs?.();
 });

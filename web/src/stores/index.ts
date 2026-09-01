@@ -1,4 +1,5 @@
 import { computed, reactive } from "vue";
+import { api } from "../api/index.js";
 import type {
   ConnectionItem,
   LogMessage,
@@ -17,6 +18,10 @@ export interface ToastItem {
   text: string;
 }
 
+export interface StoredLogMessage extends LogMessage {
+  id: number;
+}
+
 export interface StoreState {
   status: SashStatus | null;
   daemonOnline: boolean;
@@ -33,7 +38,7 @@ export interface StoreState {
   connectionsUploadTotal: number;
   connectionsDownloadTotal: number;
   rules: RuleItem[];
-  logs: LogMessage[];
+  logs: StoredLogMessage[];
   profiles: ProfileMeta[];
   activeProfileId: string | null;
   activeGroup: string;
@@ -83,10 +88,81 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
   store.proxyGroups = groups;
   if (!store.activeGroup || !groups.includes(store.activeGroup)) {
     store.activeGroup =
-      groups.find((g) => g.toUpperCase() === "PROXY" || g.toUpperCase() === "GLOBAL") ??
-      groups[0] ??
-      "";
+      groups.find((group) => ["PROXY", "GLOBAL"].includes(group.toUpperCase())) ?? groups[0] ?? "";
   }
+}
+
+export async function refreshStatus(): Promise<void> {
+  store.status = await api.getStatus();
+  store.daemonOnline = true;
+}
+
+export async function refreshConnections(): Promise<void> {
+  const connections = await api.getConnections();
+  store.connections = connections.connections;
+  store.connectionsUploadTotal = connections.uploadTotal;
+  store.connectionsDownloadTotal = connections.downloadTotal;
+}
+
+export async function refreshProxies(): Promise<void> {
+  setProxies((await api.getProxies()).proxies);
+}
+
+export async function refreshRules(): Promise<void> {
+  store.rules = (await api.getRules()).rules;
+}
+
+export async function refreshProfiles(): Promise<void> {
+  setProfiles(await api.getProfiles());
+}
+
+export async function refreshRuntimeState(): Promise<void> {
+  const [status, profiles] = await Promise.all([api.getStatus(), api.getProfiles()]);
+  store.status = status;
+  setProfiles(profiles);
+  store.daemonOnline = true;
+  if (!status.core.running) {
+    setProxies({});
+    store.rules = [];
+    return;
+  }
+  const [configs, proxies, rules] = await Promise.all([
+    api.getConfigs(),
+    api.getProxies(),
+    api.getRules(),
+  ]);
+  store.mode = configs.mode;
+  setProxies(proxies.proxies);
+  store.rules = rules.rules;
+}
+
+/** Self-scheduling polling prevents overlapping requests and stale response rollback. */
+export function startRuntimePolling(intervalMs = 2000): () => void {
+  let stopped = false;
+  let timer: number | null = null;
+  let cycle = 0;
+
+  const tick = async () => {
+    try {
+      await api.initialize();
+      await refreshStatus();
+      await refreshConnections().catch(() => undefined);
+      cycle += 1;
+      if (store.status?.core.running && cycle % 3 === 0) {
+        await refreshProxies().catch(() => undefined);
+      }
+    } catch {
+      store.daemonOnline = false;
+    } finally {
+      if (!stopped) timer = window.setTimeout(tick, intervalMs);
+    }
+  };
+
+  void tick();
+  return () => {
+    stopped = true;
+    if (timer !== null) clearTimeout(timer);
+  };
 }
 
 export function updateProxyDelay(name: string, delay: number): void {
@@ -97,9 +173,8 @@ export function updateProxyDelay(name: string, delay: number): void {
 }
 
 export function proxyDelay(name: string): number | undefined {
-  const item = store.proxies[name];
-  const history = item?.history ?? [];
-  return history.length > 0 ? history[history.length - 1]?.delay : undefined;
+  const history = store.proxies[name]?.history ?? [];
+  return history.at(-1)?.delay;
 }
 
 export function addTraffic(msg: TrafficMessage): void {
@@ -111,9 +186,15 @@ export function addTraffic(msg: TrafficMessage): void {
   if (store.traffic.historyDown.length > HISTORY_LEN) store.traffic.historyDown.shift();
 }
 
+let logSeq = 0;
+
 export function addLog(msg: LogMessage): void {
-  store.logs.push(msg);
+  store.logs.push({ ...msg, id: ++logSeq });
   if (store.logs.length > LOG_LEN) store.logs.shift();
+}
+
+export function clearLogs(): void {
+  store.logs = [];
 }
 
 let toastSeq = 0;
@@ -125,8 +206,8 @@ export function pushToast(kind: ToastItem["kind"], text: string): void {
 }
 
 export function dismissToast(id: number): void {
-  const idx = store.toasts.findIndex((t) => t.id === id);
-  if (idx >= 0) store.toasts.splice(idx, 1);
+  const index = store.toasts.findIndex((item) => item.id === id);
+  if (index >= 0) store.toasts.splice(index, 1);
 }
 
 export const toast = {

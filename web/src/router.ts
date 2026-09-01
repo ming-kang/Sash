@@ -1,13 +1,6 @@
 import { ref } from "vue";
 
-export const ROUTES = [
-  "overview",
-  "profiles",
-  "logs",
-  "connections",
-  "rules",
-  "settings",
-] as const;
+export const ROUTES = ["overview", "profiles", "logs", "connections", "rules", "settings"] as const;
 
 export type Route = (typeof ROUTES)[number];
 

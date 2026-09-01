@@ -24,7 +24,23 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, onUnmounted, watch } from "vue";
+import { currentRoute } from "../router.js";
 import { confirmState, settleConfirm } from "./confirm.js";
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape" && confirmState.visible) settleConfirm(false);
+}
+
+watch(currentRoute, () => {
+  if (confirmState.visible) settleConfirm(false);
+});
+
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onUnmounted(() => {
+  window.removeEventListener("keydown", onKeydown);
+  if (confirmState.visible) settleConfirm(false);
+});
 </script>
 
 <style scoped>

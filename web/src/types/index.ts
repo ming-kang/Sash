@@ -1,69 +1,9 @@
+import type { DaemonStatus } from "../../../src/contracts.js";
+
+export type { ProfileMeta, ProfilesResponse } from "../../../src/contracts.js";
+
 export type OutboundMode = "rule" | "global" | "direct";
-
-export interface SashStatus {
-  daemon: {
-    pid: number;
-    startedAt: string;
-    port: number;
-  };
-  core: {
-    running: boolean;
-    pid?: number;
-    startedAt?: string;
-    healthy?: boolean;
-    version?: string;
-  };
-  systemProxy: {
-    desired: boolean;
-    applied: boolean;
-    actual?: {
-      supported: boolean;
-      enabled: boolean;
-      server?: string;
-      details?: string;
-    };
-  };
-  settings: {
-    subscriptionUrl: string;
-    mixedPort: number;
-    controller: string;
-    secret: string;
-    tun: boolean;
-    coreVersion: string;
-    uiVersion: string;
-    allowLan: boolean;
-    daemonPort: number;
-    daemonSecret: string;
-    systemProxy: boolean;
-  };
-  activeProfile?: { id: string; name: string; url: string } | null;
-}
-
-export interface ProfileSubInfo {
-  upload: number;
-  download: number;
-  total: number;
-  /** Unix epoch seconds. */
-  expire?: number;
-}
-
-export interface ProfileMeta {
-  id: string;
-  name: string;
-  /** Remote subscription URL; "" for imported/local files. */
-  url: string;
-  intervalHours: number;
-  createdAt: string;
-  updatedAt: string;
-  subInfo?: ProfileSubInfo;
-  homePage?: string;
-  lastError?: string;
-}
-
-export interface ProfilesResponse {
-  activeId: string | null;
-  profiles: ProfileMeta[];
-}
+export type SashStatus = DaemonStatus;
 
 export interface ProxyItem {
   name: string;

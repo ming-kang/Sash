@@ -37,6 +37,7 @@
             max="65535"
             class="input input-sm port-input"
             :disabled="savingPort"
+            @input="portDirty = true"
           />
           <button
             class="btn btn-secondary btn-sm"
@@ -131,13 +132,20 @@ import PageHeader from "../components/PageHeader.vue";
 import UiCard from "../components/UiCard.vue";
 import UiSwitch from "../components/UiSwitch.vue";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
-import { errorText, setProxies, store, toast } from "../stores/index.js";
+import {
+  errorText,
+  refreshRuntimeState,
+  refreshStatus,
+  store,
+  toast,
+} from "../stores/index.js";
 
 const mixedPort = ref(store.status?.settings.mixedPort ?? 17890);
 const allowLan = ref(store.status?.settings.allowLan ?? false);
 const tunMode = ref(store.status?.settings.tun ?? false);
 
 const savingPort = ref(false);
+const portDirty = ref(false);
 const toggling = ref(false);
 const restarting = ref(false);
 const reloading = ref(false);
@@ -146,9 +154,11 @@ watch(
   () => store.status?.settings,
   (s) => {
     if (!s) return;
-    mixedPort.value = s.mixedPort;
-    allowLan.value = s.allowLan;
-    tunMode.value = s.tun;
+    if (!portDirty.value && !savingPort.value) mixedPort.value = s.mixedPort;
+    if (!toggling.value) {
+      allowLan.value = s.allowLan;
+      tunMode.value = s.tun;
+    }
   },
 );
 
@@ -171,16 +181,13 @@ function switchLocale(next: Locale): void {
   toast.success(t("toast.langSwitched"));
 }
 
-async function refreshStatus(): Promise<void> {
-  store.status = await api.getStatus();
-}
-
 async function saveMixedPort(): Promise<void> {
   if (!portValid.value || savingPort.value) return;
   savingPort.value = true;
   try {
     await api.patchSetting("mixed-port", String(mixedPort.value));
     await refreshStatus();
+    portDirty.value = false;
     toast.success(t("toast.portSaved"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -222,7 +229,7 @@ async function restartCore(): Promise<void> {
   restarting.value = true;
   try {
     await api.restartCore();
-    await refreshStatus();
+    await refreshRuntimeState();
     toast.success(t("toast.coreRestarted"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -236,9 +243,7 @@ async function reloadConfig(): Promise<void> {
   reloading.value = true;
   try {
     const res = await api.reloadCoreConfig();
-    const [proxies, rules] = await Promise.all([api.getProxies(), api.getRules()]);
-    setProxies(proxies.proxies);
-    store.rules = rules.rules;
+    await refreshRuntimeState();
     toast.success(t("toast.configReloaded", { n: res.proxyCount }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));

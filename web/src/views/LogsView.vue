@@ -16,7 +16,7 @@
         <Icon :name="paused ? 'play' : 'pause'" :size="12" />
         <span>{{ paused ? t('logs.resume') : t('logs.pause') }}</span>
       </button>
-      <button class="btn btn-secondary btn-sm" :disabled="store.logs.length === 0" @click="store.logs = []">
+      <button class="btn btn-secondary btn-sm" :disabled="store.logs.length === 0" @click="clearLogs">
         <Icon name="trash" :size="12" />
         <span>{{ t('common.clear') }}</span>
       </button>
@@ -26,7 +26,7 @@
       <div v-if="filteredLogs.length === 0" class="log-empty text-muted">
         {{ store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
       </div>
-      <div v-for="(log, idx) in filteredLogs" :key="idx" class="log-line">
+      <div v-for="log in filteredLogs" :key="log.id" class="log-line">
         <span v-if="log.time" class="log-time mono">{{ log.time }}</span>
         <span class="log-level mono" :class="`lv-${log.type.toLowerCase()}`">
           {{ levelLabel(log.type) }}
@@ -42,7 +42,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
-import { store } from "../stores/index.js";
+import { clearLogs, store } from "../stores/index.js";
 
 const levels = ["all", "info", "warning", "error", "debug"];
 const selectedLevel = ref("all");
@@ -67,7 +67,7 @@ function onScroll(): void {
 }
 
 watch(
-  () => store.logs.length,
+  () => store.logs.at(-1)?.id,
   async () => {
     if (paused.value || !stickToBottom.value) return;
     await nextTick();

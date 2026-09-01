@@ -3,6 +3,7 @@ import type { IncomingMessage, Server } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { MihomoApi } from "./api.js";
+import type { DaemonStatus } from "./contracts.js";
 import {
   isControlMutation,
   isControlRequestAuthorized,
@@ -21,7 +22,6 @@ import { ProfileService } from "./profile-service.js";
 import {
   applyManagedKey,
   loadSettings,
-  type PublicSashSettings,
   publicSettings,
   requiresCoreRestart,
   type SashSettings,
@@ -35,6 +35,7 @@ import {
   type SystemProxyState,
 } from "./sysproxy.js";
 
+export type { DaemonStatus } from "./contracts.js";
 export { type CoreState, CoreSupervisor, type SysproxyAdapter };
 
 export interface DaemonPidRecord {
@@ -42,23 +43,6 @@ export interface DaemonPidRecord {
   token: string;
   port: number;
   startedAt: string;
-}
-
-export interface DaemonStatus {
-  daemon: {
-    pid: number;
-    startedAt: string;
-    port: number;
-  };
-  core: CoreState;
-  systemProxy: {
-    desired: boolean;
-    applied: boolean;
-    actual?: SystemProxyState;
-  };
-  settings: PublicSashSettings;
-  /** Active subscription profile, if any (profiles are the source of truth). */
-  activeProfile: { id: string; name: string; url: string } | null;
 }
 
 export interface DaemonDeps {

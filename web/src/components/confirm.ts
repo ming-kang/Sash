@@ -23,8 +23,11 @@ export const confirmState = reactive<ConfirmState>({
   resolve: null,
 });
 
-export function confirmDialog(opts: Omit<ConfirmOptions, "confirmText" | "cancelText"> &
-  Partial<Pick<ConfirmOptions, "confirmText" | "cancelText">>): Promise<boolean> {
+export function confirmDialog(
+  opts: Omit<ConfirmOptions, "confirmText" | "cancelText"> &
+    Partial<Pick<ConfirmOptions, "confirmText" | "cancelText">>,
+): Promise<boolean> {
+  if (confirmState.resolve) settleConfirm(false);
   confirmState.title = opts.title;
   confirmState.message = opts.message;
   confirmState.confirmText = opts.confirmText ?? "OK";

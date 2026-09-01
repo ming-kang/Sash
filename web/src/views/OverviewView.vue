@@ -164,79 +164,32 @@
         <template v-else-if="store.mode === 'rule'">
           <template v-if="selectorGroups.length > 0">
             <div class="subhead">{{ t('proxies.manual') }}</div>
-            <section v-for="g in selectorGroups" :key="g" class="pgroup">
-              <div class="pgroup-head">
-                <span class="pgroup-name">{{ g }}</span>
-                <span class="pgroup-type">{{ typeBadge(g) }}</span>
-                <span class="pgroup-now" :title="nowOf(g)">{{ nowOf(g) }}</span>
-                <span class="pgroup-spacer"></span>
-                <button
-                  class="icon-btn"
-                  :class="{ spin: testingGroup === g }"
-                  :title="t('proxies.testAll')"
-                  :disabled="testingGroup === g"
-                  @click="testGroup(g)"
-                >
-                  <Icon name="zap" :size="13" />
-                </button>
-              </div>
-              <div class="pgroup-grid">
-                <button
-                  v-for="m in membersOf(g)"
-                  :key="m"
-                  class="node-card"
-                  :class="{ selected: nowOf(g) === m }"
-                  @click="selectNode(g, m)"
-                >
-                  <div class="node-top">
-                    <span class="node-name" :title="m">{{ m }}</span>
-                    <span class="node-delay" :class="delayClass(m)" @click.stop="testSingle(m)">
-                      {{ delayText(m) }}
-                    </span>
-                  </div>
-                  <div class="node-sub">
-                    {{ typeOf(m) }}<template v-if="isGroup(m) && nowOf(m)"> · {{ nowOf(m) }}</template>
-                    <span v-if="hasUdp(m)" class="udp-tag">UDP</span>
-                  </div>
-                </button>
-              </div>
-            </section>
+            <ProxyGroupSection
+              v-for="group in selectorGroups"
+              :key="group"
+              :group="group"
+              :members="membersOf(group)"
+              :selectable="true"
+              :testing="testingGroups.has(group)"
+              @select="(name) => selectNode(group, name)"
+              @test-group="testGroup(group)"
+              @test-node="testSingle"
+            />
           </template>
 
           <template v-if="autoGroups.length > 0">
             <div class="subhead">{{ t('proxies.auto') }}</div>
-            <section v-for="g in autoGroups" :key="g" class="pgroup">
-              <div class="pgroup-head">
-                <span class="pgroup-name">{{ g }}</span>
-                <span class="pgroup-type">{{ typeBadge(g) }}</span>
-                <span class="pgroup-now" :title="nowOf(g)">{{ nowOf(g) }}</span>
-                <span class="pgroup-spacer"></span>
-                <button
-                  class="icon-btn"
-                  :class="{ spin: testingGroup === g }"
-                  :title="t('proxies.testAll')"
-                  :disabled="testingGroup === g"
-                  @click="testGroup(g)"
-                >
-                  <Icon name="zap" :size="13" />
-                </button>
-              </div>
-              <div class="pgroup-grid">
-                <div v-for="m in membersOf(g)" :key="m" class="node-card static">
-                  <div class="node-top">
-                    <span class="node-name" :title="m">{{ m }}</span>
-                    <span class="node-delay" :class="delayClass(m)" @click.stop="testSingle(m)">
-                      {{ delayText(m) }}
-                    </span>
-                  </div>
-                  <div class="node-sub">
-                    {{ typeOf(m) }}<template v-if="isGroup(m) && nowOf(m)"> · {{ nowOf(m) }}</template>
-                    <span v-if="hasUdp(m)" class="udp-tag">UDP</span>
-                    <span v-if="nowOf(g) === m" class="node-current">{{ t('proxies.currentTag') }}</span>
-                  </div>
-                </div>
-              </div>
-            </section>
+            <ProxyGroupSection
+              v-for="group in autoGroups"
+              :key="group"
+              :group="group"
+              :members="membersOf(group)"
+              :selectable="false"
+              :testing="testingGroups.has(group)"
+              show-current-tag
+              @test-group="testGroup(group)"
+              @test-node="testSingle"
+            />
           </template>
 
           <div v-if="selectorGroups.length === 0 && autoGroups.length === 0" class="card">
@@ -250,55 +203,24 @@
 
         <!-- global: everything in GLOBAL -->
         <template v-else-if="store.mode === 'global'">
-          <section v-if="globalMembers.length > 0" class="pgroup">
-            <div class="pgroup-head">
-              <span class="pgroup-name">GLOBAL</span>
-              <span class="pgroup-type">S</span>
-              <span class="pgroup-now" :title="nowOf('GLOBAL')">{{ nowOf('GLOBAL') }}</span>
-              <span class="pgroup-spacer"></span>
-              <button
-                class="icon-btn"
-                :class="{ spin: testingGroup === 'GLOBAL' }"
-                :title="t('proxies.testAll')"
-                :disabled="testingGroup === 'GLOBAL'"
-                @click="testGroup('GLOBAL')"
-              >
-                <Icon name="zap" :size="13" />
-              </button>
-            </div>
-            <div class="pgroup-grid">
-              <button
-                v-for="m in globalMembers"
-                :key="m"
-                class="node-card"
-                :class="{ selected: nowOf('GLOBAL') === m }"
-                @click="selectNode('GLOBAL', m)"
-              >
-                <div class="node-top">
-                  <span class="node-name" :title="m">{{ m }}</span>
-                  <span class="node-delay" :class="delayClass(m)" @click.stop="testSingle(m)">
-                    {{ delayText(m) }}
-                  </span>
-                </div>
-                <div class="node-sub">
-                  {{ typeOf(m) }}<template v-if="isGroup(m) && nowOf(m)"> · {{ nowOf(m) }}</template>
-                  <span v-if="hasUdp(m)" class="udp-tag">UDP</span>
-                </div>
-              </button>
-            </div>
-          </section>
+          <ProxyGroupSection
+            v-if="globalMembers.length > 0"
+            group="GLOBAL"
+            :members="globalMembers"
+            :selectable="true"
+            :testing="testingGroups.has('GLOBAL')"
+            @select="(name) => selectNode('GLOBAL', name)"
+            @test-group="testGroup('GLOBAL')"
+            @test-node="testSingle"
+          />
         </template>
 
         <!-- direct: everything goes DIRECT -->
         <template v-else>
-          <section class="pgroup">
-            <div class="pgroup-grid pgroup-grid-single">
-              <div class="node-card static selected">
-                <div class="node-top">
-                  <span class="node-name">DIRECT</span>
-                </div>
-                <div class="node-sub">Direct</div>
-              </div>
+          <section class="direct-section">
+            <div class="direct-card">
+              <strong>DIRECT</strong>
+              <span>Direct</span>
             </div>
             <p class="direct-hint">{{ t('proxies.directHint') }}</p>
           </section>
@@ -309,11 +231,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { api } from "../api/index.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
+import ProxyGroupSection from "../components/ProxyGroupSection.vue";
 import TrafficChart from "../components/TrafficChart.vue";
 import UiCard from "../components/UiCard.vue";
 import UiSwitch from "../components/UiSwitch.vue";
@@ -324,14 +247,15 @@ import {
   errorText,
   isCoreRunning,
   isSysProxyOn,
-  proxyDelay,
-  setProxies,
+  refreshProxies,
+  refreshRuntimeState,
+  refreshStatus,
   store,
   toast,
   updateProxyDelay,
 } from "../stores/index.js";
 import type { OutboundMode } from "../types/index.js";
-import { delayLevel, formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
+import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 
 /* ---------- left column state ---------- */
 const togglingProxy = ref(false);
@@ -371,10 +295,8 @@ async function switchMode(mode: OutboundMode): Promise<void> {
 }
 
 /* ---------- proxy groups ---------- */
-const testingGroup = ref("");
-const testingSingle = ref("");
-
-const GROUP_ORDER_TYPE = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
+const testingGroups = ref(new Set<string>());
+const testingNodes = ref(new Set<string>());
 
 const selectorGroups = computed(() =>
   store.proxyGroups.filter((g) => store.proxies[g]?.type === "Selector" && g !== "GLOBAL"),
@@ -392,45 +314,6 @@ function nowOf(name: string): string {
   return store.proxies[name]?.now ?? "";
 }
 
-function typeOf(name: string): string {
-  return store.proxies[name]?.type ?? "";
-}
-
-function typeBadge(group: string): string {
-  return (store.proxies[group]?.type ?? "S").charAt(0);
-}
-
-function isGroup(name: string): boolean {
-  return GROUP_ORDER_TYPE.has(typeOf(name));
-}
-
-function hasUdp(name: string): boolean {
-  return store.proxies[name]?.udp ?? false;
-}
-
-function delayText(name: string): string {
-  const d = proxyDelay(name);
-  if (d === undefined) return t("common.untested");
-  if (d <= 0) return t("common.timeout");
-  return `${d} ms`;
-}
-
-function delayClass(name: string): string {
-  const d = proxyDelay(name);
-  if (d === undefined) return "delay-none";
-  const lvl = delayLevel(d);
-  return lvl === "good" ? "delay-good" : lvl === "mid" ? "delay-mid" : "delay-bad";
-}
-
-async function refreshProxies(): Promise<void> {
-  try {
-    const res = await api.getProxies();
-    setProxies(res.proxies);
-  } catch {
-    // keep previous data; offline banner handles daemon loss
-  }
-}
-
 async function selectNode(group: string, name: string): Promise<void> {
   if (nowOf(group) === name) return;
   try {
@@ -443,30 +326,31 @@ async function selectNode(group: string, name: string): Promise<void> {
 }
 
 async function testGroup(group: string): Promise<void> {
-  if (testingGroup.value) return;
-  testingGroup.value = group;
+  if (testingGroups.value.has(group)) return;
+  testingGroups.value = new Set(testingGroups.value).add(group);
   try {
     const delays = await api.testGroupDelay(group);
-    for (const [name, delay] of Object.entries(delays)) {
-      updateProxyDelay(name, delay);
-    }
+    for (const [name, delay] of Object.entries(delays)) updateProxyDelay(name, delay);
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
-    testingGroup.value = "";
+    const next = new Set(testingGroups.value);
+    next.delete(group);
+    testingGroups.value = next;
   }
 }
 
 async function testSingle(name: string): Promise<void> {
-  if (testingSingle.value) return;
-  testingSingle.value = name;
+  if (testingNodes.value.has(name)) return;
+  testingNodes.value = new Set(testingNodes.value).add(name);
   try {
-    const res = await api.testProxyDelay(name);
-    updateProxyDelay(name, res.delay);
+    updateProxyDelay(name, (await api.testProxyDelay(name)).delay);
   } catch {
     updateProxyDelay(name, 0);
   } finally {
-    testingSingle.value = "";
+    const next = new Set(testingNodes.value);
+    next.delete(name);
+    testingNodes.value = next;
   }
 }
 
@@ -482,7 +366,7 @@ async function toggleSystemProxy(): Promise<void> {
       await api.enableSystemProxy();
       toast.success(t("toast.sysProxyOn"));
     }
-    store.status = await api.getStatus();
+    await refreshStatus();
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
@@ -495,7 +379,7 @@ async function applyNetToggle(key: "allow-lan" | "tun", next: boolean): Promise<
   togglingNet.value = true;
   try {
     await api.patchSetting(key, next ? "on" : "off");
-    store.status = await api.getStatus();
+    await refreshStatus();
     toast.success(t("toast.settingSaved"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -516,8 +400,7 @@ async function restartCore(): Promise<void> {
   restarting.value = true;
   try {
     await api.restartCore();
-    store.status = await api.getStatus();
-    await refreshProxies();
+    await refreshRuntimeState();
     toast.success(t("toast.coreRestarted"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -532,8 +415,7 @@ async function refreshActiveProfile(): Promise<void> {
   refreshingSub.value = true;
   try {
     await api.updateProfile(p.id);
-    store.status = await api.getStatus();
-    await refreshProxies();
+    await refreshRuntimeState();
     toast.success(t("toast.profileUpdated", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -542,21 +424,6 @@ async function refreshActiveProfile(): Promise<void> {
   }
 }
 
-/* ---------- lifecycle ---------- */
-let pollTimer: number | null = null;
-
-onMounted(() => {
-  void refreshProxies();
-  // Keep group `now` and delays fresh while the page is open (urltest groups
-  // re-select on their own).
-  pollTimer = window.setInterval(() => {
-    if (isCoreRunning.value) void refreshProxies();
-  }, 5000);
-});
-
-onUnmounted(() => {
-  if (pollTimer !== null) clearInterval(pollTimer);
-});
 </script>
 
 <style scoped>
@@ -694,138 +561,23 @@ onUnmounted(() => {
   color: var(--text-muted);
   margin: 16px 2px 8px;
 }
-.pgroup {
-  margin-bottom: 14px;
-}
-.pgroup-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.pgroup-name {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.pgroup-type {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 4px;
-  padding: 1px 5px;
-  line-height: 1.5;
-}
-.pgroup-now {
-  font-size: 12px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pgroup-spacer {
-  flex: 1;
-}
-.pgroup-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
-}
-.pgroup-grid-single {
+.direct-section {
   max-width: 320px;
 }
-
-/* node cards */
-.node-card {
-  display: block;
-  width: 100%;
-  text-align: left;
+.direct-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-accent);
+  box-shadow: inset 2px 0 0 var(--accent);
   border-radius: var(--radius-md);
   padding: 10px 12px;
-  cursor: pointer;
-  transition:
-    border-color 0.12s ease,
-    box-shadow 0.12s ease,
-    transform 0.12s ease;
-}
-button.node-card:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-card);
-}
-.node-card.selected {
-  border-color: var(--border-accent);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-.node-card.static {
-  cursor: default;
-}
-.node-card.static:hover {
-  border-color: var(--border);
-  box-shadow: none;
-}
-.node-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-}
-.node-name {
   font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.node-delay {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-.node-delay:hover {
-  text-decoration: underline dotted;
-}
-.delay-good {
-  color: var(--success);
-}
-.delay-mid {
-  color: var(--warning);
-}
-.delay-bad {
-  color: var(--danger);
-}
-.delay-none {
+.direct-card span {
   color: var(--text-muted);
-}
-.node-sub {
-  margin-top: 3px;
   font-size: 11px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.node-current {
-  color: var(--accent);
-  font-weight: 600;
-  margin-left: 4px;
-}
-.udp-tag {
-  display: inline-block;
-  font-size: 9.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 0 4px;
-  margin-left: 4px;
-  line-height: 1.5;
-  vertical-align: 1px;
 }
 .direct-hint {
   margin: 10px 2px 0;

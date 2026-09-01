@@ -1,9 +1,14 @@
 import type {
+  HealthInfo,
+  ProfileActionResponse,
+  ProfilesUpdateAllResponse,
+  ProfileUpdateResponse,
+} from "../../../src/contracts.js";
+import type {
   ConfigsResponse,
   ConnectionsResponse,
   LogMessage,
   OutboundMode,
-  ProfileMeta,
   ProfilesResponse,
   ProxiesResponse,
   RulesResponse,
@@ -12,45 +17,61 @@ import type {
 } from "../types/index.js";
 import { formatTime } from "../utils/format.js";
 
+interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  response?: "json" | "void";
+}
+
 let controlToken = "";
 
 async function request<T>(
   endpoint: string,
-  options: { method?: string; body?: unknown } = {},
-): Promise<T> {
+  options?: RequestOptions & { response?: "json" },
+): Promise<T>;
+async function request(
+  endpoint: string,
+  options: RequestOptions & { response: "void" },
+): Promise<void>;
+async function request(endpoint: string, options: RequestOptions = {}): Promise<unknown> {
   const headers: Record<string, string> = {};
   if (controlToken) headers["X-Sash-Token"] = controlToken;
-  let bodyStr: string | undefined;
+  let body: string | undefined;
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
-    bodyStr = JSON.stringify(options.body);
+    body = JSON.stringify(options.body);
   }
 
   const res = await fetch(endpoint, {
     method: options.method ?? "GET",
     headers,
-    body: bodyStr,
+    body,
   });
+  const text = await res.text();
 
   if (!res.ok) {
-    let errText = "";
-    try {
-      const json = await res.json();
-      errText = json.error || JSON.stringify(json);
-    } catch {
-      errText = await res.text().catch(() => "");
+    let message = text.slice(0, 300).trim();
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as { error?: unknown };
+        if (parsed.error !== undefined) message = String(parsed.error);
+      } catch {
+        // Keep the plain response text.
+      }
     }
-    throw new Error(errText || `HTTP ${res.status}`);
+    throw new Error(message || `HTTP ${res.status}`);
   }
 
-  // Several core endpoints (PATCH /configs, PUT /proxies/:name, DELETE
-  // /connections…) answer 204 with an empty body; res.json() would throw.
-  const text = await res.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+  if (options.response === "void") return undefined;
+  if (!text) throw new Error(`Empty JSON response from ${endpoint}`);
+  try {
+    return JSON.parse(text) as unknown;
+  } catch (err) {
+    throw new Error(`Invalid JSON response from ${endpoint}: ${(err as Error).message}`);
+  }
 }
 
-/** Persistent WebSocket with auto-reconnect. Returns an unsubscribe function. */
+/** Persistent WebSocket with one reconnect timer. Returns an unsubscribe function. */
 function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${window.location.host}${path}`;
@@ -58,23 +79,32 @@ function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
   let timer: number | null = null;
   let closed = false;
 
+  const scheduleReconnect = () => {
+    if (closed) return;
+    if (timer !== null) clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      timer = null;
+      connect();
+    }, 3000);
+  };
+
   const connect = () => {
     if (closed) return;
     try {
       ws = new WebSocket(wsUrl);
       ws.onmessage = (event) => {
+        let parsed: T;
         try {
-          onData(JSON.parse(event.data) as T);
+          parsed = JSON.parse(event.data) as T;
         } catch {
-          // malformed frame, ignore
+          return;
         }
+        onData(parsed);
       };
-      ws.onclose = () => {
-        if (!closed) timer = window.setTimeout(connect, 3000);
-      };
+      ws.onclose = scheduleReconnect;
       ws.onerror = () => ws?.close();
     } catch {
-      if (!closed) timer = window.setTimeout(connect, 3000);
+      scheduleReconnect();
     }
   };
 
@@ -88,57 +118,37 @@ function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
 }
 
 export const api = {
-  /* /sash/* ------------------------------------------------------------- */
-
-  initialize: async () => {
-    const health = await request<{ ok: boolean; token: string; pid: number }>("/sash/health");
+  initialize: async (): Promise<HealthInfo> => {
+    const health = await request<HealthInfo>("/sash/health");
     controlToken = health.token;
     return health;
   },
 
-  getHealth: () => request<{ ok: boolean; token: string; pid: number }>("/sash/health"),
-
+  getHealth: () => request<HealthInfo>("/sash/health"),
   getStatus: () => request<SashStatus>("/sash/status"),
 
   enableSystemProxy: () =>
     request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/enable", { method: "POST" }),
-
   disableSystemProxy: () =>
     request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/disable", { method: "POST" }),
 
   getProfiles: () => request<ProfilesResponse>("/sash/profiles"),
-
   addProfile: (url: string) =>
-    request<{ ok: boolean; profile: ProfileMeta; activated: boolean; proxyCount?: number }>(
-      "/sash/profiles",
-      { method: "POST", body: { url } },
-    ),
-
+    request<ProfileActionResponse>("/sash/profiles", { method: "POST", body: { url } }),
   importProfile: (name: string, content: string) =>
-    request<{ ok: boolean; profile: ProfileMeta; activated: boolean; proxyCount?: number }>(
-      "/sash/profiles/import",
-      { method: "POST", body: { name, content } },
-    ),
-
-  updateProfile: (id: string) =>
-    request<{ ok: boolean; proxyCount?: number }>(`/sash/profiles/${id}/update`, {
+    request<ProfileActionResponse>("/sash/profiles/import", {
       method: "POST",
+      body: { name, content },
     }),
-
+  updateProfile: (id: string) =>
+    request<ProfileUpdateResponse>(`/sash/profiles/${id}/update`, { method: "POST" }),
   updateAllProfiles: () =>
-    request<{
-      ok: boolean;
-      updated: number;
-      failed: Array<{ id: string; name: string; error: string }>;
-      proxyCount?: number;
-    }>("/sash/profiles/update-all", { method: "POST" }),
-
+    request<ProfilesUpdateAllResponse>("/sash/profiles/update-all", { method: "POST" }),
   setActiveProfile: (id: string | null) =>
-    request<{ ok: boolean; activeId: string | null; proxyCount: number }>(
-      "/sash/profiles/active",
-      { method: "PUT", body: { id } },
-    ),
-
+    request<{ ok: boolean; activeId: string | null; proxyCount: number }>("/sash/profiles/active", {
+      method: "PUT",
+      body: { id },
+    }),
   deleteProfile: (id: string) =>
     request<{ ok: boolean; wasActive: boolean; proxyCount?: number }>(`/sash/profiles/${id}`, {
       method: "DELETE",
@@ -146,27 +156,20 @@ export const api = {
 
   patchSetting: (key: string, value: string) =>
     request<{ ok: boolean }>("/sash/settings", { method: "PATCH", body: { key, value } }),
-
   restartCore: () => request<{ ok: boolean; pid: number }>("/core/restart", { method: "POST" }),
-
   reloadCoreConfig: () =>
     request<{ ok: boolean; proxyCount: number }>("/core/config/reload", { method: "POST" }),
 
-  /* /core/api/* ---------------------------------------------------------- */
-
   getConfigs: () => request<ConfigsResponse>("/core/api/configs"),
-
   setMode: (mode: OutboundMode) =>
-    request<void>("/core/api/configs", { method: "PATCH", body: { mode } }),
-
+    request("/core/api/configs", { method: "PATCH", body: { mode }, response: "void" }),
   getProxies: () => request<ProxiesResponse>("/core/api/proxies"),
-
   selectProxy: (groupName: string, proxyName: string) =>
-    request<void>(`/core/api/proxies/${encodeURIComponent(groupName)}`, {
+    request(`/core/api/proxies/${encodeURIComponent(groupName)}`, {
       method: "PUT",
       body: { name: proxyName },
+      response: "void",
     }),
-
   testProxyDelay: (
     proxyName: string,
     url = "https://www.gstatic.com/generate_204",
@@ -175,7 +178,6 @@ export const api = {
     request<{ delay: number }>(
       `/core/api/proxies/${encodeURIComponent(proxyName)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
     ),
-
   testGroupDelay: (
     groupName: string,
     url = "https://www.gstatic.com/generate_204",
@@ -184,21 +186,18 @@ export const api = {
     request<Record<string, number>>(
       `/core/api/group/${encodeURIComponent(groupName)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
     ),
-
   getConnections: () => request<ConnectionsResponse>("/core/api/connections"),
-
   closeConnection: (id: string) =>
-    request<void>(`/core/api/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
-
-  closeAllConnections: () => request<void>("/core/api/connections", { method: "DELETE" }),
-
+    request(`/core/api/connections/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      response: "void",
+    }),
+  closeAllConnections: () =>
+    request("/core/api/connections", { method: "DELETE", response: "void" }),
   getRules: () => request<RulesResponse>("/core/api/rules"),
-
-  /* WebSocket streams ----------------------------------------------------- */
 
   connectTraffic: (onData: (msg: TrafficMessage) => void) =>
     connectStream<TrafficMessage>("/core/api/traffic", onData),
-
   connectLogs: (onLog: (msg: LogMessage) => void) =>
     connectStream<LogMessage>("/core/api/logs", (msg) => {
       msg.time = formatTime();

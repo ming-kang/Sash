@@ -120,7 +120,13 @@ import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { locale, t } from "../i18n/index.js";
-import { errorText, setProfiles, setProxies, store, toast } from "../stores/index.js";
+import {
+  errorText,
+  refreshProfiles,
+  refreshRuntimeState,
+  store,
+  toast,
+} from "../stores/index.js";
 import type { ProfileMeta } from "../types/index.js";
 import { formatAgo, formatBytes, formatDate } from "../utils/format.js";
 
@@ -160,22 +166,6 @@ function usagePct(p: ProfileMeta): number {
   return Math.min(100, Math.round((usedBytes(p) / total) * 100));
 }
 
-/* ---------- data refresh ---------- */
-async function refreshProfiles(): Promise<void> {
-  setProfiles(await api.getProfiles());
-}
-
-async function reloadRuntime(): Promise<void> {
-  const [status, proxies, rules] = await Promise.all([
-    api.getStatus(),
-    api.getProxies(),
-    api.getRules(),
-  ]);
-  store.status = status;
-  setProxies(proxies.proxies);
-  store.rules = rules.rules;
-}
-
 onMounted(() => {
   void refreshProfiles().catch(() => {});
 });
@@ -190,7 +180,7 @@ async function download(): Promise<void> {
     await refreshProfiles();
     dlUrl.value = "";
     if (res.activated) {
-      await reloadRuntime();
+      await refreshRuntimeState();
       toast.success(t("toast.profileActivated", { name: res.profile.name, n: res.proxyCount ?? 0 }));
     } else {
       toast.success(t("toast.profileAdded", { name: res.profile.name }));
@@ -208,7 +198,7 @@ async function updateOne(p: ProfileMeta): Promise<void> {
   try {
     const res = await api.updateProfile(p.id);
     await refreshProfiles();
-    if (res.proxyCount !== undefined) await reloadRuntime();
+    if (res.proxyCount !== undefined) await refreshRuntimeState();
     toast.success(t("toast.profileUpdated", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -223,7 +213,7 @@ async function updateAll(): Promise<void> {
   try {
     const res = await api.updateAllProfiles();
     await refreshProfiles();
-    if (res.proxyCount !== undefined) await reloadRuntime();
+    if (res.proxyCount !== undefined) await refreshRuntimeState();
     if (res.failed.length === 0) {
       toast.success(t("toast.profilesUpdateAllOk", { n: res.updated }));
     } else {
@@ -243,7 +233,7 @@ async function selectProfile(p: ProfileMeta): Promise<void> {
   try {
     const res = await api.setActiveProfile(p.id);
     await refreshProfiles();
-    await reloadRuntime();
+    await refreshRuntimeState();
     toast.success(t("toast.profileActivated", { name: p.name, n: res.proxyCount }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -262,7 +252,7 @@ async function removeProfile(p: ProfileMeta): Promise<void> {
   try {
     const res = await api.deleteProfile(p.id);
     await refreshProfiles();
-    if (res.wasActive) await reloadRuntime();
+    if (res.wasActive) await refreshRuntimeState();
     toast.success(t("toast.profileDeleted", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -281,7 +271,7 @@ function onImportFile(event: Event): void {
       const name = file.name.replace(/\.(ya?ml)$/i, "") || "imported";
       const res = await api.importProfile(name, content);
       await refreshProfiles();
-      if (res.activated) await reloadRuntime();
+      if (res.activated) await refreshRuntimeState();
       toast.success(t("toast.profileImported", { name: res.profile.name }));
     } catch (err) {
       toast.error(t("toast.failed", { msg: errorText(err) }));
