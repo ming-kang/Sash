@@ -61,6 +61,23 @@ describe("ProfileService", () => {
     assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-a/);
   });
 
+  it("validates the final managed config before storing an imported profile", async () => {
+    let validatedYaml = "";
+    const service = new ProfileService({
+      layout,
+      settings: () => settings,
+      validateConfig: (generated) => {
+        validatedYaml = generated.yaml;
+        throw new Error("core validation rejected");
+      },
+    });
+
+    await assert.rejects(() => service.importLocal("invalid", yamlA), /core validation rejected/);
+    assert.match(validatedYaml, /mixed-port: 17890/);
+    assert.equal(service.list().profiles.length, 0);
+    assert.equal(fs.existsSync(layout.configFile), false);
+  });
+
   it("rolls config and active selection back when runtime reload fails", async () => {
     const service = new ProfileService({
       layout,

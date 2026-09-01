@@ -9,7 +9,7 @@ import {
   saveSettings,
   validateController,
 } from "../settings.js";
-import { runtimeContext } from "./shared.js";
+import { createProfileService, runtimeContext } from "./shared.js";
 
 /** Re-export for backwards compatibility */
 export const requiresRestart = requiresCoreRestart;
@@ -63,9 +63,6 @@ export async function runConfigSet(key: string, value: string | undefined): Prom
   saveSettings(ctx.settings, ctx.layout);
   log.ok(`${key} updated`);
 
-  await new ProfileService({
-    layout: ctx.layout,
-    settings: () => ctx.settings,
-  }).reloadActive(false);
+  await createProfileService(ctx).reloadActive(false);
   log.info("takes effect on next `sash start`");
 }

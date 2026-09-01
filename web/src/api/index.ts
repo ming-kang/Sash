@@ -1,8 +1,9 @@
-import type {
-  HealthInfo,
-  ProfileActionResponse,
-  ProfilesUpdateAllResponse,
-  ProfileUpdateResponse,
+import {
+  type HealthInfo,
+  type ProfileActionResponse,
+  type ProfilesUpdateAllResponse,
+  type ProfileUpdateResponse,
+  WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
 } from "../../../src/contracts.js";
 import type {
   ConfigsResponse,
@@ -91,7 +92,10 @@ function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
   const connect = () => {
     if (closed) return;
     try {
-      ws = new WebSocket(wsUrl);
+      const protocols = controlToken
+        ? [`${WEB_SOCKET_TOKEN_PROTOCOL_PREFIX}${controlToken}`]
+        : undefined;
+      ws = new WebSocket(wsUrl, protocols);
       ws.onmessage = (event) => {
         let parsed: T;
         try {

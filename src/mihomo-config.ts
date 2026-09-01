@@ -156,6 +156,8 @@ export function parseSafeHttpUrl(value: string | undefined): string | undefined 
  * metadata headers subscription gateways send (usage quota, update interval,
  * display name, home page).
  */
+export const PROFILE_DOWNLOAD_SIZE_LIMIT = 8 * 1024 * 1024;
+
 export async function fetchSubscriptionProfile(url: string): Promise<SubscriptionFetch> {
   let parsed: URL;
   try {
@@ -175,7 +177,7 @@ export async function fetchSubscriptionProfile(url: string): Promise<Subscriptio
   if (res.statusCode !== 200) {
     throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
   }
-  const text = await res.text();
+  const text = await res.text(PROFILE_DOWNLOAD_SIZE_LIMIT);
   let doc: unknown;
   try {
     doc = YAML.parse(text);

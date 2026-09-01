@@ -74,8 +74,8 @@ function pickDispatcher(opts: { direct?: boolean; manualRedirect?: boolean }): D
 export interface FetchResponse {
   statusCode: number;
   headers: Record<string, string | string[] | undefined>;
-  text: () => Promise<string>;
-  buffer: () => Promise<Buffer>;
+  text: (maxBytes?: number) => Promise<string>;
+  buffer: (maxBytes?: number) => Promise<Buffer>;
 }
 
 export interface FetchOptions {
@@ -118,11 +118,25 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
         throw new Error(`HTTP ${res.statusCode}`);
       }
       const body = res.body;
+      const consume = async (maxBytes?: number): Promise<Buffer> => {
+        const chunks: Buffer[] = [];
+        let total = 0;
+        for await (const chunk of body) {
+          const data = Buffer.from(chunk);
+          total += data.length;
+          if (maxBytes !== undefined && total > maxBytes) {
+            body.destroy();
+            throw new Error(`Response body exceeds ${maxBytes} byte limit`);
+          }
+          chunks.push(data);
+        }
+        return Buffer.concat(chunks, total);
+      };
       return {
         statusCode: res.statusCode,
         headers: res.headers as Record<string, string | string[] | undefined>,
-        text: () => body.text(),
-        buffer: async () => Buffer.from(await body.arrayBuffer()),
+        text: async (maxBytes) => (await consume(maxBytes)).toString("utf8"),
+        buffer: consume,
       };
     } catch (err) {
       lastErr = err;

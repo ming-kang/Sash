@@ -1,6 +1,6 @@
 import { coreInstalled, currentCoreVersion, installCore } from "../core.js";
+import { validateCoreConfigText } from "../core-config-validation.js";
 import { log } from "../log.js";
-import { configExists } from "../mihomo-config.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import { migrateLegacyProfileSetting } from "../profile-migration.js";
 import { ProfileService } from "../profile-service.js";
@@ -25,15 +25,23 @@ export async function ensureCore(ctx: RuntimeContext): Promise<void> {
   log.ok(`mihomo core ${version} installed`);
 }
 
+export function createProfileService(ctx: RuntimeContext): ProfileService {
+  return new ProfileService({
+    layout: ctx.layout,
+    settings: () => ctx.settings,
+    ...(coreInstalled(ctx.layout)
+      ? { validateConfig: (generated) => validateCoreConfigText(generated.yaml, ctx.layout) }
+      : {}),
+  });
+}
+
 /**
- * Ensure config.yaml exists and reflects the current settings. The active
- * profile's stored document is used; a profile whose content was never
- * downloaded (e.g. freshly migrated) is fetched once. With no active
+ * Reconcile config.yaml from the active profile and current settings before
+ * every Core start. A missing remote profile is fetched once; with no active
  * profile a DIRECT-only default is generated.
  */
-export async function ensureConfig(ctx: RuntimeContext, force = false): Promise<void> {
-  if (!force && configExists(ctx.layout)) return;
-  const profiles = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings });
+export async function ensureConfig(ctx: RuntimeContext): Promise<void> {
+  const profiles = createProfileService(ctx);
   const active = profiles.active();
   const result = await profiles.reloadActive(false);
   if (!active) {

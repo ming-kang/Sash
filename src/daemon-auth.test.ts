@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import type { IncomingMessage } from "node:http";
 import { describe, it } from "node:test";
 import {
+  coreWebSocketProtocols,
   isControlMutation,
   isControlRequestAuthorized,
   isLoopbackHostHeader,
+  isLoopbackOriginHeader,
+  isWebSocketRequestAuthorized,
 } from "./daemon-auth.js";
 
 function request(headers: IncomingMessage["headers"]): IncomingMessage {
@@ -20,6 +23,14 @@ describe("daemon control authorization", () => {
     assert.equal(isLoopbackHostHeader("[::1]:19090"), true);
     assert.equal(isLoopbackHostHeader("attacker.example:19090"), false);
     assert.equal(isLoopbackHostHeader(undefined), false);
+  });
+
+  it("accepts missing or loopback Origins and rejects remote Origins", () => {
+    assert.equal(isLoopbackOriginHeader(undefined), true);
+    assert.equal(isLoopbackOriginHeader("http://127.0.0.1:19090"), true);
+    assert.equal(isLoopbackOriginHeader("http://localhost:19090"), true);
+    assert.equal(isLoopbackOriginHeader("https://attacker.example"), false);
+    assert.equal(isLoopbackOriginHeader("not a url"), false);
   });
 
   it("classifies only state-changing methods as mutations", () => {
@@ -41,5 +52,28 @@ describe("daemon control authorization", () => {
       false,
     );
     assert.equal(isControlRequestAuthorized(request({}), opts), false);
+  });
+
+  it("accepts WebSocket bearer/header auth or the private token subprotocol", () => {
+    assert.equal(
+      isWebSocketRequestAuthorized(
+        request({ "sec-websocket-protocol": "chat, sash-token.boot-token" }),
+        opts,
+      ),
+      true,
+    );
+    assert.equal(
+      isWebSocketRequestAuthorized(request({ authorization: "Bearer persistent-secret" }), opts),
+      true,
+    );
+    assert.equal(
+      isWebSocketRequestAuthorized(request({ "sec-websocket-protocol": "sash-token.wrong" }), opts),
+      false,
+    );
+    assert.equal(
+      coreWebSocketProtocols("chat, sash-token.boot-token, telemetry"),
+      "chat, telemetry",
+    );
+    assert.equal(coreWebSocketProtocols("sash-token.boot-token"), undefined);
   });
 });

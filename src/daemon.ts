@@ -5,17 +5,20 @@ import type { Duplex } from "node:stream";
 import { MihomoApi } from "./api.js";
 import type { DaemonStatus } from "./contracts.js";
 import { currentCoreVersion } from "./core.js";
+import { validateCoreConfigText } from "./core-config-validation.js";
 import {
   isControlMutation,
   isControlRequestAuthorized,
   isLoopbackHostHeader,
+  isLoopbackOriginHeader,
+  isWebSocketRequestAuthorized,
 } from "./daemon-auth.js";
 import { parseJsonBody, sendError, sendJson } from "./daemon-http.js";
 import { handleProfileRoutes } from "./daemon-profile-routes.js";
 import { forwardHttpToCore, forwardWsToCore } from "./daemon-proxy.js";
 import { serveStaticUi } from "./daemon-static.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import type { SubscriptionFetch } from "./mihomo-config.js";
+import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { clearPidRecord } from "./process.js";
 import { migrateLegacyProfileSetting } from "./profile-migration.js";
@@ -53,6 +56,7 @@ export interface DaemonDeps {
   sysproxy?: SysproxyAdapter;
   token?: string;
   fetchProfileFn?: (url: string) => Promise<SubscriptionFetch>;
+  validateConfigFn?: (generated: GeneratedConfig) => Promise<void> | void;
   onShutdown?: () => void;
 }
 
@@ -62,6 +66,17 @@ export interface DaemonInstance {
   token: string;
   port: number;
   close: () => Promise<void>;
+}
+
+function matchesPathPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function rejectUpgrade(socket: Duplex, status: number, message: string): void {
+  const body = `${message}\n`;
+  socket.end(
+    `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+  );
 }
 
 export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
@@ -126,6 +141,8 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     layout,
     settings: () => settings,
     ...(deps.fetchProfileFn ? { fetchProfile: deps.fetchProfileFn } : {}),
+    validateConfig:
+      deps.validateConfigFn ?? ((generated) => validateCoreConfigText(generated.yaml, layout)),
     reloadConfig: async (configPath) => {
       if (!supervisor.isRunning()) return;
       const api = new MihomoApi(settings.controller, settings.secret);
@@ -182,7 +199,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       /* ==================================================================== */
       /* /core/api/* — Reverse Proxy to Mihomo external-controller             */
       /* ==================================================================== */
-      if (pathname.startsWith("/core/api")) {
+      if (matchesPathPrefix(pathname, "/core/api")) {
         const rawUrl = req.url ?? "/";
         const prefixIdx = rawUrl.indexOf("/core/api");
         const targetSubPath =
@@ -196,11 +213,11 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       /* ==================================================================== */
       if (
         pathname === "/version" ||
-        pathname.startsWith("/proxies") ||
-        pathname.startsWith("/rules") ||
-        pathname.startsWith("/connections") ||
-        pathname.startsWith("/providers") ||
-        pathname.startsWith("/dns")
+        matchesPathPrefix(pathname, "/proxies") ||
+        matchesPathPrefix(pathname, "/rules") ||
+        matchesPathPrefix(pathname, "/connections") ||
+        matchesPathPrefix(pathname, "/providers") ||
+        matchesPathPrefix(pathname, "/dns")
       ) {
         forwardHttpToCore(req, res, pathname + url.search, settings.controller, settings.secret);
         return;
@@ -292,33 +309,59 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           return;
         }
 
+        const previousSettings = { ...settings };
+        const wasRunning = supervisor.isRunning();
+        let configCommitted = false;
+        let coreTransitionAttempted = false;
         try {
           applyManagedKey(settings, key, value);
         } catch (err) {
           sendError(res, 400, (err as Error).message);
           return;
         }
-        saveSettings(settings, layout);
 
-        if (key === "system-proxy") {
-          if (settings.systemProxy && supervisor.isRunning()) {
-            await syncSystemProxy(true);
+        try {
+          if (key === "system-proxy") {
+            await syncSystemProxy(settings.systemProxy && wasRunning);
           } else {
-            await syncSystemProxy(false);
-          }
-        } else {
-          const restartRequired = supervisor.isRunning() && requiresCoreRestart(key);
-          await profiles.reloadActive(!restartRequired);
-          if (restartRequired) {
-            await removeProxyIfApplied();
-            try {
+            saveSettings(settings, layout);
+            const restartRequired = wasRunning && requiresCoreRestart(key);
+            await profiles.reloadActive(!restartRequired);
+            configCommitted = true;
+            if (restartRequired) {
+              await removeProxyIfApplied();
+              coreTransitionAttempted = true;
               await supervisor.restart();
               await reconcileSystemProxy();
-            } catch (err) {
-              await removeProxyIfApplied();
-              throw err;
             }
           }
+        } catch (err) {
+          const rollbackErrors: string[] = [];
+          Object.assign(settings, previousSettings);
+          try {
+            saveSettings(settings, layout);
+            if (key === "system-proxy") {
+              await reconcileSystemProxy(!previousSettings.systemProxy);
+            } else if (configCommitted || coreTransitionAttempted) {
+              await profiles.reloadActive(false);
+              if (coreTransitionAttempted && wasRunning) {
+                await removeProxyIfApplied();
+                if (supervisor.isRunning()) {
+                  await supervisor.restart();
+                } else {
+                  await supervisor.start();
+                }
+                await reconcileSystemProxy();
+              }
+            }
+          } catch (rollbackErr) {
+            rollbackErrors.push((rollbackErr as Error).message);
+          }
+          const suffix =
+            rollbackErrors.length > 0
+              ? `; settings rollback failed: ${rollbackErrors.join("; ")}`
+              : "";
+          throw new Error(`${(err as Error).message}${suffix}`);
         }
 
         sendJson(res, 200, { ok: true, settings: publicSettings(settings) });
@@ -378,13 +421,30 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
 
   // Handle WebSocket upgrade proxying to Core controller (e.g. for /core/api/traffic)
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
-    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    if (!isLoopbackHostHeader(req.headers.host)) {
+      rejectUpgrade(socket, 421, "Invalid Host header");
+      return;
+    }
+    if (!isLoopbackOriginHeader(req.headers.origin)) {
+      rejectUpgrade(socket, 403, "Invalid Origin header");
+      return;
+    }
+    if (
+      !isWebSocketRequestAuthorized(req, {
+        daemonSecret: settings.daemonSecret,
+        bootToken: token,
+      })
+    ) {
+      rejectUpgrade(socket, 401, "Unauthorized WebSocket request");
+      return;
+    }
 
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
     const isCoreWs =
-      pathname.startsWith("/core/api") || pathname === "/traffic" || pathname === "/logs";
+      matchesPathPrefix(pathname, "/core/api") || pathname === "/traffic" || pathname === "/logs";
     if (!isCoreWs) {
-      socket.destroy();
+      rejectUpgrade(socket, 404, "WebSocket endpoint not found");
       return;
     }
 

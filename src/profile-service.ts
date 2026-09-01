@@ -41,6 +41,8 @@ export interface ProfileServiceOptions {
   layout: SashLayout;
   settings: () => SashSettings;
   fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
+  /** Validate the exact generated config before any file or runtime transition. */
+  validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
   /** Reload the running core from configPath; omit when operating offline. */
   reloadConfig?: (configPath: string) => Promise<void>;
 }
@@ -103,6 +105,7 @@ export class ProfileService {
   private readonly layout: SashLayout;
   private readonly getSettings: () => SashSettings;
   private readonly fetchProfileFn: (url: string) => Promise<SubscriptionFetch>;
+  private readonly validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
   private readonly reloadConfig?: (configPath: string) => Promise<void>;
   private readonly fetches = new Map<string, Promise<SubscriptionFetch>>();
   private commitTail: Promise<void> = Promise.resolve();
@@ -111,6 +114,7 @@ export class ProfileService {
     this.layout = opts.layout;
     this.getSettings = opts.settings;
     this.fetchProfileFn = opts.fetchProfile ?? fetchSubscriptionProfile;
+    this.validateConfig = opts.validateConfig;
     this.reloadConfig = opts.reloadConfig;
   }
 
@@ -141,12 +145,18 @@ export class ProfileService {
     return pending;
   }
 
-  private render(doc: Record<string, unknown> | null): GeneratedConfig {
-    return renderConfig(
+  private async prepare(doc: Record<string, unknown> | null): Promise<GeneratedConfig> {
+    const generated = renderConfig(
       doc ?? buildDefaultConfig(),
       this.getSettings(),
       doc ? "subscription" : "default",
     );
+    try {
+      await this.validateConfig?.(generated);
+    } catch (err) {
+      throw new ProfileInputError((err as Error).message);
+    }
+    return generated;
   }
 
   private async transitionConfig<T>(
@@ -189,8 +199,9 @@ export class ProfileService {
   private async activatePrepared(
     id: string | null,
     doc: Record<string, unknown> | null,
+    prepared?: GeneratedConfig,
   ): Promise<{ activeId: string | null; proxyCount: number }> {
-    const generated = this.render(doc);
+    const generated = prepared ?? (await this.prepare(doc));
     await this.transitionConfig(generated, () => setActiveProfile(id, this.layout), [
       this.layout.profilesIndexFile,
     ]);
@@ -204,6 +215,7 @@ export class ProfileService {
     const normalizedUrl = url.trim();
     if (!normalizedUrl) throw new ProfileInputError("Missing required profile URL");
     const fetched = await this.fetch(normalizedUrl);
+    const prepared = await this.prepare(fetched.doc);
 
     return this.exclusive(async () => {
       const before = this.list();
@@ -211,9 +223,8 @@ export class ProfileService {
       let profile: ProfileMeta;
       if (existing) {
         if (before.activeId === existing.id) {
-          const generated = this.render(fetched.doc);
           const next = await this.transitionConfig(
-            generated,
+            prepared,
             () => applySubscriptionFetch(existing.id, fetched, this.layout),
             [this.layout.profilesIndexFile, profileFilePath(this.layout, existing.id)],
           );
@@ -244,13 +255,13 @@ export class ProfileService {
 
       const shouldActivate = opts.activate === true || before.activeId === null;
       if (shouldActivate && this.list().activeId !== profile.id) {
-        await this.activatePrepared(profile.id, fetched.doc);
+        await this.activatePrepared(profile.id, fetched.doc, prepared);
       }
       const activated = this.list().activeId === profile.id;
       return {
         profile,
         activated,
-        ...(activated ? { proxyCount: this.render(fetched.doc).proxyCount } : {}),
+        ...(activated ? { proxyCount: prepared.proxyCount } : {}),
       };
     });
   }
@@ -268,6 +279,7 @@ export class ProfileService {
         "Content is not a valid core configuration (missing proxies/rules)",
       );
     }
+    const prepared = await this.prepare(doc);
 
     return this.exclusive(async () => {
       const before = this.list();
@@ -275,12 +287,12 @@ export class ProfileService {
         { name: name.trim() || "imported", url: "", yamlText: content, intervalHours: 0 },
         this.layout,
       ).profile;
-      if (before.activeId === null) await this.activatePrepared(profile.id, doc);
+      if (before.activeId === null) await this.activatePrepared(profile.id, doc, prepared);
       const activated = this.list().activeId === profile.id;
       return {
         profile,
         activated,
-        ...(activated ? { proxyCount: this.render(doc).proxyCount } : {}),
+        ...(activated ? { proxyCount: prepared.proxyCount } : {}),
       };
     });
   }
@@ -313,6 +325,7 @@ export class ProfileService {
     snapshot: ProfileMeta,
     fetched: SubscriptionFetch,
   ): Promise<ProfileUpdateResult> {
+    const prepared = await this.prepare(fetched.doc);
     return this.exclusive(async () => {
       const index = this.list();
       const current = index.profiles.find((profile) => profile.id === snapshot.id);
@@ -324,13 +337,12 @@ export class ProfileService {
       let next: ProfilesIndex;
       let proxyCount: number | undefined;
       if (index.activeId === current.id) {
-        const generated = this.render(fetched.doc);
         next = await this.transitionConfig(
-          generated,
+          prepared,
           () => applySubscriptionFetch(current.id, fetched, this.layout),
           [this.layout.profilesIndexFile, profileFilePath(this.layout, current.id)],
         );
-        proxyCount = generated.proxyCount;
+        proxyCount = prepared.proxyCount;
       } else {
         next = applySubscriptionFetch(current.id, fetched, this.layout);
       }
@@ -415,7 +427,7 @@ export class ProfileService {
         removeProfile(id, this.layout);
         return { wasActive: false };
       }
-      const generated = this.render(null);
+      const generated = await this.prepare(null);
       await this.transitionConfig(generated, () => removeProfile(id, this.layout), [
         this.layout.profilesIndexFile,
         profileFilePath(this.layout, id),
@@ -427,7 +439,7 @@ export class ProfileService {
   async reloadActive(reloadRuntime = true): Promise<GeneratedConfig> {
     const active = this.active();
     if (!active) {
-      const generated = this.render(null);
+      const generated = await this.prepare(null);
       await this.exclusive(() =>
         this.transitionConfig(generated, () => undefined, [], reloadRuntime),
       );
@@ -452,7 +464,7 @@ export class ProfileService {
       if (doc === undefined) {
         throw new ProfileInputError(`Profile file is missing: ${active.id}`);
       }
-      const generated = this.render(doc);
+      const generated = await this.prepare(doc);
       await this.transitionConfig(generated, () => undefined, [], reloadRuntime);
       return generated;
     });

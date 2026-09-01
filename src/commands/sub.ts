@@ -1,8 +1,7 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { ProfileService } from "../profile-service.js";
-import { runtimeContext } from "./shared.js";
+import { createProfileService, runtimeContext } from "./shared.js";
 
 /** `sash sub ...`: manage subscription profiles through the canonical service. */
 
@@ -20,7 +19,7 @@ export async function runSubSet(url: string): Promise<void> {
     return;
   }
 
-  const profiles = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings });
+  const profiles = createProfileService(ctx);
   const result = await profiles.addRemote(url, { activate: true });
   log.ok(
     `profile "${result.profile.name}" saved and activated; config generated (${result.proxyCount ?? 0} proxies)`,
@@ -30,7 +29,7 @@ export async function runSubSet(url: string): Promise<void> {
 
 export async function runSubUpdate(): Promise<void> {
   const ctx = runtimeContext();
-  const profiles = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings });
+  const profiles = createProfileService(ctx);
   const active = profiles.active();
   if (!active) throw new Error("no active profile; use `sash sub set <url>` first");
   if (!active.url) {
@@ -54,7 +53,7 @@ export async function runSubUpdate(): Promise<void> {
 
 export async function runSubUnset(): Promise<void> {
   const ctx = runtimeContext();
-  const profiles = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings });
+  const profiles = createProfileService(ctx);
   const active = profiles.active();
   if (!active) {
     log.info("no active profile");
@@ -75,7 +74,7 @@ export async function runSubUnset(): Promise<void> {
 
 export async function runSubShow(): Promise<void> {
   const ctx = runtimeContext();
-  const index = new ProfileService({ layout: ctx.layout, settings: () => ctx.settings }).list();
+  const index = createProfileService(ctx).list();
   if (index.profiles.length === 0) {
     log.kv("profiles", "(none)");
     log.kv("profiles dir", ctx.layout.profilesDir);

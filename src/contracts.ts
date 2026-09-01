@@ -5,6 +5,8 @@ import type { SystemProxyState } from "./sysproxy.js";
 
 export type { ProfileMeta, ProfilesIndex };
 
+export const WEB_SOCKET_TOKEN_PROTOCOL_PREFIX = "sash-token.";
+
 export interface HealthInfo {
   ok: boolean;
   token: string;

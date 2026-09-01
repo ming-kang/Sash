@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -13,7 +14,7 @@ import {
   type DaemonInstance,
   type SysproxyAdapter,
 } from "./daemon.js";
-import type { SubscriptionFetch } from "./mihomo-config.js";
+import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { addProfile } from "./profiles.js";
 import { DEFAULT_SETTINGS, type SashSettings } from "./settings.js";
@@ -61,6 +62,7 @@ describe("daemon server", () => {
       supervisor?: CoreSupervisor;
       sysproxy?: SysproxyAdapter;
       fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
+      validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
     } = {},
   ): Promise<DaemonInstance> {
     const fakeSupervisor: CoreSupervisor =
@@ -80,6 +82,7 @@ describe("daemon server", () => {
       supervisor: fakeSupervisor,
       sysproxy: overrides.sysproxy,
       fetchProfileFn: overrides.fetchProfile,
+      validateConfigFn: overrides.validateConfig ?? (() => undefined),
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -130,6 +133,43 @@ describe("daemon server", () => {
       json = text;
     }
     return { statusCode: res.statusCode, data: json };
+  }
+
+  async function rawWebSocketUpgrade(
+    pathname: string,
+    headers: Record<string, string> = {},
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const socket = net.createConnection({ host: "127.0.0.1", port: boundPort });
+      let response = "";
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        reject(new Error("WebSocket upgrade timed out"));
+      }, 3000);
+      socket.on("connect", () => {
+        const requestHeaders = {
+          Host: `127.0.0.1:${boundPort}`,
+          Connection: "Upgrade",
+          Upgrade: "websocket",
+          "Sec-WebSocket-Version": "13",
+          "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+          ...headers,
+        };
+        const lines = Object.entries(requestHeaders).map(([key, value]) => `${key}: ${value}`);
+        socket.write(`GET ${pathname} HTTP/1.1\r\n${lines.join("\r\n")}\r\n\r\n`);
+      });
+      socket.on("data", (chunk) => {
+        response += chunk.toString("utf8");
+        if (!response.includes("\r\n\r\n")) return;
+        clearTimeout(timeout);
+        socket.destroy();
+        resolve(response);
+      });
+      socket.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
   }
 
   describe("authentication and namespaces", () => {
@@ -311,6 +351,65 @@ describe("daemon server", () => {
       assert.equal(res.statusCode, 200);
       assert.deepEqual(enabledPorts, [17890, 18888]);
       assert.equal(disabled, 1);
+    });
+
+    it("restores settings when the generated config fails Core validation", async () => {
+      await startServer({
+        validateConfig: (generated) => {
+          if (generated.yaml.includes("mixed-port: 18888")) {
+            throw new Error("invalid generated config");
+          }
+        },
+      });
+
+      const res = await apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { key: "mixed-port", value: "18888" },
+      });
+
+      assert.equal(res.statusCode, 500);
+      const persisted = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as {
+        mixedPort: number;
+      };
+      assert.equal(persisted.mixedPort, 17890);
+      assert.equal(fs.existsSync(layout.configFile), false);
+    });
+
+    it("restores the old config and runtime after a restart failure", async () => {
+      let running = true;
+      let recoveryStarts = 0;
+      const supervisor = {
+        isRunning: () => running,
+        status: async (): Promise<CoreState> => ({ running }),
+        start: async () => {
+          running = true;
+          recoveryStarts += 1;
+          return { pid: 2222 };
+        },
+        stop: async () => {
+          running = false;
+        },
+        restart: async () => {
+          running = false;
+          throw new Error("new runtime failed");
+        },
+        cleanStaleCore: async () => {},
+      } as unknown as CoreSupervisor;
+      await startServer({ supervisor });
+
+      const res = await apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { key: "mixed-port", value: "18888" },
+      });
+
+      assert.equal(res.statusCode, 500);
+      const persisted = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as {
+        mixedPort: number;
+      };
+      assert.equal(persisted.mixedPort, 17890);
+      assert.match(fs.readFileSync(layout.configFile, "utf8"), /mixed-port: 17890/);
+      assert.equal(running, true);
+      assert.equal(recoveryStarts, 1);
     });
   });
 
@@ -549,6 +648,39 @@ describe("daemon server", () => {
       assert.equal(receivedAuth, `Bearer ${settings.secret}`);
       assert.equal(receivedWebToken, undefined);
       assert.deepEqual(res.data, { version: "v1.19.30-meta" });
+
+      const invalidPrefix = await apiRequest("/core/apiX/version");
+      assert.equal(invalidPrefix.statusCode, 404);
+    });
+
+    it("rejects unauthenticated WebSocket upgrades", async () => {
+      await startServer();
+      const response = await rawWebSocketUpgrade("/core/api/logs");
+      assert.match(response, /^HTTP\/1\.1 401 Unauthorized WebSocket request/);
+    });
+
+    it("authenticates WebSockets and strips the daemon token protocol upstream", async () => {
+      let receivedProtocols: string | undefined;
+      mockCoreServer = http.createServer();
+      mockCoreServer.on("upgrade", (req, socket) => {
+        receivedProtocols = req.headers["sec-websocket-protocol"];
+        socket.end("HTTP/1.1 400 Test Complete\r\nConnection: close\r\n\r\n");
+      });
+      await new Promise<void>((resolve) => {
+        mockCoreServer?.listen(0, "127.0.0.1", () => resolve());
+      });
+      const address = mockCoreServer.address();
+      mockCorePort = typeof address === "object" && address ? address.port : 0;
+      settings.controller = `127.0.0.1:${mockCorePort}`;
+
+      const inst = await startServer();
+      const response = await rawWebSocketUpgrade("/core/api/logs", {
+        Origin: `http://127.0.0.1:${boundPort}`,
+        "Sec-WebSocket-Protocol": `sash-token.${inst.token}`,
+      });
+
+      assert.match(response, /^HTTP\/1\.1 400 Test Complete/);
+      assert.equal(receivedProtocols, undefined);
     });
   });
 });

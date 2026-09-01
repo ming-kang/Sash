@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
+import { coreWebSocketProtocols } from "./daemon-auth.js";
 
 export function parseHostPort(address: string): { host: string; port: number } {
   const trimmed = address.trim();
@@ -101,6 +102,12 @@ export function forwardWsToCore(
   delete upstreamHeaders.host;
   delete upstreamHeaders.authorization;
   delete upstreamHeaders["x-sash-token"];
+  const coreProtocols = coreWebSocketProtocols(upstreamHeaders["sec-websocket-protocol"]);
+  if (coreProtocols) {
+    upstreamHeaders["sec-websocket-protocol"] = coreProtocols;
+  } else {
+    delete upstreamHeaders["sec-websocket-protocol"];
+  }
   if (secret) {
     upstreamHeaders.authorization = `Bearer ${secret}`;
   }
