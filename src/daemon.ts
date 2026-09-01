@@ -194,12 +194,20 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    // 3. Static WebUI assets
+    // 3. Redirect /ui to /ui/ so the dashboard's relative asset URLs resolve
+    //    (must use the raw pathname: the normalized one maps /ui/ to /ui)
+    if (method === "GET" && url.pathname === "/ui") {
+      res.writeHead(302, { Location: `/ui/${url.search}` });
+      res.end();
+      return;
+    }
+
+    // 4. Static WebUI assets
     if (method === "GET" && serveStaticUi(req, res, pathname, layout)) {
       return;
     }
 
-    // 4. API routes
+    // 5. API routes
     try {
       /* ==================================================================== */
       /* /core/api/* — Reverse Proxy to Mihomo external-controller             */

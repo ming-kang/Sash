@@ -246,6 +246,26 @@ describe("daemon server", () => {
     });
   });
 
+  describe("web UI serving", () => {
+    it("redirects GET /ui to /ui/ preserving the query string", async () => {
+      await startServer();
+      const res = await request(`http://127.0.0.1:${boundPort}/ui?tab=proxies`);
+      await res.body.text();
+      assert.equal(res.statusCode, 302);
+      assert.equal(res.headers.location, "/ui/?tab=proxies");
+    });
+
+    it("serves index.html at /ui/ without a redirect", async () => {
+      fs.mkdirSync(layout.uiDir, { recursive: true });
+      fs.writeFileSync(path.join(layout.uiDir, "index.html"), "<html>ui</html>");
+      await startServer();
+      const res = await request(`http://127.0.0.1:${boundPort}/ui/`);
+      const text = await res.body.text();
+      assert.equal(res.statusCode, 200);
+      assert.match(text, /<html>ui<\/html>/);
+    });
+  });
+
   describe("/core/api/* reverse proxy", () => {
     it("forwards HTTP requests to the core controller and injects authorization header", async () => {
       let receivedAuth: string | undefined;

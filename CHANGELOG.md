@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Daemon: `GET /ui` now 302-redirects to `/ui/` (preserving the query string) instead of serving `index.html` directly, so the dashboard's relative asset URLs resolve correctly when visiting `/ui`.
 - WebUI API client: endpoints answering `204 No Content` (mode switch, node selection, connection close) no longer raise a spurious "JSON.parse" error toast while the operation actually succeeded.
 - Core supervisor: a late `exit` event from the replaced process after `restart()` could clear the new child handle and PID record, making status report the core as stopped while it was running. Stale exit events are now ignored.
 
