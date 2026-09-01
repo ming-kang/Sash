@@ -7,24 +7,14 @@ Sash is a lightweight command-line companion and web dashboard for managing a ru
 ## 1. Quick Start
 
 ```sh
-# Start background supervisor daemon and core
 sash start
-
-# Enable OS-level system proxy
+sash sub set https://example.com/profile.yaml
 sash proxy on
-
-# Import a remote subscription profile
-sash sub set https://example.com/subscription.yaml
-
-# Open the built-in web dashboard
 sash web
-
-# Check runtime state and endpoints
 sash status
-
-# Stop sash (disables system proxy and shuts down core)
-sash stop
 ```
+
+`sub set` downloads the profile, validates it, stores it locally and activates it. Additional profiles downloaded from the WebUI do not replace the active selection unless no profile is active.
 
 ---
 
@@ -34,82 +24,86 @@ sash stop
 
 | Command | Description |
 | :--- | :--- |
-| `sash start` | Install missing components and start sash background daemon. |
-| `sash stop` | Stop sash (gracefully closes core, disables system proxy, shuts down daemon). |
-| `sash restart` | Restart the core process and re-apply configurations. |
-| `sash status [--json]` | Show runtime status, core state, system proxy state, and endpoints. |
-| `sash logs [-n N] [-f] [--errors] [--daemon]` | View logs (`--daemon` for supervisor logs, `-f` to follow). |
+| `sash start` | Install missing components and start the background daemon and core. |
+| `sash stop` | Disable system proxy, stop the core and shut down the daemon. |
+| `sash restart` | Restart the managed core process. |
+| `sash status [--json]` | Show daemon/core state, active profile, endpoints and system proxy state. |
+| `sash logs [-n N] [-f] [--errors] [--daemon]` | View core or daemon logs; `-f` follows new output. |
 
 ### System Proxy Control
 
 | Command | Description |
 | :--- | :--- |
-| `sash proxy on` | Route OS-level network traffic through Sash's mixed proxy port. |
-| `sash proxy off` | Disable OS-level system proxy (works even when daemon is stopped). |
-| `sash proxy status` | Show current OS and desired system proxy state. |
+| `sash proxy on` | Route OS-level traffic through the configured mixed port. |
+| `sash proxy off` | Disable the OS-level proxy; also works when the daemon is stopped. |
+| `sash proxy status` | Show desired, daemon-applied and OS-reported proxy state. |
+
+Changing `mixed-port` while the system proxy is enabled restarts the core and rebinds the OS proxy to the new port.
 
 ### Web Dashboard
 
 | Command | Description |
 | :--- | :--- |
-| `sash web` | Open the built-in web dashboard at `http://127.0.0.1:19090/ui/`. |
-| `sash web --no-open` | Print the dashboard URL to stdout without opening a browser. |
+| `sash web` | Open `http://127.0.0.1:19090/ui/`. |
+| `sash web --no-open` | Print the dashboard URL without opening a browser. |
 
-### Subscription & Profiles
+### Profiles
 
 | Command | Description |
 | :--- | :--- |
-| `sash sub set <url>` | Set remote subscription profile URL, validate YAML, and hot-reload core. |
-| `sash sub update` | Refetch subscription and hot-reload configuration in-place. |
-| `sash sub show` | Display current subscription URL and configuration file path. |
-| `sash sub unset` | Remove subscription and revert to DIRECT-only default configuration. |
+| `sash sub set <url>` | Download or update a remote profile and make it active. |
+| `sash sub update` | Refresh the active remote profile and reload it when the core is running. |
+| `sash sub show` | List all stored profiles and mark the active selection. |
+| `sash sub unset` | Deselect the active profile and use the DIRECT-only default; stored profiles remain on disk. |
+
+The WebUI Profiles page additionally supports local YAML import, per-profile update/delete, switching the active profile and Update All. Remote profiles use the update interval advertised by the provider, defaulting to 24 hours. The daemon checks for due updates every 15 minutes.
 
 ### Configuration Management
 
 | Command | Description |
 | :--- | :--- |
-| `sash config show` | Inspect file paths and current managed settings. |
-| `sash config set <key> [value]` | Adjust a managed key (`mixed-port`, `controller`, `secret`, `tun`, `allow-lan`, `system-proxy`). |
+| `sash config show` | Inspect paths, active profile and managed settings. |
+| `sash config set <key> [value]` | Set `mixed-port`, `controller`, `secret`, `tun`, `allow-lan` or `system-proxy`. |
 
 ### Maintenance & Upgrades
 
 | Command | Description |
 | :--- | :--- |
-| `sash update [--version V] [--force]` | Upgrade the core binary (atomic swap with automatic rollback). |
-| `sash upgrade [--version V]` | Upgrade Sash CLI itself via npm. |
-| `sash version` | Print current Sash version. |
+| `sash update [--version V] [--force]` | Download and validate a replacement core, then swap it in transactionally. |
+| `sash upgrade [--version V]` | Upgrade the Sash package through npm. |
+| `sash version` | Print the Sash package version. |
+
+Core updates retain `<core>.bak` until the staged binary and, when previously running, its controller health check pass. A failure restores both the previous binary and install metadata.
 
 ---
 
 ## 3. Configuration Reference (`sash.json`)
 
-Settings are stored in `<root>/sash.json`. Settable keys include:
-
 | Key | Default | Description |
 | :--- | :--- | :--- |
-| `mixed-port` | `17890` | Local port for HTTP & SOCKS5 mixed inbound listener. |
-| `controller` | `127.0.0.1:9090` | Listen address of the internal core controller. |
-| `daemonPort` | `19090` | Listen port for `sashd` API gateway and WebUI dashboard. |
-| `secret` | *(random)* | Internal core controller secret (auto-generated, 48 hex characters). |
-| `systemProxy` | `false` | Desired OS system proxy state. |
-| `tun` | `false` | TUN mode virtual network interface toggle (requires administrator/root). |
-| `allowLan` | `false` | Accept proxy traffic from other devices on the local network. |
+| `mixedPort` / `mixed-port` | `17890` | Local HTTP/SOCKS5 mixed inbound port. |
+| `controller` | `127.0.0.1:9090` | Internal controller listen address. |
+| `daemonPort` | `19090` | Daemon API and WebUI port. |
+| `secret` | *(random)* | Internal controller secret. It is never returned by the public status API. |
+| `daemonSecret` | *(random)* | CLI bearer secret for state-changing daemon requests. |
+| `systemProxy` | `false` | Desired OS-level system proxy state. |
+| `tun` | `false` | Enable the TUN inbound; requires elevated privileges. |
+| `allowLan` | `false` | Accept proxy traffic from other devices. |
+
+A legacy `subscriptionUrl` key is migrated once into `profiles/index.json` and then removed. Installed core version metadata lives in `state/install.json`, not in `sash.json`.
+
+Malformed `sash.json` or `profiles/index.json` is rejected without being overwritten. Repair or remove the damaged file explicitly instead of relying on silent defaults.
 
 ---
 
-## 4. TUN Mode (Virtual Network Interface)
-
-TUN mode creates a virtual network interface that captures all device traffic at the IP layer:
+## 4. TUN Mode
 
 ```sh
-# Enable TUN mode in settings
 sash config set tun on
-
-# Restart core to apply
 sash restart
 ```
 
-> **Note**: TUN mode requires elevated privileges (Run as Administrator on Windows, `sudo` or root on macOS and Linux).
+TUN mode normally requires Administrator/root privileges. Do not enable it in automated smoke tests.
 
 ---
 
@@ -121,21 +115,27 @@ sash restart
 | macOS | `~/Library/Application Support/Sash` |
 | Linux | `$XDG_DATA_HOME/sash` or `~/.local/share/sash` |
 
-Override directory path using the `SASH_HOME` environment variable (e.g. `SASH_HOME=/custom/path sash start`).
+Override the root with an absolute `SASH_HOME` path.
 
-Directory contents:
-- `bin/`: Core executable binary.
-- `config.yaml`: Generated core configuration file.
-- `sash.json`: Sash settings and profile URLs.
-- `state/`: PID records (`sashd.pid`, `mihomo.pid`) and install metadata.
-- `logs/`: Runtime logs (`core.log`, `core.err.log`, `daemon.log`, `daemon.err.log`).
-- `ui/` *(optional)*: Custom WebUI override directory.
+- `bin/`: installed core executable; `.bak` is retained during an update transaction.
+- `config.yaml`: generated active runtime configuration.
+- `sash.json`: Sash settings and local control secrets.
+- `profiles/index.json`: profile metadata and active profile id.
+- `profiles/<id>.yaml`: validated local copy of each downloaded/imported profile.
+- `state/sashd.pid`, `state/mihomo.pid`: atomic PID records.
+- `state/install.json`: canonical installed core version record.
+- `logs/`: core and daemon stdout/stderr logs.
+- `ui/` *(optional)*: custom dashboard override.
+
+State files are written with mode `0o600` on POSIX where applicable.
 
 ---
 
 ## 6. Troubleshooting
 
-- **Proxy not clearing**: Run `sash proxy off` (cleans registry / networksetup directly).
-- **Inspect daemon errors**: Run `sash logs --daemon --errors`.
-- **Inspect core errors**: Run `sash logs --errors`.
-- **Force core update**: Run `sash update --force`.
+- **System proxy points to a dead port:** run `sash proxy off`, inspect `sash status`, then start/restart again.
+- **Profile update failed:** inspect the profile card's error or run `sash sub update`; the last valid running config remains active on reload failure.
+- **Corrupt settings/profile index:** repair the JSON file or move it aside; Sash intentionally does not overwrite corrupt state.
+- **Daemon errors:** `sash logs --daemon --errors`.
+- **Core errors:** `sash logs --errors`.
+- **Force a validated core reinstall:** `sash update --force`.

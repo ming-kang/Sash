@@ -8,39 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Subscription profiles: downloaded subscriptions and imported YAML files live as local profiles under `<root>/profiles/` (Clash-for-Windows-style layout: one `<id>.yaml` per profile plus an `index.json` metadata index). sashd refreshes remote profiles on their provider-suggested interval (`profile-update-interval`, default 24 h) or on demand, tracking usage quota (`subscription-userinfo`) and expiry per profile.
-- WebUI "Profiles" page replacing the old Subscription page: download-from-URL bar with paste and local-file import, "Update All", and a card grid showing each profile's source, last update, quota bar and expiry; clicking a card activates it and hot-reloads the core.
-- Daemon API: `GET/POST /sash/profiles`, `POST /sash/profiles/import`, `PUT /sash/profiles/active`, `POST /sash/profiles/:id/update`, `POST /sash/profiles/update-all`, `DELETE /sash/profiles/:id`, plus a scheduled auto-updater and per-profile `lastError` surfacing.
-- `/sash/status` now reports the `activeProfile` (id/name/url).
+- Local profile library under `<root>/profiles/`: one timestamp-named YAML file per profile plus `index.json` metadata, active selection, provider update interval, quota/expiry data and persisted update errors.
+- WebUI Profiles page with URL download, clipboard paste, local YAML import, Update All, profile cards, active selection, quota display and delete confirmation.
+- Profile daemon API: list/add/import/activate/update/update-all/delete endpoints and scheduled due-profile refresh.
+- Shared daemon/profile API contracts used by the server client and WebUI.
+- State-changing daemon requests now accept the persistent CLI bearer or a per-boot WebUI token, with loopback Host validation.
+- WebUI store and confirm-dialog regression tests are included in the normal test runner.
 
 ### Changed
 
-- WebUI navigation order is now Overview, Profiles, Logs, Connections, Rules, Settings; the old `#/subscription` hash redirects to `#/profiles`.
-- `sash sub set/update/unset/show` operate on profiles; a legacy `subscriptionUrl` setting migrates into an active profile automatically on daemon start (`settings.subscriptionUrl` remains as a mirror of the active profile's URL).
-- `/core/config/reload` and `sash start` compile from the active profile's local file instead of refetching the subscription every time; downloading a new profile no longer switches the active selection unless none exists.
+- WebUI navigation is Overview, Profiles, Logs, Connections, Rules, Settings; the legacy `#/subscription` hash redirects to `#/profiles`.
+- Profile behavior is owned by a single `ProfileService` used by daemon routes and offline CLI commands. Config activation/update transitions snapshot and restore prior state on failure.
+- Remote profile refreshes use in-flight deduplication, bounded network concurrency and serialized state commits.
+- The legacy `subscriptionUrl` setting migrates once into the profile index and is then removed instead of remaining as a second source of truth.
+- The default mixed port is consistently `17890`. Installed core version is read from `state/install.json` instead of duplicated in settings.
+- Core updates download and validate the staged binary before stopping the existing runtime, and commit install metadata only after health checks pass.
+- Overview proxy groups share a reusable component; WebUI runtime refresh and polling are centralized in store actions.
+- `npm test` now runs server TypeScript, `vue-tsc`, backend tests and WebUI tests. WebUI TypeScript is included in Biome checks.
+- Vite uses its Node API and a Node-20-compatible release line; unused archive/version dependencies were removed. Published backend source maps are disabled.
 
 ### Fixed
 
-- Daemon: `GET /ui` now 302-redirects to `/ui/` (preserving the query string) instead of serving `index.html` directly, so the dashboard's relative asset URLs resolve correctly when visiting `/ui`.
-- WebUI API client: endpoints answering `204 No Content` (mode switch, node selection, connection close) no longer raise a spurious "JSON.parse" error toast while the operation actually succeeded.
-- Core supervisor: a late `exit` event from the replaced process after `restart()` could clear the new child handle and PID record, making status report the core as stopped while it was running. Stale exit events are now ignored.
-
-### Added
-
-- Built-in zero-external-download WebUI dashboard (`web/` SPA built directly into `dist/ui/`) with real-time bandwidth charts, outbound mode switcher, proxy group selection with latency testing, subscription management, active connection monitor, routing rule browser, and live log terminal.
-- Unified supervisor daemon (`sashd`) listening on port `19090` with `/sash/*` and `/core/*` dual namespaces.
-- `/core/api/*` reverse proxy forwarding HTTP requests and WebSocket streams (traffic & logs) to the core controller with automatic server-side credential injection.
-- Cross-platform OS system proxy support (`sash proxy on` / `off` / `status`) with automatic disable on core exit/daemon shutdown and boot-time crash reconciliation.
-- Platform-native system proxy adapters for Windows (HKCU registry + WinINet refresh via PowerShell), macOS (`networksetup`), and Linux (GNOME `gsettings`).
-- `sash logs --daemon` flag to inspect supervisor logs.
-
-### Changed
-
-- Rebuilt the built-in WebUI (`web/`) from the ground up: pure light minimalist design with a sidebar layout, Chinese/English interface switch (Chinese default, persisted), hash-based view routing, toast notifications and confirm dialogs replacing browser `alert`/`confirm`, and reworked overview, proxies, connections, rules, logs, subscription, and settings views.
-- Merged the Proxies page into Overview: the left column hosts core status, quick settings (system proxy, TUN, LAN access, ports), subscription summary, and the live traffic chart; the right column is a mode-driven proxy panel (rule: selector groups on top with auto groups below; global: full GLOBAL member list; direct: a single DIRECT card).
-- Process supervision: `sashd` manages the core process as a direct child, handling crash cleanup, automatic system proxy tear-down, and configuration reload orchestration.
-- `settings.ts` added `daemonPort` (default 19090), `daemonSecret`, and `systemProxy` fields with automatic migration.
-- `sash web` directly opens the built-in WebUI served by `sashd` on `http://127.0.0.1:19090/ui/`.
+- Release downloads now require the production host allowlist for both initial URLs and every redirect target.
+- Failed core updates restore both the previous binary and install record; inactive updates still validate the staged executable before deleting `.bak`.
+- Activating a missing/invalid local profile no longer silently keeps the previous config, and reload failures restore the previous active/config state.
+- Changing `mixed-port` while system proxy is enabled now disables the old binding during restart and applies the new port afterward.
+- Public daemon status/settings responses no longer expose controller or daemon secrets; unauthenticated mutation requests are rejected.
+- Corrupt `sash.json` and `profiles/index.json` files are rejected without being overwritten by defaults.
+- Profile home-page metadata accepts only HTTP(S), and invalid provider container shapes are rejected during config validation.
+- PID records now use atomic writes. Static dashboard streams handle read failures and support `HEAD`.
+- `GET /ui` redirects to `/ui/` while preserving the query string, so relative dashboard assets resolve correctly.
+- WebUI polling no longer overlaps, Settings polling no longer overwrites a dirty port input, and logs continue auto-scrolling after the 600-row cap.
+- Confirm dialogs no longer leave older Promises pending; Escape and route changes cancel the active dialog.
+- Empty `204 No Content` responses are handled through typed void requests instead of JSON parsing/casts.
+- A late exit event from a replaced core process no longer clears the new child handle or PID record.
 
 ## [0.1.0] - 2026-08-31
 

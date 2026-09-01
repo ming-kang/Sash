@@ -1,107 +1,137 @@
 # Backend Architecture & Supervisor Design
 
-Sash is structured around a centralized supervisor daemon architecture (`sashd`) that manages the underlying network core, exposes a unified HTTP/WebSocket gateway, and coordinates OS-level system proxy state.
+Sash uses a local supervisor daemon (`sashd`) to own the core process, generated configuration, profile state, system proxy reconciliation and the HTTP/WebSocket gateway.
 
+```text
+CLI / WebUI
+    │  http://127.0.0.1:19090
+    ▼
+sashd
+├── /sash/*       settings, profiles, status, system proxy
+├── /core/*       core lifecycle and config reload
+├── /core/api/*   controller reverse proxy with secret injection
+├── ProfileService
+│   ├── profiles/index.json + profiles/<id>.yaml
+│   └── transactional config generation/reload
+├── CoreSupervisor
+└── platform system-proxy adapter
 ```
-                       ┌──────────────────────────────────────────────┐
-                       │  Client Layer (WebUI Browser / CLI Commands) │
-                       └──────────────────────┬───────────────────────┘
-                                              │ HTTP / WebSocket (127.0.0.1:19090)
-                                              ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│ Sash Daemon (sashd) — PID Supervisor & API Gateway                                      │
-│                                                                                         │
-│  ┌────────────────────────┐  ┌─────────────────────────┐  ┌──────────────────────────┐  │
-│  │   /sash/* API          │  │   /core/* Lifecycle     │  │   /core/api/* Proxy      │  │
-│  │   (Proxy, Sub, Config) │  │   (Start, Stop, Reload) │  │   (Reverse Proxy + Auth) │  │
-│  └───────────┬────────────┘  └───────────┬─────────────┘  └────────────┬─────────────┘  │
-│              │                           │                             │                │
-│              │ (OS Adapters)             │ (ChildProcess handle)       │ (HTTP / WS)    │
-│              ▼                           ▼                             ▼                │
-│  ┌───────────────────────┐   ┌────────────────────────────────────────────────────────┐ │
-│  │ OS System Proxy       │   │ Mihomo Core Process (Child Process, Not Detached)      │ │
-│  │ (WinINet/reg,         │   │   - Inbound: 127.0.0.1:17890 (Mixed HTTP/SOCKS5)       │ │
-│  │  networksetup,        │   │   - Controller: 127.0.0.1:9090 (External Controller)   │ │
-│  │  gsettings)           │   └────────────────────────────────────────────────────────┘ │
-│  └───────────────────────┘                                                              │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-```
+
+The daemon binds only to `127.0.0.1`. The managed core is a non-detached child process so sashd can observe exits, clear PID state and disable the system proxy after an unexpected crash.
 
 ---
 
-## 1. Supervisor Model (`sashd`)
+## 1. Module Boundaries
 
-In Sash's supervisor architecture:
-- **`sashd` is the root background service**: Launched detached by the CLI via `src/daemon-lifecycle.ts`.
-- **The network core is a managed direct child**: `sashd` (`src/supervisor.ts`) spawns the core binary as a non-detached child process (`spawn`), holding an active child handle and listening to `exit` and `error` streams.
-- **Unified Gateway Port (`19090`)**: `sashd` binds to `127.0.0.1:19090`, serving both the static WebUI assets and all API/WebSocket endpoints.
+- `src/daemon.ts`: daemon assembly, lifecycle and top-level route dispatch.
+- `src/daemon-profile-routes.ts`: HTTP transport for `/sash/profiles*`.
+- `src/profile-service.ts`: canonical profile application service used by daemon and offline CLI paths.
+- `src/profiles.ts`: synchronous profile file/index store; no network or runtime policy.
+- `src/mihomo-config.ts`: untrusted YAML validation, managed-key overlay and config rendering.
+- `src/supervisor.ts`: direct child process lifecycle and health checks.
+- `src/daemon-proxy.ts`: controller HTTP/WebSocket reverse proxy.
+- `src/daemon-auth.ts`: loopback Host validation and control-request credentials.
+- `src/core-update.ts`: binary/install-record update transaction.
+- `src/http.ts` / `src/github.ts`: proxy-aware remote networking and trusted download origins.
+- `src/contracts.ts`: API contracts shared by the daemon client and WebUI.
 
 ---
 
-## 2. API Design & Namespaces
+## 2. API Namespaces
 
-`sashd` provides three orthogonal namespaces:
-
-### 2.1 `/sash/*` — Supervisor Domain
-
-Endpoints controlling daemon-level capabilities:
+### 2.1 `/sash/*`
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/sash/health` | `GET` | Readiness probe returning daemon PID, boot token, and start timestamp. |
-| `/sash/status` | `GET` | Runtime snapshot containing daemon status, core status, proxy states, and settings. |
-| `/sash/proxy` | `GET` | Inspect desired, applied, and OS-reported proxy configurations. |
-| `/sash/proxy/enable` | `POST` | Enable system proxy (verifies core is running, updates settings, applies OS adapter). |
-| `/sash/proxy/disable` | `POST` | Disable system proxy and update persistent settings. |
-| `/sash/subscription` | `GET` | Retrieve configured remote subscription URL. |
-| `/sash/subscription` | `POST` | Import new subscription, validate YAML, compile `config.yaml`, and hot-reload core. |
-| `/sash/subscription` | `DELETE` | Remove subscription and revert to DIRECT-only default configuration. |
-| `/sash/subscription/refresh` | `POST` | Refetch subscription and hot-reload running core. |
-| `/sash/settings` | `GET` | Retrieve current `sash.json` configuration. |
-| `/sash/settings` | `PATCH` | Dynamically update managed keys (handles auto-restarting or hot-reloading). |
-| `/sash/shutdown` | `POST` | Gracefully disable system proxy, stop core, and terminate daemon. |
+| `/sash/health` | `GET` | Readiness probe with PID, start time and per-boot WebUI token. |
+| `/sash/status` | `GET` | Daemon/core/proxy/public-settings snapshot and active profile. Secrets are omitted. |
+| `/sash/proxy` | `GET` | Desired, daemon-applied and OS-reported system proxy state. |
+| `/sash/proxy/enable` | `POST` | Persist and apply system proxy; core must be running. |
+| `/sash/proxy/disable` | `POST` | Persist and disable system proxy. |
+| `/sash/profiles` | `GET` | Return profile index. |
+| `/sash/profiles` | `POST` | Download/add or update a remote profile. First profile auto-activates. |
+| `/sash/profiles/import` | `POST` | Validate and import local YAML (8 MiB request limit). |
+| `/sash/profiles/active` | `PUT` | Activate a profile, or pass `null` to use the default config. |
+| `/sash/profiles/:id/update` | `POST` | Update one remote profile. |
+| `/sash/profiles/update-all` | `POST` | Update all remote profiles with bounded network concurrency. |
+| `/sash/profiles/:id` | `DELETE` | Delete a profile; deleting the active profile loads the default config. |
+| `/sash/settings` | `GET` | Return public managed settings only. |
+| `/sash/settings` | `PATCH` | Validate/apply a managed key and restart or reload as required. |
+| `/sash/shutdown` | `POST` | Disable system proxy, stop core and close sashd. |
 
-### 2.2 `/core/*` — Core Lifecycle Domain
-
-Endpoints managing the child core process:
+### 2.2 `/core/*`
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/core/start` | `POST` | Spawns the child core process and polls `/version` until healthy. |
-| `/core/stop` | `POST` | Disables system proxy and gracefully terminates the core process. |
-| `/core/restart` | `POST` | Restarts the core child process and re-attaches system proxy. |
-| `/core/config/reload` | `POST` | Recompiles `config.yaml` and signals the core's controller to reload. |
+| `/core/start` | `POST` | Spawn the child and wait for controller health. |
+| `/core/stop` | `POST` | Disable system proxy and stop the child. |
+| `/core/restart` | `POST` | Stop/start the child and reconcile system proxy. |
+| `/core/config/reload` | `POST` | Re-render the active profile and reload it transactionally. |
 
-### 2.3 `/core/api/*` — Upstream Controller Reverse Proxy
+### 2.3 `/core/api/*`
 
-- **HTTP Proxying** (`src/daemon-proxy.ts`): Forwards requests directly to the core's external-controller.
-- **Server-Side Secret Injection**: Automatically injects the controller's `Authorization: Bearer <secret>` header.
-- **WebSocket Streaming**: Transparently handles WebSocket protocol upgrades (`HTTP 101`) for streams such as `/core/api/traffic` and `/core/api/logs`.
+Requests are forwarded to the configured controller. sashd removes the browser-supplied Host header and injects the internal controller bearer secret. `/traffic` and `/logs` upgrades are proxied as WebSockets.
 
 ---
 
-## 3. System Proxy Adaptation & Fail-Safe Isolation
+## 3. Control-Request Security
 
-Sash supports native, user-level system proxy toggling across all three major desktop operating systems (`src/sysproxy.ts`):
-
-- **Windows (`win32`)**: Modifies `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` (`ProxyEnable`, `ProxyServer`, `ProxyOverride`) via `reg.exe` and broadcasts changes to active processes via WinINet `InternetSetOption` using PowerShell. Requires no administrative elevation.
-- **macOS (`darwin`)**: Discovers active network services via `networksetup -listallnetworkservices` and configures HTTP, HTTPS, and SOCKS proxies across all active interfaces.
-- **Linux (`linux`)**: Uses GNOME desktop `gsettings` (`org.gnome.system.proxy`) in desktop environments.
-
-### Crash Recovery & Self-Healing
-1. **Core Unexpected Crash**: `sashd` hooks into `child.on('exit')`. If the core terminates unexpectedly, `sashd` immediately invokes `removeProxyIfApplied()` to clear OS proxy settings and prevent network blackouts.
-2. **Daemon Crash Recovery**: On reboot, `sashd` inspects OS proxy state. If the proxy was left enabled from a previous abnormal shutdown, it automatically disables it.
-3. **Offline CLI Fallback**: `sash proxy off` directly dispatches to the platform adapter, allowing system proxy removal even when the daemon is completely stopped.
+- Requests with a non-loopback Host header are rejected (`421`). This prevents DNS-rebinding origins from reading the loopback API.
+- `GET`, `HEAD` and `OPTIONS` are read-only/public on the loopback listener.
+- Every state-changing method requires either:
+  - `Authorization: Bearer <daemonSecret>` from the CLI; or
+  - `X-Sash-Token: <bootToken>` from the same-origin WebUI.
+- The WebUI refreshes the boot token through `/sash/health`, including after daemon restart.
+- `/sash/status` and `/sash/settings` expose `PublicSashSettings`; controller and daemon secrets never appear in those responses.
+- The controller secret stays server-side and is injected only by the reverse proxy.
 
 ---
 
-## 4. Process Safety & Verification
+## 4. Profile and Config Transactions
 
-Sash enforces strict safety invariants:
+`ProfileService` is the only application layer allowed to combine network fetches, profile mutations and core reloads. Both daemon routes and offline CLI commands use it, so behavior no longer depends on whether sashd is running.
 
-- **Never kill an unverified PID**:
-  - **For Core Binaries (`src/process.ts`)**: Verifies executable path and image name (`/proc/<pid>/exe` on Linux, `Get-Process Path` and `tasklist` on Windows, `ps -o comm=` on macOS) before sending termination signals.
-  - **For Daemon Process (`src/daemon-lifecycle.ts`)**: Verifies command line arguments contain `daemon-entry` before sending signals to Node processes.
-- **Loopback Traffic Purity**: External-controller requests and daemon communications use dedicated direct dispatchers (`direct: true` in `src/http.ts`), ensuring loopback calls never traverse environment proxies (`HTTP_PROXY`, `ALL_PROXY`).
-- **Credential Hygiene**: Child processes are spawned with sanitized environments (`buildSanitizedEnv()`), removing `GITHUB_TOKEN`, `NPM_TOKEN`, and npm authorization secrets. State and log files are written with POSIX `0o600` permissions.
-- **Atomic State Changes**: All state modifications (`sash.json`, `config.yaml`, PID records) use `atomicWriteFileSync` in `src/fs-atomic.ts` (write to temporary sibling file followed by atomic rename).
+Activation flow:
+
+1. Load and validate the requested local profile file; a missing remote file may be fetched, but a missing local import is an error.
+2. Render the candidate config with Sash-managed operational keys.
+3. Snapshot the current config and affected profile state.
+4. Atomically write the candidate `config.yaml`.
+5. Reload the running core when applicable.
+6. Commit the active profile/index mutation.
+7. Restore config/state and reload the previous config if any step fails.
+
+Remote Update All performs network fetches with bounded concurrency, deduplicates in-flight requests, then serializes short state commits. Each commit rechecks that the profile still exists and still has the same URL.
+
+The scheduler checks every 15 minutes, with a startup check after 10 seconds. Provider `profile-update-interval` is respected; the default is 24 hours. Per-profile failures are persisted as `lastError` while the previous valid content remains available.
+
+A legacy `sash.json.subscriptionUrl` is migrated once and removed. Corrupt settings or profile indexes are rejected rather than silently replaced.
+
+---
+
+## 5. Core Update Transaction and Download Trust
+
+Release downloads are restricted by `GITHUB_DOWNLOAD_HOSTS`. The initial URL and every redirect target must use HTTP(S) and match the allowlist. The allowlist parameter is mandatory at the download helper type boundary.
+
+Update flow:
+
+1. Download to a unique temporary path.
+2. Extract with the 512 MiB uncompressed-size cap.
+3. Execute the staged binary with `-v` under a credential-scrubbed environment.
+4. Stop the old runtime only after staging succeeds.
+5. Rename the old binary to `.bak` and install the staged binary.
+6. If the core was running, start it and wait for controller health.
+7. Commit `state/install.json`, then delete `.bak`.
+8. On failure, stop the candidate, restore binary and install record, and restart the old runtime.
+
+---
+
+## 6. Runtime and Process Safety
+
+- PID termination is fail-closed: identity must match before a signal is sent.
+- Core and daemon PID records use `atomicWriteFileSync` and mode `0o600` on POSIX.
+- Child environments remove GitHub/npm tokens and npm auth variables.
+- Controller and daemon loopback requests use the direct dispatcher and never inherit proxy environment routing.
+- Unexpected core exit disables the system proxy.
+- Changes requiring restart remove the applied proxy before restart and reconcile it afterward, including `mixed-port` changes.
+- Daemon startup clears a leftover OS proxy only when settings do not request it.

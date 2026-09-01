@@ -1,85 +1,106 @@
 # Frontend Architecture & WebUI Design
 
-Sash includes a modern, zero-download web dashboard built with **Vue 3** and **Vite**, bundled directly with the npm package in `dist/ui/` and served locally by `sashd` on port `19090` (`http://127.0.0.1:19090/ui/`).
+The WebUI is a Vue 3 application built with Vite and bundled into `dist/ui/`. sashd serves it at `http://127.0.0.1:19090/ui/`; `<root>/ui/index.html` can override the bundled dashboard.
 
 ---
 
-## 1. Zero-Download Bundling Model
+## 1. Build and Quality Gates
 
-Unlike dashboards requiring runtime GitHub archive downloads:
-- The WebUI source lives in `web/` within the repository.
-- During build (`npm run build:ui` via `scripts/build-ui.mjs`), Vite compiles assets into `dist/ui/`.
-- `sashd` (`src/daemon-static.ts`) serves the pre-compiled static assets directly from `dist/ui/`.
-- Local UI modifications can be placed in `<root>/ui/` to override the package-bundled assets.
-
----
-
-## 2. Slate & Sky Theme System
-
-The user interface follows a modern dark palette inspired by Slate / Zinc dark foundations with Sky-blue accents (`web/src/styles/theme.css`):
-
-```css
-:root {
-  --bg-app: #030712;         /* Deep Slate Base */
-  --bg-sidebar: #0b0f19;     /* Header & Sidebar */
-  --bg-card: #111827;        /* Surface Cards */
-  --border-card: #1f2937;    /* Subtle Micro-Borders */
-
-  --color-primary: #0284c7;  /* Sky Blue Primary */
-  --color-primary-hover: #0369a1;
-  --color-accent: #38bdf8;   /* Light Sky Accent */
-
-  --color-success: #10b981;  /* Emerald */
-  --color-warning: #f59e0b;  /* Amber */
-  --color-danger: #f43f5e;   /* Rose */
-}
-```
+- `npm run build:ui` calls the Vite Node API through `scripts/build-ui.mjs`.
+- `npm run typecheck:web` runs `vue-tsc`, including Vue templates.
+- `npm test` runs server type checking, WebUI type checking, backend tests and WebUI TypeScript tests.
+- Biome checks WebUI TypeScript and Vite configuration. Vue templates are type-checked by `vue-tsc` and compiled by Vite.
+- Vite 6 is used so repository builds support the full declared Node.js 20 baseline.
 
 ---
 
-## 3. Architecture & Views
+## 2. Source Layout
 
-```
+```text
 web/src/
-├── api/
-│   └── index.ts             # REST client & WebSocket stream managers
+├── api/index.ts                  typed REST client and WebSocket reconnect logic
 ├── components/
-│   └── Icon.vue             # Feather icon SVG component
-├── stores/
-│   └── index.ts             # Reactive Pinia-like store
-├── styles/
-│   └── theme.css            # CSS design tokens and component utility classes
-├── types/
-│   └── index.ts             # TypeScript interfaces for Core & Daemon APIs
+│   ├── AppSidebar.vue
+│   ├── ConfirmDialog.vue
+│   ├── ProxyGroupSection.vue     reusable group header/node grid
+│   ├── TrafficChart.vue
+│   └── ...
+├── i18n/                         Chinese source messages and typed English mirror
+├── stores/index.ts               runtime state, refresh actions and polling
+├── styles/main.css               design tokens and shared utility/component styles
+├── types/index.ts                core-controller response types; daemon types are shared
 ├── views/
-│   ├── OverviewView.vue     # Live traffic speeds, outbound mode, active proxy details
-│   ├── ProxiesView.vue      # Proxy group selector, node cards, latency testing
-│   ├── SubscriptionsView.vue# Subscription import, update, node metadata
-│   ├── ConnectionsView.vue  # Active connections table, source/destination inspection
-│   ├── RulesView.vue        # Active routing rules inspection
-│   ├── LogsView.vue         # Live real-time core log streamer
-│   └── SettingsView.vue     # Listener ports, TUN toggle, Allow-LAN, core reboot
-├── App.vue                  # Top navigation bar, live speed monitors, view router
-└── main.ts                  # Application entrypoint
+│   ├── OverviewView.vue          status, traffic, modes and proxy groups
+│   ├── ProfilesView.vue          download/import/update/select/delete profiles
+│   ├── LogsView.vue
+│   ├── ConnectionsView.vue
+│   ├── RulesView.vue
+│   └── SettingsView.vue
+├── App.vue                       shell, view selection and stream lifecycle
+└── router.ts                     small hash router
 ```
 
----
-
-## 4. API Client & Real-Time Streaming
-
-`web/src/api/index.ts` communicates directly with `sashd` on loopback:
-
-- **Supervisor APIs**: `/sash/status`, `/sash/proxy/*`, `/sash/subscription`, `/sash/settings`.
-- **Core APIs**: `/core/start`, `/core/stop`, `/core/restart`, `/core/config/reload`.
-- **Reverse-Proxied Core APIs**: `/core/api/configs`, `/core/api/proxies`, `/core/api/connections`, `/core/api/rules`.
-- **WebSocket Streaming**:
-  - `api.connectTrafficStream(callback)` connects to `ws://127.0.0.1:19090/core/api/traffic` for live up/down speeds.
-  - `api.connectLogsStream(callback)` connects to `ws://127.0.0.1:19090/core/api/logs` for live logging.
+Daemon/profile contracts live in `src/contracts.ts` and are imported as types by both `src/daemon-client.ts` and the WebUI. This prevents manually duplicated `SashStatus` and profile response shapes.
 
 ---
 
-## 5. Security & Zero-Configuration Access
+## 3. Runtime State Ownership
 
-- **Loopback Trust**: Access from `127.0.0.1` requires no authentication modal or user credentials.
-- **Hidden Internal Secret**: The browser never handles the underlying core API secret; `sashd` injects the secret server-side when proxying requests to `/core/api/*`.
-- **Clean URLs**: `sash web` opens `http://127.0.0.1:19090/ui/` with no query parameters or hash credentials.
+`web/src/stores/index.ts` owns status, profiles, proxy groups, rules, connections, traffic history, logs and toasts.
+
+Canonical actions include:
+
+- `refreshStatus()`
+- `refreshConnections()`
+- `refreshProxies()`
+- `refreshProfiles()`
+- `refreshRuntimeState()`
+- `startRuntimePolling()`
+
+Polling is self-scheduling with `setTimeout` after the previous cycle completes, so requests cannot overlap and an older response cannot overwrite a newer snapshot. Each cycle refreshes the daemon boot token, allowing controls to recover after sashd restarts. Core-specific API calls are skipped when the core is stopped.
+
+Views call store actions rather than maintaining separate copies of status/proxy/rule refresh orchestration.
+
+---
+
+## 4. Profiles and Overview Components
+
+The Profiles page provides:
+
+- URL download and clipboard paste
+- local YAML import
+- Update All and per-profile update
+- active profile selection
+- quota/expiry display from provider metadata
+- persisted update errors
+- delete confirmation
+
+The Overview proxy panel uses `ProxyGroupSection.vue` for manual, automatic and GLOBAL groups. This keeps node-card rendering, delay labels, UDP/current markers and group test controls in one component. Group and node latency tests track independent in-flight sets, so tests for different groups/nodes can run concurrently.
+
+---
+
+## 5. API and Streaming
+
+`web/src/api/index.ts`:
+
+- distinguishes JSON and `204 No Content` endpoints through overloads rather than `undefined as T`;
+- reads an error response body once and surfaces JSON or plain-text messages;
+- parses WebSocket frames separately from consumer callbacks, so callback errors are not mistaken for malformed JSON;
+- maintains at most one reconnect timer per stream;
+- sends `X-Sash-Token` on HTTP requests after initialization.
+
+Streams:
+
+- `api.connectTraffic(callback)` → `/core/api/traffic`
+- `api.connectLogs(callback)` → `/core/api/logs`
+
+The controller secret is never available to browser code; sashd injects it server-side.
+
+---
+
+## 6. Interaction State
+
+- Settings keep a local dirty flag so background polling does not overwrite a port currently being edited.
+- Logs receive monotonic IDs before entering the capped 600-row buffer, providing stable Vue keys and an update sequence even when length remains constant.
+- The global confirm service settles a previous pending Promise before opening another dialog; Escape, route changes and component unmount cancel the active confirmation.
+- Runtime refresh failures keep prior useful data where possible and drive the global offline banner.

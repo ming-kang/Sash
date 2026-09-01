@@ -10,7 +10,7 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 - **Zero-download web dashboard** — built-in modern Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
 - **System proxy management** — native Windows, macOS, and Linux system proxy toggling with automatic crash reconciliation
 - **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
-- **Remote profiles** — fetch, validate, and hot-reload remote Clash/mihomo-format subscription profiles (`sash sub`)
+- **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles (`sash sub`)
 - **Safe upgrades** — atomic core binary swap with rollback (`sash update`) and npm self-upgrade (`sash upgrade`)
 - **TUN mode** — device-level traffic takeover (requires elevated privileges)
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
@@ -31,7 +31,7 @@ npm install -g @astralyn/sash
 ```sh
 sash start                 # downloads core if needed, launches sashd and core
 sash proxy on              # enable OS-level system proxy
-sash sub set <profile>     # import a remote subscription profile
+sash sub set <url>         # download and activate a remote profile
 sash web                   # open the web dashboard
 sash status                # runtime state, endpoints, and proxy status
 sash stop                  # stops core, disables system proxy, shuts down sashd
@@ -43,7 +43,7 @@ Comprehensive documentation is available in the [`docs/`](./docs) directory:
 
 - [**User & Operations Guide**](./docs/usage.md) — complete CLI command reference, configuration parameters, TUN mode, and troubleshooting.
 - [**Backend Architecture**](./docs/backend.md) — supervisor daemon model (`sashd`), API endpoints, lifecycle management, system proxy adapters, and safety invariants.
-- [**Frontend Architecture**](./docs/frontend.md) — built-in Vue 3 + Vite dashboard, Slate/Sky theme system, reactive state, and WebSocket streaming.
+- [**Frontend Architecture**](./docs/frontend.md) — built-in Vue 3 + Vite dashboard, shared API contracts, reactive runtime state, and WebSocket streaming.
 
 ## Disclaimer
 
