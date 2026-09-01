@@ -28,6 +28,8 @@ export function forwardHttpToCore(
   const { host, port } = parseHostPort(controller);
   const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
   delete upstreamHeaders.host;
+  delete upstreamHeaders.authorization;
+  delete upstreamHeaders["x-sash-token"];
   if (secret) {
     upstreamHeaders.authorization = `Bearer ${secret}`;
   }
@@ -97,6 +99,8 @@ export function forwardWsToCore(
   const { host, port } = parseHostPort(controller);
   const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
   delete upstreamHeaders.host;
+  delete upstreamHeaders.authorization;
+  delete upstreamHeaders["x-sash-token"];
   if (secret) {
     upstreamHeaders.authorization = `Bearer ${secret}`;
   }

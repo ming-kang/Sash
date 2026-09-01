@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Activating a missing/invalid local profile no longer silently keeps the previous config, and reload failures restore the previous active/config state.
 - Changing `mixed-port` while system proxy is enabled now disables the old binding during restart and applies the new port afterward.
 - Public daemon status/settings responses no longer expose controller or daemon secrets; unauthenticated mutation requests are rejected.
+- Daemon bearer/boot-token headers are stripped before requests enter the core controller reverse proxy.
 - Corrupt `sash.json` and `profiles/index.json` files are rejected without being overwritten by defaults.
 - Profile home-page metadata accepts only HTTP(S), and invalid provider container shapes are rejected during config validation.
 - PID records now use atomic writes. Static dashboard streams handle read failures and support `HEAD`.

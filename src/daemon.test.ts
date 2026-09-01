@@ -515,13 +515,15 @@ describe("daemon server", () => {
   });
 
   describe("/core/api/* reverse proxy", () => {
-    it("forwards HTTP requests to the core controller and injects authorization header", async () => {
+    it("injects the core authorization and strips daemon control credentials", async () => {
       let receivedAuth: string | undefined;
+      let receivedWebToken: string | undefined;
       let receivedPath: string | undefined;
 
       // Start a mock Core external-controller server
       mockCoreServer = http.createServer((req, res) => {
         receivedAuth = req.headers.authorization;
+        receivedWebToken = req.headers["x-sash-token"] as string | undefined;
         receivedPath = req.url;
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ version: "v1.19.30-meta" }));
@@ -535,13 +537,17 @@ describe("daemon server", () => {
       mockCorePort = typeof addr === "object" && addr ? addr.port : 0;
       settings.controller = `127.0.0.1:${mockCorePort}`;
 
-      await startServer();
+      const inst = await startServer();
 
-      // Call /core/api/version via sashd
-      const res = await apiRequest("/core/api/version");
+      // Call /core/api/version with the WebUI credential via sashd.
+      const res = await apiRequest("/core/api/version", {
+        token: "",
+        webToken: inst.token,
+      });
       assert.equal(res.statusCode, 200);
       assert.equal(receivedPath, "/version");
       assert.equal(receivedAuth, `Bearer ${settings.secret}`);
+      assert.equal(receivedWebToken, undefined);
       assert.deepEqual(res.data, { version: "v1.19.30-meta" });
     });
   });
