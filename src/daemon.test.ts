@@ -12,6 +12,7 @@ import {
   type CoreSupervisor,
   createDaemonServer,
   type DaemonInstance,
+  type DaemonScheduler,
 } from "./daemon.js";
 import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -81,12 +82,15 @@ describe("daemon server", () => {
       systemProxy?: SystemProxyController;
       fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
       validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
+      scheduler?: DaemonScheduler;
     } = {},
   ): Promise<DaemonInstance> {
     const fakeSupervisor: CoreSupervisor =
       overrides.supervisor ??
       ({
         isRunning: () => false,
+        ownedCoreSnapshot: () => undefined,
+        ownsCore: () => false,
         status: async (): Promise<CoreState> => ({ running: false }),
         start: async () => ({ pid: 9999, version: "v1.0.0" }),
         stop: async () => {},
@@ -101,6 +105,7 @@ describe("daemon server", () => {
       systemProxy: overrides.systemProxy ?? fakeSystemProxy(),
       fetchProfileFn: overrides.fetchProfile,
       validateConfigFn: overrides.validateConfig ?? (() => undefined),
+      scheduler: overrides.scheduler,
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -282,17 +287,27 @@ describe("daemon server", () => {
       };
 
       let running = false;
+      let generation = 0;
       const fakeSupervisor = {
         isRunning: () => running,
+        ownedCoreSnapshot: () => (running ? { pid: 1234, generation } : undefined),
+        ownsCore: (snapshot: { pid: number; generation: number }) =>
+          running && snapshot.pid === 1234 && snapshot.generation === generation,
         status: async (): Promise<CoreState> => ({ running, healthy: running }),
         start: async () => {
           running = true;
+          generation++;
           return { pid: 1234, version: "v1.0.0" };
         },
         stop: async () => {
           running = false;
+          generation++;
         },
-        restart: async () => ({ pid: 1234, version: "v1.0.0" }),
+        restart: async () => {
+          running = true;
+          generation++;
+          return { pid: 1234, version: "v1.0.0" };
+        },
         cleanStaleCore: async () => {},
       } as unknown as CoreSupervisor;
 
@@ -357,6 +372,89 @@ describe("daemon server", () => {
           .systemProxy,
         false,
       );
+    });
+
+    it("returns shutdown cleanup failures without stopping the listener or scheduler", async () => {
+      let releases = 0;
+      let clears = 0;
+      const timer = { unref: () => timer } as unknown as NodeJS.Timeout;
+      const scheduler: DaemonScheduler = {
+        setInterval: ((_: () => void) => timer) as typeof setInterval,
+        clearInterval: (() => {
+          clears++;
+        }) as typeof clearInterval,
+        setTimeout: ((_: () => void) => timer) as typeof setTimeout,
+        clearTimeout: (() => {
+          clears++;
+        }) as typeof clearTimeout,
+      };
+      const systemProxy: SystemProxyController = {
+        apply: async () => {},
+        release: async () => {
+          if (++releases === 1) throw new Error("restore failed");
+        },
+        recover: async () => {},
+        inspect: () => ({ applied: false, state: { supported: true, enabled: false } }),
+        isApplied: () => false,
+        getState: () => ({ supported: true, enabled: false }),
+      };
+      const inst = await startServer({ systemProxy, scheduler });
+
+      const failed = await apiRequest("/sash/shutdown", { method: "POST" });
+      assert.equal(failed.statusCode, 500);
+      assert.equal(inst.server.listening, true);
+      assert.equal(clears, 0);
+
+      const closed = new Promise<void>((resolve) => inst.server.once("close", resolve));
+      const successful = await apiRequest("/sash/shutdown", { method: "POST" });
+      assert.equal(successful.statusCode, 200);
+      await closed;
+      assert.equal(inst.server.listening, false);
+      assert.equal(clears, 2);
+    });
+
+    it("atomically snapshots maintenance state and rejects later mutations", async () => {
+      let running = true;
+      let starts = 0;
+      let stopEnteredResolve: (() => void) | undefined;
+      let releaseStop: (() => void) | undefined;
+      const stopEntered = new Promise<void>((resolve) => {
+        stopEnteredResolve = resolve;
+      });
+      const supervisor = {
+        isRunning: () => running,
+        ownedCoreSnapshot: () => (running ? { pid: 1234, generation: 1 } : undefined),
+        ownsCore: () => running,
+        status: async (): Promise<CoreState> => ({ running, healthy: running, pid: 1234 }),
+        start: async () => {
+          starts++;
+          running = true;
+          return { pid: 1234 };
+        },
+        stop: async () => {
+          stopEnteredResolve?.();
+          await new Promise<void>((resolve) => {
+            releaseStop = resolve;
+          });
+          running = false;
+        },
+        restart: async () => ({ pid: 1234 }),
+        cleanStaleCore: async () => {},
+      } as unknown as CoreSupervisor;
+      const inst = await startServer({ supervisor });
+
+      const maintenance = apiRequest("/sash/maintenance/shutdown", { method: "POST" });
+      await stopEntered;
+      const inserted = await apiRequest("/core/start", { method: "POST" });
+      assert.equal(inserted.statusCode, 503);
+      assert.equal(starts, 0);
+
+      const closed = new Promise<void>((resolve) => inst.server.once("close", resolve));
+      releaseStop?.();
+      const result = await maintenance;
+      assert.equal(result.statusCode, 200);
+      assert.deepEqual(result.data, { ok: true, coreWasRunning: true });
+      await closed;
     });
 
     it("allows daemon close to be retried after a transient cleanup failure", async () => {
@@ -441,17 +539,27 @@ describe("daemon server", () => {
 
     it("rebinds an enabled system proxy after mixed-port restarts the core", async () => {
       let running = true;
+      let generation = 1;
       const enabledPorts: number[] = [];
       let disabled = 0;
       const supervisor = {
         isRunning: () => running,
+        ownedCoreSnapshot: () => (running ? { pid: 1234, generation } : undefined),
+        ownsCore: (snapshot: { pid: number; generation: number }) =>
+          running && snapshot.pid === 1234 && snapshot.generation === generation,
         status: async (): Promise<CoreState> => ({ running, healthy: running }),
-        start: async () => ({ pid: 1234 }),
+        start: async () => {
+          running = true;
+          generation++;
+          return { pid: 1234 };
+        },
         stop: async () => {
           running = false;
+          generation++;
         },
         restart: async () => {
           running = true;
+          generation++;
           return { pid: 1234 };
         },
         cleanStaleCore: async () => {},

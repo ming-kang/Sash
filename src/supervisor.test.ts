@@ -238,6 +238,59 @@ test("stale Core cleanup rejects a corrupt PID record", async () => {
   }
 });
 
+test("status reports stopped when its controller probe outlives the owned child", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-status-race-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+
+  let holdResponse: (() => void) | undefined;
+  let probeStarted: (() => void) | undefined;
+  const probeSeen = new Promise<void>((resolve) => {
+    probeStarted = resolve;
+  });
+  let delayProbe = false;
+  const server = http.createServer((_req, res) => {
+    const respond = () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ version: "v-test", meta: true }));
+    };
+    if (delayProbe) {
+      probeStarted?.();
+      holdResponse = respond;
+      return;
+    }
+    respond();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const child = Object.assign(new EventEmitter(), { pid: 5151 }) as ChildProcess;
+  let alive = true;
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS, controller: `127.0.0.1:${port}` }),
+    spawnFn: () => child,
+    isAliveFn: () => alive,
+    waitHealthyMs: 2000,
+  });
+
+  try {
+    await supervisor.start();
+    delayProbe = true;
+    const status = supervisor.status();
+    await probeSeen;
+    alive = false;
+    child.emit("exit", 0, null);
+    holdResponse?.();
+
+    assert.deepEqual(await status, { running: false });
+  } finally {
+    server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("stale Core cleanup never trusts an executable path supplied by the PID record", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-recorded-exe-test-"));
   const layout = sashLayout(root);

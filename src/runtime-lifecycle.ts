@@ -1,6 +1,6 @@
 import type { CoreStartResult } from "./contracts.js";
 import type { SashSettings } from "./settings.js";
-import type { CoreSupervisor } from "./supervisor.js";
+import type { CoreOwnershipSnapshot, CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
 
 export type RuntimePhase =
@@ -171,22 +171,51 @@ export class RuntimeLifecycle {
   }
 
   private async reconcileSystemProxyUnlocked(): Promise<void> {
-    if (this.getSettings().systemProxy) {
-      if (!this.supervisor.isRunning()) {
-        throw new Error("Cannot enable system proxy: core is not running");
-      }
-      const core = await this.supervisor.status();
-      if (!core.running || !core.healthy) {
-        throw new Error("Cannot enable system proxy: core is not healthy");
-      }
-      await this.systemProxy.apply({ port: this.getSettings().mixedPort });
+    const settings = this.getSettings();
+    if (!settings.systemProxy) {
+      await this.systemProxy.release();
       return;
     }
-    await this.systemProxy.release();
+    await this.applyProxyToHealthyOwnedCoreUnlocked(settings.mixedPort);
   }
 
   private async applyDesiredProxyUnlocked(): Promise<void> {
-    if (!this.getSettings().systemProxy) return;
-    await this.systemProxy.apply({ port: this.getSettings().mixedPort });
+    const settings = this.getSettings();
+    if (!settings.systemProxy) return;
+    await this.applyProxyToHealthyOwnedCoreUnlocked(settings.mixedPort);
+  }
+
+  private async applyProxyToHealthyOwnedCoreUnlocked(port: number): Promise<void> {
+    const ownership = await this.requireHealthyOwnedCoreUnlocked();
+    await this.systemProxy.apply({ port });
+    const coreAfterApply = await this.supervisor.status();
+    if (coreAfterApply.running && coreAfterApply.healthy && this.supervisor.ownsCore(ownership)) {
+      return;
+    }
+
+    // Do not leave the OS pointing at a Core which exited or was replaced
+    // while its proxy settings were being applied.
+    try {
+      await this.systemProxy.release();
+    } catch (err) {
+      throw new Error(
+        `Core ownership was lost while applying the system proxy; proxy release also failed: ${(err as Error).message}`,
+      );
+    }
+    throw new Error("Core ownership was lost while applying the system proxy");
+  }
+
+  private async requireHealthyOwnedCoreUnlocked(): Promise<CoreOwnershipSnapshot> {
+    const ownership = this.supervisor.ownedCoreSnapshot();
+    if (!ownership) throw new Error("Cannot enable system proxy: core is not running");
+
+    const core = await this.supervisor.status();
+    if (!core.running || !core.healthy) {
+      throw new Error("Cannot enable system proxy: core is not healthy");
+    }
+    if (!this.supervisor.ownsCore(ownership)) {
+      throw new Error("Cannot enable system proxy: core ownership changed during health check");
+    }
+    return ownership;
   }
 }

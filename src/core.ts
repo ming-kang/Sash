@@ -5,7 +5,13 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import AdmZip from "adm-zip";
-import { atomicWriteFileSync } from "./fs-atomic.js";
+import {
+  beginCoreInstallTransaction,
+  clearCoreInstallTransaction,
+  markCoreInstallTransactionCommitted,
+  recoverCoreInstallTransaction,
+} from "./core-install-transaction.js";
+import { atomicWriteFileSync, durableRenameSync } from "./fs-atomic.js";
 import {
   downloadReleaseAsset,
   listReleaseAssets,
@@ -74,13 +80,13 @@ export async function extractCoreArchive(
         throw new Error("Core archive exceeds the download safety limit");
       }
       const zip = new AdmZip(archivePath);
-      const executables = zip
+      const entry = zip
         .getEntries()
-        .filter((e) => !e.isDirectory && /\.exe$/i.test(e.entryName));
-      const entry =
-        executables.find((e) => /^mihomo.*\.exe$/i.test(path.basename(e.entryName))) ??
-        executables[0];
-      if (!entry) throw new Error(`No .exe found inside ${assetName}`);
+        .find(
+          (candidate) =>
+            !candidate.isDirectory && /^mihomo.*\.exe$/i.test(path.basename(candidate.entryName)),
+        );
+      if (!entry) throw new Error(`No mihomo*.exe found inside ${assetName}`);
       if (entry.header.size > EXTRACT_SIZE_LIMIT) {
         throw new Error("Extracted binary exceeds 512MB safety limit");
       }
@@ -144,8 +150,12 @@ export interface InstallRecord {
   installedAt: string;
 }
 
+const INSTALL_RECORD_SIZE_LIMIT = 16 * 1024;
+
 export function readInstallRecord(layout: SashLayout = sashLayout()): InstallRecord | undefined {
   try {
+    const stat = fs.lstatSync(layout.installFile);
+    if (!stat.isFile() || stat.size > INSTALL_RECORD_SIZE_LIMIT) return undefined;
     const value = JSON.parse(fs.readFileSync(layout.installFile, "utf8")) as unknown;
     if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
     const record = value as Record<string, unknown>;
@@ -275,22 +285,78 @@ export async function installCore(
   opts: CoreInstallOptions = {},
 ): Promise<{ version: string; exe: string }> {
   const layout = opts.layout ?? sashLayout();
-  if (fs.existsSync(layout.coreExe)) {
+  recoverCoreInstallTransaction(layout);
+  assertCoreInstallationConsistent(layout);
+  if (coreInstalled(layout)) {
     throw new Error(`Core executable already exists at ${layout.coreExe}; use the update flow`);
   }
   const staged = await stageCore({ ...opts, layout });
+  let transactionStarted = false;
+  let committed = false;
   try {
-    fs.renameSync(staged.exe, layout.coreExe);
-    writeInstallRecord(
-      { coreVersion: staged.version, installedAt: new Date().toISOString() },
-      layout,
-    );
+    const transaction = beginCoreInstallTransaction(staged.version, layout);
+    transactionStarted = true;
+    durableRenameSync(staged.exe, layout.coreExe);
+    writeInstallRecord({ coreVersion: staged.version, installedAt: transaction.createdAt }, layout);
+    markCoreInstallTransactionCommitted(transaction, layout);
+    committed = true;
+    clearCoreInstallTransaction(layout);
     return { version: staged.version, exe: layout.coreExe };
+  } catch (err) {
+    if (transactionStarted && !committed) {
+      try {
+        recoverCoreInstallTransaction(layout);
+      } catch (recoveryErr) {
+        throw new Error(
+          `${(err as Error).message}; Core install recovery also failed: ${(recoveryErr as Error).message}`,
+        );
+      }
+    }
+    throw err;
   } finally {
     fs.rmSync(staged.exe, { force: true });
   }
 }
 
+function pathEntryExists(file: string): boolean {
+  try {
+    fs.lstatSync(file);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw err;
+  }
+}
+
+function isRegularFile(file: string): boolean {
+  try {
+    return fs.lstatSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
 export function coreInstalled(layout: SashLayout = sashLayout()): boolean {
-  return fs.existsSync(layout.coreExe);
+  return isRegularFile(layout.coreExe) && readInstallRecord(layout) !== undefined;
+}
+
+/** Fail closed when binary and committed install metadata do not agree. */
+export function assertCoreInstallationConsistent(layout: SashLayout = sashLayout()): void {
+  const binaryExists = pathEntryExists(layout.coreExe);
+  const installRecordExists = pathEntryExists(layout.installFile);
+  const binaryValid = isRegularFile(layout.coreExe);
+  const record = readInstallRecord(layout);
+
+  if ((!binaryExists && !installRecordExists) || (binaryValid && record)) return;
+
+  const reason = binaryExists
+    ? record
+      ? "the Core executable is not a regular file"
+      : "the Core executable exists without valid install metadata"
+    : record
+      ? "Core install metadata exists but the executable is missing"
+      : "Core install metadata is malformed without an executable";
+  throw new Error(
+    `Core installation is incomplete or invalid: ${reason}. Run \`sash update --force\` to repair it.`,
+  );
 }

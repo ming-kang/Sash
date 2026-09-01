@@ -21,6 +21,11 @@ export interface CoreStartResult {
   version?: string;
 }
 
+export interface MaintenanceShutdownResult {
+  ok: true;
+  coreWasRunning: boolean;
+}
+
 export interface DaemonStatus {
   daemon: {
     pid: number;

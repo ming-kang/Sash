@@ -1,4 +1,14 @@
-import { spawn } from "node:child_process";
+import { type SpawnOptions, spawn } from "node:child_process";
+import { buildSanitizedEnv } from "./process.js";
+
+export function buildBrowserSpawnOptions(sourceEnv: NodeJS.ProcessEnv = process.env): SpawnOptions {
+  return {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    env: buildSanitizedEnv(sourceEnv),
+  };
+}
 
 /** Open a URL in the default browser without blocking; tolerant of headless envs. */
 export function openInBrowser(url: string): void {
@@ -9,11 +19,7 @@ export function openInBrowser(url: string): void {
         ? { cmd: "open", args: [url] }
         : { cmd: "xdg-open", args: [url] };
   try {
-    const child = spawn(command.cmd, command.args, {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    });
+    const child = spawn(command.cmd, command.args, buildBrowserSpawnOptions());
     child.on("error", () => {
       // headless environment: caller already printed the URL
     });

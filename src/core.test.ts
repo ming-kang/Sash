@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import zlib from "node:zlib";
 import AdmZip from "adm-zip";
 import {
+  assertCoreInstallationConsistent,
   coreInstalled,
   currentCoreVersion,
   extractCoreArchive,
@@ -16,6 +17,12 @@ import {
   verifyCoreExecutable,
   writeInstallRecord,
 } from "./core.js";
+import {
+  beginCoreInstallTransaction,
+  clearCoreInstallTransaction,
+  markCoreInstallTransactionCommitted,
+  recoverCoreInstallTransaction,
+} from "./core-install-transaction.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
 describe("core", () => {
@@ -142,6 +149,22 @@ describe("core", () => {
       assert.deepEqual(fs.readFileSync(destExe), fakeBinaryData);
     });
 
+    it("rejects a helper-only .zip instead of installing an arbitrary executable", async () => {
+      const zip = new AdmZip();
+      zip.addFile("tools/helper.exe", Buffer.from("helper-tool"));
+      const zipPath = path.join(tmpDir, "helper-only.zip");
+      zip.writeZip(zipPath);
+
+      const destExe = path.join(tmpDir, "bin", "mihomo.exe");
+      fs.mkdirSync(path.dirname(destExe), { recursive: true });
+
+      await assert.rejects(
+        () => extractCoreArchive(zipPath, "helper-only.zip", destExe),
+        /No mihomo\*\.exe found inside helper-only\.zip/,
+      );
+      assert.equal(fs.existsSync(destExe), false);
+    });
+
     it("throws an error when a .zip archive does not contain an .exe file", async () => {
       const zip = new AdmZip();
       zip.addFile("README.txt", Buffer.from("no executable here"));
@@ -153,7 +176,7 @@ describe("core", () => {
 
       await assert.rejects(
         () => extractCoreArchive(zipPath, "no-exe.zip", destExe),
-        /No \.exe found inside no-exe\.zip/,
+        /No mihomo\*\.exe found inside no-exe\.zip/,
       );
       assert.equal(fs.existsSync(destExe), false);
       assert.equal(fs.existsSync(`${destExe}.extracted`), false);
@@ -234,6 +257,104 @@ describe("core", () => {
       fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
       fs.writeFileSync(layout.coreExe, "binary");
       assert.equal(coreInstalled(layout), true);
+    });
+
+    it("does not count a binary without valid install metadata as installed", () => {
+      fs.mkdirSync(layout.binDir, { recursive: true });
+      fs.writeFileSync(layout.coreExe, "ambiguous-binary");
+
+      assert.equal(coreInstalled(layout), false);
+      assert.throws(() => assertCoreInstallationConsistent(layout), /sash update --force/);
+
+      fs.mkdirSync(layout.stateDir, { recursive: true });
+      fs.writeFileSync(layout.installFile, "{ malformed");
+      assert.throws(
+        () => assertCoreInstallationConsistent(layout),
+        /without valid install metadata.*sash update --force/,
+      );
+    });
+
+    it("fails closed when valid metadata exists without the binary", () => {
+      writeInstallRecord(
+        { coreVersion: "v1.19.30", installedAt: "2025-01-01T00:00:00.000Z" },
+        layout,
+      );
+      assert.equal(coreInstalled(layout), false);
+      assert.throws(
+        () => assertCoreInstallationConsistent(layout),
+        /executable is missing.*sash update --force/,
+      );
+    });
+  });
+
+  describe("first-install transaction recovery", () => {
+    it("rolls back binary and metadata published before the committed marker", () => {
+      const transaction = beginCoreInstallTransaction(
+        "v1.19.30",
+        layout,
+        "2025-01-01T00:00:00.000Z",
+      );
+      fs.mkdirSync(layout.binDir, { recursive: true });
+      fs.writeFileSync(layout.coreExe, "published-core");
+      writeInstallRecord(
+        { coreVersion: transaction.targetVersion, installedAt: transaction.createdAt },
+        layout,
+      );
+
+      recoverCoreInstallTransaction(layout);
+
+      assert.equal(fs.existsSync(layout.coreExe), false);
+      assert.equal(fs.existsSync(layout.installFile), false);
+      assert.equal(fs.existsSync(layout.coreInstallTransactionFile), false);
+    });
+
+    it("keeps a committed install and only clears the transaction marker", () => {
+      const transaction = beginCoreInstallTransaction(
+        "v1.19.30",
+        layout,
+        "2025-01-01T00:00:00.000Z",
+      );
+      fs.mkdirSync(layout.binDir, { recursive: true });
+      fs.writeFileSync(layout.coreExe, "published-core");
+      writeInstallRecord(
+        { coreVersion: transaction.targetVersion, installedAt: transaction.createdAt },
+        layout,
+      );
+      markCoreInstallTransactionCommitted(transaction, layout);
+
+      recoverCoreInstallTransaction(layout);
+
+      assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "published-core");
+      assert.equal(readInstallRecord(layout)?.coreVersion, "v1.19.30");
+      assert.equal(fs.existsSync(layout.coreInstallTransactionFile), false);
+    });
+
+    it("rejects non-canonical or extra transaction fields", () => {
+      fs.mkdirSync(layout.stateDir, { recursive: true });
+      fs.writeFileSync(
+        layout.coreInstallTransactionFile,
+        JSON.stringify({
+          version: 1,
+          phase: "publishing",
+          createdAt: "2025-01-01T00:00:00Z",
+          targetVersion: " v1.19.30 ",
+          binaryExisted: false,
+          installRecordExisted: false,
+          path: layout.coreExe,
+        }),
+      );
+      assert.throws(() => recoverCoreInstallTransaction(layout), /invalid version, phase/);
+      assert.equal(fs.existsSync(layout.coreInstallTransactionFile), true);
+      clearCoreInstallTransaction(layout);
+    });
+
+    it("rejects non-regular and oversized transaction files", () => {
+      fs.mkdirSync(layout.coreInstallTransactionFile, { recursive: true });
+      assert.throws(() => recoverCoreInstallTransaction(layout), /not a regular file/);
+      fs.rmSync(layout.coreInstallTransactionFile, { recursive: true });
+
+      fs.writeFileSync(layout.coreInstallTransactionFile, "x".repeat(16 * 1024 + 1));
+      assert.throws(() => recoverCoreInstallTransaction(layout), /exceeds 16384 bytes/);
     });
   });
 });

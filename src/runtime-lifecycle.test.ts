@@ -10,7 +10,9 @@ interface FakeRuntime {
   lifecycle: RuntimeLifecycle;
   events: string[];
   setProxyFailure(error: Error | undefined): void;
+  exitDuringProxyApply(): void;
   running(): boolean;
+  proxyApplied(): boolean;
 }
 
 function createRuntime(systemProxy = false): FakeRuntime {
@@ -18,10 +20,16 @@ function createRuntime(systemProxy = false): FakeRuntime {
   const events: string[] = [];
   let running = false;
   let pid = 1000;
+  let generation = 0;
   let proxyFailure: Error | undefined;
+  let exitDuringApply = false;
+  let proxyApplied = false;
 
   const supervisor = {
     isRunning: () => running,
+    ownedCoreSnapshot: () => (running ? { pid, generation } : undefined),
+    ownsCore: (snapshot: { pid: number; generation: number }) =>
+      running && snapshot.pid === pid && snapshot.generation === generation,
     status: async (): Promise<CoreState> => ({
       running,
       healthy: running,
@@ -31,16 +39,19 @@ function createRuntime(systemProxy = false): FakeRuntime {
       events.push("core:start");
       running = true;
       pid++;
+      generation++;
       return { pid };
     },
     stop: async () => {
       events.push("core:stop");
       running = false;
+      generation++;
     },
     restart: async () => {
       events.push("core:restart");
       running = true;
       pid++;
+      generation++;
       return { pid };
     },
   } as unknown as CoreSupervisor;
@@ -49,10 +60,16 @@ function createRuntime(systemProxy = false): FakeRuntime {
     apply: async ({ port }) => {
       events.push(`proxy:apply:${port}`);
       if (proxyFailure) throw proxyFailure;
+      proxyApplied = true;
+      if (exitDuringApply) {
+        running = false;
+        generation++;
+      }
     },
     release: async () => {
       events.push("proxy:release");
       if (proxyFailure) throw proxyFailure;
+      proxyApplied = false;
     },
     recover: async () => {
       events.push("proxy:recover");
@@ -72,7 +89,11 @@ function createRuntime(systemProxy = false): FakeRuntime {
     setProxyFailure(error) {
       proxyFailure = error;
     },
+    exitDuringProxyApply() {
+      exitDuringApply = true;
+    },
     running: () => running,
+    proxyApplied: () => proxyApplied,
   };
 }
 
@@ -190,5 +211,20 @@ describe("RuntimeLifecycle", () => {
     await runtime.lifecycle.start();
 
     assert.deepEqual(runtime.events, [`proxy:apply:${DEFAULT_SETTINGS.mixedPort}`]);
+  });
+
+  it("releases the proxy when Core exits while it is being applied", async () => {
+    const runtime = createRuntime(true);
+    runtime.exitDuringProxyApply();
+
+    await assert.rejects(runtime.lifecycle.start(), /ownership was lost while applying/);
+
+    assert.deepEqual(runtime.events, [
+      "proxy:recover",
+      "core:start",
+      `proxy:apply:${DEFAULT_SETTINGS.mixedPort}`,
+      "proxy:release",
+    ]);
+    assert.equal(runtime.proxyApplied(), false);
   });
 });

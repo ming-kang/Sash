@@ -11,6 +11,7 @@ import {
   isProcessAlive,
   killProcessGracefully,
   readPidRecord,
+  TAIL_FILE_CHUNK_BYTES,
   tailFile,
   writePidRecord,
 } from "./process.js";
@@ -142,6 +143,13 @@ describe("process utilities", () => {
 
     it("returns empty string when file does not exist", () => {
       assert.equal(tailFile(path.join(tmpDir, "missing.log")), "");
+    });
+
+    it("finds the end of a large log without requiring a whole-file buffer", () => {
+      const file = path.join(tmpDir, "large.log");
+      fs.writeFileSync(file, `${"discarded\n".repeat(TAIL_FILE_CHUNK_BYTES)}last line\n`);
+
+      assert.equal(tailFile(file, 1), "last line");
     });
   });
 });

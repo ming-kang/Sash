@@ -2,6 +2,7 @@ import type {
   CoreStartResult,
   DaemonStatus,
   HealthInfo,
+  MaintenanceShutdownResult,
   ProfileActionResponse,
   ProfilesIndex,
   ProfilesUpdateAllResponse,
@@ -175,11 +176,16 @@ export class SashDaemonClient {
     });
   }
 
+  async maintenanceShutdown(): Promise<MaintenanceShutdownResult> {
+    return this.request<MaintenanceShutdownResult>("/sash/maintenance/shutdown", {
+      method: "POST",
+      deadlineMs: 45_000,
+    });
+  }
+
   async shutdown(): Promise<void> {
-    try {
-      await this.request("/sash/shutdown", { method: "POST", deadlineMs: 3000 });
-    } catch {
-      // Best effort; daemon may exit immediately.
-    }
+    // The daemon sends its success response before closing its listener. A
+    // response error is therefore a real cleanup failure, not best effort.
+    await this.request("/sash/shutdown", { method: "POST", deadlineMs: 45_000 });
   }
 }

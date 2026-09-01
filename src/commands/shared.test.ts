@@ -7,7 +7,7 @@ import { sashLayout } from "../paths.js";
 import { writePidRecord } from "../process.js";
 import { loadProfiles } from "../profiles.js";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "../settings.js";
-import { type RuntimeContext, runOfflineMutation } from "./shared.js";
+import { ensureCore, type RuntimeContext, runOfflineMutation } from "./shared.js";
 
 describe("offline mutation coordination", () => {
   let root: string;
@@ -72,6 +72,13 @@ describe("offline mutation coordination", () => {
       runOfflineMutation(ctx, "unsafe corrupt-PID mutation", () => undefined),
       /Core PID record is corrupt/,
     );
+  });
+
+  it("ensureCore refuses to execute or replace an ambiguous binary", async () => {
+    fs.mkdirSync(ctx.layout.binDir, { recursive: true });
+    fs.writeFileSync(ctx.layout.coreExe, "ambiguous-core");
+
+    await assert.rejects(() => ensureCore(ctx), /sash update --force/);
   });
 
   it("blocks ordinary mutations while an orphan Core PID is alive", async () => {

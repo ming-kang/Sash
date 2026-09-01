@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
+import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
 
 describe("fs-atomic", () => {
   let tmpDir: string;
@@ -79,6 +79,19 @@ describe("fs-atomic", () => {
       const files = fs.readdirSync(tmpDir);
       assert.equal(files.length, 1);
       assert.equal(files[0], "clean.txt");
+    });
+  });
+
+  describe("durableRenameSync", () => {
+    it("publishes a file under its destination name", () => {
+      const source = path.join(tmpDir, "source.bin");
+      const destination = path.join(tmpDir, "destination.bin");
+      fs.writeFileSync(source, "binary");
+
+      durableRenameSync(source, destination);
+
+      assert.equal(fs.existsSync(source), false);
+      assert.equal(fs.readFileSync(destination, "utf8"), "binary");
     });
   });
 

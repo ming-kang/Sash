@@ -67,7 +67,9 @@ Invariants:
 4. A deliberate stop restores the previous OS proxy before stopping the Core.
 5. If proxy restoration cannot be proved, the healthy Core is left running.
 6. Late child-exit events and delayed cleanup callbacks cannot clear a replacement child.
-7. Process ownership is revalidated before every graceful or force signal; failed verification or termination preserves PID ownership.
+7. Controller status probes retain an owned-child generation snapshot and report stopped if that child exits or is replaced while the probe is pending.
+8. System-proxy application verifies the same healthy owned child before and after OS changes; lost ownership immediately triggers proxy release.
+9. Process ownership is revalidated before every graceful or force signal; failed verification or termination preserves PID ownership.
 
 Unexpected Core exit retries proxy restoration and records failures in daemon error logs.
 
@@ -86,7 +88,8 @@ Unexpected Core exit retries proxy restoration and records failures in daemon er
 | `/sash/proxy/disable` | `POST` | Persist off and restore the pre-Sash proxy snapshot. |
 | `/sash/profiles*` | mixed | List, add/import, activate, update and delete profiles. |
 | `/sash/settings` | `GET` / `PATCH` | Read or transactionally update managed settings. |
-| `/sash/shutdown` | `POST` | Restore proxy, stop Core and close `sashd`. |
+| `/sash/shutdown` | `POST` | Restore proxy and stop Core before returning success; the listener closes only after that response finishes. Cleanup failure returns `500` and leaves the daemon available for retry. |
+| `/sash/maintenance/shutdown` | `POST` | Under the daemon mutation queue, snapshot whether Core was running, restore proxy/stop Core, return `{ok, coreWasRunning}`, then close. The closing gate rejects mutations admitted after the snapshot. |
 
 Appending `?fresh=1` to status/proxy reads bypasses the short OS-state cache used by normal WebUI polling.
 
@@ -133,7 +136,7 @@ Profile application follows:
 7. Reload or restart the runtime only after every file is published, mark the journal `committed`, then clear it. The same journal can include the canonical `sash.json` snapshot for settings/config publication. Startup finalizes a committed journal without rolling the published state back.
 8. On any publication or reload failure, restore every snapshot (continuing after individual restore errors), then reload the prior config when one existed. A rollback reload failure is reported explicitly. Incomplete rollback retains the journal; daemon and offline initialization recover a `publishing` journal under `mutation.lock` before reading or migrating profile state.
 
-The daemon parses profile request bodies before its mutation boundary. Remote fetch, YAML parsing, rendering and Core validation also occur before that boundary; only recheck, publication and runtime reload are serialized. Offline commands use the same split boundary after reloading settings, verifying daemon/orphan-Core ownership and migrating the legacy setting. Remote bodies are capped at 8 MiB. Profile requests use an absolute deadline and explicit hop-by-hop redirects: HTTPS cannot downgrade to HTTP, restricted literal addresses cannot cross origins, and public origins cannot redirect to literal private/loopback targets. Scheduled network fetches use bounded concurrency; state commits remain serialized and recheck profile identity/URL and active selection before publication.
+The daemon parses profile request bodies before its mutation boundary. Remote fetch, YAML parsing, rendering and Core validation also occur before that boundary; only recheck, publication and runtime reload are serialized. Offline commands use the same split boundary after reloading settings, verifying daemon/orphan-Core ownership and migrating the legacy setting. Remote bodies are capped at 8 MiB. Profile requests use an absolute deadline and explicit hop-by-hop redirects: HTTPS cannot downgrade to HTTP, restricted literal addresses cannot cross origins, and public origins cannot redirect to literal private/loopback targets. Scheduled network fetches use bounded concurrency; state commits remain serialized and recheck profile identity/URL and active selection before publication. Scheduler timers are retained when daemon cleanup or listener closure fails, and are cleared only after successful shutdown.
 
 ---
 
@@ -179,7 +182,9 @@ Release identity and asset metadata come only from official GitHub endpoints. As
 - The staged executable must report the exact requested release token via `-v`.
 - The staged executable validates the freshly generated active configuration before publication.
 
-Update flow stops `sashd`, restores proxy ownership, reconciles stale Core/update state, swaps the executable, verifies a previously running runtime, commits `state/install.json`, then restores the daemon/runtime. The rollback slot is deleted only after that external runtime restoration succeeds; otherwise it is retained. `current + .bak` crash states are resolved by matching binaries against strictly validated version metadata; ambiguous states fail closed without deleting either file.
+First install publishes through `state/core-install-transaction.json`: after staging has passed digest/version checks, Sash records an empty pre-install binary/metadata snapshot, publishes the executable, publishes `state/install.json`, marks the transaction `committed`, then clears it. Startup/offline recovery removes binary and metadata for an interrupted `publishing` transaction, while a `committed` marker is only cleared. Transaction JSON uses a strict fixed schema with no stored paths.
+
+Update flow downloads outside runtime ownership, asks `sashd` for the atomic maintenance shutdown snapshot without first reading status, waits for daemon exit, then takes `state/runtime.lock` for the offline executable transaction and runtime restoration. It restores proxy ownership, reconciles stale Core/update state, swaps the executable, verifies a previously running runtime, commits `state/install.json`, then restores the daemon/runtime according to the returned snapshot. The rollback slot is deleted only after that external runtime restoration succeeds; otherwise it is retained. `current + .bak` crash states are resolved by matching binaries against strictly validated version metadata; ambiguous binary/install-record states fail closed with `sash update --force` guidance and are never executed.
 
 Official digest metadata is mandatory. If the metadata API is unavailable, Sash refuses an unverifiable mirror download instead of falling back to executing unverified bytes.
 
@@ -196,6 +201,7 @@ Atomic state writes use a same-directory temporary file, file `fsync`, rename an
 - `state/system-proxy.json`: durable proxy ownership transaction.
 - `state/managed-state-transaction.json`: recoverable settings/profile/index/config publication snapshots.
 - `state/install.json`: committed Core version metadata.
+- `state/core-install-transaction.json`: strict first-install publication journal.
 - `state/*.lock`: local-filesystem ownership records.
 
 `SASH_HOME` should reside on a local filesystem that supports atomic rename, hard links and normal per-user permissions.

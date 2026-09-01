@@ -44,6 +44,12 @@ export function durableRemoveFileSync(target: string): void {
   fsyncParentDirectory(path.dirname(target));
 }
 
+/** Rename a file and durably persist the destination directory entry on POSIX. */
+export function durableRenameSync(from: string, to: string): void {
+  renameWithRetry(from, to);
+  fsyncParentDirectory(path.dirname(to));
+}
+
 function renameWithRetry(from: string, to: string): void {
   const delays = [0, 50, 100, 200, 400];
   let lastErr: unknown;

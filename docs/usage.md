@@ -24,8 +24,8 @@ sash status
 
 | Command | Description |
 | :--- | :--- |
-| `sash start` | Install missing components and start the background daemon and core. |
-| `sash stop` | Restore the pre-Sash system proxy, stop the Core and shut down the daemon. |
+| `sash start` | Install missing components, ensure the background daemon is running, then reconcile/start the core. It is safe to repeat. |
+| `sash stop` | Restore the pre-Sash system proxy, stop the Core and shut down the daemon; exits with an error if safe shutdown cannot be verified. |
 | `sash restart` | Restart the managed core process. |
 | `sash status [--json]` | Show daemon/core state, active profile, endpoints and system proxy state. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | View core or daemon logs; `-f` follows new output. |
@@ -75,7 +75,9 @@ The WebUI Profiles page additionally supports local YAML import, per-profile upd
 | `sash upgrade [--version V]` | Upgrade the Sash package through npm; requires `sashd` to be stopped first. |
 | `sash version` | Print the Sash package version. |
 
-Core updates temporarily stop `sashd`, retain `<core>.bak`, and restore the previous daemon/Core state afterward. Downloads require official GitHub SHA-256 asset metadata; mirrors are accepted only as transports for bytes matching that digest. Archives are capped at 128 MiB, staged binaries must report the exact requested version, and the staged Core validates the freshly generated active configuration before publication.
+Core updates download and validate before shutdown, then use an authenticated maintenance request that atomically snapshots whether Core was running while restoring proxy state and stopping `sashd`. After daemon exit, the offline transaction retains `<core>.bak` and restores the exact prior daemon/Core running state afterward. Downloads require official GitHub SHA-256 asset metadata; mirrors are accepted only as transports for bytes matching that digest. Archives are capped at 128 MiB, Windows ZIPs must contain the expected upstream Core executable basename, staged binaries must report the exact requested version, and the staged Core validates the freshly generated active configuration before publication.
+
+`sash upgrade --version` accepts only a strict npm semver such as `1.2.3` (without a `v` prefix) or a safe dist-tag such as `latest`/`next`. Package specs, paths, ranges and control characters are rejected.
 
 ---
 
@@ -130,6 +132,7 @@ Override the root with an absolute `SASH_HOME` path.
 - `state/sashd.pid`, `state/sash.pid`: atomic daemon/Core discovery records.
 - `state/system-proxy.json`: pre-takeover proxy snapshot and ownership phase.
 - `state/install.json`: canonical installed Core version record.
+- `state/core-install-transaction.json`: first-install publication journal; interrupted publishing rolls back, while a committed marker is only cleared.
 - `state/*.lock`: daemon, runtime, mutation, settings and proxy ownership leases.
 - `logs/`: core and daemon stdout/stderr logs.
 - `ui/` *(optional)*: custom dashboard override.
@@ -145,5 +148,7 @@ State files are written with mode `0o600` on POSIX where applicable. `SASH_HOME`
 - **Profile update failed:** inspect the profile card's error or run `sash sub update`; generated candidates are checked by the installed Core before commit, and the last valid running config remains active on validation/reload failure.
 - **Corrupt settings/profile index:** repair the JSON file or move it aside; Sash intentionally does not overwrite corrupt state.
 - **Daemon errors:** `sash logs --daemon --errors`.
-- **Core errors:** `sash logs --errors`.
+- **Core errors:** `sash logs --errors`. Log tails and follow-mode reads use bounded chunks, so large logs do not require one whole-file allocation.
+- **Shutdown returned an error:** cleanup was not completed; the daemon remains listening and scheduled profile updates remain active. Resolve the reported proxy/Core issue and retry `sash stop`.
+- **Core binary/metadata mismatch:** Sash will not execute a binary unless `state/install.json` is valid and agrees that an installation exists. Run `sash update --force` to publish a validated replacement.
 - **Force a validated core reinstall:** `sash update --force`.

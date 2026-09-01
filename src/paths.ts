@@ -53,6 +53,7 @@ export interface SashLayout {
   systemProxyStateFile: string;
   managedStateTransactionFile: string;
   installFile: string;
+  coreInstallTransactionFile: string;
   logsDir: string;
   coreLogFile: string;
   coreErrLogFile: string;
@@ -84,6 +85,7 @@ export function sashLayout(root: string = sashRoot()): SashLayout {
     systemProxyStateFile: path.join(root, "state", "system-proxy.json"),
     managedStateTransactionFile: path.join(root, "state", "managed-state-transaction.json"),
     installFile: path.join(root, "state", "install.json"),
+    coreInstallTransactionFile: path.join(root, "state", "core-install-transaction.json"),
     logsDir: path.join(root, "logs"),
     coreLogFile: path.join(root, "logs", "mihomo.log"),
     coreErrLogFile: path.join(root, "logs", "mihomo.err.log"),

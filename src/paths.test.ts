@@ -96,6 +96,10 @@ describe("paths", () => {
         path.join(customRoot, "state", "managed-state-transaction.json"),
       );
       assert.equal(layout.installFile, path.join(customRoot, "state", "install.json"));
+      assert.equal(
+        layout.coreInstallTransactionFile,
+        path.join(customRoot, "state", "core-install-transaction.json"),
+      );
       assert.equal(layout.logsDir, path.join(customRoot, "logs"));
       assert.equal(layout.coreLogFile, path.join(customRoot, "logs", "mihomo.log"));
       assert.equal(layout.coreErrLogFile, path.join(customRoot, "logs", "mihomo.err.log"));

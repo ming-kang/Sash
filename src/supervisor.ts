@@ -25,6 +25,12 @@ export interface CoreState {
   version?: string;
 }
 
+/** A point-in-time claim for the child currently owned by this supervisor. */
+export interface CoreOwnershipSnapshot {
+  generation: number;
+  pid: number;
+}
+
 export interface CoreSupervisorOptions {
   layout: SashLayout;
   settings: () => SashSettings;
@@ -59,6 +65,7 @@ function managedPathsMatch(a: string, b: string): boolean {
 export class CoreSupervisor {
   private child: ChildProcess | null = null;
   private childStartedAt: string | undefined;
+  private childGeneration = 0;
   private stopping = false;
   private readonly layout: SashLayout;
   private readonly getSettings: () => SashSettings;
@@ -163,6 +170,7 @@ export class CoreSupervisor {
 
     this.child = child;
     this.childStartedAt = new Date().toISOString();
+    this.childGeneration++;
     let spawnError: Error | undefined;
     child.on("error", (err) => {
       spawnError = err;
@@ -175,6 +183,7 @@ export class CoreSupervisor {
       const wasStopping = this.stopping;
       this.child = null;
       this.childStartedAt = undefined;
+      this.childGeneration++;
       clearPidRecord(this.layout.pidFile);
       if (!wasStopping) {
         Promise.resolve(this.onExitCallback?.(code, signal)).catch(() => {
@@ -198,6 +207,7 @@ export class CoreSupervisor {
       if (terminated && this.child === child) {
         this.child = null;
         this.childStartedAt = undefined;
+        this.childGeneration++;
       }
       const cleanup = terminated ? "" : `; process ${pid} could not be confirmed stopped`;
       throw new Error(`Failed to persist Core PID ownership: ${(err as Error).message}${cleanup}`);
@@ -218,6 +228,7 @@ export class CoreSupervisor {
         if (terminated && this.child === child) {
           this.child = null;
           this.childStartedAt = undefined;
+          this.childGeneration++;
           clearPidRecord(this.layout.pidFile);
         }
         const details = tailFile(this.layout.coreErrLogFile, 20);
@@ -261,6 +272,7 @@ export class CoreSupervisor {
       clearPidRecord(this.layout.pidFile);
       this.child = null;
       this.childStartedAt = undefined;
+      this.childGeneration++;
     }
     const details = tailFile(this.layout.coreErrLogFile, 20);
     const cleanup = terminated
@@ -276,7 +288,9 @@ export class CoreSupervisor {
   async stop(): Promise<void> {
     const child = this.child;
     if (!child?.pid || !this.isAlive(child.pid)) {
+      if (this.child) this.childGeneration++;
       this.child = null;
+      this.childStartedAt = undefined;
       clearPidRecord(this.layout.pidFile);
       return;
     }
@@ -293,6 +307,7 @@ export class CoreSupervisor {
     if (this.child === child) {
       this.child = null;
       this.childStartedAt = undefined;
+      this.childGeneration++;
       clearPidRecord(this.layout.pidFile);
     }
   }
@@ -302,11 +317,27 @@ export class CoreSupervisor {
     return this.start();
   }
 
-  async status(): Promise<CoreState> {
+  /** Capture the currently live child so callers can detect replacement across awaits. */
+  ownedCoreSnapshot(): CoreOwnershipSnapshot | undefined {
     const child = this.child;
-    if (!child?.pid || !this.isAlive(child.pid)) {
-      return { running: false };
-    }
+    if (!child?.pid || !this.isAlive(child.pid)) return undefined;
+    return { generation: this.childGeneration, pid: child.pid };
+  }
+
+  /** True only while the exact child captured by `ownedCoreSnapshot` remains live. */
+  ownsCore(snapshot: CoreOwnershipSnapshot): boolean {
+    const child = this.child;
+    return Boolean(
+      child &&
+        child.pid === snapshot.pid &&
+        this.childGeneration === snapshot.generation &&
+        this.isAlive(snapshot.pid),
+    );
+  }
+
+  async status(): Promise<CoreState> {
+    const ownership = this.ownedCoreSnapshot();
+    if (!ownership) return { running: false };
 
     const settings = this.getSettings();
     const api = new MihomoApi(settings.controller, settings.secret);
@@ -319,9 +350,13 @@ export class CoreSupervisor {
       healthy = false;
     }
 
+    // The controller probe can outlive its child or overlap a replacement.
+    // Never describe a different (or dead) child with this probe result.
+    if (!this.ownsCore(ownership)) return { running: false };
+
     return {
       running: true,
-      pid: child.pid,
+      pid: ownership.pid,
       startedAt: this.childStartedAt,
       healthy,
       version,

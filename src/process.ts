@@ -256,15 +256,50 @@ export function buildSanitizedEnv(sourceEnv: NodeJS.ProcessEnv = process.env): N
   return childEnv;
 }
 
+export const TAIL_FILE_CHUNK_BYTES = 64 * 1024;
+const MAX_TAIL_LINE_BYTES = 64 * 1024;
+
 /** Last non-empty lines of a file, for surfacing daemon/core startup errors. */
 export function tailFile(filePath: string, lineCount = 20): string {
+  if (!Number.isSafeInteger(lineCount) || lineCount <= 0) return "";
+  let fd: number | undefined;
   try {
-    if (!fs.existsSync(filePath)) return "";
-    const content = fs.readFileSync(filePath, "utf8");
-    const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    return lines.slice(-lineCount).join("\n");
+    const size = fs.statSync(filePath).size;
+    if (size <= 0) return "";
+    fd = fs.openSync(filePath, "r");
+    let position = size;
+    let pending = "";
+    const lines: string[] = [];
+
+    while (position > 0 && lines.length < lineCount) {
+      const bytesToRead = Math.min(TAIL_FILE_CHUNK_BYTES, position);
+      position -= bytesToRead;
+      const chunk = Buffer.allocUnsafe(bytesToRead);
+      const bytesRead = fs.readSync(fd, chunk, 0, bytesToRead, position);
+      const parts = (chunk.subarray(0, bytesRead).toString("utf8") + pending).split(/\r?\n/);
+      pending = parts.shift() ?? "";
+      // A pathological unterminated log line must not turn an error-reporting
+      // path back into a whole-file allocation.
+      if (Buffer.byteLength(pending) > MAX_TAIL_LINE_BYTES) {
+        pending = pending.slice(-MAX_TAIL_LINE_BYTES);
+      }
+      for (let index = parts.length - 1; index >= 0 && lines.length < lineCount; index--) {
+        const line = parts[index];
+        if (line?.trim()) lines.push(line);
+      }
+    }
+    if (lines.length < lineCount && pending.trim()) lines.push(pending);
+    return lines.reverse().join("\n");
   } catch {
     return "";
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 

@@ -375,7 +375,7 @@ export async function stopDaemonFromCli(
   }
 
   // Poll for process termination
-  const deadline = Date.now() + (opts.timeoutMs ?? 6000);
+  const deadline = Date.now() + (opts.timeoutMs ?? 20_000);
   while (Date.now() < deadline && isProcessAlive(pid)) {
     await sleep(200);
   }

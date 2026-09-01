@@ -18,11 +18,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Exact generated configurations are validated by the installed Core in an isolated temporary file before profile/config state is committed.
 - Versioned `sash.json` runtime schema with strict field validation and explicit v0 migration.
 - Atomic daemon/start/runtime/mutation/settings leases for single-instance and cross-process state ownership.
+- Durable first-install Core publication journal with publishing/committed crash recovery.
+- Authenticated maintenance shutdown API returning an atomic Core-running snapshot for executable updates.
 - Durable system-proxy ownership journal that snapshots and conditionally restores prior manual/PAC state.
 - Windows/macOS/Linux and Node.js 20/22 CI matrix covering lint, tests, builds and package dry-runs.
 
 ### Changed
 
+- Repeated `sash start` requests now always enter the daemon lifecycle reconciler, so desired runtime and system-proxy state are refreshed even when a Core is already running.
+- Shutdown acknowledges success only after Core/proxy cleanup; listener closure follows the response, while failed cleanup keeps the daemon scheduler available for retry.
+- Log tailing and follow-mode growth reads use bounded 64 KiB chunks instead of whole-file or whole-delta allocations.
 - The internal Core controller address is restricted to loopback hosts so its bearer is never sent to a remote endpoint.
 - HTTP requests use absolute deadlines, bounded body ownership and method-aware retry defaults; state-changing requests are not retried unless explicitly requested.
 - Remote profile redirects are validated hop-by-hop, reject HTTPS downgrade and cannot cross from public origins into literal private/loopback targets.
@@ -39,12 +44,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Core/proxy transitions now pass through one serialized runtime lifecycle; proxy restoration precedes deliberate Core shutdown and readiness precedes proxy apply.
 - Offline mutations reload committed settings under lock and refuse uncertain daemon/orphan-Core ownership.
 - Core release mirrors are transport-only: official GitHub metadata selects the release and supplies the mandatory SHA-256 digest.
-- Core updates serialize against start/stop, temporarily stop the daemon, validate the staged binary/config and recover interrupted `.bak` states before publication.
+- Core updates stage outside runtime ownership, use the daemon's atomic maintenance snapshot instead of a stale status read, then serialize offline publication/restoration against start/stop.
+- Core ZIP extraction accepts only the expected upstream executable basename; npm self-upgrade versions are restricted to strict semver or safe dist-tags.
+- Core updates temporarily stop the daemon, validate the staged binary/config and recover interrupted `.bak` states before publication.
 - System-proxy backends preserve manual, automatic/PAC and authentication-mode fields they modify; Linux automation is explicitly GNOME `gsettings` only.
 - npm packages now include `docs/`, lint is part of `prepublishOnly`, and package self-upgrade requires the daemon to be stopped so runtime/schema versions cannot overlap.
 
 ### Fixed
 
+- Controller status and system-proxy transitions now detect Core exit/replacement across asynchronous probes and release a just-applied proxy binding when ownership is lost.
+- CLI stop now fails when daemon shutdown cannot be safely verified, and daemon-client shutdown errors are no longer discarded.
 - Settings updates use immutable candidates and one shared online/offline service; validation rejects blank/control-character secrets and listener-port collisions, while failed runtime transitions restore prior settings/config/runtime state.
 - Settings, Profile YAML, index and generated config publish through one fixed-role durable transaction; failed activations, missing-profile fetches, updates and deletes compensate immediately, while interrupted publication recovers on daemon or offline initialization.
 - Profile request parsing, fetch, rendering and Core validation now run outside the short mutation lock; daemon and offline commits recheck profile identity/selection under the lock before publication.
@@ -79,6 +88,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Release downloads enforce HTTPS, redirect host boundaries, backpressure and compressed-size limits; ZIP extraction is streamed with a hard output cap.
 - Core version checks use exact tokens instead of substring matching, and controller readiness requires a non-empty version across consecutive probes.
 - Core update rollback slots remain available until daemon/runtime restoration succeeds; malformed install metadata and backup-only mismatch states are rejected before execution.
+- Core startup fails closed when executable and install metadata are missing, malformed or inconsistent, with an explicit `sash update --force` repair path.
+- npm upgrade and browser-launch children now receive the same scrubbed environment as managed runtime children.
 
 ## [0.1.0] - 2026-08-31
 

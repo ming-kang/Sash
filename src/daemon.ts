@@ -4,8 +4,9 @@ import http from "node:http";
 import type { Duplex } from "node:stream";
 import { MihomoApi } from "./api.js";
 import type { DaemonStatus } from "./contracts.js";
-import { currentCoreVersion } from "./core.js";
+import { assertCoreInstallationConsistent, currentCoreVersion } from "./core.js";
 import { validateCoreConfigText } from "./core-config-validation.js";
+import { recoverCoreInstallTransaction } from "./core-install-transaction.js";
 import { recoverInterruptedCoreUpdate } from "./core-update.js";
 import {
   isControlMutation,
@@ -43,6 +44,15 @@ export interface DaemonPidRecord {
   startedAt: string;
 }
 
+export interface DaemonScheduler {
+  intervalMs?: number;
+  kickoffMs?: number;
+  setInterval?: typeof setInterval;
+  clearInterval?: typeof clearInterval;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
+}
+
 export interface DaemonDeps {
   layout: SashLayout;
   settings: SashSettings;
@@ -52,6 +62,7 @@ export interface DaemonDeps {
   fetchProfileFn?: (url: string) => Promise<SubscriptionFetch>;
   validateConfigFn?: (generated: GeneratedConfig) => Promise<void> | void;
   onShutdown?: () => void;
+  scheduler?: DaemonScheduler;
 }
 
 export interface DaemonInstance {
@@ -107,12 +118,15 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   });
 
   let closing = false;
-  let closeDaemon: () => Promise<void>;
-  const mutate = <T>(purpose: string, action: () => T | Promise<T>): Promise<T> =>
-    mutations.run(purpose, () => {
+  let cleanupDaemon: () => Promise<{ coreWasRunning: boolean }>;
+  let closeListener: () => Promise<void>;
+  const mutate = <T>(purpose: string, action: () => T | Promise<T>): Promise<T> => {
+    if (closing) return Promise.reject(new Error("sashd is shutting down"));
+    return mutations.run(purpose, () => {
       if (closing) throw new Error("sashd is shutting down");
       return action();
     });
+  };
 
   const profiles = new ProfileService({
     layout,
@@ -338,13 +352,34 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      if (method === "POST" && (pathname === "/sash/shutdown" || pathname === "/shutdown")) {
-        sendJson(res, 200, { ok: true, shuttingDown: true });
-        setImmediate(() => {
-          void closeDaemon()
-            .then(() => deps.onShutdown?.())
-            .catch(() => undefined);
-        });
+      if (
+        method === "POST" &&
+        (pathname === "/sash/maintenance/shutdown" ||
+          pathname === "/sash/shutdown" ||
+          pathname === "/shutdown")
+      ) {
+        try {
+          // Cleanup must complete before acknowledging shutdown. Do not close
+          // the listener here: server.close() waits for this response socket.
+          const snapshot = await cleanupDaemon();
+          let closingListener = false;
+          const finishShutdown = (): void => {
+            if (closingListener) return;
+            closingListener = true;
+            void closeListener()
+              .then(() => deps.onShutdown?.())
+              .catch(() => undefined);
+          };
+          res.once("finish", finishShutdown);
+          res.once("close", finishShutdown);
+          if (pathname === "/sash/maintenance/shutdown") {
+            sendJson(res, 200, { ok: true, coreWasRunning: snapshot.coreWasRunning });
+          } else {
+            sendJson(res, 200, { ok: true, shuttingDown: true });
+          }
+        } catch (err) {
+          sendError(res, 500, (err as Error).message);
+        }
         return;
       }
 
@@ -442,7 +477,13 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   /* ====================================================================== */
   /* Scheduled profile auto-updates                                          */
   /* ====================================================================== */
-  const PROFILE_UPDATE_CHECK_MS = 15 * 60 * 1000;
+  const scheduler = deps.scheduler ?? {};
+  const profileUpdateCheckMs = scheduler.intervalMs ?? 15 * 60 * 1000;
+  const profileUpdateKickoffMs = scheduler.kickoffMs ?? 10_000;
+  const scheduleInterval = scheduler.setInterval ?? setInterval;
+  const clearScheduledInterval = scheduler.clearInterval ?? clearInterval;
+  const scheduleTimeout = scheduler.setTimeout ?? setTimeout;
+  const clearScheduledTimeout = scheduler.clearTimeout ?? clearTimeout;
 
   const autoUpdateProfiles = async (): Promise<void> => {
     try {
@@ -452,42 +493,73 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     }
   };
 
-  const profileUpdateTimer = setInterval(() => {
+  const profileUpdateTimer = scheduleInterval(() => {
     void autoUpdateProfiles();
-  }, PROFILE_UPDATE_CHECK_MS);
+  }, profileUpdateCheckMs);
   profileUpdateTimer.unref();
-  const profileUpdateKickoff = setTimeout(() => {
+  const profileUpdateKickoff = scheduleTimeout(() => {
     void autoUpdateProfiles();
-  }, 10_000);
+  }, profileUpdateKickoffMs);
   profileUpdateKickoff.unref();
 
-  let closePromise: Promise<void> | undefined;
-  closeDaemon = () => {
-    if (closePromise) return closePromise;
+  let schedulerStopped = false;
+  const stopScheduler = (): void => {
+    if (schedulerStopped) return;
+    clearScheduledInterval(profileUpdateTimer);
+    clearScheduledTimeout(profileUpdateKickoff);
+    schedulerStopped = true;
+  };
+
+  let cleanupPromise: Promise<{ coreWasRunning: boolean }> | undefined;
+  cleanupDaemon = () => {
+    if (cleanupPromise) return cleanupPromise;
+    // Close the admission gate before queueing the snapshot. Mutations already
+    // queued finish first; later requests cannot enter after the snapshot.
     closing = true;
-    const attempt = mutations
-      .run("close daemon", async () => {
-        clearInterval(profileUpdateTimer);
-        clearTimeout(profileUpdateKickoff);
-        await lifecycle.close();
-      })
-      .then(async () => {
-        if (!server.listening) return;
+    const attempt = mutations.run("close daemon", async () => {
+      const coreWasRunning = supervisor.isRunning();
+      await lifecycle.close();
+      return { coreWasRunning };
+    });
+    cleanupPromise = attempt;
+    void attempt.catch(() => {
+      if (cleanupPromise === attempt) {
+        cleanupPromise = undefined;
+        closing = false;
+      }
+    });
+    return attempt;
+  };
+
+  let listenerClosePromise: Promise<void> | undefined;
+  closeListener = () => {
+    if (listenerClosePromise) return listenerClosePromise;
+    const attempt = (async () => {
+      if (server.listening) {
         const closed = new Promise<void>((resolve, reject) => {
           server.close((err) => (err ? reject(err) : resolve()));
         });
         server.closeAllConnections();
         for (const socket of upgradedSockets) socket.destroy();
         await closed;
-      });
-    closePromise = attempt;
+      }
+      // Timers stay alive if either runtime cleanup or listener closure fails,
+      // preserving retryability and scheduled updates after a failed close.
+      stopScheduler();
+    })();
+    listenerClosePromise = attempt;
     void attempt.catch(() => {
-      if (closePromise === attempt) {
-        closePromise = undefined;
+      if (listenerClosePromise === attempt) {
+        listenerClosePromise = undefined;
         closing = false;
       }
     });
     return attempt;
+  };
+
+  const closeDaemon = async () => {
+    await cleanupDaemon();
+    await closeListener();
   };
 
   return {
@@ -515,6 +587,7 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
   try {
     const initialization = new StateMutationQueue(layout.mutationLockFile);
     const settings = await initialization.run("initialize daemon state", () => {
+      recoverCoreInstallTransaction(layout);
       recoverManagedStateTransaction(layout);
       const loaded = loadSettings(layout);
       // One-time migration: a legacy single subscription becomes an active,
@@ -532,6 +605,7 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
     await instance.lifecycle.recoverStartup();
     await instance.supervisor.cleanStaleCore();
     recoverInterruptedCoreUpdate(layout);
+    assertCoreInstallationConsistent(layout);
 
     const port = settings.daemonPort;
     await new Promise<void>((resolve, reject) => {

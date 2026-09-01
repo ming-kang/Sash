@@ -30,16 +30,6 @@ export async function runStart(): Promise<void> {
 
     await ensureDaemon({ layout: ctx.layout, settings: ctx.settings });
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
-    const status = await client.status();
-    if (status.core.running) {
-      if (!status.core.healthy) {
-        throw new Error(`core process is running but unhealthy (PID=${status.core.pid})`);
-      }
-      log.info(`core is already running (PID=${status.core.pid})`);
-      printEndpoints(ctx);
-      return;
-    }
-
     const result = await client.startCore();
     log.ok(
       `core started (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`,
@@ -60,7 +50,7 @@ export async function runStop(): Promise<void> {
     const state = await evaluateDaemon(ctx.layout, ctx.settings);
     if (state.running) {
       const stopped = await stopDaemonFromCli({ layout: ctx.layout, settings: ctx.settings });
-      if (!stopped) return;
+      if (!stopped) throw new Error("sashd could not be stopped safely");
     }
 
     await runOfflineMutation(
