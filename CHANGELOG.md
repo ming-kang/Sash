@@ -22,6 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- The internal Core controller address is restricted to loopback hosts so its bearer is never sent to a remote endpoint.
+- HTTP requests use absolute deadlines, bounded body ownership and method-aware retry defaults; state-changing requests are not retried unless explicitly requested.
+- Remote profile redirects are validated hop-by-hop, reject HTTPS downgrade and cannot cross from public origins into literal private/loopback targets.
 - WebUI navigation is Overview, Profiles, Logs, Connections, Rules, Settings; the legacy `#/subscription` hash redirects to `#/profiles`.
 - Profile behavior is owned by a single `ProfileService` used by daemon routes and offline CLI commands. Config activation/update transitions snapshot and restore prior state on failure.
 - Remote profile refreshes use in-flight deduplication, bounded network concurrency and serialized state commits.
@@ -41,6 +44,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- System-proxy backends are split into focused platform modules; macOS empty fields and malformed Windows registry output now fail safely.
+- System-proxy recovery persists a `restoring` phase so partial multi-field restoration can continue after a crash.
+- Atomic state writes fsync the parent directory on POSIX after publication.
+- Process termination now revalidates ownership before both graceful and force signals, and daemon shutdown verifies the current boot token in every ownership mode.
+- WebUI traffic/log WebSockets now complete browser subprotocol negotiation while keeping private authentication protocols away from the Core.
 - Release downloads now require the production host allowlist for both initial URLs and every redirect target.
 - Failed core updates restore both the previous binary and install record; inactive updates still validate the staged executable before deleting `.bak`.
 - Activating a missing/invalid local profile no longer silently keeps the previous config, and reload failures restore the previous active/config state.

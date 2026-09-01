@@ -7,8 +7,10 @@ import type {
   ProfilesUpdateAllResponse,
   ProfileUpdateResponse,
 } from "./contracts.js";
-import { fetchWithRetry } from "./http.js";
+import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 import type { SystemProxyState } from "./sysproxy.js";
+
+const DAEMON_SUCCESS_BODY_LIMIT = 1024 * 1024;
 
 export class SashDaemonClient {
   readonly baseUrl: string;
@@ -24,16 +26,14 @@ export class SashDaemonClient {
     options: {
       method?: string;
       body?: unknown;
-      timeoutMs?: number;
+      deadlineMs?: number;
       attempts?: number;
       auth?: boolean;
     } = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
     const headers: Record<string, string> = {};
-    if (options.auth !== false && this.secret) {
-      headers.Authorization = `Bearer ${this.secret}`;
-    }
+    if (options.auth !== false && this.secret) headers.Authorization = `Bearer ${this.secret}`;
     let bodyStr: string | undefined;
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -45,11 +45,14 @@ export class SashDaemonClient {
       headers,
       body: bodyStr,
       direct: true,
-      attempts: options.attempts ?? 2,
-      timeoutMs: options.timeoutMs ?? 5_000,
+      // Leave undefined so fetchWithRetry's method-aware default applies.
+      attempts: options.attempts,
+      deadlineMs: options.deadlineMs ?? 5_000,
     });
 
-    const text = await res.text();
+    const text = await res.text(
+      res.statusCode >= 200 && res.statusCode < 300 ? DAEMON_SUCCESS_BODY_LIMIT : ERROR_BODY_LIMIT,
+    );
     let data: unknown;
     try {
       data = JSON.parse(text);
@@ -74,7 +77,7 @@ export class SashDaemonClient {
     return this.request<HealthInfo>("/sash/health", {
       auth: false,
       attempts: 1,
-      timeoutMs: 2000,
+      deadlineMs: 2000,
     });
   }
 
@@ -92,23 +95,15 @@ export class SashDaemonClient {
   }
 
   async startCore(): Promise<CoreStartResult> {
-    return this.request<CoreStartResult>("/core/start", {
-      method: "POST",
-      timeoutMs: 15_000,
-      attempts: 1,
-    });
+    return this.request<CoreStartResult>("/core/start", { method: "POST", deadlineMs: 15_000 });
   }
 
   async stopCore(): Promise<void> {
-    await this.request("/core/stop", { method: "POST", timeoutMs: 10_000, attempts: 1 });
+    await this.request("/core/stop", { method: "POST", deadlineMs: 10_000 });
   }
 
   async restartCore(): Promise<CoreStartResult> {
-    return this.request<CoreStartResult>("/core/restart", {
-      method: "POST",
-      timeoutMs: 15_000,
-      attempts: 1,
-    });
+    return this.request<CoreStartResult>("/core/restart", { method: "POST", deadlineMs: 15_000 });
   }
 
   async enableProxy(): Promise<{ ok: boolean; systemProxy: boolean }> {
@@ -138,33 +133,23 @@ export class SashDaemonClient {
     return this.request("/sash/profiles", {
       method: "POST",
       body: { url, ...(opts.name ? { name: opts.name } : {}), activate: opts.activate === true },
-      timeoutMs: 35_000,
-      attempts: 1,
+      deadlineMs: 35_000,
     });
   }
 
   async updateProfile(id: string): Promise<ProfileUpdateResponse> {
-    return this.request(`/sash/profiles/${id}/update`, {
-      method: "POST",
-      timeoutMs: 35_000,
-      attempts: 1,
-    });
+    return this.request(`/sash/profiles/${id}/update`, { method: "POST", deadlineMs: 35_000 });
   }
 
   async updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
-    return this.request("/sash/profiles/update-all", {
-      method: "POST",
-      timeoutMs: 120_000,
-      attempts: 1,
-    });
+    return this.request("/sash/profiles/update-all", { method: "POST", deadlineMs: 120_000 });
   }
 
   async setActiveProfile(id: string | null): Promise<{ ok: boolean; proxyCount: number }> {
     return this.request<{ ok: boolean; proxyCount: number }>("/sash/profiles/active", {
       method: "PUT",
       body: { id },
-      timeoutMs: 35_000,
-      attempts: 1,
+      deadlineMs: 35_000,
     });
   }
 
@@ -177,8 +162,7 @@ export class SashDaemonClient {
       "/core/config/reload",
       {
         method: "POST",
-        timeoutMs: 35_000,
-        attempts: 1,
+        deadlineMs: 35_000,
       },
     );
   }
@@ -187,16 +171,15 @@ export class SashDaemonClient {
     return this.request<{ ok: boolean }>("/sash/settings", {
       method: "PATCH",
       body: { key, value },
-      timeoutMs: 15_000,
-      attempts: 1,
+      deadlineMs: 15_000,
     });
   }
 
   async shutdown(): Promise<void> {
     try {
-      await this.request("/sash/shutdown", { method: "POST", timeoutMs: 3000, attempts: 1 });
+      await this.request("/sash/shutdown", { method: "POST", deadlineMs: 3000 });
     } catch {
-      // Best effort; daemon may exit immediately
+      // Best effort; daemon may exit immediately.
     }
   }
 }

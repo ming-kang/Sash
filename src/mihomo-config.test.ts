@@ -10,7 +10,9 @@ import {
   generateConfig,
   isValidMihomoConfig,
   overlayManagedKeys,
+  parseContentDispositionFilename,
   parseSafeHttpUrl,
+  resolveSubscriptionRedirect,
 } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
@@ -72,6 +74,47 @@ describe("mihomo-config", () => {
       assert.equal(parseSafeHttpUrl("http://example.com"), "http://example.com/");
       assert.equal(parseSafeHttpUrl("javascript:alert(1)"), undefined);
       assert.equal(parseSafeHttpUrl("not a url"), undefined);
+    });
+  });
+
+  describe("subscription metadata and redirects", () => {
+    it("removes terminal control characters from Content-Disposition filenames", () => {
+      assert.equal(
+        parseContentDispositionFilename('attachment; filename="plan\r\nnext.yaml"'),
+        "plannext",
+      );
+      assert.equal(
+        parseContentDispositionFilename("attachment; filename*=UTF-8''plan%00%7F.yaml"),
+        "plan",
+      );
+    });
+
+    it("rejects subscription HTTPS downgrades and redirects into restricted hosts", () => {
+      const publicHttps = new URL("https://subscriptions.example/profile");
+      assert.throws(
+        () =>
+          resolveSubscriptionRedirect(
+            publicHttps,
+            publicHttps,
+            "http://subscriptions.example/next",
+          ),
+        /HTTPS-to-HTTP/,
+      );
+      const publicHttp = new URL("http://subscriptions.example/profile");
+      assert.throws(
+        () => resolveSubscriptionRedirect(publicHttp, publicHttp, "http://127.0.0.1:9090/private"),
+        /restricted host/,
+      );
+      assert.throws(
+        () =>
+          resolveSubscriptionRedirect(publicHttp, publicHttp, "http://[::ffff:127.0.0.1]/private"),
+        /restricted host/,
+      );
+      const loopback = new URL("http://127.0.0.1:9090/profile");
+      assert.throws(
+        () => resolveSubscriptionRedirect(loopback, loopback, "http://localhost:9090/private"),
+        /restricted origin/,
+      );
     });
   });
 

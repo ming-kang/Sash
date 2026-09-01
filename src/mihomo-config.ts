@@ -1,7 +1,8 @@
 import fs from "node:fs";
+import { isIP } from "node:net";
 import YAML from "yaml";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import { fetchWithRetry } from "./http.js";
+import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
 
@@ -120,15 +121,24 @@ export function parseContentDispositionFilename(header: string | undefined): str
   const ext = header.match(/filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/);
   if (ext?.[1]) {
     try {
-      const decoded = decodeURIComponent(ext[1].trim()).trim();
+      const decoded = sanitizeFilename(decodeURIComponent(ext[1].trim()));
       if (decoded) return stripYamlExt(decoded);
     } catch {
       // fall through to the plain form
     }
   }
   const plain = header.match(/filename\s*=\s*"?([^";]+)"?/);
-  const value = plain?.[1]?.trim();
+  const value = plain?.[1] ? sanitizeFilename(plain[1]) : undefined;
   return value ? stripYamlExt(value) : undefined;
+}
+
+const C0_OR_DEL = new RegExp(
+  `[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`,
+  "g",
+);
+
+function sanitizeFilename(name: string): string {
+  return name.replace(C0_OR_DEL, "").trim();
 }
 
 function stripYamlExt(name: string): string {
@@ -157,24 +167,107 @@ export function parseSafeHttpUrl(value: string | undefined): string | undefined 
  * display name, home page).
  */
 export const PROFILE_DOWNLOAD_SIZE_LIMIT = 8 * 1024 * 1024;
+const MAX_SUBSCRIPTION_REDIRECTS = 5;
+const PROFILE_FETCH_DEADLINE_MS = 30_000;
+
+function isRestrictedIpv4Prefix(a: number, b: number): boolean {
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && (b === 0 || b === 168)) ||
+    (a === 198 && (b === 18 || b === 19 || b === 51)) ||
+    (a === 203 && b === 0) ||
+    a >= 224
+  );
+}
+
+function isRestrictedSubscriptionHost(hostname: string): boolean {
+  const host = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.$/, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (isIP(host) === 4) {
+    const parts = host.split(".");
+    return isRestrictedIpv4Prefix(Number(parts[0]), Number(parts[1]));
+  }
+  if (isIP(host) === 6) {
+    const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (mapped?.[1] && mapped[2]) {
+      const high = Number.parseInt(mapped[1], 16);
+      return isRestrictedIpv4Prefix(high >> 8, high & 0xff);
+    }
+    return host === "::" || host === "::1" || /^(?:fc|fd|fe[89ab])/i.test(host);
+  }
+  return false;
+}
+
+/**
+ * Apply subscription redirect restrictions without DNS resolution. DNS is not
+ * resolved here because remote subscription traffic may intentionally use an
+ * environment proxy; resolving locally would not describe the peer contacted.
+ */
+export function resolveSubscriptionRedirect(initial: URL, current: URL, location: string): URL {
+  const target = new URL(location, current);
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw new Error(`Refusing subscription redirect to non-http(s) URL: ${target.href}`);
+  }
+  if (current.protocol === "https:" && target.protocol === "http:") {
+    throw new Error(`Refusing HTTPS-to-HTTP subscription redirect: ${target.href}`);
+  }
+  const initialRestricted = isRestrictedSubscriptionHost(initial.hostname);
+  const targetRestricted = isRestrictedSubscriptionHost(target.hostname);
+  if (initialRestricted && target.origin !== initial.origin) {
+    throw new Error(`Refusing subscription redirect away from restricted origin: ${target.href}`);
+  }
+  if (!initialRestricted && targetRestricted) {
+    throw new Error(`Refusing subscription redirect to restricted host: ${target.hostname}`);
+  }
+  return target;
+}
 
 export async function fetchSubscriptionProfile(url: string): Promise<SubscriptionFetch> {
-  let parsed: URL;
+  let initial: URL;
   try {
-    parsed = new URL(url);
+    initial = new URL(url);
   } catch {
     throw new Error(`Invalid subscription URL: ${url}`);
   }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+  if (initial.protocol !== "https:" && initial.protocol !== "http:") {
     throw new Error(`Subscription URL must be http(s): ${url}`);
   }
-  const res = await fetchWithRetry(url, {
-    attempts: 3,
-    timeoutMs: 30_000,
-    // A clash-format UA hints subscription gateways to return Clash config.
-    headers: { "user-agent": "clash.meta; mihomo; sash" },
-  });
+
+  const deadlineAt = Date.now() + PROFILE_FETCH_DEADLINE_MS;
+  let current = initial;
+  let res: Awaited<ReturnType<typeof fetchWithRetry>>;
+  for (let redirects = 0; ; redirects += 1) {
+    const remainingDeadlineMs = deadlineAt - Date.now();
+    if (remainingDeadlineMs <= 0) {
+      throw new Error(`Subscription fetch deadline exceeded after ${PROFILE_FETCH_DEADLINE_MS}ms`);
+    }
+    res = await fetchWithRetry(current.href, {
+      attempts: 3,
+      deadlineMs: remainingDeadlineMs,
+      manualRedirect: true,
+      // A clash-format UA hints subscription gateways to return Clash config.
+      headers: { "user-agent": "clash.meta; mihomo; sash" },
+    });
+    if (res.statusCode < 300 || res.statusCode >= 400) break;
+    const locationHeader = firstHeader(res.headers.location);
+    await res.discard();
+    if (!locationHeader) throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
+    if (redirects >= MAX_SUBSCRIPTION_REDIRECTS) {
+      throw new Error(`Too many subscription redirects (>${MAX_SUBSCRIPTION_REDIRECTS})`);
+    }
+    current = resolveSubscriptionRedirect(initial, current, locationHeader);
+  }
+
   if (res.statusCode !== 200) {
+    await res.text(ERROR_BODY_LIMIT);
     throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
   }
   const text = await res.text(PROFILE_DOWNLOAD_SIZE_LIMIT);

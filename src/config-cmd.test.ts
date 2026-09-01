@@ -17,20 +17,17 @@ describe("requiresRestart", () => {
 });
 
 describe("validateController", () => {
-  it("accepts valid host:port addresses", () => {
-    for (const v of [
-      "127.0.0.1:9090",
-      "localhost:8080",
-      "[::1]:9090",
-      "0.0.0.0:80",
-      " 127.0.0.1:9090 ",
-    ]) {
+  it("accepts loopback host:port addresses", () => {
+    for (const v of ["127.0.0.1:9090", "localhost:8080", "[::1]:9090", " 127.0.0.1:9090 "]) {
       assert.equal(validateController(v), true, v);
     }
   });
 
-  it("rejects invalid addresses", () => {
+  it("rejects non-loopback and invalid addresses", () => {
     for (const v of [
+      "0.0.0.0:80",
+      "192.168.1.2:9090",
+      "controller.example:9090",
       "127.0.0.1:0",
       "127.0.0.1:65536",
       "127.0.0.1",

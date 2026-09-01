@@ -172,6 +172,47 @@ describe("daemon ownership evaluation", () => {
     assert.equal(state.pid, process.pid);
   });
 
+  it("refuses to stop a leased daemon when the boot token no longer matches", async () => {
+    const layout = sashLayout(root);
+    let shutdownRequests = 0;
+    server = http.createServer((req, res) => {
+      if (req.url === "/sash/shutdown") shutdownRequests += 1;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          token: "successor-token",
+          pid: process.pid,
+          startedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    fs.mkdirSync(layout.stateDir, { recursive: true });
+    fs.writeFileSync(
+      layout.daemonPidFile,
+      `${JSON.stringify({
+        pid: process.pid,
+        token: "expected-token",
+        port,
+        startedAt: "2026-01-01T00:00:00.000Z",
+      })}\n`,
+    );
+    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test sashd" });
+
+    try {
+      const stopped = await stopDaemonFromCli({
+        layout,
+        settings: { ...DEFAULT_SETTINGS, daemonPort: port, daemonSecret: "test-secret" },
+      });
+      assert.equal(stopped, false);
+      assert.equal(shutdownRequests, 0);
+    } finally {
+      lease.release();
+    }
+  });
+
   it("serializes concurrent daemon spawns behind the singleton startup lock", {
     timeout: 30_000,
   }, async () => {

@@ -8,6 +8,7 @@ import {
   isLoopbackHostHeader,
   isLoopbackOriginHeader,
   isWebSocketRequestAuthorized,
+  webSocketAuthResponseProtocol,
 } from "./daemon-auth.js";
 
 function request(headers: IncomingMessage["headers"]): IncomingMessage {
@@ -71,9 +72,11 @@ describe("daemon control authorization", () => {
       false,
     );
     assert.equal(
-      coreWebSocketProtocols("chat, sash-token.boot-token, telemetry"),
+      coreWebSocketProtocols("sash, chat, sash-token.boot-token, telemetry"),
       "chat, telemetry",
     );
-    assert.equal(coreWebSocketProtocols("sash-token.boot-token"), undefined);
+    assert.equal(coreWebSocketProtocols("sash, sash-token.boot-token"), undefined);
+    assert.equal(webSocketAuthResponseProtocol("sash, sash-token.boot-token"), "sash");
+    assert.equal(webSocketAuthResponseProtocol("sash-token.boot-token"), "sash-token.boot-token");
   });
 });

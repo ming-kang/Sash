@@ -36,8 +36,8 @@ export interface SystemProxyManagerOptions {
 }
 
 export interface SystemProxyJournal {
-  schemaVersion: 1;
-  phase: "prepared" | "applied";
+  schemaVersion: 2;
+  phase: "prepared" | "applied" | "restoring";
   ownerPid: number;
   createdAt: string;
   original: SystemProxySnapshot;
@@ -114,11 +114,15 @@ export function parseSystemProxyJournal(value: unknown): SystemProxyJournal {
     "original",
     "target",
   ]);
-  if (record.schemaVersion !== 1) {
-    throw journalError("schemaVersion must be 1");
+  if (record.schemaVersion !== 1 && record.schemaVersion !== 2) {
+    throw journalError("schemaVersion must be 1 or 2");
   }
-  if (record.phase !== "prepared" && record.phase !== "applied") {
-    throw journalError("phase must be prepared or applied");
+  if (
+    record.phase !== "prepared" &&
+    record.phase !== "applied" &&
+    !(record.schemaVersion === 2 && record.phase === "restoring")
+  ) {
+    throw journalError("phase must be prepared, applied, or restoring");
   }
   if (
     typeof record.ownerPid !== "number" ||
@@ -141,7 +145,7 @@ export function parseSystemProxyJournal(value: unknown): SystemProxyJournal {
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     phase: record.phase,
     ownerPid: record.ownerPid,
     createdAt: parseCreatedAt(record.createdAt),
@@ -154,7 +158,7 @@ function sameJournal(a: SystemProxyJournal, b: SystemProxyJournal): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** The phase may change from prepared to applied without changing ownership. */
+/** Transaction phase may change without changing the captured ownership boundary. */
 function sameJournalOwnership(a: SystemProxyJournal, b: SystemProxyJournal): boolean {
   return (
     a.schemaVersion === b.schemaVersion &&
@@ -341,11 +345,17 @@ export class SystemProxyManager implements SystemProxyController {
       throw new Error(`System proxy journal already exists: ${this.layout.systemProxyStateFile}`);
     }
     const canonical = parseSystemProxyJournal(journal);
-    atomicWriteFileSync(
-      this.layout.systemProxyStateFile,
-      `${JSON.stringify(canonical, null, 2)}\n`,
-      0o600,
-    );
+    this.writeJournal(canonical);
+  }
+
+  private writeJournal(journal: SystemProxyJournal): void {
+    const text = `${JSON.stringify(journal, null, 2)}\n`;
+    if (Buffer.byteLength(text) > MAX_JOURNAL_BYTES) {
+      throw new Error(
+        `System proxy journal exceeds its size limit: ${this.layout.systemProxyStateFile}`,
+      );
+    }
+    atomicWriteFileSync(this.layout.systemProxyStateFile, text, 0o600);
   }
 
   private replaceJournal(expected: SystemProxyJournal, next: SystemProxyJournal): void {
@@ -356,11 +366,7 @@ export class SystemProxyManager implements SystemProxyController {
       );
     }
     const canonical = parseSystemProxyJournal(next);
-    atomicWriteFileSync(
-      this.layout.systemProxyStateFile,
-      `${JSON.stringify(canonical, null, 2)}\n`,
-      0o600,
-    );
+    this.writeJournal(canonical);
   }
 
   private clearJournal(expected: SystemProxyJournal): void {
@@ -407,7 +413,7 @@ export class SystemProxyManager implements SystemProxyController {
       throw new Error("System proxy backend produced a target with a different platform structure");
     }
     const prepared: SystemProxyJournal = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       phase: "prepared",
       ownerPid: process.pid,
       createdAt: new Date().toISOString(),
@@ -463,7 +469,7 @@ export class SystemProxyManager implements SystemProxyController {
 
     const canRestore =
       this.backend.equivalent(current, journal.target) ||
-      (journal.phase === "prepared" &&
+      ((journal.phase === "prepared" || journal.phase === "restoring") &&
         this.backend.compatible(current, journal.original, journal.target));
     if (!canRestore) {
       throw new Error(
@@ -471,9 +477,13 @@ export class SystemProxyManager implements SystemProxyController {
       );
     }
 
+    const restoring: SystemProxyJournal =
+      journal.phase === "restoring" ? journal : { ...journal, phase: "restoring" };
+    if (restoring !== journal) this.replaceJournal(journal, restoring);
+
     let applyError: unknown;
     try {
-      this.backend.apply(journal.original);
+      this.backend.apply(restoring.original);
     } catch (err) {
       applyError = err;
     }
@@ -487,11 +497,11 @@ export class SystemProxyManager implements SystemProxyController {
       );
       throw applyError ? combinedError(applyError, verificationError) : verificationError;
     }
-    if (!this.backend.equivalent(restored, journal.original)) {
+    if (!this.backend.equivalent(restored, restoring.original)) {
       const verificationError = new Error("System proxy restoration verification failed");
       throw applyError ? combinedError(applyError, verificationError) : verificationError;
     }
 
-    this.clearJournal(journal);
+    this.clearJournal(restoring);
   }
 }

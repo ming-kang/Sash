@@ -1,18 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
-import { coreWebSocketProtocols } from "./daemon-auth.js";
+import { coreWebSocketProtocols, webSocketAuthResponseProtocol } from "./daemon-auth.js";
+import { parseControllerAddress } from "./settings.js";
 
 export function parseHostPort(address: string): { host: string; port: number } {
-  const trimmed = address.trim();
-  const match = trimmed.match(/^(?:https?:\/\/)?(?:\[([0-9a-fA-F:]+)\]|([^:]*)):(\d+)$/);
-  if (match) {
-    const rawHost = match[1] ?? match[2];
-    const host = rawHost && rawHost.length > 0 ? rawHost : "127.0.0.1";
-    const port = Number.parseInt(match[3] ?? "9090", 10);
-    return { host, port };
+  const parsed = parseControllerAddress(address);
+  if (!parsed) {
+    throw new Error(`Invalid controller address: ${address} (expected loopback host:port)`);
   }
-  return { host: "127.0.0.1", port: 9090 };
+  return { host: parsed.host, port: parsed.port };
 }
 
 /**
@@ -123,8 +120,14 @@ export function forwardWsToCore(
 
   proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
     const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 101} ${proxyRes.statusMessage ?? "Switching Protocols"}\r\n`;
-    const headerLines = Object.entries(proxyRes.headers)
-      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
+    const responseHeaders = { ...proxyRes.headers };
+    if (!responseHeaders["sec-websocket-protocol"]) {
+      const authProtocol = webSocketAuthResponseProtocol(req.headers["sec-websocket-protocol"]);
+      if (authProtocol) responseHeaders["sec-websocket-protocol"] = authProtocol;
+    }
+    const headerLines = Object.entries(responseHeaders)
+      .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
+      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
       .join("\r\n");
     socket.write(`${statusLine}${headerLines}\r\n\r\n`);
 

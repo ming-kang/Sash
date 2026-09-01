@@ -3,6 +3,7 @@ import {
   type ProfileActionResponse,
   type ProfilesUpdateAllResponse,
   type ProfileUpdateResponse,
+  WEB_SOCKET_AUTH_PROTOCOL,
   WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
 } from "../../../src/contracts.js";
 import type {
@@ -93,7 +94,7 @@ function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
     if (closed) return;
     try {
       const protocols = controlToken
-        ? [`${WEB_SOCKET_TOKEN_PROTOCOL_PREFIX}${controlToken}`]
+        ? [WEB_SOCKET_AUTH_PROTOCOL, `${WEB_SOCKET_TOKEN_PROTOCOL_PREFIX}${controlToken}`]
         : undefined;
       ws = new WebSocket(wsUrl, protocols);
       ws.onmessage = (event) => {

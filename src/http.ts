@@ -8,16 +8,14 @@ import { Agent, EnvHttpProxyAgent, interceptors, request } from "undici";
 /**
  * HTTP helpers built on undici.
  *
- * - Remote requests honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY via
- *   EnvHttpProxyAgent (essential because Sash's users often sit behind the very
- *   proxy Sash manages).
- * - Loopback requests (mihomo external-controller) use a direct Agent so the
- *   local API is never hijacked by a proxy env var.
- * - Redirect following is opt-in via the redirect interceptor; plain requests
- *   return 3xx as-is so callers can inspect Location headers.
+ * Remote requests honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY.
+ * Loopback external-controller requests use a direct Agent so proxy environment
+ * variables cannot intercept them. Redirect following is opt-in; callers which
+ * need redirect policy receive 3xx responses and handle every hop themselves.
  */
 
 export const USER_AGENT = "sash-cli (https://github.com/ming-kang/Sash)";
+export const ERROR_BODY_LIMIT = 32 * 1024;
 
 let baseProxyDispatcher: Dispatcher | undefined;
 let redirectProxyDispatcher: Dispatcher | undefined;
@@ -27,8 +25,7 @@ let redirectDirectDispatcher: Dispatcher | undefined;
 function getBaseProxyDispatcher(): Dispatcher {
   if (!baseProxyDispatcher) {
     // EnvHttpProxyAgent covers HTTP_PROXY/HTTPS_PROXY/NO_PROXY; ALL_PROXY is a
-    // common extra convention among proxy tools, so fold it in via constructor
-    // options without ever mutating process.env.
+    // common extra convention, folded into options without changing process.env.
     const allProxyRaw = process.env.ALL_PROXY ?? process.env.all_proxy;
     const allProxy = allProxyRaw && /^https?:\/\//i.test(allProxyRaw) ? allProxyRaw : undefined;
     const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? allProxy;
@@ -42,9 +39,7 @@ function getBaseProxyDispatcher(): Dispatcher {
 }
 
 function getBaseDirectDispatcher(): Dispatcher {
-  if (!baseDirectDispatcher) {
-    baseDirectDispatcher = new Agent({ connect: { rejectUnauthorized: false } });
-  }
+  if (!baseDirectDispatcher) baseDirectDispatcher = new Agent();
   return baseDirectDispatcher;
 }
 
@@ -76,17 +71,25 @@ function pickDispatcher(opts: { direct?: boolean; manualRedirect?: boolean }): D
 export interface FetchResponse {
   statusCode: number;
   headers: Record<string, string | string[] | undefined>;
-  text: (maxBytes?: number) => Promise<string>;
-  buffer: (maxBytes?: number) => Promise<Buffer>;
+  /** Consume the body as UTF-8, rejecting it if it exceeds maxBytes. */
+  text: (maxBytes: number) => Promise<string>;
+  /** Consume the body, rejecting it if it exceeds maxBytes. */
+  buffer: (maxBytes: number) => Promise<Buffer>;
+  /** Drain the body without buffering it. */
+  discard: () => Promise<void>;
 }
 
 export interface FetchOptions {
-  /** Total attempts including the first try. Default 4. */
+  /** Total attempts including the first. The default is method-aware. */
   attempts?: number;
-  /** Per-attempt headers timeout (ms). Default 30_000. */
-  timeoutMs?: number;
+  /** Per-attempt time to receive response headers. Default 30 seconds. */
+  headersTimeoutMs?: number;
+  /** Maximum inactivity between response-body chunks. Default 30 seconds. */
+  bodyInactivityTimeoutMs?: number;
+  /** Absolute request budget, including retries, headers, and body consumption. Default 60 seconds. */
+  deadlineMs?: number;
   headers?: Record<string, string>;
-  /** Use the direct (non-proxy) dispatcher. For loopback API calls. */
+  /** Use the direct (non-proxy) dispatcher. Reserved for loopback API calls. */
   direct?: boolean;
   method?: string;
   body?: string | Buffer;
@@ -95,59 +98,150 @@ export interface FetchOptions {
 }
 
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const RETRYABLE_METHODS = new Set(["GET", "HEAD"]);
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(
+      signal.reason instanceof Error ? signal.reason : new Error("HTTP request aborted"),
+    );
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason instanceof Error ? signal.reason : new Error("HTTP request aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
+function positiveTimeout(value: number | undefined, fallback: number, name: string): number {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return resolved;
+}
+
+function defaultAttempts(method: string): number {
+  return RETRYABLE_METHODS.has(method.toUpperCase()) ? 4 : 1;
+}
+
+/**
+ * Fetch a non-download response with method-aware retries and an absolute
+ * deadline. The deadline remains active until the returned body is consumed or
+ * discarded, so a peer cannot evade it by slowly dripping body bytes.
+ */
 export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Promise<FetchResponse> {
-  const attempts = opts.attempts ?? 4;
-  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const method = (opts.method ?? "GET").toUpperCase();
+  const attempts = opts.attempts ?? defaultAttempts(method);
+  if (!Number.isSafeInteger(attempts) || attempts < 1) {
+    throw new Error("attempts must be a positive integer");
+  }
+  const headersTimeoutMs = positiveTimeout(opts.headersTimeoutMs, 30_000, "headersTimeoutMs");
+  const bodyInactivityTimeoutMs = positiveTimeout(
+    opts.bodyInactivityTimeoutMs,
+    30_000,
+    "bodyInactivityTimeoutMs",
+  );
+  const deadlineMs = positiveTimeout(opts.deadlineMs, 60_000, "deadlineMs");
+  const deadline = new AbortController();
+  const deadlineTimer = setTimeout(() => {
+    deadline.abort(new Error(`HTTP request deadline exceeded after ${deadlineMs}ms`));
+  }, deadlineMs);
+  let settled = false;
+  let responseReturned = false;
+  const clearDeadline = (): void => {
+    if (!settled) {
+      settled = true;
+      clearTimeout(deadlineTimer);
+    }
+  };
   let lastErr: unknown;
 
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      const res = await request(url, {
-        method: (opts.method ?? "GET") as Dispatcher.HttpMethod,
-        headers: { "user-agent": USER_AGENT, ...opts.headers },
-        body: opts.body,
-        headersTimeout: timeoutMs,
-        bodyTimeout: timeoutMs,
-        dispatcher: pickDispatcher(opts),
-      });
-      if (RETRYABLE_STATUS.has(res.statusCode) && attempt < attempts) {
-        await res.body.dump();
-        throw new Error(`HTTP ${res.statusCode}`);
-      }
-      const body = res.body;
-      const consume = async (maxBytes?: number): Promise<Buffer> => {
-        const chunks: Buffer[] = [];
-        let total = 0;
-        for await (const chunk of body) {
-          const data = Buffer.from(chunk);
-          total += data.length;
-          if (maxBytes !== undefined && total > maxBytes) {
-            body.destroy();
-            throw new Error(`Response body exceeds ${maxBytes} byte limit`);
-          }
-          chunks.push(data);
+  try {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const res = await request(url, {
+          method: method as Dispatcher.HttpMethod,
+          headers: { "user-agent": USER_AGENT, ...opts.headers },
+          body: opts.body,
+          headersTimeout: headersTimeoutMs,
+          bodyTimeout: bodyInactivityTimeoutMs,
+          signal: deadline.signal,
+          dispatcher: pickDispatcher(opts),
+        });
+        if (RETRYABLE_STATUS.has(res.statusCode) && attempt < attempts) {
+          await res.body.dump();
+          throw new Error(`HTTP ${res.statusCode}`);
         }
-        return Buffer.concat(chunks, total);
-      };
-      return {
-        statusCode: res.statusCode,
-        headers: res.headers as Record<string, string | string[] | undefined>,
-        text: async (maxBytes) => (await consume(maxBytes)).toString("utf8"),
-        buffer: consume,
-      };
-    } catch (err) {
-      lastErr = err;
-      if (attempt < attempts) {
-        await sleep(Math.min(4_000, 300 * 2 ** (attempt - 1)) + Math.random() * 200);
+
+        const body = res.body;
+        let claimed = false;
+        const claimBody = (): void => {
+          if (claimed) throw new Error("Response body has already been consumed or discarded");
+          claimed = true;
+        };
+        const consume = async (maxBytes: number): Promise<Buffer> => {
+          claimBody();
+          if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+            body.destroy();
+            clearDeadline();
+            throw new Error("maxBytes must be a non-negative safe integer");
+          }
+          const chunks: Buffer[] = [];
+          let total = 0;
+          try {
+            for await (const chunk of body) {
+              const data = Buffer.from(chunk);
+              total += data.length;
+              if (total > maxBytes) {
+                body.destroy();
+                throw new Error(`Response body exceeds ${maxBytes} byte limit`);
+              }
+              chunks.push(data);
+            }
+            return Buffer.concat(chunks, total);
+          } finally {
+            clearDeadline();
+          }
+        };
+        responseReturned = true;
+        return {
+          statusCode: res.statusCode,
+          headers: res.headers as Record<string, string | string[] | undefined>,
+          text: async (maxBytes) => (await consume(maxBytes)).toString("utf8"),
+          buffer: consume,
+          discard: async () => {
+            claimBody();
+            try {
+              await body.dump();
+            } finally {
+              clearDeadline();
+            }
+          },
+        };
+      } catch (err) {
+        lastErr = err;
+        if (deadline.signal.aborted || attempt === attempts) break;
+        await sleep(
+          Math.min(4_000, 300 * 2 ** (attempt - 1)) + Math.random() * 200,
+          deadline.signal,
+        );
+        if (deadline.signal.aborted) break;
       }
     }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  } finally {
+    // Once a response is returned, its ownership methods clear this timer.
+    // Failed attempts and exhausted retries must clear it here.
+    if (!responseReturned) clearDeadline();
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 export type DownloadProgress = (downloaded: number, total: number | undefined) => void;
@@ -183,7 +277,7 @@ function validateRedirectTarget(
 
 /**
  * Download a URL to a file with stall detection. Throws on non-2xx or when no
- * bytes arrive for `stallMs`. Partial files are removed on failure.
+ * bytes arrive for stallMs. Partial files are removed on failure.
  */
 export async function downloadToFile(
   url: string,

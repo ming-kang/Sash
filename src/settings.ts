@@ -149,10 +149,11 @@ function parsePort(value: unknown, key: string, file: string): number {
 
 function parseController(value: unknown, key: string, file: string): string {
   const controller = parseString(value, key, file);
-  if (!validateController(controller)) {
-    throw invalidSettings(file, `${key} must be a valid host:port controller address`);
+  const address = parseControllerAddress(controller);
+  if (!address) {
+    throw invalidSettings(file, `${key} must be a loopback host:port controller address`);
   }
-  return controller;
+  return address.canonical;
 }
 
 function parseSchemaVersion(
@@ -260,6 +261,7 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
     schemaVersion.value === 0 ||
     mixedPort.missing ||
     controller.missing ||
+    controller.value !== document.controller ||
     secret.missing ||
     tun.missing ||
     allowLan.missing ||
@@ -408,25 +410,30 @@ export function requiresCoreRestart(key: string): boolean {
   }
 }
 
-export function validateController(v: string): boolean {
-  const trimmed = v.trim();
-  if (!trimmed) return false;
-  if (/[\s/?#@]/.test(trimmed)) return false;
-  const match = trimmed.match(/^(.*):(\d+)$/);
-  const hostPart = match?.[1];
-  const portPart = match?.[2];
-  if (!hostPart || !portPart) return false;
-  const port = Number.parseInt(portPart, 10);
-  if (port < 1 || port > 65535) return false;
-  try {
-    const url = new URL(`http://${trimmed}`);
-    if (!url.hostname) return false;
-    if (url.username || url.password) return false;
-    if (url.pathname !== "/" || url.search || url.hash) return false;
-    return true;
-  } catch {
-    return false;
+export interface ControllerAddress {
+  host: "127.0.0.1" | "localhost" | "::1";
+  port: number;
+  canonical: string;
+}
+
+/** Parse the internal controller boundary. Sash never sends its bearer off-loopback. */
+export function parseControllerAddress(value: string): ControllerAddress | undefined {
+  const match = value.trim().match(/^(127\.0\.0\.1|localhost|\[::1\]):(\d+)$/i);
+  const rawHost = match?.[1]?.toLowerCase();
+  const rawPort = match?.[2];
+  if (!rawHost || !rawPort) return undefined;
+  const port = Number.parseInt(rawPort, 10);
+  if (port < 1 || port > 65_535 || String(port) !== rawPort) return undefined;
+
+  if (rawHost === "[::1]") {
+    return { host: "::1", port, canonical: `[::1]:${port}` };
   }
+  const host = rawHost === "localhost" ? "localhost" : "127.0.0.1";
+  return { host, port, canonical: `${host}:${port}` };
+}
+
+export function validateController(value: string): boolean {
+  return parseControllerAddress(value) !== undefined;
 }
 
 function parseOnOff(value: string | undefined): boolean {
@@ -466,10 +473,11 @@ export function applyManagedKey(
     }
     case "controller": {
       const v = (value ?? "").trim();
-      if (!v || !validateController(v)) {
-        throw new Error(`invalid controller address: ${v} (expected host:port)`);
+      const address = parseControllerAddress(v);
+      if (!address) {
+        throw new Error(`invalid controller address: ${v} (expected loopback host:port)`);
       }
-      settings.controller = v;
+      settings.controller = address.canonical;
       break;
     }
     case "secret":

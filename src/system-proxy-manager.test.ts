@@ -169,10 +169,10 @@ describe("SystemProxyManager", () => {
   function writeJournal(
     original: LinuxSystemProxySnapshot,
     target: LinuxSystemProxySnapshot,
-    phase: "prepared" | "applied" = "prepared",
+    phase: SystemProxyJournal["phase"] = "prepared",
   ): string {
     const journal: SystemProxyJournal = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       phase,
       ownerPid: process.pid,
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -184,6 +184,23 @@ describe("SystemProxyManager", () => {
     fs.writeFileSync(layout.systemProxyStateFile, text, { mode: 0o600 });
     return text;
   }
+
+  it("upgrades legacy journals to the current in-memory schema", () => {
+    const original = linuxSnapshot("proxy-a", 8000);
+    const backend = new FakeBackend(original);
+    const target = targetFor(backend, original);
+    const parsed = parseSystemProxyJournal({
+      schemaVersion: 1,
+      phase: "applied",
+      ownerPid: process.pid,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      original,
+      target,
+    });
+
+    assert.equal(parsed.schemaVersion, 2);
+    assert.equal(parsed.phase, "applied");
+  });
 
   it("restores an existing proxy snapshot after releasing Sash ownership", async () => {
     const original = linuxSnapshot("proxy-a", 8000);
@@ -319,7 +336,7 @@ describe("SystemProxyManager", () => {
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
-  it("keeps the prepared journal when compensation cannot restore the snapshot", async () => {
+  it("keeps a restoring journal when compensation cannot restore the snapshot", async () => {
     const original = linuxSnapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const target = targetFor(backend, original);
@@ -346,8 +363,37 @@ describe("SystemProxyManager", () => {
     const journal = parseSystemProxyJournal(
       JSON.parse(fs.readFileSync(layout.systemProxyStateFile, "utf8")) as unknown,
     );
-    assert.equal(journal.phase, "prepared");
+    assert.equal(journal.phase, "restoring");
     assert.deepEqual(backend.current, partial);
+  });
+
+  it("continues a partial restoration after a crash", async () => {
+    const original = linuxSnapshot("proxy-a", 8000);
+    const backend = new FakeBackend(original);
+    const manager = new SystemProxyManager({ layout, backend });
+    await manager.apply({ port: 17890 });
+    const target = clone(backend.current);
+    const partial = clone(target);
+    partial.http = clone(original.http);
+    backend.onApply = (_snapshot, fake) => {
+      fake.current = clone(partial);
+      throw new Error("restore interrupted");
+    };
+
+    await assert.rejects(manager.release(), /restore interrupted/);
+    const interrupted = parseSystemProxyJournal(
+      JSON.parse(fs.readFileSync(layout.systemProxyStateFile, "utf8")) as unknown,
+    );
+    assert.equal(interrupted.phase, "restoring");
+    assert.deepEqual(backend.current, partial);
+
+    backend.onApply = (snapshot, fake) => {
+      fake.current = clone(snapshot);
+    };
+    await new SystemProxyManager({ layout, backend }).recover();
+
+    assert.deepEqual(backend.current, original);
+    assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
   it("refuses corrupt journals without overwriting or deleting them", async () => {

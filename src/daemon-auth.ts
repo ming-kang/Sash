@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { IncomingMessage } from "node:http";
-import { WEB_SOCKET_TOKEN_PROTOCOL_PREFIX } from "./contracts.js";
+import { WEB_SOCKET_AUTH_PROTOCOL, WEB_SOCKET_TOKEN_PROTOCOL_PREFIX } from "./contracts.js";
 
 function firstHeader(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -52,29 +52,43 @@ export function isControlRequestAuthorized(
   return Boolean(webToken && secretsEqual(webToken, opts.bootToken));
 }
 
+function webSocketProtocols(value: string | string[] | undefined): string[] {
+  return (Array.isArray(value) ? value.join(",") : (value ?? ""))
+    .split(",")
+    .map((protocol) => protocol.trim())
+    .filter(Boolean);
+}
+
 /** Browser WebSockets carry the per-boot token as a private subprotocol. */
 export function isWebSocketRequestAuthorized(
   req: IncomingMessage,
   opts: { daemonSecret: string; bootToken: string },
 ): boolean {
   if (isControlRequestAuthorized(req, opts)) return true;
-  const protocols = firstHeader(req.headers["sec-websocket-protocol"])
-    .split(",")
-    .map((value) => value.trim());
-  return protocols.some((protocol) => {
+  return webSocketProtocols(req.headers["sec-websocket-protocol"]).some((protocol) => {
     if (!protocol.startsWith(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX)) return false;
     const token = protocol.slice(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX.length);
     return Boolean(token && secretsEqual(token, opts.bootToken));
   });
 }
 
-/** Remove only the daemon credential protocol before forwarding to the Core. */
+/** Select an offered Sash protocol for the downstream 101 response. */
+export function webSocketAuthResponseProtocol(
+  value: string | string[] | undefined,
+): string | undefined {
+  const protocols = webSocketProtocols(value);
+  return (
+    protocols.find((protocol) => protocol === WEB_SOCKET_AUTH_PROTOCOL) ??
+    protocols.find((protocol) => protocol.startsWith(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX))
+  );
+}
+
+/** Remove daemon-only authentication protocols before forwarding to the Core. */
 export function coreWebSocketProtocols(value: string | string[] | undefined): string | undefined {
-  const protocols = (Array.isArray(value) ? value.join(",") : (value ?? ""))
-    .split(",")
-    .map((protocol) => protocol.trim())
-    .filter(
-      (protocol) => protocol.length > 0 && !protocol.startsWith(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX),
-    );
+  const protocols = webSocketProtocols(value).filter(
+    (protocol) =>
+      protocol !== WEB_SOCKET_AUTH_PROTOCOL &&
+      !protocol.startsWith(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX),
+  );
   return protocols.length > 0 ? protocols.join(", ") : undefined;
 }

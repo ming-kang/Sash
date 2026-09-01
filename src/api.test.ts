@@ -14,6 +14,11 @@ describe("MihomoApi", () => {
     assert.equal(api.baseUrl, "http://127.0.0.1:9090");
   });
 
+  it("rejects non-loopback controllers before sending credentials", () => {
+    assert.throws(() => new MihomoApi("controller.example:9090", "secret"), /loopback host:port/);
+    assert.throws(() => new MihomoApi("0.0.0.0:9090", "secret"), /loopback host:port/);
+  });
+
   it("queries version and checks reachability", async () => {
     const server = http.createServer((req, res) => {
       if (req.url === "/version" && req.headers.authorization === "Bearer test-secret") {
@@ -42,6 +47,31 @@ describe("MihomoApi", () => {
       assert.equal(badReachable, false);
     } finally {
       server.close();
+    }
+  });
+
+  it("drains a successful reload response before resolving", async () => {
+    const server = http.createServer((req, res) => {
+      if (req.method === "PUT" && req.url === "/configs") {
+        res.writeHead(200);
+        setTimeout(() => res.end("reload complete"), 50);
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+
+    try {
+      const api = new MihomoApi(`127.0.0.1:${port}`, "");
+      const started = Date.now();
+      await api.reloadConfig("/tmp/config.yaml");
+      assert.ok(Date.now() - started >= 40, "reload resolved before its response body was drained");
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 

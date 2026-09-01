@@ -1,4 +1,5 @@
-import { fetchWithRetry } from "./http.js";
+import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
+import { parseControllerAddress } from "./settings.js";
 
 /**
  * Low-level Mihomo external-controller client used internally by the
@@ -12,14 +13,12 @@ export class MihomoApi {
   private readonly secret: string;
 
   constructor(controller: string, secret: string) {
-    const trimmed = (controller || "").trim();
-    let base = trimmed;
-    if (base && !/^https?:\/\//i.test(base)) {
-      base = `http://${base}`;
-    } else if (!base) {
-      base = "http://127.0.0.1:9090";
+    const raw = controller.trim() || "127.0.0.1:9090";
+    const address = parseControllerAddress(raw);
+    if (!address) {
+      throw new Error(`Invalid controller address: ${raw} (expected loopback host:port)`);
     }
-    this.baseUrl = base.replace(/\/+$/, "");
+    this.baseUrl = `http://${address.canonical}`;
     this.secret = (secret || "").trim();
   }
 
@@ -28,25 +27,21 @@ export class MihomoApi {
     options: {
       method?: string;
       body?: string;
-      timeoutMs?: number;
+      deadlineMs?: number;
       attempts?: number;
     } = {},
   ) {
     const url = `${this.baseUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
     const headers: Record<string, string> = {};
-    if (this.secret) {
-      headers.Authorization = `Bearer ${this.secret}`;
-    }
-    if (options.body) {
-      headers["Content-Type"] = "application/json";
-    }
+    if (this.secret) headers.Authorization = `Bearer ${this.secret}`;
+    if (options.body) headers["Content-Type"] = "application/json";
     return fetchWithRetry(url, {
       method: options.method ?? "GET",
       headers,
       body: options.body,
       direct: true,
-      attempts: options.attempts ?? 2,
-      timeoutMs: options.timeoutMs ?? 5_000,
+      attempts: options.attempts,
+      deadlineMs: options.deadlineMs ?? 5_000,
     });
   }
 
@@ -59,21 +54,19 @@ export class MihomoApi {
   }
 
   async version(): Promise<string> {
-    const res = await this.request("/version", { timeoutMs: 5_000, attempts: 2 });
-    const text = await res.text(1024 * 1024);
+    const res = await this.request("/version", { deadlineMs: 5_000, attempts: 2 });
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      const summary = text.slice(0, 200).trim();
+      const summary = (await res.text(ERROR_BODY_LIMIT)).slice(0, 200).trim();
       throw new Error(`Mihomo API returned HTTP ${res.statusCode}: ${summary}`);
     }
+    const text = await res.text(1024 * 1024);
     let data: { version?: unknown; meta?: unknown };
     try {
       data = JSON.parse(text) as { version?: unknown; meta?: unknown };
     } catch {
       throw new Error(`Invalid JSON response from Mihomo /version: ${text.slice(0, 200).trim()}`);
     }
-    if (typeof data.version === "string" && data.version.trim()) {
-      return data.version.trim();
-    }
+    if (typeof data.version === "string" && data.version.trim()) return data.version.trim();
     throw new Error("Mihomo /version response is missing a non-empty version");
   }
 
@@ -82,18 +75,18 @@ export class MihomoApi {
     const res = await this.request("/configs", {
       method: "PUT",
       body,
-      timeoutMs: 5_000,
-      attempts: 2,
+      deadlineMs: 5_000,
     });
     if (res.statusCode < 200 || res.statusCode >= 300) {
       let bodyText = "";
       try {
-        bodyText = (await res.text()).trim();
+        bodyText = (await res.text(ERROR_BODY_LIMIT)).trim();
       } catch {
-        // ignore
+        // The status is still useful if a peer terminates an error body early.
       }
       const summary = bodyText ? `: ${bodyText.slice(0, 300)}` : "";
       throw new Error(`Failed to reload Mihomo config (HTTP ${res.statusCode})${summary}`);
     }
+    await res.discard();
   }
 }

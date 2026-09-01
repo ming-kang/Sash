@@ -120,6 +120,18 @@ describe("settings", () => {
       assert.equal(persisted.daemonSecret, loaded.daemonSecret);
     });
 
+    it("canonicalizes loopback controllers and rejects non-loopback settings", () => {
+      writeSettingsText(JSON.stringify(completeSettings({ controller: " LOCALHOST:9090 " })));
+      assert.equal(loadSettings(layout).controller, "localhost:9090");
+      const canonical = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as {
+        controller: string;
+      };
+      assert.equal(canonical.controller, "localhost:9090");
+
+      const remote = JSON.stringify(completeSettings({ controller: "controller.example:9090" }));
+      assertLoadRejectsWithoutOverwrite(remote, /loopback host:port/);
+    });
+
     it("rejects corrupted sash.json without overwriting it", () => {
       const corrupt = "{ corrupted invalid json content @#$%! ]]";
       assertLoadRejectsWithoutOverwrite(corrupt, /Settings file is invalid JSON/);

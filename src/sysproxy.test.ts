@@ -4,7 +4,9 @@ import {
   createLegacyProxyCleanup,
   createSystemProxyBackend,
   DEFAULT_BYPASS_LIST,
+  disableLegacySystemProxyIfOwned,
   formatWindowsBypass,
+  isSystemProxySnapshot,
   isSystemProxySupported,
   parseDarwinAutoProxySetting,
   parseDarwinGetWebProxy,
@@ -15,6 +17,7 @@ import {
   parseSystemProxySnapshot,
   parseWindowsRegistryProxyValues,
   parseWindowsRegQuery,
+  SYSTEM_PROXY_SNAPSHOT_VERSION,
 } from "./sysproxy.js";
 
 describe("sysproxy", () => {
@@ -87,16 +90,40 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
       assert.equal(parsed.autoConfigUrl, "https://pac.example.test/proxy.pac");
       assert.equal(parsed.autoDetect, 1);
 
-      const missing = parseWindowsRegistryProxyValues(
-        "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\n",
-      );
+      const missing = parseWindowsRegistryProxyValues(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0
+`);
       assert.deepEqual(missing, {
-        proxyEnable: null,
+        proxyEnable: 0,
         proxyServer: null,
         proxyOverride: null,
         autoConfigUrl: null,
         autoDetect: null,
       });
+    });
+
+    it("fails closed for empty, unrelated, truncated, and wrong registry responses", () => {
+      const header =
+        "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+      for (const output of [
+        "",
+        `${header}\n    MigrateProxy    REG_DWORD    0x1\n`,
+        `${header}\n    ProxyEnable    REG_DWORD\n`,
+        "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\n    ProxyEnable    REG_DWORD    0x1\n",
+      ]) {
+        assert.throws(
+          () => parseWindowsRegistryProxyValues(output),
+          /Invalid Windows registry output/,
+        );
+      }
+
+      assert.deepEqual(
+        parseWindowsRegQuery(
+          "    ProxyEnable    REG_DWORD    0x1\n    ProxyServer    REG_SZ    proxy.example.test:7890\n",
+        ),
+        { enabled: true, server: "proxy.example.test:7890" },
+      );
     });
   });
 
@@ -160,6 +187,25 @@ Authenticated Proxy Enabled: 1
         url: "",
       });
     });
+
+    it("keeps empty Server and URL values on their own lines", () => {
+      const manual = `Enabled: Yes
+Server:
+Port: 0
+Authenticated Proxy Enabled: 0
+`;
+      assert.deepEqual(parseDarwinProxySetting(manual), {
+        enabled: true,
+        server: "",
+        port: 0,
+        authenticated: false,
+      });
+      assert.deepEqual(parseDarwinGetWebProxy(manual), { enabled: true });
+      assert.deepEqual(parseDarwinAutoProxySetting("URL:\nEnabled: No\n"), {
+        enabled: false,
+        url: "",
+      });
+    });
   });
 
   describe("snapshot and gsettings parsers", () => {
@@ -168,6 +214,27 @@ Authenticated Proxy Enabled: 1
       assert.throws(() => parseGSettingsString("manual"), /single-quoted/);
       assert.equal(parseGSettingsPort("uint16 17890\n", "test port"), 17890);
       assert.equal(parseGSettingsPort("1080", "test port"), 1080);
+    });
+
+    it("keeps snapshot APIs available through the public entry", () => {
+      const snapshot = {
+        version: SYSTEM_PROXY_SNAPSHOT_VERSION,
+        platform: "linux" as const,
+        mode: "none" as const,
+        autoConfigUrl: "",
+        httpUseAuthentication: false,
+        http: { host: "", port: 0 },
+        https: { host: "", port: 0 },
+        socks: { host: "", port: 0 },
+      };
+      assert.equal(isSystemProxySnapshot(snapshot), true);
+      assert.equal(typeof disableLegacySystemProxyIfOwned, "function");
+      const backend = createSystemProxyBackend("freebsd" as NodeJS.Platform);
+      assert.deepEqual(backend.state(snapshot), {
+        supported: false,
+        enabled: false,
+        details: "unsupported platform: freebsd",
+      });
     });
 
     it("rejects unknown snapshot fields", () => {

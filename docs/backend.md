@@ -29,7 +29,7 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/daemon-lifecycle.ts`: daemon discovery, singleton startup and CLI shutdown.
 - `src/state-lock.ts`: atomic file leases and cross-process mutation queues.
 - `src/system-proxy-manager.ts`: durable proxy ownership journal and conditional recovery.
-- `src/sysproxy.ts`: Windows, macOS and GNOME snapshot/apply backends.
+- `src/sysproxy.ts` / `src/sysproxy/`: public system-proxy API plus focused Windows, macOS and GNOME snapshot/apply backends.
 - `src/profile-service.ts`: profile/config application transactions.
 - `src/core-update.ts`: executable/install-record update transaction and crash recovery.
 - `src/http.ts` / `src/github.ts`: bounded networking and trusted release downloads.
@@ -66,7 +66,7 @@ Invariants:
 4. A deliberate stop restores the previous OS proxy before stopping the Core.
 5. If proxy restoration cannot be proved, the healthy Core is left running.
 6. Late child-exit events and delayed cleanup callbacks cannot clear a replacement child.
-7. Failed termination preserves PID ownership instead of pretending the process stopped.
+7. Process ownership is revalidated before every graceful or force signal; failed verification or termination preserves PID ownership.
 
 Unexpected Core exit retries proxy restoration and records failures in daemon error logs.
 
@@ -106,11 +106,11 @@ Requests are forwarded to the internal controller. `sashd` strips Sash credentia
 
 ## 4. Control-Request Security
 
-- The listener binds only to `127.0.0.1` and rejects non-loopback Host headers.
+- The daemon listener binds only to `127.0.0.1`, rejects non-loopback Host headers, and only accepts loopback Core controller addresses.
 - State-changing methods require the persistent CLI bearer or per-boot WebUI token.
 - WebSocket upgrades additionally validate loopback Origin and route boundaries.
 - Public settings/status contracts omit controller and daemon secrets.
-- Controller and daemon clients use a direct dispatcher; proxy environment variables apply only to remote downloads.
+- Controller and daemon clients use a direct dispatcher with normal TLS verification; proxy environment variables apply only to remote downloads.
 - Child environments remove GitHub/npm tokens and npm authentication variables.
 
 ---
@@ -130,7 +130,7 @@ Profile application follows:
 7. Reload or restart the runtime.
 8. Commit metadata only after runtime success; otherwise restore the snapshot.
 
-Remote bodies are capped at 8 MiB. Scheduled network fetches use bounded concurrency; state commits remain serialized and recheck profile identity/URL before publication.
+Remote bodies are capped at 8 MiB. Profile requests use an absolute deadline and explicit hop-by-hop redirects: HTTPS cannot downgrade to HTTP, restricted literal addresses cannot cross origins, and public origins cannot redirect to literal private/loopback targets. Scheduled network fetches use bounded concurrency; state commits remain serialized and recheck profile identity/URL before publication.
 
 ---
 
@@ -139,8 +139,9 @@ Remote bodies are capped at 8 MiB. Scheduled network fetches use bounded concurr
 `settings.systemProxy` stores desired state. `state/system-proxy.json` separately records ownership:
 
 ```text
-prepared: original snapshot + intended target persisted before OS writes
-applied:  target was written and read back exactly
+prepared:  original snapshot + intended target persisted before OS writes
+applied:   target was written and read back exactly
+restoring: restoration began and original/target-compatible partial state remains recoverable
 ```
 
 Enable flow:
@@ -151,7 +152,7 @@ Enable flow:
 4. Apply and verify the target.
 5. Mark the journal `applied`.
 
-Release/recovery restores only when every managed value still equals either the original or Sash target. A third-party value is never overwritten. Failed or partial restoration retains the journal and blocks deliberate Core shutdown.
+Release/recovery restores only when every managed value still equals either the original or Sash target. Before multi-field restoration Sash persists the `restoring` phase, so a crash can continue from an original/target-compatible partial state. A third-party value is never overwritten. Failed restoration retains the journal and blocks deliberate Core shutdown.
 
 Platform scope:
 
@@ -183,7 +184,7 @@ Official digest metadata is mandatory. If the metadata API is unavailable, Sash 
 
 ## 8. Persistence Safety
 
-Atomic state writes use a same-directory temporary file, `fsync` and rename. Sensitive files use mode `0o600` on POSIX. Important files are:
+Atomic state writes use a same-directory temporary file, file `fsync`, rename and POSIX parent-directory `fsync`. Sensitive files use mode `0o600` on POSIX. Important files are:
 
 - `sash.json`: versioned desired settings and local secrets.
 - `profiles/index.json`, `profiles/<id>.yaml`: profile metadata/content.

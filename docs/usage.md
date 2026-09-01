@@ -85,7 +85,7 @@ Core updates temporarily stop `sashd`, retain `<core>.bak`, and restore the prev
 | :--- | :--- | :--- |
 | `schemaVersion` | `1` | On-disk settings schema; managed by Sash. |
 | `mixedPort` / `mixed-port` | `17890` | Local HTTP/SOCKS5 mixed inbound port. |
-| `controller` | `127.0.0.1:9090` | Internal controller listen address. |
+| `controller` | `127.0.0.1:9090` | Internal controller listen address; only loopback hosts are accepted. |
 | `daemonPort` | `19090` | Daemon API and WebUI port. |
 | `secret` | *(random)* | Internal controller secret. It is never returned by the public status API. |
 | `daemonSecret` | *(random)* | CLI bearer secret for state-changing daemon requests. |

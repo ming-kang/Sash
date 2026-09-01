@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { MihomoApi } from "./api.js";
 import type { SashLayout } from "./paths.js";
+import type { ProcessIdentity } from "./process.js";
 import {
   buildSanitizedEnv,
   classifyProcessIdentity,
@@ -82,6 +83,13 @@ export class CoreSupervisor {
     this.classifyIdentity = opts.classifyIdentityFn ?? classifyProcessIdentity;
     this.onExitCallback = opts.onExit;
     this.spawnFn = opts.spawnFn ?? this.defaultSpawn.bind(this);
+  }
+
+  private ownedChildIdentity(child: ChildProcess): ProcessIdentity {
+    if (this.child !== child) return "mismatch";
+    if (child.exitCode !== null && child.exitCode !== undefined) return "mismatch";
+    if (child.signalCode !== null && child.signalCode !== undefined) return "mismatch";
+    return child.pid && this.isAlive(child.pid) ? "match" : "mismatch";
   }
 
   private defaultSpawn(layout: SashLayout, _settings: SashSettings): ChildProcess {
@@ -183,7 +191,10 @@ export class CoreSupervisor {
       });
     } catch (err) {
       this.stopping = true;
-      const terminated = await this.kill(pid, { timeoutMs: 3000 });
+      const terminated = await this.kill(pid, {
+        timeoutMs: 3000,
+        verify: () => this.ownedChildIdentity(child),
+      });
       if (terminated && this.child === child) {
         this.child = null;
         this.childStartedAt = undefined;
@@ -200,7 +211,10 @@ export class CoreSupervisor {
     while (Date.now() < deadline) {
       if (spawnError) {
         this.stopping = true;
-        const terminated = await this.kill(pid, { timeoutMs: 3000 });
+        const terminated = await this.kill(pid, {
+          timeoutMs: 3000,
+          verify: () => this.ownedChildIdentity(child),
+        });
         if (terminated && this.child === child) {
           this.child = null;
           this.childStartedAt = undefined;
@@ -239,7 +253,10 @@ export class CoreSupervisor {
     // Health check timed out. Preserve ownership records unless termination
     // is positively confirmed, so later recovery can still identify the Core.
     this.stopping = true;
-    const terminated = await this.kill(pid, { timeoutMs: 3000 });
+    const terminated = await this.kill(pid, {
+      timeoutMs: 3000,
+      verify: () => this.ownedChildIdentity(child),
+    });
     if (terminated && this.child === child) {
       clearPidRecord(this.layout.pidFile);
       this.child = null;
@@ -266,7 +283,10 @@ export class CoreSupervisor {
 
     this.stopping = true;
     const pid = child.pid;
-    const terminated = await this.kill(pid, { timeoutMs: 8000 });
+    const terminated = await this.kill(pid, {
+      timeoutMs: 8000,
+      verify: () => this.ownedChildIdentity(child),
+    });
     if (!terminated) {
       throw new Error(`Core process is still running after termination attempt (PID=${pid})`);
     }
@@ -344,7 +364,10 @@ export class CoreSupervisor {
       );
     }
 
-    const terminated = await this.kill(record.pid, { timeoutMs: 5000 });
+    const terminated = await this.kill(record.pid, {
+      timeoutMs: 5000,
+      verify: () => this.classifyIdentity(record.pid, this.layout.coreExe),
+    });
     if (!terminated) {
       throw new Error(
         `Stale Core process is still running after termination attempt (PID=${record.pid})`,

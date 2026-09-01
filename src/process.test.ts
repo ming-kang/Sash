@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +9,7 @@ import {
   buildSanitizedEnv,
   clearPidRecord,
   isProcessAlive,
+  killProcessGracefully,
   readPidRecord,
   tailFile,
   writePidRecord,
@@ -36,6 +39,49 @@ describe("process utilities", () => {
       assert.equal(isProcessAlive(0), false);
       assert.equal(isProcessAlive(-1), false);
       assert.equal(isProcessAlive(Number.NaN), false);
+    });
+  });
+
+  describe("killProcessGracefully", () => {
+    it("refuses to signal a process whose identity is not verified", async () => {
+      const stopped = await killProcessGracefully(process.pid, {
+        timeoutMs: 100,
+        verify: () => "mismatch",
+      });
+
+      assert.equal(stopped, false);
+      assert.equal(isProcessAlive(process.pid), true);
+    });
+
+    it("revalidates identity before escalating to a force signal", {
+      skip: process.platform === "win32",
+    }, async () => {
+      const child = spawn(
+        process.execPath,
+        [
+          "-e",
+          'process.on("SIGTERM", () => {}); process.send?.("ready"); setInterval(() => {}, 1000)',
+        ],
+        { stdio: ["ignore", "ignore", "ignore", "ipc"] },
+      );
+      await once(child, "message");
+      const pid = child.pid;
+      assert.ok(pid);
+      let identityChecks = 0;
+
+      try {
+        const stopped = await killProcessGracefully(pid, {
+          timeoutMs: 500,
+          verify: () => (++identityChecks === 1 ? "match" : "mismatch"),
+        });
+
+        assert.equal(stopped, false);
+        assert.ok(identityChecks >= 2);
+        assert.equal(isProcessAlive(pid), true);
+      } finally {
+        child.kill("SIGKILL");
+        await once(child, "close");
+      }
     });
   });
 

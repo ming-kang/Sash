@@ -273,8 +273,16 @@ async function spawnDaemonUnlocked(
   }
 
   // Timed out waiting for healthy daemon. Preserve ownership records unless
-  // termination is positively confirmed by the process probe.
-  const terminated = await killProcessGracefully(pid, { timeoutMs: 3000 });
+  // termination is positively confirmed by the owned child handle.
+  const terminated = await killProcessGracefully(pid, {
+    timeoutMs: 3000,
+    verify: () =>
+      child.pid === pid &&
+      (child.exitCode === null || child.exitCode === undefined) &&
+      (child.signalCode === null || child.signalCode === undefined)
+        ? "match"
+        : "mismatch",
+  });
   const details = tailFile(layout.daemonErrLogFile, 20);
   const cleanup = terminated
     ? ""
@@ -346,17 +354,17 @@ export async function stopDaemonFromCli(
 
   const client = new SashDaemonClient(record.port || settings.daemonPort, settings.daemonSecret);
   const legacyOwnership = !lease;
-  if (legacyOwnership) {
+  const healthMatchesRecord = async (): Promise<boolean> => {
     try {
       const health = await client.health();
-      if (!health.ok || health.token !== record.token || health.pid !== pid) {
-        log.warn(`Refusing to stop unverified legacy sashd PID ${pid}.`);
-        return false;
-      }
+      return health.ok && health.token === record.token && health.pid === pid;
     } catch {
-      log.warn(`Refusing to stop unverified legacy sashd PID ${pid}.`);
       return false;
     }
+  };
+  if (!(await healthMatchesRecord())) {
+    log.warn(`Refusing to stop unverified sashd PID ${pid}.`);
+    return false;
   }
 
   // Try graceful shutdown via API first.
@@ -414,15 +422,21 @@ export async function stopDaemonFromCli(
         return false;
       }
 
-      const isOurs = commandLineContains(pid, "daemon-entry");
-      if (!isOurs) {
+      const verifyDaemonIdentity = async () => {
+        if (!(await healthMatchesRecord())) return "mismatch" as const;
+        return commandLineContains(pid, "daemon-entry") ? ("match" as const) : ("unknown" as const);
+      };
+      if ((await verifyDaemonIdentity()) !== "match") {
         log.warn(
-          `Refusing to terminate PID ${pid}: process command line does not match sashd. Verify manually.`,
+          `Refusing to terminate PID ${pid}: process identity no longer matches sashd. Verify manually.`,
         );
         return false;
       }
 
-      const killed = await killProcessGracefully(pid, { timeoutMs: 4000 });
+      const killed = await killProcessGracefully(pid, {
+        timeoutMs: 4000,
+        verify: verifyDaemonIdentity,
+      });
       if (killed) return true;
 
       log.error(`sashd process is still running after termination attempt (PID=${pid}).`);

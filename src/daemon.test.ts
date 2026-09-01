@@ -730,12 +730,17 @@ describe("daemon server", () => {
       assert.match(response, /^HTTP\/1\.1 401 Unauthorized WebSocket request/);
     });
 
-    it("authenticates WebSockets and strips the daemon token protocol upstream", async () => {
+    it("completes WebSocket auth negotiation without forwarding private protocols", async () => {
       let receivedProtocols: string | undefined;
       mockCoreServer = http.createServer();
       mockCoreServer.on("upgrade", (req, socket) => {
         receivedProtocols = req.headers["sec-websocket-protocol"];
-        socket.end("HTTP/1.1 400 Test Complete\r\nConnection: close\r\n\r\n");
+        socket.end(
+          "HTTP/1.1 101 Switching Protocols\r\n" +
+            "Connection: Upgrade\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
+        );
       });
       await new Promise<void>((resolve) => {
         mockCoreServer?.listen(0, "127.0.0.1", () => resolve());
@@ -747,10 +752,11 @@ describe("daemon server", () => {
       const inst = await startServer();
       const response = await rawWebSocketUpgrade("/core/api/logs", {
         Origin: `http://127.0.0.1:${boundPort}`,
-        "Sec-WebSocket-Protocol": `sash-token.${inst.token}`,
+        "Sec-WebSocket-Protocol": `sash, sash-token.${inst.token}`,
       });
 
-      assert.match(response, /^HTTP\/1\.1 400 Test Complete/);
+      assert.match(response, /^HTTP\/1\.1 101 Switching Protocols/);
+      assert.match(response, /\r\nsec-websocket-protocol: sash\r\n/i);
       assert.equal(receivedProtocols, undefined);
     });
   });

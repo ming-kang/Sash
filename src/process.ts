@@ -280,16 +280,27 @@ async function runTaskkill(pid: number, force: boolean): Promise<boolean> {
   });
 }
 
-/**
- * Terminate a process: graceful signal first, force after half the timeout.
- * Callers MUST have verified the process identity before invoking this —
- * the function itself performs no identity checks.
- */
+export interface KillProcessOptions {
+  timeoutMs?: number;
+  /** Revalidate ownership immediately before every termination signal. */
+  verify: () => ProcessIdentity | Promise<ProcessIdentity>;
+}
+
+async function processIdentityMatches(verify: KillProcessOptions["verify"]): Promise<boolean> {
+  try {
+    return (await verify()) === "match";
+  } catch {
+    return false;
+  }
+}
+
+/** Terminate a process without ever signalling a PID whose ownership became uncertain. */
 export async function killProcessGracefully(
   pid: number,
-  opts: { timeoutMs?: number } = {},
+  opts: KillProcessOptions,
 ): Promise<boolean> {
   if (!isProcessAlive(pid)) return true;
+  if (!(await processIdentityMatches(opts.verify))) return false;
 
   const totalTimeout = opts.timeoutMs ?? 10_000;
   const graceMs = Math.min(5000, Math.floor(totalTimeout / 2));
@@ -304,6 +315,7 @@ export async function killProcessGracefully(
       }
     }
     if (isProcessAlive(pid)) {
+      if (!(await processIdentityMatches(opts.verify))) return false;
       await runTaskkill(pid, true);
       const hardDeadline = Date.now() + forceMs;
       while (Date.now() < hardDeadline && isProcessAlive(pid)) {
@@ -324,6 +336,7 @@ export async function killProcessGracefully(
     }
 
     if (isProcessAlive(pid)) {
+      if (!(await processIdentityMatches(opts.verify))) return false;
       try {
         process.kill(pid, "SIGKILL");
       } catch (err) {

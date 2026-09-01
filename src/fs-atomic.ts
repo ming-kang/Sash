@@ -30,6 +30,7 @@ export function atomicWriteFileSync(target: string, data: string | Buffer, mode 
   }
   fs.closeSync(fd);
   renameWithRetry(tmp, target);
+  fsyncParentDirectory(dir);
 }
 
 function renameWithRetry(from: string, to: string): void {
@@ -54,6 +55,16 @@ function renameWithRetry(from: string, to: string): void {
     // best effort
   }
   throw lastErr;
+}
+
+function fsyncParentDirectory(dir: string): void {
+  if (process.platform === "win32") return;
+  const fd = fs.openSync(dir, "r");
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function sleepSync(ms: number): void {
