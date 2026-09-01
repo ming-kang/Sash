@@ -26,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted } from "vue";
+import { onMounted, onUnmounted, watch } from "vue";
 import { api } from "./api/index.js";
 import AppSidebar from "./components/AppSidebar.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
@@ -37,8 +37,8 @@ import { currentRoute } from "./router.js";
 import {
   addLog,
   addTraffic,
-  refreshConnections,
-  refreshRuntimeState,
+  isCoreReady,
+  resetTraffic,
   startRuntimePolling,
   store,
 } from "./stores/index.js";
@@ -53,27 +53,33 @@ let stopPolling: (() => void) | null = null;
 let unsubTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
 
-async function bootstrap(): Promise<void> {
-  try {
-    await api.initialize();
-    await Promise.all([refreshRuntimeState(), refreshConnections().catch(() => undefined)]);
-  } catch {
-    store.daemonOnline = false;
-  }
-
-  unsubTraffic = api.connectTraffic(addTraffic);
-  unsubLogs = api.connectLogs(addLog);
-  stopPolling = startRuntimePolling();
+function stopStreams(): void {
+  unsubTraffic?.();
+  unsubLogs?.();
+  unsubTraffic = null;
+  unsubLogs = null;
+  resetTraffic();
 }
 
+watch(
+  () => store.daemonOnline && isCoreReady.value && api.hasSession(),
+  (available) => {
+    if (!available) {
+      stopStreams();
+      return;
+    }
+    if (!unsubTraffic) unsubTraffic = api.connectTraffic(addTraffic, resetTraffic);
+    if (!unsubLogs) unsubLogs = api.connectLogs(addLog);
+  },
+);
+
 onMounted(() => {
-  void bootstrap();
+  stopPolling = startRuntimePolling();
 });
 
 onUnmounted(() => {
   stopPolling?.();
-  unsubTraffic?.();
-  unsubLogs?.();
+  stopStreams();
 });
 </script>
 

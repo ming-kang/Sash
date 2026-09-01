@@ -20,7 +20,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/sash": "http://127.0.0.1:19090",
-      "/core": "http://127.0.0.1:19090",
+      "/core": {
+        target: "http://127.0.0.1:19090",
+        ws: true,
+      },
     },
   },
 });

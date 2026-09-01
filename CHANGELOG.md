@@ -38,7 +38,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Every Core start recompiles and validates `config.yaml` from the active profile and current settings. Remote profile responses are limited to 8 MiB.
 - The default mixed port is consistently `17890`. Installed core version is read from `state/install.json` instead of duplicated in settings.
 - Core updates download and validate the staged binary before stopping the existing runtime, and commit install metadata only after health checks pass.
-- Overview proxy groups share a reusable component; WebUI runtime refresh and polling are centralized in store actions.
+- Overview proxy groups share a reusable component; WebUI runtime refresh, profile mutations, mode/proxy intent and polling are centralized in store actions with per-domain generations.
+- Daemon status exposes a per-boot monotonic profile revision so scheduled profile publications trigger one coherent WebUI runtime refresh without adding heavy requests to every poll.
 - `npm test` now runs server TypeScript, `vue-tsc`, backend tests and WebUI tests. WebUI TypeScript is included in Biome checks.
 - Vite uses its Node API and a Node-20-compatible release line; unused archive/version dependencies were removed. Published backend source maps are disabled.
 - Core/proxy transitions now pass through one serialized runtime lifecycle; proxy restoration precedes deliberate Core shutdown and readiness precedes proxy apply.
@@ -78,6 +79,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - PID records now use atomic writes. Static dashboard streams handle read failures and support `HEAD`.
 - `GET /ui` redirects to `/ui/` while preserving the query string, so relative dashboard assets resolve correctly.
 - WebUI polling no longer overlaps, Settings polling no longer overwrites a dirty port input, and logs continue auto-scrolling after the 600-row cap.
+- WebUI Core-owned snapshots and traffic are cleared when runtime ownership is lost; stopped polling skips Core endpoints and recovery/profile revisions refresh configs, proxies, rules, connections and profiles once.
+- System proxy disable remains available for desired/applied/OS-observed recovery while Core is stopped, while enable requires a healthy Core and actions follow the switch target state.
+- Stale runtime/profile/mode/proxy responses can no longer overwrite newer intent; same-domain controls are disabled during mutations, failed single-profile updates refresh persisted errors, and committed TUN/LAN toggles update immediately.
+- Manual latency results survive ordinary proxy polling and are cleared only when Core/profile ownership changes; traffic WebSockets stop with unavailable sessions/runtime and reset stale rates on disconnect.
 - Confirm dialogs no longer leave older Promises pending; Escape and route changes cancel the active dialog.
 - Empty `204 No Content` responses are handled through typed void requests instead of JSON parsing/casts.
 - A late exit event from a replaced core process no longer clears the new child handle or PID record.

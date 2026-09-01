@@ -10,27 +10,32 @@
           type="url"
           class="input dl-input"
           :placeholder="t('profiles.downloadPlaceholder')"
-          :disabled="downloading"
+          :disabled="downloading || profileBusy"
           spellcheck="false"
           @keyup.enter="download"
         />
-        <button class="icon-btn dl-paste" :title="t('profiles.paste')" @click="pasteFromClipboard">
+        <button
+          class="icon-btn dl-paste"
+          :title="t('profiles.paste')"
+          :disabled="profileBusy"
+          @click="pasteFromClipboard"
+        >
           <Icon name="clipboard" :size="14" />
         </button>
       </div>
-      <button class="btn btn-primary" :disabled="downloading || !dlUrl.trim()" @click="download">
+      <button class="btn btn-primary" :disabled="downloading || profileBusy || !dlUrl.trim()" @click="download">
         <Icon name="download" :size="13" />
         <span>{{ downloading ? t('profiles.downloading') : t('profiles.download') }}</span>
       </button>
       <button
         class="btn btn-secondary"
-        :disabled="updatingAll || !hasRemote"
+        :disabled="updatingAll || profileBusy || !hasRemote"
         @click="updateAll"
       >
         <Icon name="refresh" :size="13" :class="{ spin: updatingAll }" />
         <span>{{ t('profiles.updateAll') }}</span>
       </button>
-      <button class="btn btn-secondary" :disabled="importing" @click="fileInput?.click()">
+      <button class="btn btn-secondary" :disabled="importing || profileBusy" @click="fileInput?.click()">
         <Icon name="upload" :size="13" />
         <span>{{ t('profiles.import') }}</span>
       </button>
@@ -56,7 +61,7 @@
         v-for="p in profiles"
         :key="p.id"
         class="profile-card"
-        :class="{ active: p.id === store.activeProfileId }"
+        :class="{ active: p.id === store.activeProfileId, busy: profileBusy }"
         :title="p.id === store.activeProfileId ? '' : t('profiles.clickToUse')"
         @click="selectProfile(p)"
       >
@@ -94,7 +99,7 @@
             class="icon-btn"
             :class="{ spin: updatingId === p.id }"
             :title="t('profiles.update')"
-            :disabled="Boolean(updatingId)"
+            :disabled="profileBusy"
             @click="updateOne(p)"
           >
             <Icon name="refresh" :size="13" />
@@ -102,6 +107,7 @@
           <button
             class="icon-btn danger-hover"
             :title="t('profiles.delete')"
+            :disabled="profileBusy"
             @click="removeProfile(p)"
           >
             <Icon name="trash" :size="13" />
@@ -114,18 +120,22 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { api } from "../api/index.js";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { locale, t } from "../i18n/index.js";
 import {
+  activateProfile,
+  addProfile,
+  deleteProfile,
   errorText,
+  importProfile,
   refreshProfiles,
-  refreshRuntimeState,
   store,
   toast,
+  updateAllProfiles,
+  updateProfile,
 } from "../stores/index.js";
 import type { ProfileMeta } from "../types/index.js";
 import { formatAgo, formatBytes, formatDate } from "../utils/format.js";
@@ -139,6 +149,7 @@ const fileInput = ref<HTMLInputElement | null>(null);
 
 const profiles = computed(() => store.profiles);
 const hasRemote = computed(() => store.profiles.some((p) => p.url !== ""));
+const profileBusy = computed(() => store.operations.profileMutation);
 
 /* ---------- display helpers ---------- */
 function sourceLabel(p: ProfileMeta): string {
@@ -176,11 +187,9 @@ async function download(): Promise<void> {
   if (!url || downloading.value) return;
   downloading.value = true;
   try {
-    const res = await api.addProfile(url);
-    await refreshProfiles();
+    const res = await addProfile(url);
     dlUrl.value = "";
     if (res.activated) {
-      await refreshRuntimeState();
       toast.success(t("toast.profileActivated", { name: res.profile.name, n: res.proxyCount ?? 0 }));
     } else {
       toast.success(t("toast.profileAdded", { name: res.profile.name }));
@@ -196,9 +205,7 @@ async function updateOne(p: ProfileMeta): Promise<void> {
   if (updatingId.value) return;
   updatingId.value = p.id;
   try {
-    const res = await api.updateProfile(p.id);
-    await refreshProfiles();
-    if (res.proxyCount !== undefined) await refreshRuntimeState();
+    await updateProfile(p.id);
     toast.success(t("toast.profileUpdated", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -211,9 +218,7 @@ async function updateAll(): Promise<void> {
   if (updatingAll.value) return;
   updatingAll.value = true;
   try {
-    const res = await api.updateAllProfiles();
-    await refreshProfiles();
-    if (res.proxyCount !== undefined) await refreshRuntimeState();
+    const res = await updateAllProfiles();
     if (res.failed.length === 0) {
       toast.success(t("toast.profilesUpdateAllOk", { n: res.updated }));
     } else {
@@ -229,11 +234,9 @@ async function updateAll(): Promise<void> {
 }
 
 async function selectProfile(p: ProfileMeta): Promise<void> {
-  if (p.id === store.activeProfileId) return;
+  if (profileBusy.value || p.id === store.activeProfileId) return;
   try {
-    const res = await api.setActiveProfile(p.id);
-    await refreshProfiles();
-    await refreshRuntimeState();
+    const res = await activateProfile(p.id);
     toast.success(t("toast.profileActivated", { name: p.name, n: res.proxyCount }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -241,6 +244,7 @@ async function selectProfile(p: ProfileMeta): Promise<void> {
 }
 
 async function removeProfile(p: ProfileMeta): Promise<void> {
+  if (profileBusy.value) return;
   const ok = await confirmDialog({
     title: t("profiles.deleteConfirmTitle"),
     message: t("profiles.deleteConfirmMsg", { name: p.name }),
@@ -250,9 +254,7 @@ async function removeProfile(p: ProfileMeta): Promise<void> {
   });
   if (!ok) return;
   try {
-    const res = await api.deleteProfile(p.id);
-    await refreshProfiles();
-    if (res.wasActive) await refreshRuntimeState();
+    await deleteProfile(p.id);
     toast.success(t("toast.profileDeleted", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -269,9 +271,7 @@ function onImportFile(event: Event): void {
     try {
       const content = await file.text();
       const name = file.name.replace(/\.(ya?ml)$/i, "") || "imported";
-      const res = await api.importProfile(name, content);
-      await refreshProfiles();
-      if (res.activated) await refreshRuntimeState();
+      const res = await importProfile(name, content);
       toast.success(t("toast.profileImported", { name: res.profile.name }));
     } catch (err) {
       toast.error(t("toast.failed", { msg: errorText(err) }));

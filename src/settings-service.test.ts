@@ -114,6 +114,7 @@ describe("SettingsService", () => {
       layout,
     ).profile;
     setActiveProfile(seeded.id, layout);
+    let profileChanges = 0;
     const service = new SettingsService({
       layout,
       getCommitted: () => committed,
@@ -130,6 +131,9 @@ describe("SettingsService", () => {
           doc: { rules: ["MATCH,DIRECT"] },
           yamlText: "rules:\n  - MATCH,DIRECT\n",
         }),
+        onChange: () => {
+          profileChanges++;
+        },
       }),
       commit: async (_purpose, action) => action(),
     });
@@ -139,6 +143,7 @@ describe("SettingsService", () => {
     assert.equal(runtime.allowLan, true);
     assert.equal(fs.existsSync(profileFilePath(layout, seeded.id)), true);
     assert.notEqual(loadProfiles(layout).profiles[0]?.updatedAt, "1970-01-01T00:00:00.000Z");
+    assert.equal(profileChanges, 1);
     assert.match(fs.readFileSync(layout.configFile, "utf8"), /allow-lan: true/);
   });
 

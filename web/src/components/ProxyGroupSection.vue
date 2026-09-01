@@ -22,6 +22,7 @@
         :key="member"
         class="node-card"
         :class="{ selected: current === member, static: !selectable }"
+        :disabled="selectable && busy"
         @click="selectable && emit('select', member)"
       >
         <div class="node-top">
@@ -54,6 +55,7 @@ const props = defineProps<{
   members: string[];
   selectable: boolean;
   testing: boolean;
+  busy?: boolean;
   showCurrentTag?: boolean;
 }>();
 

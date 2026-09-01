@@ -39,7 +39,7 @@
             <span class="kv-label">{{ t('overview.sysProxyTitle') }}</span>
             <UiSwitch
               :model-value="isSysProxyOn"
-              :disabled="!isCoreRunning || togglingProxy"
+              :disabled="!canToggleSystemProxy"
               @update:model-value="toggleSystemProxy"
             />
           </div>
@@ -47,7 +47,7 @@
             <span class="kv-label">{{ t('overview.tun') }}</span>
             <UiSwitch
               :model-value="store.status?.settings.tun ?? false"
-              :disabled="togglingNet"
+              :disabled="store.operations.networkSetting"
               @update:model-value="(v: boolean) => applyNetToggle('tun', v)"
             />
           </div>
@@ -55,7 +55,7 @@
             <span class="kv-label">{{ t('overview.lan') }}</span>
             <UiSwitch
               :model-value="store.status?.settings.allowLan ?? false"
-              :disabled="togglingNet"
+              :disabled="store.operations.networkSetting"
               @update:model-value="(v: boolean) => applyNetToggle('allow-lan', v)"
             />
           </div>
@@ -145,6 +145,7 @@
               :key="m.id"
               class="segmented-item"
               :class="{ active: store.mode === m.id }"
+              :disabled="store.operations.mode || !isCoreReady"
               @click="switchMode(m.id)"
             >
               {{ m.label }}
@@ -171,6 +172,7 @@
               :members="membersOf(group)"
               :selectable="true"
               :testing="testingGroups.has(group)"
+              :busy="Boolean(store.operations.proxySelections[group])"
               @select="(name) => selectNode(group, name)"
               @test-group="testGroup(group)"
               @test-node="testSingle"
@@ -186,6 +188,7 @@
               :members="membersOf(group)"
               :selectable="false"
               :testing="testingGroups.has(group)"
+              :busy="Boolean(store.operations.proxySelections[group])"
               show-current-tag
               @test-group="testGroup(group)"
               @test-node="testSingle"
@@ -209,6 +212,7 @@
             :members="globalMembers"
             :selectable="true"
             :testing="testingGroups.has('GLOBAL')"
+            :busy="Boolean(store.operations.proxySelections.GLOBAL)"
             @select="(name) => selectNode('GLOBAL', name)"
             @test-group="testGroup('GLOBAL')"
             @test-node="testSingle"
@@ -244,22 +248,25 @@ import { confirmDialog } from "../components/confirm.js";
 import { locale, t } from "../i18n/index.js";
 import { navigate } from "../router.js";
 import {
+  canToggleSystemProxy,
   errorText,
+  isCoreReady,
   isCoreRunning,
   isSysProxyOn,
-  refreshProxies,
+  patchBooleanSetting,
   refreshRuntimeState,
-  refreshStatus,
+  selectGroupProxy,
+  setOutboundMode,
+  setSystemProxyEnabled,
   store,
   toast,
+  updateProfile,
   updateProxyDelay,
 } from "../stores/index.js";
 import type { OutboundMode } from "../types/index.js";
 import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 
 /* ---------- left column state ---------- */
-const togglingProxy = ref(false);
-const togglingNet = ref(false);
 const restarting = ref(false);
 const refreshingSub = ref(false);
 
@@ -286,8 +293,7 @@ const modes = computed(() => [
 async function switchMode(mode: OutboundMode): Promise<void> {
   if (mode === store.mode) return;
   try {
-    await api.setMode(mode);
-    store.mode = mode;
+    await setOutboundMode(mode);
     toast.success(t("toast.modeOk", { mode: t(`overview.mode${mode[0]?.toUpperCase()}${mode.slice(1)}`) }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -317,8 +323,7 @@ function nowOf(name: string): string {
 async function selectNode(group: string, name: string): Promise<void> {
   if (nowOf(group) === name) return;
   try {
-    await api.selectProxy(group, name);
-    await refreshProxies();
+    await selectGroupProxy(group, name);
     toast.success(t("toast.nodeOk", { name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -328,9 +333,10 @@ async function selectNode(group: string, name: string): Promise<void> {
 async function testGroup(group: string): Promise<void> {
   if (testingGroups.value.has(group)) return;
   testingGroups.value = new Set(testingGroups.value).add(group);
+  const generation = store.runtimeGeneration;
   try {
     const delays = await api.testGroupDelay(group);
-    for (const [name, delay] of Object.entries(delays)) updateProxyDelay(name, delay);
+    for (const [name, delay] of Object.entries(delays)) updateProxyDelay(name, delay, generation);
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
@@ -343,10 +349,11 @@ async function testGroup(group: string): Promise<void> {
 async function testSingle(name: string): Promise<void> {
   if (testingNodes.value.has(name)) return;
   testingNodes.value = new Set(testingNodes.value).add(name);
+  const generation = store.runtimeGeneration;
   try {
-    updateProxyDelay(name, (await api.testProxyDelay(name)).delay);
+    updateProxyDelay(name, (await api.testProxyDelay(name)).delay, generation);
   } catch {
-    updateProxyDelay(name, 0);
+    updateProxyDelay(name, 0, generation);
   } finally {
     const next = new Set(testingNodes.value);
     next.delete(name);
@@ -355,36 +362,21 @@ async function testSingle(name: string): Promise<void> {
 }
 
 /* ---------- left column actions ---------- */
-async function toggleSystemProxy(): Promise<void> {
-  if (togglingProxy.value) return;
-  togglingProxy.value = true;
+async function toggleSystemProxy(target: boolean): Promise<void> {
   try {
-    if (isSysProxyOn.value) {
-      await api.disableSystemProxy();
-      toast.success(t("toast.sysProxyOff"));
-    } else {
-      await api.enableSystemProxy();
-      toast.success(t("toast.sysProxyOn"));
-    }
-    await refreshStatus();
+    await setSystemProxyEnabled(target);
+    toast.success(t(target ? "toast.sysProxyOn" : "toast.sysProxyOff"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
-  } finally {
-    togglingProxy.value = false;
   }
 }
 
 async function applyNetToggle(key: "allow-lan" | "tun", next: boolean): Promise<void> {
-  if (togglingNet.value) return;
-  togglingNet.value = true;
   try {
-    await api.patchSetting(key, next ? "on" : "off");
-    await refreshStatus();
+    await patchBooleanSetting(key, next);
     toast.success(t("toast.settingSaved"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
-  } finally {
-    togglingNet.value = false;
   }
 }
 
@@ -414,8 +406,7 @@ async function refreshActiveProfile(): Promise<void> {
   if (!p?.url || refreshingSub.value) return;
   refreshingSub.value = true;
   try {
-    await api.updateProfile(p.id);
-    await refreshRuntimeState();
+    await updateProfile(p.id);
     toast.success(t("toast.profileUpdated", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));

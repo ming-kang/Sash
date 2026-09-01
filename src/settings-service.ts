@@ -142,6 +142,7 @@ export class SettingsService {
         },
         undefined,
       );
+      this.options.profiles.notifyPreparedActivePublished(prepared);
       this.options.setCommitted(candidate);
       return candidate;
     } catch (err) {

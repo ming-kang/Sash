@@ -93,6 +93,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   const startedAt = new Date().toISOString();
   const systemProxy = deps.systemProxy ?? new SystemProxyManager({ layout });
   const mutations = new StateMutationQueue(layout.mutationLockFile);
+  let profileRevision = 0;
 
   let lifecycle: RuntimeLifecycle | undefined;
   const supervisor =
@@ -140,6 +141,9 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       await api.reloadConfig(configPath);
     },
     commit: mutate,
+    onChange: () => {
+      profileRevision += 1;
+    },
   });
 
   const settingsService = new SettingsService({
@@ -275,6 +279,9 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             pid: process.pid,
             startedAt,
             port: committedSettings.daemonPort,
+          },
+          revisions: {
+            profiles: profileRevision,
           },
           core,
           systemProxy: {

@@ -32,6 +32,9 @@ export interface DaemonStatus {
     startedAt: string;
     port: number;
   };
+  revisions: {
+    profiles: number;
+  };
   core: CoreState;
   systemProxy: {
     desired: boolean;

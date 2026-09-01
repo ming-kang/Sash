@@ -46,6 +46,8 @@ export interface ProfileServiceOptions {
   reloadConfig?: (configPath: string) => Promise<void>;
   /** Owns the short cross-process publication boundary when supplied. */
   commit?: ProfileCommitBoundary;
+  /** Notifies the daemon after a durable profile/index publication. */
+  onChange?: () => void;
   /** Injectable only for deterministic persistence-failure regression tests. */
   fileOperations?: ManagedStateFileOperations;
 }
@@ -136,6 +138,7 @@ export class ProfileService {
   private readonly validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
   private readonly reloadConfig?: (configPath: string) => Promise<void>;
   private readonly commitBoundary?: ProfileCommitBoundary;
+  private readonly onChange?: () => void;
   private readonly files: ManagedStateFileOperations;
   private readonly fetches = new Map<string, Promise<SubscriptionFetch>>();
   private commitTail: Promise<void> = Promise.resolve();
@@ -147,6 +150,7 @@ export class ProfileService {
     this.validateConfig = opts.validateConfig;
     this.reloadConfig = opts.reloadConfig;
     this.commitBoundary = opts.commit;
+    this.onChange = opts.onChange;
     this.files = opts.fileOperations ?? defaultManagedStateFileOperations;
   }
 
@@ -241,6 +245,19 @@ export class ProfileService {
     };
   }
 
+  /** Notify observers when SettingsService published fetched profile content. */
+  notifyPreparedActivePublished(prepared: PreparedActiveConfig): void {
+    if (prepared.fetched) this.notifyChange();
+  }
+
+  private notifyChange(): void {
+    try {
+      this.onChange?.();
+    } catch {
+      // An in-memory observer must never turn a durable commit into a failure.
+    }
+  }
+
   private async prepare(
     doc: Record<string, unknown> | null,
     settings: SashSettings,
@@ -258,7 +275,7 @@ export class ProfileService {
     return generated;
   }
 
-  private publish(
+  private async publish(
     index: ProfilesIndex,
     opts: {
       profile?: { id: string; yamlText: string | null };
@@ -266,12 +283,13 @@ export class ProfileService {
       reloadRuntime?: boolean;
     } = {},
   ): Promise<void> {
-    return commitManagedStateTransaction(
+    await commitManagedStateTransaction(
       this.layout,
       { index, ...opts },
       this.reloadConfig,
       this.files,
     );
+    this.notifyChange();
   }
 
   async addRemote(

@@ -74,7 +74,11 @@ async function request(endpoint: string, options: RequestOptions = {}): Promise<
 }
 
 /** Persistent WebSocket with one reconnect timer. Returns an unsubscribe function. */
-function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
+function connectStream<T>(
+  path: string,
+  onData: (msg: T) => void,
+  onDisconnect?: () => void,
+): () => void {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${window.location.host}${path}`;
   let ws: WebSocket | null = null;
@@ -82,8 +86,8 @@ function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
   let closed = false;
 
   const scheduleReconnect = () => {
-    if (closed) return;
-    if (timer !== null) clearTimeout(timer);
+    onDisconnect?.();
+    if (closed || !controlToken || timer !== null) return;
     timer = window.setTimeout(() => {
       timer = null;
       connect();
@@ -106,7 +110,10 @@ function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
         }
         onData(parsed);
       };
-      ws.onclose = scheduleReconnect;
+      ws.onclose = () => {
+        ws = null;
+        scheduleReconnect();
+      };
       ws.onerror = () => ws?.close();
     } catch {
       scheduleReconnect();
@@ -124,10 +131,19 @@ function connectStream<T>(path: string, onData: (msg: T) => void): () => void {
 
 export const api = {
   initialize: async (): Promise<HealthInfo> => {
-    const health = await request<HealthInfo>("/sash/health");
-    controlToken = health.token;
-    return health;
+    try {
+      const health = await request<HealthInfo>("/sash/health");
+      controlToken = health.token;
+      return health;
+    } catch (err) {
+      controlToken = "";
+      throw err;
+    }
   },
+  clearSession: (): void => {
+    controlToken = "";
+  },
+  hasSession: (): boolean => controlToken !== "",
 
   getHealth: () => request<HealthInfo>("/sash/health"),
   getStatus: () => request<SashStatus>("/sash/status"),
@@ -160,7 +176,10 @@ export const api = {
     }),
 
   patchSetting: (key: string, value: string) =>
-    request<{ ok: boolean }>("/sash/settings", { method: "PATCH", body: { key, value } }),
+    request<{ ok: boolean; settings: SashStatus["settings"] }>("/sash/settings", {
+      method: "PATCH",
+      body: { key, value },
+    }),
   restartCore: () => request<{ ok: boolean; pid: number }>("/core/restart", { method: "POST" }),
   reloadCoreConfig: () =>
     request<{ ok: boolean; proxyCount: number }>("/core/config/reload", { method: "POST" }),
@@ -201,8 +220,8 @@ export const api = {
     request("/core/api/connections", { method: "DELETE", response: "void" }),
   getRules: () => request<RulesResponse>("/core/api/rules"),
 
-  connectTraffic: (onData: (msg: TrafficMessage) => void) =>
-    connectStream<TrafficMessage>("/core/api/traffic", onData),
+  connectTraffic: (onData: (msg: TrafficMessage) => void, onDisconnect?: () => void) =>
+    connectStream<TrafficMessage>("/core/api/traffic", onData, onDisconnect),
   connectLogs: (onLog: (msg: LogMessage) => void) =>
     connectStream<LogMessage>("/core/api/logs", (msg) => {
       msg.time = formatTime();

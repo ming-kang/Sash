@@ -776,12 +776,20 @@ describe("daemon server", () => {
       assert.equal(list.profiles[0]?.subInfo?.total, 100);
 
       assert.ok(fs.readFileSync(layout.configFile, "utf8").includes("node-a"));
+      const statusAfterAdd = (await apiRequest("/sash/status")).data as {
+        revisions: { profiles: number };
+      };
+      assert.equal(statusAfterAdd.revisions.profiles, 1);
 
       // Re-downloading the same URL updates in place instead of duplicating.
       const again = await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
       assert.equal(again.statusCode, 200);
       const list2 = (await apiRequest("/sash/profiles")).data as { profiles: unknown[] };
       assert.equal(list2.profiles.length, 1);
+      const statusAfterUpdate = (await apiRequest("/sash/status")).data as {
+        revisions: { profiles: number };
+      };
+      assert.equal(statusAfterUpdate.revisions.profiles, 2);
     });
 
     it("a second download does not steal the active selection", async () => {

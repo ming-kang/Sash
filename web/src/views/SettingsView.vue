@@ -55,7 +55,11 @@
           <span class="setting-desc">{{ t('settings.allowLanDesc') }}</span>
         </div>
         <div class="setting-action">
-          <UiSwitch :model-value="allowLan" :disabled="toggling" @update:model-value="toggleAllowLan" />
+          <UiSwitch
+            :model-value="store.status?.settings.allowLan ?? false"
+            :disabled="store.operations.networkSetting"
+            @update:model-value="toggleAllowLan"
+          />
         </div>
       </div>
 
@@ -65,7 +69,11 @@
           <span class="setting-desc">{{ t('settings.tunDesc') }}</span>
         </div>
         <div class="setting-action">
-          <UiSwitch :model-value="tunMode" :disabled="toggling" @update:model-value="toggleTun" />
+          <UiSwitch
+            :model-value="store.status?.settings.tun ?? false"
+            :disabled="store.operations.networkSetting"
+            @update:model-value="toggleTun"
+          />
         </div>
       </div>
     </UiCard>
@@ -130,19 +138,16 @@ import UiSwitch from "../components/UiSwitch.vue";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
 import {
   errorText,
+  patchBooleanSetting,
   refreshRuntimeState,
-  refreshStatus,
   store,
   toast,
 } from "../stores/index.js";
 
 const mixedPort = ref(store.status?.settings.mixedPort ?? 17890);
-const allowLan = ref(store.status?.settings.allowLan ?? false);
-const tunMode = ref(store.status?.settings.tun ?? false);
 
 const savingPort = ref(false);
 const portDirty = ref(false);
-const toggling = ref(false);
 const restarting = ref(false);
 const reloading = ref(false);
 
@@ -151,10 +156,6 @@ watch(
   (s) => {
     if (!s) return;
     if (!portDirty.value && !savingPort.value) mixedPort.value = s.mixedPort;
-    if (!toggling.value) {
-      allowLan.value = s.allowLan;
-      tunMode.value = s.tun;
-    }
   },
 );
 
@@ -181,8 +182,9 @@ async function saveMixedPort(): Promise<void> {
   if (!portValid.value || savingPort.value) return;
   savingPort.value = true;
   try {
-    await api.patchSetting("mixed-port", String(mixedPort.value));
-    await refreshStatus();
+    const result = await api.patchSetting("mixed-port", String(mixedPort.value));
+    if (store.status) store.status = { ...store.status, settings: result.settings };
+    await refreshRuntimeState();
     portDirty.value = false;
     toast.success(t("toast.portSaved"));
   } catch (err) {
@@ -193,15 +195,11 @@ async function saveMixedPort(): Promise<void> {
 }
 
 async function applyToggle(key: "allow-lan" | "tun", next: boolean): Promise<void> {
-  toggling.value = true;
   try {
-    await api.patchSetting(key, next ? "on" : "off");
-    await refreshStatus();
+    await patchBooleanSetting(key, next);
     toast.success(t("toast.settingSaved"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
-  } finally {
-    toggling.value = false;
   }
 }
 
