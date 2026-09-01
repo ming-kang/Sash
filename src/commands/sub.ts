@@ -1,7 +1,13 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { createProfileService, runOfflineMutation, runtimeContext } from "./shared.js";
+import {
+  createProfileService,
+  offlineProfileCommit,
+  prepareOfflineProfileMutation,
+  runOfflineMutation,
+  runtimeContext,
+} from "./shared.js";
 
 /** `sash sub ...`: manage subscription profiles through the canonical service. */
 
@@ -22,9 +28,10 @@ export async function runSubSet(url: string): Promise<void> {
     return;
   }
 
-  const result = await runOfflineMutation(ctx, "add profile offline", () =>
-    createProfileService(ctx).addRemote(url, { activate: true }),
-  );
+  await prepareOfflineProfileMutation(ctx);
+  const result = await createProfileService(ctx, offlineProfileCommit(ctx)).addRemote(url, {
+    activate: true,
+  });
   log.ok(
     `profile "${result.profile.name}" saved and activated; config generated (${result.proxyCount ?? 0} proxies)`,
   );
@@ -52,15 +59,14 @@ export async function runSubUpdate(): Promise<void> {
     return;
   }
 
-  const { active, result } = await runOfflineMutation(ctx, "update profile offline", async () => {
-    const profiles = createProfileService(ctx);
-    const active = profiles.active();
-    if (!active) throw new Error("no active profile; use `sash sub set <url>` first");
-    if (!active.url) {
-      throw new Error(`profile "${active.name}" is a local file; nothing to update from`);
-    }
-    return { active, result: await profiles.update(active.id) };
-  });
+  await prepareOfflineProfileMutation(ctx);
+  const profiles = createProfileService(ctx, offlineProfileCommit(ctx));
+  const active = profiles.active();
+  if (!active) throw new Error("no active profile; use `sash sub set <url>` first");
+  if (!active.url) {
+    throw new Error(`profile "${active.name}" is a local file; nothing to update from`);
+  }
+  const result = await profiles.update(active.id);
   log.ok(`profile "${active.name}" updated; config generated (${result.proxyCount ?? 0} proxies)`);
   log.info("takes effect on next `sash start`");
 }
@@ -84,13 +90,10 @@ export async function runSubUnset(): Promise<void> {
     return;
   }
 
-  const active = await runOfflineMutation(ctx, "deselect profile offline", async () => {
-    const profiles = createProfileService(ctx);
-    const active = profiles.active();
-    if (!active) return undefined;
-    await profiles.activate(null);
-    return active;
-  });
+  await prepareOfflineProfileMutation(ctx);
+  const profiles = createProfileService(ctx, offlineProfileCommit(ctx));
+  const active = profiles.active();
+  if (active) await profiles.activate(null);
   if (!active) {
     log.info("no active profile");
     return;

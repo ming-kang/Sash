@@ -322,6 +322,43 @@ describe("daemon server", () => {
       assert.equal(disabledCalls, 1);
     });
 
+    it("persists proxy-off despite release failure without fetching or validating profiles", async () => {
+      let fetches = 0;
+      let releases = 0;
+      const systemProxy: SystemProxyController = {
+        apply: async () => {},
+        release: async () => {
+          if (++releases === 1) throw new Error("release failed");
+        },
+        recover: async () => {},
+        inspect: () => ({ applied: true, state: { supported: true, enabled: true } }),
+        isApplied: () => true,
+        getState: () => ({ supported: true, enabled: true }),
+      };
+      await startServer({
+        systemProxy,
+        fetchProfile: async () => {
+          fetches++;
+          return {
+            doc: { rules: ["MATCH,DIRECT"] },
+            yamlText: "rules:\n  - MATCH,DIRECT\n",
+          };
+        },
+      });
+
+      const response = await apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { key: "system-proxy", value: "off" },
+      });
+      assert.equal(response.statusCode, 500);
+      assert.equal(fetches, 0);
+      assert.equal(
+        (JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as { systemProxy: boolean })
+          .systemProxy,
+        false,
+      );
+    });
+
     it("allows daemon close to be retried after a transient cleanup failure", async () => {
       let releases = 0;
       const systemProxy: SystemProxyController = {
@@ -359,6 +396,37 @@ describe("daemon server", () => {
 
       const raw = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8"));
       assert.equal(raw.tun, true);
+    });
+
+    it("keeps GET settings on the committed snapshot while candidate validation is delayed", async () => {
+      let entered: (() => void) | undefined;
+      let release: (() => void) | undefined;
+      const validationEntered = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const validationRelease = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await startServer({
+        validateConfig: async (generated) => {
+          if (!generated.yaml.includes("mixed-port: 18888")) return;
+          entered?.();
+          await validationRelease;
+        },
+      });
+
+      const patch = apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { key: "mixed-port", value: "18888" },
+      });
+      await validationEntered;
+      const beforeCommit = await apiRequest("/sash/settings");
+      assert.equal(
+        (beforeCommit.data as { settings: { mixedPort: number } }).settings.mixedPort,
+        17890,
+      );
+      release?.();
+      assert.equal((await patch).statusCode, 200);
     });
 
     it("rejects unknown keys with 400 containing message", async () => {
@@ -526,6 +594,50 @@ describe("daemon server", () => {
         subInfo: { upload: 1, download: 2, total: 100 },
       });
     }
+
+    it("reads an incomplete profile request body before entering the mutation lock", async () => {
+      await startServer({ fetchProfile: mockFetchProfile });
+      const body = JSON.stringify({ url: subUrl });
+      const socket = net.createConnection({ host: "127.0.0.1", port: boundPort });
+      await new Promise<void>((resolve, reject) => {
+        socket.once("connect", resolve);
+        socket.once("error", reject);
+      });
+      socket.write(
+        `POST /sash/profiles HTTP/1.1\r\nHost: 127.0.0.1:${boundPort}\r\nAuthorization: Bearer ${settings.daemonSecret}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body.slice(0, 5)}`,
+      );
+
+      const stop = await apiRequest("/core/stop", { method: "POST" });
+      assert.equal(stop.statusCode, 200);
+      socket.destroy();
+    });
+
+    it("allows runtime mutations while a profile fetch is still preparing", async () => {
+      let releaseFetch: (() => void) | undefined;
+      let fetchStartedResolve: (() => void) | undefined;
+      const fetchStarted = new Promise<void>((resolve) => {
+        fetchStartedResolve = resolve;
+      });
+      await startServer({
+        fetchProfile: async () => {
+          fetchStartedResolve?.();
+          await new Promise<void>((resolve) => {
+            releaseFetch = resolve;
+          });
+          return mockFetchProfile(subUrl);
+        },
+      });
+
+      const pendingProfile = apiRequest("/sash/profiles", {
+        method: "POST",
+        body: { url: subUrl },
+      });
+      await fetchStarted;
+      const stop = await apiRequest("/core/stop", { method: "POST" });
+      assert.equal(stop.statusCode, 200);
+      releaseFetch?.();
+      assert.equal((await pendingProfile).statusCode, 200);
+    });
 
     it("starts empty", async () => {
       await startServer();

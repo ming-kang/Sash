@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Immutable `SettingsService` coordinates shared daemon/offline settings candidates, config validation and durable settings/config publication.
 - Local profile library under `<root>/profiles/`: one timestamp-named YAML file per profile plus `index.json` metadata, active selection, provider update interval, quota/expiry data and persisted update errors.
 - WebUI Profiles page with URL download, clipboard paste, local YAML import, Update All, profile cards, active selection, quota display and delete confirmation.
 - Profile daemon API: list/add/import/activate/update/update-all/delete endpoints and scheduled due-profile refresh.
@@ -44,6 +45,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Settings updates use immutable candidates and one shared online/offline service; validation rejects blank/control-character secrets and listener-port collisions, while failed runtime transitions restore prior settings/config/runtime state.
+- Settings, Profile YAML, index and generated config publish through one fixed-role durable transaction; failed activations, missing-profile fetches, updates and deletes compensate immediately, while interrupted publication recovers on daemon or offline initialization.
+- Profile request parsing, fetch, rendering and Core validation now run outside the short mutation lock; daemon and offline commits recheck profile identity/selection under the lock before publication.
+- Profile index loading now rejects duplicate IDs, non-plain roots and unexpected root fields.
 - System-proxy backends are split into focused platform modules; macOS empty fields and malformed Windows registry output now fail safely.
 - System-proxy recovery persists a `restoring` phase so partial multi-field restoration can continue after a crash.
 - Atomic state writes fsync the parent directory on POSIX after publication.

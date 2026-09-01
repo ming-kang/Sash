@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "../paths.js";
 import { writePidRecord } from "../process.js";
+import { loadProfiles } from "../profiles.js";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "../settings.js";
 import { type RuntimeContext, runOfflineMutation } from "./shared.js";
 
@@ -41,6 +42,26 @@ describe("offline mutation coordination", () => {
     const persisted = loadSettings(ctx.layout);
     assert.equal(persisted.allowLan, true);
     assert.equal(persisted.tun, true);
+  });
+
+  it("recovers a profile journal after ownership verification before the action reads profiles", async () => {
+    fs.mkdirSync(ctx.layout.profilesDir, { recursive: true });
+    fs.mkdirSync(ctx.layout.stateDir, { recursive: true });
+    const previous = '{"activeId":null,"profiles":[]}';
+    fs.writeFileSync(ctx.layout.profilesIndexFile, '{"activeId":"123","profiles":[]}');
+    fs.writeFileSync(
+      ctx.layout.managedStateTransactionFile,
+      JSON.stringify({
+        version: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        index: { data: Buffer.from(previous).toString("base64") },
+      }),
+    );
+
+    await runOfflineMutation(ctx, "recover profile publication", () => {
+      assert.deepEqual(loadProfiles(ctx.layout), { activeId: null, profiles: [] });
+      assert.equal(fs.existsSync(ctx.layout.managedStateTransactionFile), false);
+    });
   });
 
   it("fails closed when the Core PID record is corrupt", async () => {

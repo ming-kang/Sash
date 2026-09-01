@@ -85,6 +85,15 @@ function isProfileMeta(value: unknown): value is ProfileMeta {
   );
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
 export function loadProfiles(layout: SashLayout = sashLayout()): ProfilesIndex {
   let text: string;
   try {
@@ -96,13 +105,19 @@ export function loadProfiles(layout: SashLayout = sashLayout()): ProfilesIndex {
     throw err;
   }
 
-  let raw: { activeId?: unknown; profiles?: unknown };
+  let raw: unknown;
   try {
-    raw = JSON.parse(text) as typeof raw;
+    raw = JSON.parse(text) as unknown;
   } catch (err) {
     throw new Error(
       `Profiles index is invalid JSON: ${layout.profilesIndexFile}: ${(err as Error).message}`,
     );
+  }
+  if (!isPlainObject(raw)) {
+    throw new Error(`Profiles index root must be a plain object: ${layout.profilesIndexFile}`);
+  }
+  if (Object.keys(raw).some((key) => key !== "activeId" && key !== "profiles")) {
+    throw new Error(`Profiles index has unexpected root fields: ${layout.profilesIndexFile}`);
   }
   if (!Array.isArray(raw.profiles) || !raw.profiles.every(isProfileMeta)) {
     throw new Error(`Profiles index has invalid profile metadata: ${layout.profilesIndexFile}`);
@@ -111,6 +126,9 @@ export function loadProfiles(layout: SashLayout = sashLayout()): ProfilesIndex {
     throw new Error(`Profiles index has an invalid activeId: ${layout.profilesIndexFile}`);
   }
   const profiles = raw.profiles;
+  if (new Set(profiles.map((profile) => profile.id)).size !== profiles.length) {
+    throw new Error(`Profiles index has duplicate profile ids: ${layout.profilesIndexFile}`);
+  }
   const activeId =
     typeof raw.activeId === "string" && profiles.some((p) => p.id === raw.activeId)
       ? raw.activeId
@@ -118,12 +136,13 @@ export function loadProfiles(layout: SashLayout = sashLayout()): ProfilesIndex {
   return { activeId, profiles };
 }
 
-export function saveProfiles(index: ProfilesIndex, layout: SashLayout = sashLayout()): void {
+export function serializeProfiles(index: ProfilesIndex): string {
   const activeId = index.profiles.some((p) => p.id === index.activeId) ? index.activeId : null;
-  atomicWriteFileSync(
-    layout.profilesIndexFile,
-    `${JSON.stringify({ ...index, activeId }, null, 2)}\n`,
-  );
+  return `${JSON.stringify({ ...index, activeId }, null, 2)}\n`;
+}
+
+export function saveProfiles(index: ProfilesIndex, layout: SashLayout = sashLayout()): void {
+  atomicWriteFileSync(layout.profilesIndexFile, serializeProfiles(index));
 }
 
 export function getActiveProfile(index: ProfilesIndex): ProfileMeta | null {
@@ -250,12 +269,8 @@ export function removeProfile(
   index.profiles.splice(pos, 1);
   const wasActive = index.activeId === id;
   if (wasActive) index.activeId = null;
+  fs.rmSync(profileFilePath(layout, id), { force: true });
   saveProfiles(index, layout);
-  try {
-    fs.rmSync(profileFilePath(layout, id), { force: true });
-  } catch {
-    // best effort
-  }
   return { index, wasActive };
 }
 

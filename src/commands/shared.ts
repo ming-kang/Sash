@@ -4,10 +4,11 @@ import { validateCoreConfigText } from "../core-config-validation.js";
 import { recoverInterruptedCoreUpdate } from "../core-update.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
+import { recoverManagedStateTransaction } from "../managed-state-transaction.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import { isProcessAlive, readPidRecord } from "../process.js";
 import { migrateLegacyProfileSetting } from "../profile-migration.js";
-import { ProfileService } from "../profile-service.js";
+import { type ProfileCommitBoundary, ProfileService } from "../profile-service.js";
 import { loadSettings, type SashSettings } from "../settings.js";
 import { withStateLock } from "../state-lock.js";
 
@@ -60,6 +61,7 @@ export async function runOfflineMutation<T>(
         );
       }
     }
+    recoverManagedStateTransaction(ctx.layout);
     migrateLegacyProfileSetting(ctx.settings, ctx.layout);
     return action();
   });
@@ -73,12 +75,29 @@ export async function ensureCore(ctx: RuntimeContext): Promise<void> {
   log.ok(`mihomo core ${version} installed`);
 }
 
-export function createProfileService(ctx: RuntimeContext): ProfileService {
+/**
+ * Offline profile preparation may fetch and validate freely; this boundary
+ * acquires ownership only for the final recheck and publication.
+ */
+export function offlineProfileCommit(ctx: RuntimeContext): ProfileCommitBoundary {
+  return (purpose, action) => runOfflineMutation(ctx, purpose, action);
+}
+
+/** Commit a legacy-setting migration before an offline profile snapshot is read. */
+export async function prepareOfflineProfileMutation(ctx: RuntimeContext): Promise<void> {
+  await runOfflineMutation(ctx, "prepare profile mutation", () => undefined);
+}
+
+export function createProfileService(
+  ctx: RuntimeContext,
+  commit?: ProfileCommitBoundary,
+): ProfileService {
   return new ProfileService({
     layout: ctx.layout,
     settings: () => ctx.settings,
     ...(coreInstalled(ctx.layout)
       ? { validateConfig: (generated) => validateCoreConfigText(generated.yaml, ctx.layout) }
       : {}),
+    ...(commit ? { commit } : {}),
   });
 }

@@ -91,6 +91,10 @@ describe("paths", () => {
         layout.systemProxyStateFile,
         path.join(customRoot, "state", "system-proxy.json"),
       );
+      assert.equal(
+        layout.managedStateTransactionFile,
+        path.join(customRoot, "state", "managed-state-transaction.json"),
+      );
       assert.equal(layout.installFile, path.join(customRoot, "state", "install.json"));
       assert.equal(layout.logsDir, path.join(customRoot, "logs"));
       assert.equal(layout.coreLogFile, path.join(customRoot, "logs", "mihomo.log"));

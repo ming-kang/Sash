@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import YAML from "yaml";
-import { atomicWriteFileSync } from "./fs-atomic.js";
+import {
+  commitManagedStateTransaction,
+  defaultManagedStateFileOperations,
+  type ManagedStateFileOperations,
+} from "./managed-state-transaction.js";
 import {
   buildDefaultConfig,
   fetchSubscriptionProfile,
@@ -11,8 +15,6 @@ import {
 } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import {
-  addProfile,
-  applySubscriptionFetch,
   findProfileByUrl,
   getActiveProfile,
   loadProfiles,
@@ -22,20 +24,17 @@ import {
   profileFilePath,
   profileNameFromUrl,
   readProfileDoc,
-  recordProfileError,
-  removeProfile,
-  setActiveProfile,
 } from "./profiles.js";
 import type { SashSettings } from "./settings.js";
-
-interface FileSnapshot {
-  path: string;
-  data: Buffer | null;
-}
 
 export class ProfileInputError extends Error {}
 export class ProfileNotFoundError extends Error {}
 export class ProfileConflictError extends Error {}
+
+export type ProfileCommitBoundary = <T>(
+  purpose: string,
+  action: () => T | Promise<T>,
+) => Promise<T>;
 
 export interface ProfileServiceOptions {
   layout: SashLayout;
@@ -45,6 +44,10 @@ export interface ProfileServiceOptions {
   validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
   /** Reload the running core from configPath; omit when operating offline. */
   reloadConfig?: (configPath: string) => Promise<void>;
+  /** Owns the short cross-process publication boundary when supplied. */
+  commit?: ProfileCommitBoundary;
+  /** Injectable only for deterministic persistence-failure regression tests. */
+  fileOperations?: ManagedStateFileOperations;
 }
 
 export interface ProfileActionResult {
@@ -64,21 +67,12 @@ export interface ProfileUpdateAllResult {
   proxyCount?: number;
 }
 
-function snapshotFiles(paths: string[]): FileSnapshot[] {
-  return [...new Set(paths)].map((file) => ({
-    path: file,
-    data: fs.existsSync(file) ? fs.readFileSync(file) : null,
-  }));
-}
-
-function restoreFiles(snapshots: FileSnapshot[]): void {
-  for (const snapshot of snapshots) {
-    if (snapshot.data === null) {
-      fs.rmSync(snapshot.path, { force: true });
-    } else {
-      atomicWriteFileSync(snapshot.path, snapshot.data);
-    }
-  }
+/** Candidate active configuration prepared without entering the commit boundary. */
+export interface PreparedActiveConfig {
+  generated: GeneratedConfig;
+  activeId: string | null;
+  active?: Pick<ProfileMeta, "id" | "url">;
+  fetched?: SubscriptionFetch;
 }
 
 async function mapConcurrent<T, R>(
@@ -100,13 +94,49 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
-/** Canonical application layer for all profile mutations and config transitions. */
+function sameProfileState(before: ProfilesIndex, current: ProfilesIndex): boolean {
+  return (
+    before.activeId === current.activeId &&
+    before.profiles.length === current.profiles.length &&
+    before.profiles.every((profile, index) => {
+      const candidate = current.profiles[index];
+      return candidate?.id === profile.id && candidate.url === profile.url;
+    })
+  );
+}
+
+function currentProfile(
+  index: ProfilesIndex,
+  snapshot: ProfileMeta,
+  activeId: string | null,
+): ProfileMeta {
+  const profile = index.profiles.find((item) => item.id === snapshot.id);
+  if (!profile || profile.url !== snapshot.url || index.activeId !== activeId) {
+    throw new ProfileConflictError(`profile changed or was removed during update: ${snapshot.id}`);
+  }
+  return profile;
+}
+
+function withFetchedContent(profile: ProfileMeta, fetched: SubscriptionFetch): ProfileMeta {
+  return {
+    ...profile,
+    updatedAt: new Date().toISOString(),
+    ...(fetched.subInfo ? { subInfo: fetched.subInfo } : {}),
+    ...(fetched.homePage ? { homePage: fetched.homePage } : {}),
+    ...(fetched.intervalHours !== undefined ? { intervalHours: fetched.intervalHours } : {}),
+    lastError: undefined,
+  };
+}
+
+/** Canonical application layer for profile/config publication transactions. */
 export class ProfileService {
   private readonly layout: SashLayout;
   private readonly getSettings: () => SashSettings;
   private readonly fetchProfileFn: (url: string) => Promise<SubscriptionFetch>;
   private readonly validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
   private readonly reloadConfig?: (configPath: string) => Promise<void>;
+  private readonly commitBoundary?: ProfileCommitBoundary;
+  private readonly files: ManagedStateFileOperations;
   private readonly fetches = new Map<string, Promise<SubscriptionFetch>>();
   private commitTail: Promise<void> = Promise.resolve();
 
@@ -116,6 +146,8 @@ export class ProfileService {
     this.fetchProfileFn = opts.fetchProfile ?? fetchSubscriptionProfile;
     this.validateConfig = opts.validateConfig;
     this.reloadConfig = opts.reloadConfig;
+    this.commitBoundary = opts.commit;
+    this.files = opts.fileOperations ?? defaultManagedStateFileOperations;
   }
 
   list(): ProfilesIndex {
@@ -126,13 +158,14 @@ export class ProfileService {
     return getActiveProfile(this.list());
   }
 
-  private async exclusive<T>(operation: () => Promise<T> | T): Promise<T> {
-    const result = this.commitTail.then(operation, operation);
-    this.commitTail = result.then(
+  private commit<T>(purpose: string, action: () => Promise<T>): Promise<T> {
+    if (this.commitBoundary) return this.commitBoundary(purpose, action);
+    const next = this.commitTail.then(action, action);
+    this.commitTail = next.then(
       () => undefined,
       () => undefined,
     );
-    return result;
+    return next;
   }
 
   private fetch(url: string): Promise<SubscriptionFetch> {
@@ -145,10 +178,76 @@ export class ProfileService {
     return pending;
   }
 
-  private async prepare(doc: Record<string, unknown> | null): Promise<GeneratedConfig> {
+  private settingsSnapshot(): SashSettings {
+    return { ...this.getSettings() };
+  }
+
+  private assertSettingsUnchanged(snapshot: SashSettings): void {
+    if (JSON.stringify(this.getSettings()) !== JSON.stringify(snapshot)) {
+      throw new ProfileConflictError("Settings changed while preparing profile configuration");
+    }
+  }
+
+  /** Render and Core-validate an active candidate outside the mutation lock. */
+  async prepareActiveConfig(settings: SashSettings): Promise<PreparedActiveConfig> {
+    const index = this.list();
+    const active = getActiveProfile(index);
+    const stored = active ? readProfileDoc(this.layout, active.id) : undefined;
+    const fetched =
+      active && stored === undefined && active.url ? await this.fetch(active.url) : undefined;
+    if (active && stored === undefined && !fetched) {
+      throw new ProfileInputError(`Local profile file is missing: ${active.id}`);
+    }
+    return {
+      generated: await this.prepare(fetched?.doc ?? stored ?? null, settings),
+      activeId: index.activeId,
+      ...(active ? { active: { id: active.id, url: active.url } } : {}),
+      ...(fetched ? { fetched } : {}),
+    };
+  }
+
+  /** Recheck the active source after an out-of-lock settings preparation. */
+  assertPreparedActiveCurrent(prepared: PreparedActiveConfig): void {
+    const index = this.list();
+    if (index.activeId !== prepared.activeId) {
+      throw new ProfileConflictError("Active profile changed while preparing configuration");
+    }
+    if (prepared.active) {
+      const active = getActiveProfile(index);
+      if (!active || active.id !== prepared.active.id || active.url !== prepared.active.url) {
+        throw new ProfileConflictError("Active profile changed while preparing configuration");
+      }
+    }
+  }
+
+  /** Materialize a fetched missing-profile candidate after the commit recheck. */
+  preparedActivePublication(prepared: PreparedActiveConfig): {
+    index?: ProfilesIndex;
+    profile?: { id: string; yamlText: string };
+  } {
+    if (!prepared.active || !prepared.fetched) return {};
+    const index = this.list();
+    const active = getActiveProfile(index);
+    if (!active || active.id !== prepared.active.id || active.url !== prepared.active.url) {
+      throw new ProfileConflictError("Active profile changed while preparing configuration");
+    }
+    const updated = withFetchedContent(active, prepared.fetched);
+    return {
+      index: {
+        ...index,
+        profiles: index.profiles.map((profile) => (profile.id === updated.id ? updated : profile)),
+      },
+      profile: { id: updated.id, yamlText: prepared.fetched.yamlText },
+    };
+  }
+
+  private async prepare(
+    doc: Record<string, unknown> | null,
+    settings: SashSettings,
+  ): Promise<GeneratedConfig> {
     const generated = renderConfig(
       doc ?? buildDefaultConfig(),
-      this.getSettings(),
+      settings,
       doc ? "subscription" : "default",
     );
     try {
@@ -159,53 +258,20 @@ export class ProfileService {
     return generated;
   }
 
-  private async transitionConfig<T>(
-    generated: GeneratedConfig,
-    mutate: () => T,
-    statePaths: string[],
-    reloadRuntime = true,
-  ): Promise<T> {
-    const configSnapshot = snapshotFiles([this.layout.configFile]);
-    const stateSnapshots = snapshotFiles(statePaths);
-    atomicWriteFileSync(this.layout.configFile, generated.yaml);
-    let reloadAttempted = false;
-    try {
-      if (reloadRuntime && this.reloadConfig) {
-        reloadAttempted = true;
-        await this.reloadConfig(this.layout.configFile);
-      }
-      return mutate();
-    } catch (err) {
-      restoreFiles(stateSnapshots);
-      restoreFiles(configSnapshot);
-      if (
-        reloadRuntime &&
-        this.reloadConfig &&
-        reloadAttempted &&
-        configSnapshot[0]?.data !== null
-      ) {
-        try {
-          await this.reloadConfig(this.layout.configFile);
-        } catch (rollbackErr) {
-          throw new Error(
-            `${(err as Error).message}; config rollback reload failed: ${(rollbackErr as Error).message}`,
-          );
-        }
-      }
-      throw err;
-    }
-  }
-
-  private async activatePrepared(
-    id: string | null,
-    doc: Record<string, unknown> | null,
-    prepared?: GeneratedConfig,
-  ): Promise<{ activeId: string | null; proxyCount: number }> {
-    const generated = prepared ?? (await this.prepare(doc));
-    await this.transitionConfig(generated, () => setActiveProfile(id, this.layout), [
-      this.layout.profilesIndexFile,
-    ]);
-    return { activeId: id, proxyCount: generated.proxyCount };
+  private publish(
+    index: ProfilesIndex,
+    opts: {
+      profile?: { id: string; yamlText: string | null };
+      config?: GeneratedConfig;
+      reloadRuntime?: boolean;
+    } = {},
+  ): Promise<void> {
+    return commitManagedStateTransaction(
+      this.layout,
+      { index, ...opts },
+      this.reloadConfig,
+      this.files,
+    );
   }
 
   async addRemote(
@@ -214,54 +280,55 @@ export class ProfileService {
   ): Promise<ProfileActionResult> {
     const normalizedUrl = url.trim();
     if (!normalizedUrl) throw new ProfileInputError("Missing required profile URL");
+    const before = this.list();
+    const settings = this.settingsSnapshot();
+    const known = findProfileByUrl(before, normalizedUrl);
     const fetched = await this.fetch(normalizedUrl);
-    const prepared = await this.prepare(fetched.doc);
+    const prepared = await this.prepare(fetched.doc, settings);
 
-    return this.exclusive(async () => {
-      const before = this.list();
-      const existing = findProfileByUrl(before, normalizedUrl);
+    return this.commit("add profile", async () => {
+      this.assertSettingsUnchanged(settings);
+      const current = this.list();
       let profile: ProfileMeta;
-      if (existing) {
-        if (before.activeId === existing.id) {
-          const next = await this.transitionConfig(
-            prepared,
-            () => applySubscriptionFetch(existing.id, fetched, this.layout),
-            [this.layout.profilesIndexFile, profileFilePath(this.layout, existing.id)],
-          );
-          const updated = next.profiles.find((item) => item.id === existing.id);
-          if (!updated) throw new ProfileNotFoundError(`profile not found: ${existing.id}`);
-          profile = updated;
-        } else {
-          const next = applySubscriptionFetch(existing.id, fetched, this.layout);
-          const updated = next.profiles.find((item) => item.id === existing.id);
-          if (!updated) throw new ProfileNotFoundError(`profile not found: ${existing.id}`);
-          profile = updated;
-        }
+      let profileChange: { id: string; yamlText: string };
+      if (known) {
+        const existing = currentProfile(current, known, before.activeId);
+        profile = withFetchedContent(existing, fetched);
+        profileChange = { id: profile.id, yamlText: fetched.yamlText };
       } else {
-        profile = addProfile(
-          {
-            name: opts.name?.trim() || fetched.name || profileNameFromUrl(normalizedUrl),
-            url: normalizedUrl,
-            yamlText: fetched.yamlText,
-            ...(fetched.intervalHours !== undefined
-              ? { intervalHours: fetched.intervalHours }
-              : {}),
-            ...(fetched.subInfo ? { subInfo: fetched.subInfo } : {}),
-            ...(fetched.homePage ? { homePage: fetched.homePage } : {}),
-          },
-          this.layout,
-        ).profile;
+        if (!sameProfileState(before, current) || findProfileByUrl(current, normalizedUrl)) {
+          throw new ProfileConflictError("Profiles changed while adding a remote profile");
+        }
+        let id = String(Date.now());
+        while (current.profiles.some((item) => item.id === id)) id = String(Number(id) + 1);
+        const now = new Date().toISOString();
+        profile = {
+          id,
+          name: opts.name?.trim() || fetched.name || profileNameFromUrl(normalizedUrl),
+          url: normalizedUrl,
+          intervalHours: fetched.intervalHours ?? 24,
+          createdAt: now,
+          updatedAt: now,
+          ...(fetched.subInfo ? { subInfo: fetched.subInfo } : {}),
+          ...(fetched.homePage ? { homePage: fetched.homePage } : {}),
+        };
+        profileChange = { id, yamlText: fetched.yamlText };
       }
-
-      const shouldActivate = opts.activate === true || before.activeId === null;
-      if (shouldActivate && this.list().activeId !== profile.id) {
-        await this.activatePrepared(profile.id, fetched.doc, prepared);
-      }
-      const activated = this.list().activeId === profile.id;
+      const shouldActivate = opts.activate === true || current.activeId === null;
+      const index: ProfilesIndex = {
+        activeId: shouldActivate ? profile.id : current.activeId,
+        profiles: known
+          ? current.profiles.map((item) => (item.id === profile.id ? profile : item))
+          : [...current.profiles, profile],
+      };
+      await this.publish(index, {
+        profile: profileChange,
+        ...(shouldActivate ? { config: prepared } : {}),
+      });
       return {
         profile,
-        activated,
-        ...(activated ? { proxyCount: prepared.proxyCount } : {}),
+        activated: shouldActivate,
+        ...(shouldActivate ? { proxyCount: prepared.proxyCount } : {}),
       };
     });
   }
@@ -279,100 +346,156 @@ export class ProfileService {
         "Content is not a valid core configuration (missing proxies/rules)",
       );
     }
-    const prepared = await this.prepare(doc);
+    const settings = this.settingsSnapshot();
+    const prepared = await this.prepare(doc, settings);
+    const before = this.list();
 
-    return this.exclusive(async () => {
-      const before = this.list();
-      const profile = addProfile(
-        { name: name.trim() || "imported", url: "", yamlText: content, intervalHours: 0 },
-        this.layout,
-      ).profile;
-      if (before.activeId === null) await this.activatePrepared(profile.id, doc, prepared);
-      const activated = this.list().activeId === profile.id;
-      return {
-        profile,
-        activated,
-        ...(activated ? { proxyCount: prepared.proxyCount } : {}),
+    return this.commit("import profile", async () => {
+      this.assertSettingsUnchanged(settings);
+      const current = this.list();
+      if (!sameProfileState(before, current)) {
+        throw new ProfileConflictError("Profiles changed while importing a local profile");
+      }
+      let id = String(Date.now());
+      while (current.profiles.some((item) => item.id === id)) id = String(Number(id) + 1);
+      const now = new Date().toISOString();
+      const profile: ProfileMeta = {
+        id,
+        name: name.trim() || "imported",
+        url: "",
+        intervalHours: 0,
+        createdAt: now,
+        updatedAt: now,
       };
+      const activated = current.activeId === null;
+      await this.publish(
+        { activeId: activated ? id : current.activeId, profiles: [...current.profiles, profile] },
+        {
+          profile: { id, yamlText: content },
+          ...(activated ? { config: prepared } : {}),
+        },
+      );
+      return { profile, activated, ...(activated ? { proxyCount: prepared.proxyCount } : {}) };
     });
   }
 
   async activate(id: string | null): Promise<{ activeId: string | null; proxyCount: number }> {
+    const before = this.list();
+    const settings = this.settingsSnapshot();
     if (id === null) {
-      return this.exclusive(() => this.activatePrepared(null, null));
+      const prepared = await this.prepare(null, settings);
+      return this.commit("deselect profile", async () => {
+        this.assertSettingsUnchanged(settings);
+        const current = this.list();
+        if (current.activeId !== before.activeId) {
+          throw new ProfileConflictError("Active profile changed while preparing configuration");
+        }
+        await this.publish({ ...current, activeId: null }, { config: prepared });
+        return { activeId: null, proxyCount: prepared.proxyCount };
+      });
     }
 
-    const initial = this.list().profiles.find((profile) => profile.id === id);
+    const initial = before.profiles.find((profile) => profile.id === id);
     if (!initial) throw new ProfileNotFoundError(`profile not found: ${id}`);
-    let fetched: SubscriptionFetch | undefined;
-    const initialDoc = readProfileDoc(this.layout, id);
-    if (initialDoc === undefined) {
-      if (!initial.url) throw new ProfileInputError(`Local profile file is missing: ${id}`);
-      fetched = await this.fetch(initial.url);
+    const stored = readProfileDoc(this.layout, id);
+    const fetched = stored === undefined && initial.url ? await this.fetch(initial.url) : undefined;
+    if (stored === undefined && !fetched) {
+      throw new ProfileInputError(`Local profile file is missing: ${id}`);
     }
+    const prepared = await this.prepare(fetched?.doc ?? stored ?? null, settings);
 
-    return this.exclusive(async () => {
-      const current = this.list().profiles.find((profile) => profile.id === id);
-      if (!current) throw new ProfileNotFoundError(`profile not found: ${id}`);
-      if (fetched) applySubscriptionFetch(id, fetched, this.layout);
-      const doc = fetched?.doc ?? readProfileDoc(this.layout, id);
-      if (doc === undefined) throw new ProfileInputError(`Profile file is missing: ${id}`);
-      return this.activatePrepared(id, doc);
+    return this.commit("activate profile", async () => {
+      this.assertSettingsUnchanged(settings);
+      const current = this.list();
+      const profile = currentProfile(current, initial, before.activeId);
+      const updated = fetched ? withFetchedContent(profile, fetched) : profile;
+      await this.publish(
+        {
+          activeId: id,
+          profiles: current.profiles.map((item) => (item.id === id ? updated : item)),
+        },
+        {
+          ...(fetched ? { profile: { id, yamlText: fetched.yamlText } } : {}),
+          config: prepared,
+        },
+      );
+      return { activeId: id, proxyCount: prepared.proxyCount };
     });
   }
 
   private async commitFetched(
     snapshot: ProfileMeta,
+    activeId: string | null,
     fetched: SubscriptionFetch,
   ): Promise<ProfileUpdateResult> {
-    const prepared = await this.prepare(fetched.doc);
-    return this.exclusive(async () => {
+    const settings = this.settingsSnapshot();
+    const prepared = await this.prepare(fetched.doc, settings);
+    return this.commit("update profile", async () => {
+      this.assertSettingsUnchanged(settings);
       const index = this.list();
-      const current = index.profiles.find((profile) => profile.id === snapshot.id);
-      if (!current || current.url !== snapshot.url) {
-        throw new ProfileConflictError(
-          `profile changed or was removed during update: ${snapshot.id}`,
-        );
+      const current = currentProfile(index, snapshot, activeId);
+      const profile = withFetchedContent(current, fetched);
+      const active = index.activeId === current.id;
+      await this.publish(
+        {
+          ...index,
+          profiles: index.profiles.map((item) => (item.id === current.id ? profile : item)),
+        },
+        {
+          profile: { id: current.id, yamlText: fetched.yamlText },
+          ...(active ? { config: prepared } : {}),
+        },
+      );
+      return { profile, ...(active ? { proxyCount: prepared.proxyCount } : {}) };
+    });
+  }
+
+  private async recordError(
+    snapshot: ProfileMeta,
+    activeId: string | null,
+    error: string,
+  ): Promise<void> {
+    await this.commit("record profile update error", async () => {
+      const index = this.list();
+      let current: ProfileMeta;
+      try {
+        current = currentProfile(index, snapshot, activeId);
+      } catch (err) {
+        if (err instanceof ProfileConflictError) return;
+        throw err;
       }
-      let next: ProfilesIndex;
-      let proxyCount: number | undefined;
-      if (index.activeId === current.id) {
-        next = await this.transitionConfig(
-          prepared,
-          () => applySubscriptionFetch(current.id, fetched, this.layout),
-          [this.layout.profilesIndexFile, profileFilePath(this.layout, current.id)],
-        );
-        proxyCount = prepared.proxyCount;
-      } else {
-        next = applySubscriptionFetch(current.id, fetched, this.layout);
-      }
-      const profile = next.profiles.find((item) => item.id === current.id);
-      if (!profile) throw new Error(`profile not found after update: ${current.id}`);
-      return { profile, ...(proxyCount !== undefined ? { proxyCount } : {}) };
+      const profile = { ...current, lastError: error.slice(0, 300) };
+      await this.publish({
+        ...index,
+        profiles: index.profiles.map((item) => (item.id === current.id ? profile : item)),
+      });
     });
   }
 
   async update(id: string): Promise<ProfileUpdateResult> {
-    const profile = this.list().profiles.find((item) => item.id === id);
+    const index = this.list();
+    const profile = index.profiles.find((item) => item.id === id);
     if (!profile) throw new ProfileNotFoundError(`profile not found: ${id}`);
     if (!profile.url) throw new ProfileInputError("Local profile has no URL to update from");
     try {
-      return await this.commitFetched(profile, await this.fetch(profile.url));
+      return await this.commitFetched(profile, index.activeId, await this.fetch(profile.url));
     } catch (err) {
-      await this.exclusive(() => recordProfileError(id, (err as Error).message, this.layout));
+      await this.recordError(profile, index.activeId, (err as Error).message);
       throw err;
     }
   }
 
-  private async updateProfiles(profiles: ProfileMeta[]): Promise<ProfileUpdateAllResult> {
+  private async updateProfiles(
+    profiles: Array<{ profile: ProfileMeta; activeId: string | null }>,
+  ): Promise<ProfileUpdateAllResult> {
     type FetchResult =
-      | { profile: ProfileMeta; fetched: SubscriptionFetch }
-      | { profile: ProfileMeta; error: string };
-    const fetched = await mapConcurrent<ProfileMeta, FetchResult>(profiles, 4, async (profile) => {
+      | { snapshot: { profile: ProfileMeta; activeId: string | null }; fetched: SubscriptionFetch }
+      | { snapshot: { profile: ProfileMeta; activeId: string | null }; error: string };
+    const fetched = await mapConcurrent(profiles, 4, async (snapshot): Promise<FetchResult> => {
       try {
-        return { profile, fetched: await this.fetch(profile.url) } as const;
+        return { snapshot, fetched: await this.fetch(snapshot.profile.url) };
       } catch (err) {
-        return { profile, error: (err as Error).message } as const;
+        return { snapshot, error: (err as Error).message };
       }
     });
 
@@ -380,93 +503,117 @@ export class ProfileService {
     let proxyCount: number | undefined;
     const failed: ProfileUpdateAllResult["failed"] = [];
     for (const result of fetched) {
+      const { profile, activeId } = result.snapshot;
       if (!("fetched" in result)) {
-        await this.exclusive(() =>
-          recordProfileError(result.profile.id, result.error, this.layout),
-        );
-        failed.push({ id: result.profile.id, name: result.profile.name, error: result.error });
+        await this.recordError(profile, activeId, result.error);
+        failed.push({ id: profile.id, name: profile.name, error: result.error });
         continue;
       }
       try {
-        const committed = await this.commitFetched(result.profile, result.fetched);
+        const committed = await this.commitFetched(profile, activeId, result.fetched);
         updated += 1;
         if (committed.proxyCount !== undefined) proxyCount = committed.proxyCount;
       } catch (err) {
         const message = (err as Error).message;
-        await this.exclusive(() => recordProfileError(result.profile.id, message, this.layout));
-        failed.push({ id: result.profile.id, name: result.profile.name, error: message });
+        await this.recordError(profile, activeId, message);
+        failed.push({ id: profile.id, name: profile.name, error: message });
       }
     }
     return { updated, failed, ...(proxyCount !== undefined ? { proxyCount } : {}) };
   }
 
   async updateAll(): Promise<ProfileUpdateAllResult> {
-    return this.updateProfiles(this.list().profiles.filter((profile) => profile.url !== ""));
+    const index = this.list();
+    return this.updateProfiles(
+      index.profiles
+        .filter((profile) => profile.url !== "")
+        .map((profile) => ({
+          profile,
+          activeId: index.activeId,
+        })),
+    );
   }
 
   async updateDue(nowMs = Date.now()): Promise<ProfileUpdateAllResult> {
-    const due = this.list().profiles.filter((profile) => {
-      let exists = false;
-      try {
-        exists = fs.existsSync(profileFilePath(this.layout, profile.id));
-      } catch {
-        exists = false;
-      }
-      return profileDueForUpdate(profile, exists, nowMs);
-    });
-    return this.updateProfiles(due);
+    const index = this.list();
+    return this.updateProfiles(
+      index.profiles
+        .filter((profile) => {
+          let exists = false;
+          try {
+            exists = fs.existsSync(profileFilePath(this.layout, profile.id));
+          } catch {
+            // An invalid id is rejected when the index is loaded; retain this guard for I/O errors.
+          }
+          return profileDueForUpdate(profile, exists, nowMs);
+        })
+        .map((profile) => ({ profile, activeId: index.activeId })),
+    );
   }
 
   async remove(id: string): Promise<{ wasActive: boolean; proxyCount?: number }> {
-    return this.exclusive(async () => {
+    const before = this.list();
+    const initial = before.profiles.find((profile) => profile.id === id);
+    if (!initial) throw new ProfileNotFoundError(`profile not found: ${id}`);
+    const settings = this.settingsSnapshot();
+    const prepared = before.activeId === id ? await this.prepare(null, settings) : undefined;
+
+    return this.commit("remove profile", async () => {
+      this.assertSettingsUnchanged(settings);
       const index = this.list();
-      const profile = index.profiles.find((item) => item.id === id);
-      if (!profile) throw new ProfileNotFoundError(`profile not found: ${id}`);
-      const wasActive = index.activeId === id;
-      if (!wasActive) {
-        removeProfile(id, this.layout);
-        return { wasActive: false };
-      }
-      const generated = await this.prepare(null);
-      await this.transitionConfig(generated, () => removeProfile(id, this.layout), [
-        this.layout.profilesIndexFile,
-        profileFilePath(this.layout, id),
-      ]);
-      return { wasActive: true, proxyCount: generated.proxyCount };
+      const profile = currentProfile(index, initial, before.activeId);
+      const wasActive = index.activeId === profile.id;
+      await this.publish(
+        {
+          activeId: wasActive ? null : index.activeId,
+          profiles: index.profiles.filter((item) => item.id !== id),
+        },
+        {
+          profile: { id, yamlText: null },
+          ...(prepared ? { config: prepared } : {}),
+        },
+      );
+      return { wasActive, ...(prepared ? { proxyCount: prepared.proxyCount } : {}) };
     });
   }
 
-  async reloadActive(reloadRuntime = true): Promise<GeneratedConfig> {
-    const active = this.active();
-    if (!active) {
-      const generated = await this.prepare(null);
-      await this.exclusive(() =>
-        this.transitionConfig(generated, () => undefined, [], reloadRuntime),
-      );
-      return generated;
+  /** `commit` is false only for callers which already own the mutation boundary. */
+  async reloadActive(reloadRuntime = true, commit = true): Promise<GeneratedConfig> {
+    const before = this.list();
+    const active = getActiveProfile(before);
+    const stored = active ? readProfileDoc(this.layout, active.id) : undefined;
+    const fetched =
+      active && stored === undefined && active.url ? await this.fetch(active.url) : undefined;
+    if (active && stored === undefined && !fetched) {
+      throw new ProfileInputError(`Local profile file is missing: ${active.id}`);
     }
-
-    let fetched: SubscriptionFetch | undefined;
-    const stored = readProfileDoc(this.layout, active.id);
-    if (stored === undefined) {
-      if (!active.url) {
-        throw new ProfileInputError(`Local profile file is missing: ${active.id}`);
-      }
-      fetched = await this.fetch(active.url);
-    }
-    return this.exclusive(async () => {
-      const current = this.active();
-      if (!current || current.id !== active.id) {
+    const settings = this.settingsSnapshot();
+    const generated = await this.prepare(fetched?.doc ?? stored ?? null, settings);
+    const action = async (): Promise<GeneratedConfig> => {
+      this.assertSettingsUnchanged(settings);
+      const index = this.list();
+      if (index.activeId !== before.activeId) {
         throw new ProfileConflictError("Active profile changed while preparing configuration");
       }
-      if (fetched) applySubscriptionFetch(active.id, fetched, this.layout);
-      const doc = fetched?.doc ?? readProfileDoc(this.layout, active.id);
-      if (doc === undefined) {
-        throw new ProfileInputError(`Profile file is missing: ${active.id}`);
+      if (!active) {
+        await this.publish(index, { config: generated, reloadRuntime });
+        return generated;
       }
-      const generated = await this.prepare(doc);
-      await this.transitionConfig(generated, () => undefined, [], reloadRuntime);
+      const profile = currentProfile(index, active, before.activeId);
+      const updated = fetched ? withFetchedContent(profile, fetched) : profile;
+      await this.publish(
+        {
+          ...index,
+          profiles: index.profiles.map((item) => (item.id === profile.id ? updated : item)),
+        },
+        {
+          ...(fetched ? { profile: { id: profile.id, yamlText: fetched.yamlText } } : {}),
+          config: generated,
+          reloadRuntime,
+        },
+      );
       return generated;
-    });
+    };
+    return commit ? this.commit("reload active profile", action) : action();
   }
 }

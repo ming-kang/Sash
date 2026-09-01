@@ -51,6 +51,7 @@ export interface SashLayout {
   mutationLockFile: string;
   settingsLockFile: string;
   systemProxyStateFile: string;
+  managedStateTransactionFile: string;
   installFile: string;
   logsDir: string;
   coreLogFile: string;
@@ -81,6 +82,7 @@ export function sashLayout(root: string = sashRoot()): SashLayout {
     mutationLockFile: path.join(root, "state", "mutation.lock"),
     settingsLockFile: path.join(root, "state", "settings.lock"),
     systemProxyStateFile: path.join(root, "state", "system-proxy.json"),
+    managedStateTransactionFile: path.join(root, "state", "managed-state-transaction.json"),
     installFile: path.join(root, "state", "install.json"),
     logsDir: path.join(root, "logs"),
     coreLogFile: path.join(root, "logs", "mihomo.log"),

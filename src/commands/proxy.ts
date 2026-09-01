@@ -1,9 +1,14 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { saveSettings } from "../settings.js";
+import { SettingsService } from "../settings-service.js";
 import { SystemProxyManager } from "../system-proxy-manager.js";
-import { type RuntimeContext, runOfflineMutation, runtimeContext } from "./shared.js";
+import {
+  createProfileService,
+  type RuntimeContext,
+  runOfflineMutation,
+  runtimeContext,
+} from "./shared.js";
 
 /** `sash proxy on`: enable OS system proxy via the running sashd. */
 export async function runProxyOn(): Promise<void> {
@@ -27,9 +32,20 @@ export async function disableProxyOffline(
   ctx: RuntimeContext,
   release: () => Promise<void> = () => new SystemProxyManager({ layout: ctx.layout }).release(),
 ): Promise<void> {
-  ctx.settings.systemProxy = false;
-  saveSettings(ctx.settings, ctx.layout);
-  await release();
+  const service = new SettingsService({
+    layout: ctx.layout,
+    getCommitted: () => ctx.settings,
+    setCommitted: (next) => {
+      ctx.settings = next;
+    },
+    setRuntime: (next) => {
+      ctx.settings = next;
+    },
+    profiles: createProfileService(ctx),
+    releaseSystemProxy: release,
+    commit: async (_purpose, action) => action(),
+  });
+  await service.update("system-proxy", "off");
 }
 
 /** `sash proxy off`: disable OS system proxy (works even if daemon is stopped). */

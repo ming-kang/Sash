@@ -33,6 +33,17 @@ export function atomicWriteFileSync(target: string, data: string | Buffer, mode 
   fsyncParentDirectory(dir);
 }
 
+/** Remove a file and durably persist its directory entry on POSIX. */
+export function durableRemoveFileSync(target: string): void {
+  try {
+    fs.unlinkSync(target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+  fsyncParentDirectory(path.dirname(target));
+}
+
 function renameWithRetry(from: string, to: string): void {
   const delays = [0, 50, 100, 200, 400];
   let lastErr: unknown;

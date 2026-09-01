@@ -162,6 +162,29 @@ describe("profiles store", () => {
     assert.equal(fs.readFileSync(layout.profilesIndexFile, "utf8"), corrupt);
   });
 
+  it("loadProfiles rejects duplicate ids and unexpected root fields", () => {
+    fs.mkdirSync(layout.profilesDir, { recursive: true });
+    const profile = {
+      id: "1",
+      name: "a",
+      url: "",
+      intervalHours: 0,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    fs.writeFileSync(
+      layout.profilesIndexFile,
+      JSON.stringify({ activeId: null, profiles: [profile, profile] }),
+    );
+    assert.throws(() => loadProfiles(layout), /duplicate profile ids/);
+
+    fs.writeFileSync(
+      layout.profilesIndexFile,
+      JSON.stringify({ activeId: null, profiles: [profile], unexpected: true }),
+    );
+    assert.throws(() => loadProfiles(layout), /unexpected root fields/);
+  });
+
   it("loadProfiles drops a dangling activeId", () => {
     const a = addProfile({ name: "a", url: "", yamlText: VALID_YAML }, layout);
     // Corrupt the index: point activeId at a non-existent profile.

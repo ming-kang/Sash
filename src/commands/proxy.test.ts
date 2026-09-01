@@ -20,7 +20,12 @@ describe("offline system proxy cleanup", () => {
 
   it("persists desired=false before disabling the OS proxy", async () => {
     const layout = sashLayout(tmpDir);
-    const settings = { ...DEFAULT_SETTINGS, systemProxy: true };
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      secret: "test-core-secret",
+      daemonSecret: "test-daemon-secret",
+      systemProxy: true,
+    };
     saveSettings(settings, layout);
     let persistedBeforeDisable = false;
 

@@ -2,13 +2,8 @@ import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { ProfileService } from "../profile-service.js";
-import {
-  applyManagedKey,
-  requiresCoreRestart,
-  SETTABLE_KEYS,
-  saveSettings,
-  validateController,
-} from "../settings.js";
+import { requiresCoreRestart, SETTABLE_KEYS, validateController } from "../settings.js";
+import { SettingsService } from "../settings-service.js";
 import { SystemProxyManager } from "../system-proxy-manager.js";
 import { createProfileService, runOfflineMutation, runtimeContext } from "./shared.js";
 
@@ -59,36 +54,27 @@ export async function runConfigSet(key: string, value: string | undefined): Prom
     return;
   }
 
-  await runOfflineMutation(ctx, "update settings offline", async () => {
-    const previous = { ...ctx.settings };
-    try {
-      applyManagedKey(ctx.settings, key, value);
-    } catch (err) {
-      const usage = `\n\nUsage: sash config set <key> <value>\nSettable keys: ${SETTABLE_KEYS.join(", ")}`;
-      throw new Error(`${(err as Error).message}${usage}`);
-    }
-
-    try {
-      saveSettings(ctx.settings, ctx.layout);
-      await createProfileService(ctx).reloadActive(false);
-      if (key === "system-proxy" && !ctx.settings.systemProxy) {
-        await new SystemProxyManager({ layout: ctx.layout }).release();
-      }
-    } catch (err) {
-      Object.assign(ctx.settings, previous);
-      const rollbackErrors: string[] = [];
-      try {
-        saveSettings(ctx.settings, ctx.layout);
-        await createProfileService(ctx).reloadActive(false);
-      } catch (rollbackErr) {
-        rollbackErrors.push((rollbackErr as Error).message);
-      }
-      const suffix = rollbackErrors.length
-        ? `; settings rollback failed: ${rollbackErrors.join("; ")}`
-        : "";
-      throw new Error(`${(err as Error).message}${suffix}`);
-    }
-  });
+  try {
+    const service = new SettingsService({
+      layout: ctx.layout,
+      getCommitted: () => ctx.settings,
+      setCommitted: (next) => {
+        ctx.settings = next;
+      },
+      setRuntime: (next) => {
+        ctx.settings = next;
+      },
+      profiles: createProfileService(ctx),
+      releaseSystemProxy: () => new SystemProxyManager({ layout: ctx.layout }).release(),
+      // Candidate rendering/fetching occurs before this boundary. It refreshes
+      // settings and verifies offline ownership immediately before publication.
+      commit: (purpose, action) => runOfflineMutation(ctx, purpose, action),
+    });
+    await service.update(key, value);
+  } catch (err) {
+    const usage = `\n\nUsage: sash config set <key> <value>\nSettable keys: ${SETTABLE_KEYS.join(", ")}`;
+    throw new Error(`${(err as Error).message}${usage}`);
+  }
   log.ok(`${key} updated`);
   log.info("takes effect on next `sash start`");
 }

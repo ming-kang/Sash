@@ -135,6 +135,23 @@ function parseString(value: unknown, key: string, file: string): string {
   return value;
 }
 
+function hasSecretControlCharacter(secret: string): boolean {
+  for (const char of secret) {
+    const code = char.charCodeAt(0);
+    if (code <= 31 || code === 127) return true;
+  }
+  return false;
+}
+
+function parseSecret(value: unknown, key: string, file: string): string {
+  const secret = parseString(value, key, file);
+  if (!secret.trim()) throw invalidSettings(file, `${key} must not be blank`);
+  if (hasSecretControlCharacter(secret)) {
+    throw invalidSettings(file, `${key} must not contain control characters`);
+  }
+  return secret;
+}
+
 function parseBoolean(value: unknown, key: string, file: string): boolean {
   if (typeof value !== "boolean") throw invalidSettings(file, `${key} must be a boolean`);
   return value;
@@ -154,6 +171,28 @@ function parseController(value: unknown, key: string, file: string): string {
     throw invalidSettings(file, `${key} must be a loopback host:port controller address`);
   }
   return address.canonical;
+}
+
+function validateSettingsRelations(settings: SashSettings, file: string): void {
+  const controller = parseControllerAddress(settings.controller);
+  if (!controller) {
+    throw invalidSettings(file, "controller must be a loopback host:port controller address");
+  }
+  const ports: Array<[string, number]> = [
+    ["mixedPort", settings.mixedPort],
+    ["daemonPort", settings.daemonPort],
+    ["controller", controller.port],
+  ];
+  for (let i = 0; i < ports.length; i++) {
+    for (let j = i + 1; j < ports.length; j++) {
+      if (ports[i]?.[1] === ports[j]?.[1]) {
+        throw invalidSettings(
+          file,
+          `${ports[i]?.[0]} and ${ports[j]?.[0]} must use different ports`,
+        );
+      }
+    }
+  }
 }
 
 function parseSchemaVersion(
@@ -213,7 +252,7 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
     DEFAULT_SETTINGS.secret,
     allowMissing,
     file,
-    parseString,
+    parseSecret,
   );
   const tun = readRequiredField(
     document,
@@ -245,7 +284,7 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
     DEFAULT_SETTINGS.daemonSecret,
     allowMissing,
     file,
-    parseString,
+    parseSecret,
   );
   const systemProxy = readRequiredField(
     document,
@@ -277,17 +316,12 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
     needsRewrite = true;
   }
 
-  let normalizedSecret = secret.value;
-  if (!normalizedSecret) {
-    normalizedSecret = generateSecret();
-    needsRewrite = true;
-  }
-
-  let normalizedDaemonSecret = daemonSecret.value;
-  if (!normalizedDaemonSecret) {
-    normalizedDaemonSecret = generateSecret();
-    needsRewrite = true;
-  }
+  // Only omitted historical fields receive a generated value. A present blank
+  // secret is invalid: silently changing it would make the in-memory value
+  // diverge from the caller's requested settings.
+  const normalizedSecret = secret.missing ? generateSecret() : secret.value;
+  const normalizedDaemonSecret = daemonSecret.missing ? generateSecret() : daemonSecret.value;
+  needsRewrite ||= secret.missing || daemonSecret.missing;
 
   const settings: SashSettings = {
     schemaVersion: 1,
@@ -301,6 +335,7 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
     systemProxy: systemProxy.value,
   };
   if (subscriptionUrl !== undefined) settings.subscriptionUrl = subscriptionUrl;
+  validateSettingsRelations(settings, file);
 
   return { settings, needsRewrite };
 }
@@ -370,11 +405,16 @@ export function loadSettings(layout: SashLayout = sashLayout()): SashSettings {
   }
 }
 
-export function saveSettings(settings: SashSettings, layout: SashLayout = sashLayout()): void {
+/** Validate, canonicalize, persist and return the exact value written to disk. */
+export function saveSettings(
+  settings: SashSettings,
+  layout: SashLayout = sashLayout(),
+): SashSettings {
   const lease = acquireStateLockSync(layout.settingsLockFile, { purpose: "settings" });
   try {
     const parsed = parseSettings(settings, layout.settingsFile, false);
     writeCanonicalSettings(parsed.settings, layout);
+    return parsed.settings;
   } finally {
     lease.release();
   }
@@ -443,24 +483,25 @@ function parseOnOff(value: string | undefined): boolean {
 }
 
 /**
- * Validate and apply one managed key to `settings`, mutating it in place.
- * Shared by the CLI (`config set`) and the sashd settings route so both
- * accept exactly the same inputs.
+ * Validate and apply one managed key to a copy of `settings`. Shared by CLI
+ * and daemon callers so both accept exactly the same input without exposing a
+ * partially mutated committed snapshot.
  */
 export function applyManagedKey(
   settings: SashSettings,
   key: string,
   value: string | undefined,
-): void {
+): SashSettings {
+  const candidate = { ...settings };
   switch (key) {
     case "tun":
-      settings.tun = parseOnOff(value);
+      candidate.tun = parseOnOff(value);
       break;
     case "allow-lan":
-      settings.allowLan = parseOnOff(value);
+      candidate.allowLan = parseOnOff(value);
       break;
     case "system-proxy":
-      settings.systemProxy = parseOnOff(value);
+      candidate.systemProxy = parseOnOff(value);
       break;
     case "mixed-port": {
       const raw = (value ?? "").trim();
@@ -468,7 +509,7 @@ export function applyManagedKey(
       if (!raw || !Number.isInteger(port) || port < 1 || port > 65535 || String(port) !== raw) {
         throw new Error(`invalid port: ${value ?? ""} (expected 1-65535)`);
       }
-      settings.mixedPort = port;
+      candidate.mixedPort = port;
       break;
     }
     case "controller": {
@@ -477,13 +518,26 @@ export function applyManagedKey(
       if (!address) {
         throw new Error(`invalid controller address: ${v} (expected loopback host:port)`);
       }
-      settings.controller = address.canonical;
+      candidate.controller = address.canonical;
       break;
     }
-    case "secret":
-      settings.secret = !value || value === "regenerate" ? generateSecret() : value.trim();
+    case "secret": {
+      if (value === undefined || value === "regenerate") candidate.secret = generateSecret();
+      else {
+        const secret = value.trim();
+        if (!secret) throw new Error("secret must not be blank");
+        if (hasSecretControlCharacter(secret)) {
+          throw new Error("secret must not contain control characters");
+        }
+        candidate.secret = secret;
+      }
       break;
+    }
     default:
       throw new Error(`unknown key: ${key} (settable: ${SETTABLE_KEYS.join(", ")})`);
   }
+  // Use the same complete canonical validation used by persistence, but keep
+  // CLI-oriented errors free of a filesystem path.
+  const parsed = parseSettings(candidate, "candidate settings", false);
+  return parsed.settings;
 }

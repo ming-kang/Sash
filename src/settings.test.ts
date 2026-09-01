@@ -104,20 +104,20 @@ describe("settings", () => {
       assert.ok(loaded.daemonSecret.length > 0);
     });
 
-    it("regenerates empty persisted secrets", () => {
-      writeSettingsText(JSON.stringify(completeSettings({ secret: "", daemonSecret: "" })));
+    it("rejects blank persisted secrets without overwriting them", () => {
+      const text = JSON.stringify(completeSettings({ secret: "", daemonSecret: "" }));
+      assertLoadRejectsWithoutOverwrite(text, /secret must not be blank/);
+    });
 
-      const loaded = loadSettings(layout);
-      assert.match(loaded.secret, /^[0-9a-f]{48}$/);
-      assert.match(loaded.daemonSecret, /^[0-9a-f]{48}$/);
-      assert.notEqual(loaded.secret, loaded.daemonSecret);
-
-      const persisted = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as Record<
-        string,
-        unknown
-      >;
-      assert.equal(persisted.secret, loaded.secret);
-      assert.equal(persisted.daemonSecret, loaded.daemonSecret);
+    it("rejects every managed listener port collision without overwriting settings", () => {
+      for (const overrides of [
+        { mixedPort: 19090 },
+        { controller: "127.0.0.1:17890" },
+        { controller: "127.0.0.1:19090" },
+      ]) {
+        const text = JSON.stringify(completeSettings(overrides));
+        assertLoadRejectsWithoutOverwrite(text, /must use different ports/);
+      }
     });
 
     it("canonicalizes loopback controllers and rejects non-loopback settings", () => {
@@ -254,29 +254,32 @@ describe("settings", () => {
   });
 
   describe("applyManagedKey", () => {
-    it("applies boolean keys", () => {
-      const settings = { ...DEFAULT_SETTINGS };
-      applyManagedKey(settings, "tun", "on");
-      assert.equal(settings.tun, true);
-      applyManagedKey(settings, "system-proxy", "1");
-      assert.equal(settings.systemProxy, true);
-      applyManagedKey(settings, "allow-lan", "off");
-      assert.equal(settings.allowLan, false);
+    it("returns immutable boolean candidates", () => {
+      const settings = { ...DEFAULT_SETTINGS, secret: "core", daemonSecret: "daemon" };
+      const tun = applyManagedKey(settings, "tun", "on");
+      assert.equal(settings.tun, false);
+      assert.equal(tun.tun, true);
+      const proxy = applyManagedKey(tun, "system-proxy", "1");
+      assert.equal(proxy.systemProxy, true);
+      assert.equal(applyManagedKey(proxy, "allow-lan", "off").allowLan, false);
     });
 
     it("applies mixed-port with strict validation", () => {
-      const settings = { ...DEFAULT_SETTINGS };
-      applyManagedKey(settings, "mixed-port", "10808");
-      assert.equal(settings.mixedPort, 10808);
+      const settings = { ...DEFAULT_SETTINGS, secret: "core", daemonSecret: "daemon" };
+      const candidate = applyManagedKey(settings, "mixed-port", "10808");
+      assert.equal(candidate.mixedPort, 10808);
+      assert.equal(settings.mixedPort, DEFAULT_SETTINGS.mixedPort);
       assert.throws(() => applyManagedKey(settings, "mixed-port", "0x10"), /invalid port/);
       assert.throws(() => applyManagedKey(settings, "mixed-port", "70000"), /invalid port/);
     });
 
     it("regenerates the controller secret on demand", () => {
-      const settings = { ...DEFAULT_SETTINGS, secret: "fixed" };
-      applyManagedKey(settings, "secret", "regenerate");
-      assert.notEqual(settings.secret, "fixed");
-      assert.equal(settings.secret.length, 48);
+      const settings = { ...DEFAULT_SETTINGS, secret: "fixed", daemonSecret: "daemon" };
+      const candidate = applyManagedKey(settings, "secret", "regenerate");
+      assert.equal(settings.secret, "fixed");
+      assert.notEqual(candidate.secret, "fixed");
+      assert.equal(candidate.secret.length, 48);
+      assert.throws(() => applyManagedKey(settings, "secret", "   "), /must not be blank/);
     });
 
     it("rejects unknown keys", () => {
@@ -318,6 +321,7 @@ describe("settings", () => {
 
       const loaded = loadSettings(layout);
       assert.deepEqual(loaded, customSettings);
+      assert.deepEqual(saveSettings(customSettings, layout), JSON.parse(raw));
     });
 
     it("rejects incomplete or invalid settings without overwriting an existing file", () => {

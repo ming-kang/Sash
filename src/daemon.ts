@@ -19,20 +19,15 @@ import { handleProfileRoutes } from "./daemon-profile-routes.js";
 import { forwardHttpToCore, forwardWsToCore } from "./daemon-proxy.js";
 import { serveStaticUi } from "./daemon-static.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
+import { recoverManagedStateTransaction } from "./managed-state-transaction.js";
 import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { clearPidRecord } from "./process.js";
 import { migrateLegacyProfileSetting } from "./profile-migration.js";
 import { ProfileService } from "./profile-service.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
-import {
-  applyManagedKey,
-  loadSettings,
-  publicSettings,
-  requiresCoreRestart,
-  type SashSettings,
-  saveSettings,
-} from "./settings.js";
+import { loadSettings, publicSettings, type SashSettings, saveSettings } from "./settings.js";
+import { SettingsInputError, SettingsService } from "./settings-service.js";
 import { acquireStateLock, StateMutationQueue } from "./state-lock.js";
 import { type CoreState, CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy.js";
@@ -81,7 +76,8 @@ function rejectUpgrade(socket: Duplex, status: number, message: string): void {
 
 export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   const layout = deps.layout;
-  const settings = { ...deps.settings };
+  let committedSettings = saveSettings({ ...deps.settings }, layout);
+  let runtimeSettings = committedSettings;
   const token = deps.token ?? crypto.randomBytes(24).toString("hex");
   const startedAt = new Date().toISOString();
   const systemProxy = deps.systemProxy ?? new SystemProxyManager({ layout });
@@ -92,7 +88,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     deps.supervisor ??
     new CoreSupervisor({
       layout,
-      settings: () => settings,
+      settings: () => runtimeSettings,
       expectedVersion: currentCoreVersion(layout) || undefined,
       onExit: async () => {
         try {
@@ -107,40 +103,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   lifecycle = new RuntimeLifecycle({
     supervisor,
     systemProxy,
-    settings: () => settings,
-  });
-
-  const syncSystemProxy = async (enable: boolean): Promise<void> => {
-    const previous = settings.systemProxy;
-    settings.systemProxy = enable;
-    try {
-      saveSettings(settings, layout);
-      await lifecycle.reconcileSystemProxy();
-    } catch (err) {
-      settings.systemProxy = previous;
-      try {
-        saveSettings(settings, layout);
-        await lifecycle.reconcileSystemProxy();
-      } catch (rollbackErr) {
-        throw new Error(
-          `${(err as Error).message}; system proxy rollback failed: ${(rollbackErr as Error).message}`,
-        );
-      }
-      throw err;
-    }
-  };
-
-  const profiles = new ProfileService({
-    layout,
-    settings: () => settings,
-    ...(deps.fetchProfileFn ? { fetchProfile: deps.fetchProfileFn } : {}),
-    validateConfig:
-      deps.validateConfigFn ?? ((generated) => validateCoreConfigText(generated.yaml, layout)),
-    reloadConfig: async (configPath) => {
-      if (!supervisor.isRunning()) return;
-      const api = new MihomoApi(settings.controller, settings.secret);
-      await api.reloadConfig(configPath);
-    },
+    settings: () => runtimeSettings,
   });
 
   let closing = false;
@@ -150,6 +113,35 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       if (closing) throw new Error("sashd is shutting down");
       return action();
     });
+
+  const profiles = new ProfileService({
+    layout,
+    settings: () => committedSettings,
+    ...(deps.fetchProfileFn ? { fetchProfile: deps.fetchProfileFn } : {}),
+    validateConfig:
+      deps.validateConfigFn ?? ((generated) => validateCoreConfigText(generated.yaml, layout)),
+    reloadConfig: async (configPath) => {
+      if (!supervisor.isRunning()) return;
+      const api = new MihomoApi(runtimeSettings.controller, runtimeSettings.secret);
+      await api.reloadConfig(configPath);
+    },
+    commit: mutate,
+  });
+
+  const settingsService = new SettingsService({
+    layout,
+    getCommitted: () => committedSettings,
+    setCommitted: (next) => {
+      committedSettings = { ...next };
+    },
+    setRuntime: (next) => {
+      runtimeSettings = { ...next };
+    },
+    profiles,
+    supervisor,
+    lifecycle,
+    commit: mutate,
+  });
 
   const server = http.createServer(async (req, res) => {
     if (!isLoopbackHostHeader(req.headers.host)) {
@@ -189,7 +181,10 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     // 5. State-changing control requests require a CLI bearer or WebUI boot token.
     if (
       isControlMutation(method) &&
-      !isControlRequestAuthorized(req, { daemonSecret: settings.daemonSecret, bootToken: token })
+      !isControlRequestAuthorized(req, {
+        daemonSecret: committedSettings.daemonSecret,
+        bootToken: token,
+      })
     ) {
       sendError(res, 401, "Unauthorized control request");
       return;
@@ -210,7 +205,13 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         const prefixIdx = rawUrl.indexOf("/core/api");
         const targetSubPath =
           prefixIdx >= 0 ? rawUrl.slice(prefixIdx + "/core/api".length) || "/" : "/";
-        forwardHttpToCore(req, res, targetSubPath, settings.controller, settings.secret);
+        forwardHttpToCore(
+          req,
+          res,
+          targetSubPath,
+          runtimeSettings.controller,
+          runtimeSettings.secret,
+        );
         return;
       }
 
@@ -225,7 +226,13 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         matchesPathPrefix(pathname, "/providers") ||
         matchesPathPrefix(pathname, "/dns")
       ) {
-        forwardHttpToCore(req, res, pathname + url.search, settings.controller, settings.secret);
+        forwardHttpToCore(
+          req,
+          res,
+          pathname + url.search,
+          runtimeSettings.controller,
+          runtimeSettings.secret,
+        );
         return;
       }
 
@@ -253,15 +260,15 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           daemon: {
             pid: process.pid,
             startedAt,
-            port: settings.daemonPort,
+            port: committedSettings.daemonPort,
           },
           core,
           systemProxy: {
-            desired: settings.systemProxy,
+            desired: committedSettings.systemProxy,
             applied: proxyApplied,
             actual: actualProxy,
           },
-          settings: publicSettings(settings),
+          settings: publicSettings(committedSettings),
           activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
         };
         sendJson(res, 200, status);
@@ -271,7 +278,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       if (method === "GET" && (pathname === "/sash/proxy" || pathname === "/proxy")) {
         const inspection = systemProxy.inspect(url.searchParams.get("fresh") === "1");
         sendJson(res, 200, {
-          desired: settings.systemProxy,
+          desired: committedSettings.systemProxy,
           applied: inspection.applied,
           ...inspection.state,
         });
@@ -287,7 +294,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           sendError(res, 400, "Cannot enable system proxy: core is not healthy");
           return;
         }
-        await mutate("enable system proxy", () => syncSystemProxy(true));
+        await settingsService.update("system-proxy", "on");
         sendJson(res, 200, { ok: true, systemProxy: true });
         return;
       }
@@ -296,20 +303,16 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         method === "POST" &&
         (pathname === "/sash/proxy/disable" || pathname === "/proxy/disable")
       ) {
-        await mutate("disable system proxy", () => syncSystemProxy(false));
+        await settingsService.update("system-proxy", "off");
         sendJson(res, 200, { ok: true, systemProxy: false });
         return;
       }
 
-      const handleProfiles = () => handleProfileRoutes({ req, res, method, pathname, profiles });
-      const handledProfile =
-        isControlMutation(method) && matchesPathPrefix(pathname, "/sash/profiles")
-          ? await mutate("mutate profiles", handleProfiles)
-          : await handleProfiles();
+      const handledProfile = await handleProfileRoutes({ req, res, method, pathname, profiles });
       if (handledProfile) return;
 
       if (method === "GET" && pathname === "/sash/settings") {
-        sendJson(res, 200, { ok: true, settings: publicSettings(settings) });
+        sendJson(res, 200, { ok: true, settings: publicSettings(committedSettings) });
         return;
       }
 
@@ -322,62 +325,16 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           return;
         }
 
-        const accepted = await mutate("update settings", async () => {
-          const previousSettings = { ...settings };
-          const wasRunning = supervisor.isRunning();
-          let configCommitted = false;
-          let coreTransitionAttempted = false;
-          try {
-            applyManagedKey(settings, key, value);
-          } catch (err) {
-            sendError(res, 400, (err as Error).message);
-            return false;
+        try {
+          const updated = await settingsService.update(key, value);
+          sendJson(res, 200, { ok: true, settings: publicSettings(updated) });
+        } catch (err) {
+          if (err instanceof SettingsInputError) {
+            sendError(res, 400, err.message);
+            return;
           }
-
-          try {
-            saveSettings(settings, layout);
-            if (key === "system-proxy") {
-              await lifecycle.reconcileSystemProxy();
-            } else {
-              const restartRequired = wasRunning && requiresCoreRestart(key);
-              await profiles.reloadActive(!restartRequired);
-              configCommitted = true;
-              if (restartRequired) {
-                coreTransitionAttempted = true;
-                await lifecycle.restart();
-              }
-            }
-          } catch (err) {
-            const rollbackErrors: string[] = [];
-            Object.assign(settings, previousSettings);
-            try {
-              saveSettings(settings, layout);
-              if (key === "system-proxy") {
-                await lifecycle.reconcileSystemProxy();
-              } else if (configCommitted || coreTransitionAttempted) {
-                await profiles.reloadActive(false);
-                if (coreTransitionAttempted && wasRunning) {
-                  if (supervisor.isRunning()) {
-                    await lifecycle.restart();
-                  } else {
-                    await lifecycle.start();
-                  }
-                }
-              }
-            } catch (rollbackErr) {
-              rollbackErrors.push((rollbackErr as Error).message);
-            }
-            const suffix =
-              rollbackErrors.length > 0
-                ? `; settings rollback failed: ${rollbackErrors.join("; ")}`
-                : "";
-            throw new Error(`${(err as Error).message}${suffix}`);
-          }
-          return true;
-        });
-
-        if (!accepted) return;
-        sendJson(res, 200, { ok: true, settings: publicSettings(settings) });
+          throw err;
+        }
         return;
       }
 
@@ -397,7 +354,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       if (method === "POST" && pathname === "/core/start") {
         const result = await mutate("start core", () =>
           lifecycle.start(async () => {
-            await profiles.reloadActive(false);
+            await profiles.reloadActive(false, false);
           }),
         );
         sendJson(res, 200, { ok: true, ...result });
@@ -413,7 +370,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       if (method === "POST" && pathname === "/core/restart") {
         const result = await mutate("restart core", () =>
           lifecycle.restart(async () => {
-            await profiles.reloadActive(false);
+            await profiles.reloadActive(false, false);
           }),
         );
         sendJson(res, 200, { ok: true, ...result });
@@ -424,7 +381,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         method === "POST" &&
         (pathname === "/core/config/reload" || pathname === "/config/reload")
       ) {
-        const result = await mutate("reload core config", () => profiles.reloadActive());
+        const result = await mutate("reload core config", () => profiles.reloadActive(true, false));
         sendJson(res, 200, { ok: true, proxyCount: result.proxyCount, source: result.source });
         return;
       }
@@ -450,7 +407,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     }
     if (
       !isWebSocketRequestAuthorized(req, {
-        daemonSecret: settings.daemonSecret,
+        daemonSecret: committedSettings.daemonSecret,
         bootToken: token,
       })
     ) {
@@ -472,7 +429,14 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     const targetSubPath =
       prefixIdx >= 0 ? rawUrl.slice(prefixIdx + "/core/api".length) || "/" : rawUrl;
 
-    forwardWsToCore(req, socket, head, targetSubPath, settings.controller, settings.secret);
+    forwardWsToCore(
+      req,
+      socket,
+      head,
+      targetSubPath,
+      runtimeSettings.controller,
+      runtimeSettings.secret,
+    );
   });
 
   /* ====================================================================== */
@@ -482,7 +446,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
 
   const autoUpdateProfiles = async (): Promise<void> => {
     try {
-      await mutate("update due profiles", () => profiles.updateDue());
+      await profiles.updateDue();
     } catch {
       // Individual profile failures are recorded by ProfileService.
     }
@@ -531,7 +495,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     supervisor,
     lifecycle,
     token,
-    port: settings.daemonPort,
+    port: committedSettings.daemonPort,
     close: closeDaemon,
   };
 }
@@ -551,6 +515,7 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
   try {
     const initialization = new StateMutationQueue(layout.mutationLockFile);
     const settings = await initialization.run("initialize daemon state", () => {
+      recoverManagedStateTransaction(layout);
       const loaded = loadSettings(layout);
       // One-time migration: a legacy single subscription becomes an active,
       // meta-only profile whose content the scheduler can fetch.

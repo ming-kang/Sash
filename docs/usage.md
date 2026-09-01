@@ -95,7 +95,9 @@ Core updates temporarily stop `sashd`, retain `<core>.bak`, and restore the prev
 
 A legacy `subscriptionUrl` key is migrated once into `profiles/index.json` and then removed. Installed core version metadata lives in `state/install.json`, not in `sash.json`.
 
-Malformed, future-version or unknown-field `sash.json` documents and malformed `profiles/index.json` files are rejected without being overwritten. Repair or move the damaged file explicitly instead of relying on silent defaults.
+Malformed, future-version or unknown-field `sash.json` documents and malformed `profiles/index.json` files are rejected without being overwritten. Secrets cannot be blank or contain control characters, the controller must remain loopback-only, and the mixed, controller and daemon ports must all differ. Repair or move a damaged file explicitly instead of relying on silent defaults.
+
+Settings changes are prepared as an all-or-nothing candidate: active configuration is validated before settings/config publication, and a failed restart restores the previous candidate where possible. Turning the system proxy off persists the desired off state before OS cleanup; if cleanup fails, retry `sash proxy off` after resolving the OS error.
 
 ---
 

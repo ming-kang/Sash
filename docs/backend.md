@@ -33,7 +33,8 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/profile-service.ts`: profile/config application transactions.
 - `src/core-update.ts`: executable/install-record update transaction and crash recovery.
 - `src/http.ts` / `src/github.ts`: bounded networking and trusted release downloads.
-- `src/settings.ts`: versioned runtime schema for `sash.json`.
+- `src/settings.ts`: versioned runtime schema and immutable managed-key candidates for `sash.json`.
+- `src/settings-service.ts`: shared online/offline settings preparation, durable publication and runtime-transition orchestration.
 - `src/contracts.ts`: API contracts shared by the daemon client and WebUI.
 
 ---
@@ -117,7 +118,9 @@ Requests are forwarded to the internal controller. `sashd` strips Sash credentia
 
 ## 5. Settings, Profiles and Config Transactions
 
-`sash.json` has explicit `schemaVersion: 1`. Loading validates the JSON root, every field type, port range, controller address and unknown keys. Version-0 files and removed version metadata migrate to canonical v1. Invalid or future-version files are never overwritten.
+`sash.json` has explicit `schemaVersion: 1`. Loading validates the JSON root, every field type, nonblank control-character-free secrets, port range, loopback controller address, unknown keys and all three listener ports (`mixedPort`, controller and daemon) for collisions. Version-0 files and removed version metadata migrate to canonical v1. Invalid or future-version files are never overwritten.
+
+`SettingsService` snapshots committed settings, creates an immutable canonical candidate, then fetches/renders/Core-validates active profile configuration outside the mutation lock. Under the short commit boundary it rechecks settings/profile snapshots and journals settings plus generated config before publication. The daemon exposes only `committedSettings` to GET/status/auth handlers; Core spawn/restart can temporarily use `runtimeSettings` while a candidate transition is in progress. The committed in-memory snapshot changes only after the journaled transition succeeds; failure restores disk/config and the old runtime.
 
 Profile application follows:
 
@@ -125,12 +128,12 @@ Profile application follows:
 2. Overlay Sash-owned operational keys.
 3. Write an isolated candidate.
 4. Run the installed Core with `-t -d <root> -f <candidate>`.
-5. Snapshot affected config/profile/index state.
-6. Atomically publish `config.yaml`.
-7. Reload or restart the runtime.
-8. Commit metadata only after runtime success; otherwise restore the snapshot.
+5. Enter the short profile commit boundary, re-read the index and verify the target profile identity, URL, active selection and managed-settings snapshot.
+6. Snapshot the affected fixed roles (`sash.json`, profile YAML, index and/or `config.yaml`), then atomically persist a `publishing` record in `state/managed-state-transaction.json` before publication.
+7. Reload or restart the runtime only after every file is published, mark the journal `committed`, then clear it. The same journal can include the canonical `sash.json` snapshot for settings/config publication. Startup finalizes a committed journal without rolling the published state back.
+8. On any publication or reload failure, restore every snapshot (continuing after individual restore errors), then reload the prior config when one existed. A rollback reload failure is reported explicitly. Incomplete rollback retains the journal; daemon and offline initialization recover a `publishing` journal under `mutation.lock` before reading or migrating profile state.
 
-Remote bodies are capped at 8 MiB. Profile requests use an absolute deadline and explicit hop-by-hop redirects: HTTPS cannot downgrade to HTTP, restricted literal addresses cannot cross origins, and public origins cannot redirect to literal private/loopback targets. Scheduled network fetches use bounded concurrency; state commits remain serialized and recheck profile identity/URL before publication.
+The daemon parses profile request bodies before its mutation boundary. Remote fetch, YAML parsing, rendering and Core validation also occur before that boundary; only recheck, publication and runtime reload are serialized. Offline commands use the same split boundary after reloading settings, verifying daemon/orphan-Core ownership and migrating the legacy setting. Remote bodies are capped at 8 MiB. Profile requests use an absolute deadline and explicit hop-by-hop redirects: HTTPS cannot downgrade to HTTP, restricted literal addresses cannot cross origins, and public origins cannot redirect to literal private/loopback targets. Scheduled network fetches use bounded concurrency; state commits remain serialized and recheck profile identity/URL and active selection before publication.
 
 ---
 
@@ -191,6 +194,7 @@ Atomic state writes use a same-directory temporary file, file `fsync`, rename an
 - `config.yaml`: generated runtime config.
 - `state/sash.pid`, `state/sashd.pid`: discovery records.
 - `state/system-proxy.json`: durable proxy ownership transaction.
+- `state/managed-state-transaction.json`: recoverable settings/profile/index/config publication snapshots.
 - `state/install.json`: committed Core version metadata.
 - `state/*.lock`: local-filesystem ownership records.
 
