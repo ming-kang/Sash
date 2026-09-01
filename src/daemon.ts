@@ -3,12 +3,36 @@ import fs from "node:fs";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
+import YAML from "yaml";
 import { MihomoApi } from "./api.js";
 import { forwardHttpToCore, forwardWsToCore } from "./daemon-proxy.js";
 import { serveStaticUi } from "./daemon-static.js";
-import { fetchSubscription, generateConfig } from "./mihomo-config.js";
+import {
+  buildDefaultConfig,
+  fetchSubscriptionProfile,
+  generateConfig,
+  isValidMihomoConfig,
+  type SubscriptionFetch,
+} from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { clearPidRecord } from "./process.js";
+import {
+  addProfile,
+  applySubscriptionFetch,
+  findProfileByUrl,
+  getActiveProfile,
+  loadProfiles,
+  migrateLegacySubscription,
+  type ProfileMeta,
+  type ProfilesIndex,
+  profileDueForUpdate,
+  profileFilePath,
+  profileNameFromUrl,
+  readProfileDoc,
+  recordProfileError,
+  removeProfile,
+  setActiveProfile,
+} from "./profiles.js";
 import {
   applyManagedKey,
   loadSettings,
@@ -46,6 +70,8 @@ export interface DaemonStatus {
     actual?: SystemProxyState;
   };
   settings: SashSettings;
+  /** Active subscription profile, if any (profiles are the source of truth). */
+  activeProfile: { id: string; name: string; url: string } | null;
 }
 
 export interface DaemonDeps {
@@ -54,7 +80,7 @@ export interface DaemonDeps {
   supervisor?: CoreSupervisor;
   sysproxy?: SysproxyAdapter;
   token?: string;
-  fetchSubscriptionFn?: (url: string) => Promise<Record<string, unknown>>;
+  fetchProfileFn?: (url: string) => Promise<SubscriptionFetch>;
   onShutdown?: () => void;
 }
 
@@ -113,7 +139,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   const settings = { ...deps.settings };
   const token = deps.token ?? crypto.randomBytes(24).toString("hex");
   const startedAt = new Date().toISOString();
-  const fetchSub = deps.fetchSubscriptionFn ?? fetchSubscription;
+  const fetchProfile = deps.fetchProfileFn ?? fetchSubscriptionProfile;
 
   const sysproxyAdapter: SysproxyAdapter = deps.sysproxy ?? {
     enable: (opts) => enableSystemProxy(opts),
@@ -157,13 +183,45 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     }
   };
 
-  const recompileAndReload = async (subscriptionDoc?: Record<string, unknown>) => {
+  const compileAndReload = async (subscriptionDoc?: Record<string, unknown>) => {
     const result = await generateConfig({ layout, settings, subscription: subscriptionDoc });
     if (supervisor.isRunning()) {
       const api = new MihomoApi(settings.controller, settings.secret);
       await api.reloadConfig(layout.configFile);
     }
     return result;
+  };
+
+  /** Persist freshly fetched subscription content onto an existing profile. */
+  const applyFetchedToProfile = (id: string, fetched: SubscriptionFetch): ProfilesIndex =>
+    applySubscriptionFetch(id, fetched, layout);
+
+  /**
+   * Rebuild config.yaml from the active profile's stored document and
+   * hot-reload the core. With no active profile the DIRECT-only default is
+   * compiled. A profile whose file is missing (e.g. freshly migrated) is
+   * fetched once as a bootstrap.
+   */
+  const recompileActiveAndReload = async () => {
+    const index = loadProfiles(layout);
+    const active = getActiveProfile(index);
+    if (!active) return compileAndReload(buildDefaultConfig());
+    let doc = readProfileDoc(layout, active.id);
+    if (doc === undefined && active.url) {
+      const fetched = await fetchProfile(active.url);
+      applyFetchedToProfile(active.id, fetched);
+      doc = fetched.doc;
+    }
+    return compileAndReload(doc);
+  };
+
+  /** Keep settings.subscriptionUrl mirroring the active profile (CLI/status compat). */
+  const syncSubMirror = (index: ProfilesIndex): void => {
+    const url = getActiveProfile(index)?.url ?? "";
+    if (settings.subscriptionUrl !== url) {
+      settings.subscriptionUrl = url;
+      saveSettings(settings, layout);
+    }
   };
 
   const supervisor =
@@ -247,6 +305,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         } catch {
           // ignore
         }
+        const active = getActiveProfile(loadProfiles(layout));
         const status: DaemonStatus = {
           daemon: {
             pid: process.pid,
@@ -260,6 +319,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             actual: actualProxy,
           },
           settings,
+          activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
         };
         sendJson(res, 200, status);
         return;
@@ -297,51 +357,198 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         return;
       }
 
-      if (method === "GET" && pathname === "/sash/subscription") {
-        sendJson(res, 200, { url: settings.subscriptionUrl });
+      /* ==================================================================== */
+      /* /sash/profiles* — Subscription profiles                                */
+      /* ==================================================================== */
+      if (method === "GET" && pathname === "/sash/profiles") {
+        sendJson(res, 200, loadProfiles(layout));
         return;
       }
 
-      if (
-        method === "POST" &&
-        (pathname === "/sash/subscription" || pathname === "/subscription")
-      ) {
-        const body = (await parseJsonBody(req)) as { url?: unknown };
+      if (method === "POST" && pathname === "/sash/profiles") {
+        const body = (await parseJsonBody(req)) as {
+          url?: unknown;
+          name?: unknown;
+          activate?: unknown;
+        };
         const urlStr = typeof body.url === "string" ? body.url.trim() : "";
         if (!urlStr) {
           sendError(res, 400, "Missing required 'url' string");
           return;
         }
-        const doc = await fetchSub(urlStr);
-        settings.subscriptionUrl = urlStr;
-        saveSettings(settings, layout);
-        const result = await recompileAndReload(doc);
-        sendJson(res, 200, { ok: true, proxyCount: result.proxyCount });
+        const requestedName = typeof body.name === "string" ? body.name.trim() : "";
+        const fetched = await fetchProfile(urlStr);
+
+        // Re-downloading an already-tracked URL updates that profile in place.
+        const existing = findProfileByUrl(loadProfiles(layout), urlStr);
+        let index: ProfilesIndex;
+        let profile: ProfileMeta;
+        if (existing) {
+          index = applyFetchedToProfile(existing.id, fetched);
+          const found = index.profiles.find((p) => p.id === existing.id);
+          if (!found) throw new Error(`profile not found after update: ${existing.id}`);
+          profile = found;
+        } else {
+          const added = addProfile(
+            {
+              name: requestedName || fetched.name || profileNameFromUrl(urlStr),
+              url: urlStr,
+              yamlText: fetched.yamlText,
+              ...(fetched.intervalHours ? { intervalHours: fetched.intervalHours } : {}),
+              ...(fetched.subInfo ? { subInfo: fetched.subInfo } : {}),
+              ...(fetched.homePage ? { homePage: fetched.homePage } : {}),
+            },
+            layout,
+          );
+          index = added.index;
+          profile = added.profile;
+        }
+
+        // Explicit activate (CLI) wins; otherwise a first profile auto-activates.
+        if ((body.activate === true || index.activeId === null) && index.activeId !== profile.id) {
+          index = setActiveProfile(profile.id, layout);
+        }
+        syncSubMirror(index);
+        const isActive = index.activeId === profile.id;
+        const compiled = isActive ? await recompileActiveAndReload() : null;
+        sendJson(res, 200, {
+          ok: true,
+          profile,
+          activated: isActive,
+          ...(compiled ? { proxyCount: compiled.proxyCount } : {}),
+        });
         return;
       }
 
-      if (
-        method === "DELETE" &&
-        (pathname === "/sash/subscription" || pathname === "/subscription")
-      ) {
-        settings.subscriptionUrl = "";
-        saveSettings(settings, layout);
-        await recompileAndReload();
-        sendJson(res, 200, { ok: true });
-        return;
-      }
-
-      if (
-        method === "POST" &&
-        (pathname === "/sash/subscription/refresh" || pathname === "/subscription/refresh")
-      ) {
-        if (!settings.subscriptionUrl) {
-          sendError(res, 400, "No subscription configured");
+      if (method === "POST" && pathname === "/sash/profiles/import") {
+        let body: { name?: unknown; content?: unknown };
+        try {
+          body = (await parseJsonBody(req, 8 * 1024 * 1024)) as typeof body;
+        } catch (err) {
+          sendError(res, 400, (err as Error).message);
           return;
         }
-        const doc = await fetchSub(settings.subscriptionUrl);
-        const result = await recompileAndReload(doc);
-        sendJson(res, 200, { ok: true, proxyCount: result.proxyCount });
+        const content = typeof body.content === "string" ? body.content : "";
+        if (!content.trim()) {
+          sendError(res, 400, "Missing required 'content' string");
+          return;
+        }
+        let doc: unknown;
+        try {
+          doc = YAML.parse(content);
+        } catch (err) {
+          sendError(res, 400, `Content is not valid YAML: ${(err as Error).message}`);
+          return;
+        }
+        if (!isValidMihomoConfig(doc)) {
+          sendError(res, 400, "Content is not a Clash/mihomo config (missing proxies/rules)");
+          return;
+        }
+        const name =
+          typeof body.name === "string" && body.name.trim() ? body.name.trim() : "imported";
+        // Imported files are plain local profiles: no URL, no scheduled updates.
+        const added = addProfile({ name, url: "", yamlText: content, intervalHours: 0 }, layout);
+        syncSubMirror(added.index);
+        const isActive = added.index.activeId === added.profile.id;
+        const compiled = isActive ? await recompileActiveAndReload() : null;
+        sendJson(res, 200, {
+          ok: true,
+          profile: added.profile,
+          activated: isActive,
+          ...(compiled ? { proxyCount: compiled.proxyCount } : {}),
+        });
+        return;
+      }
+
+      if (method === "PUT" && pathname === "/sash/profiles/active") {
+        const body = (await parseJsonBody(req)) as { id?: unknown };
+        const id = body.id === null ? null : typeof body.id === "string" ? body.id : undefined;
+        if (id === undefined) {
+          sendError(res, 400, "Missing 'id' (profile id string, or null to deselect)");
+          return;
+        }
+        let index: ProfilesIndex;
+        try {
+          index = setActiveProfile(id, layout);
+        } catch (err) {
+          sendError(res, 404, (err as Error).message);
+          return;
+        }
+        syncSubMirror(index);
+        const compiled = await recompileActiveAndReload();
+        sendJson(res, 200, { ok: true, activeId: id, proxyCount: compiled.proxyCount });
+        return;
+      }
+
+      if (method === "POST" && pathname === "/sash/profiles/update-all") {
+        const index = loadProfiles(layout);
+        const failed: Array<{ id: string; name: string; error: string }> = [];
+        let updated = 0;
+        let activeTouched = false;
+        for (const p of index.profiles) {
+          if (!p.url) continue;
+          try {
+            const fetched = await fetchProfile(p.url);
+            applyFetchedToProfile(p.id, fetched);
+            updated += 1;
+            if (index.activeId === p.id) activeTouched = true;
+          } catch (err) {
+            recordProfileError(p.id, (err as Error).message, layout);
+            failed.push({ id: p.id, name: p.name, error: (err as Error).message });
+          }
+        }
+        const compiled = activeTouched ? await recompileActiveAndReload() : null;
+        sendJson(res, 200, {
+          ok: failed.length === 0,
+          updated,
+          failed,
+          ...(compiled ? { proxyCount: compiled.proxyCount } : {}),
+        });
+        return;
+      }
+
+      const profileUpdateMatch = pathname.match(/^\/sash\/profiles\/([0-9]+)\/update$/);
+      if (method === "POST" && profileUpdateMatch) {
+        const id = profileUpdateMatch[1] as string;
+        const index = loadProfiles(layout);
+        const profile = index.profiles.find((p) => p.id === id);
+        if (!profile) {
+          sendError(res, 404, `profile not found: ${id}`);
+          return;
+        }
+        if (!profile.url) {
+          sendError(res, 400, "Local profile has no URL to update from");
+          return;
+        }
+        const fetched = await fetchProfile(profile.url);
+        const next = applyFetchedToProfile(id, fetched);
+        const updatedProfile = next.profiles.find((p) => p.id === id);
+        const compiled = index.activeId === id ? await recompileActiveAndReload() : null;
+        sendJson(res, 200, {
+          ok: true,
+          profile: updatedProfile,
+          ...(compiled ? { proxyCount: compiled.proxyCount } : {}),
+        });
+        return;
+      }
+
+      const profileDeleteMatch = pathname.match(/^\/sash\/profiles\/([0-9]+)$/);
+      if (method === "DELETE" && profileDeleteMatch) {
+        const id = profileDeleteMatch[1] as string;
+        let wasActive: boolean;
+        try {
+          ({ wasActive } = removeProfile(id, layout));
+        } catch (err) {
+          sendError(res, 404, (err as Error).message);
+          return;
+        }
+        syncSubMirror(loadProfiles(layout));
+        const compiled = wasActive ? await recompileActiveAndReload() : null;
+        sendJson(res, 200, {
+          ok: true,
+          wasActive,
+          ...(compiled ? { proxyCount: compiled.proxyCount } : {}),
+        });
         return;
       }
 
@@ -429,8 +636,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         method === "POST" &&
         (pathname === "/core/config/reload" || pathname === "/config/reload")
       ) {
-        const doc = settings.subscriptionUrl ? await fetchSub(settings.subscriptionUrl) : undefined;
-        const result = await recompileAndReload(doc);
+        const result = await recompileActiveAndReload();
         sendJson(res, 200, { ok: true, proxyCount: result.proxyCount, source: result.source });
         return;
       }
@@ -461,12 +667,56 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     forwardWsToCore(req, socket, head, targetSubPath, settings.controller, settings.secret);
   });
 
+  /* ====================================================================== */
+  /* Scheduled profile auto-updates                                          */
+  /* ====================================================================== */
+  const PROFILE_UPDATE_CHECK_MS = 15 * 60 * 1000;
+
+  const autoUpdateProfiles = async (): Promise<void> => {
+    const index = loadProfiles(layout);
+    let activeTouched = false;
+    for (const profile of index.profiles) {
+      let fileExists = false;
+      try {
+        fileExists = fs.existsSync(profileFilePath(layout, profile.id));
+      } catch {
+        fileExists = false;
+      }
+      if (!profileDueForUpdate(profile, fileExists)) continue;
+      try {
+        const fetched = await fetchProfile(profile.url);
+        applyFetchedToProfile(profile.id, fetched);
+        if (index.activeId === profile.id) activeTouched = true;
+      } catch (err) {
+        recordProfileError(profile.id, (err as Error).message, layout);
+      }
+    }
+    if (activeTouched) {
+      try {
+        await recompileActiveAndReload();
+      } catch {
+        // keep the currently running config on compile/reload failure
+      }
+    }
+  };
+
+  const profileUpdateTimer = setInterval(() => {
+    void autoUpdateProfiles();
+  }, PROFILE_UPDATE_CHECK_MS);
+  profileUpdateTimer.unref();
+  const profileUpdateKickoff = setTimeout(() => {
+    void autoUpdateProfiles();
+  }, 10_000);
+  profileUpdateKickoff.unref();
+
   return {
     server,
     supervisor,
     token,
     port: settings.daemonPort,
     close: async () => {
+      clearInterval(profileUpdateTimer);
+      clearTimeout(profileUpdateKickoff);
       await removeProxyIfApplied();
       await supervisor.stop();
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -481,6 +731,12 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
 export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
   const layout = opts.layout ?? sashLayout();
   const settings = loadSettings(layout);
+
+  // One-time migration: a legacy single subscription becomes an active,
+  // meta-only profile whose content the auto-update scheduler then fetches.
+  if (settings.subscriptionUrl) {
+    migrateLegacySubscription(settings.subscriptionUrl, layout);
+  }
 
   const instance = createDaemonServer({
     layout,

@@ -39,6 +39,8 @@ export interface SashLayout {
   coreExe: string;
   configFile: string;
   settingsFile: string;
+  profilesDir: string;
+  profilesIndexFile: string;
   uiDir: string;
   stateDir: string;
   pidFile: string;
@@ -61,6 +63,8 @@ export function sashLayout(root: string = sashRoot()): SashLayout {
     coreExe: path.join(root, "bin", exeName),
     configFile: path.join(root, "config.yaml"),
     settingsFile: path.join(root, "sash.json"),
+    profilesDir: path.join(root, "profiles"),
+    profilesIndexFile: path.join(root, "profiles", "index.json"),
     uiDir: path.join(root, "ui"),
     stateDir: path.join(root, "state"),
     pidFile: path.join(root, "state", "sash.pid"),

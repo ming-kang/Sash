@@ -1,5 +1,6 @@
 import type { DaemonStatus } from "./daemon.js";
 import { fetchWithRetry } from "./http.js";
+import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { SystemProxyState } from "./sysproxy.js";
 
 export interface HealthInfo {
@@ -132,25 +133,53 @@ export class SashDaemonClient {
     return this.request<SystemProxyState & { desired: boolean; applied: boolean }>("/sash/proxy");
   }
 
-  async setSubscription(url: string): Promise<{ ok: boolean; proxyCount: number }> {
-    return this.request<{ ok: boolean; proxyCount: number }>("/sash/subscription", {
+  async getProfiles(): Promise<ProfilesIndex> {
+    return this.request<ProfilesIndex>("/sash/profiles");
+  }
+
+  async addProfile(
+    url: string,
+    opts: { name?: string; activate?: boolean } = {},
+  ): Promise<{ ok: boolean; profile: ProfileMeta; activated: boolean; proxyCount?: number }> {
+    return this.request("/sash/profiles", {
       method: "POST",
-      body: { url },
+      body: { url, ...(opts.name ? { name: opts.name } : {}), activate: opts.activate === true },
       timeoutMs: 35_000,
       attempts: 1,
     });
   }
 
-  async unsetSubscription(): Promise<void> {
-    await this.request("/sash/subscription", { method: "DELETE" });
-  }
-
-  async refreshSubscription(): Promise<{ ok: boolean; proxyCount: number }> {
-    return this.request<{ ok: boolean; proxyCount: number }>("/sash/subscription/refresh", {
+  async updateProfile(id: string): Promise<{ ok: boolean; proxyCount?: number }> {
+    return this.request(`/sash/profiles/${id}/update`, {
       method: "POST",
       timeoutMs: 35_000,
       attempts: 1,
     });
+  }
+
+  async updateAllProfiles(): Promise<{
+    ok: boolean;
+    updated: number;
+    failed: Array<{ id: string; name: string; error: string }>;
+  }> {
+    return this.request("/sash/profiles/update-all", {
+      method: "POST",
+      timeoutMs: 120_000,
+      attempts: 1,
+    });
+  }
+
+  async setActiveProfile(id: string | null): Promise<{ ok: boolean; proxyCount: number }> {
+    return this.request<{ ok: boolean; proxyCount: number }>("/sash/profiles/active", {
+      method: "PUT",
+      body: { id },
+      timeoutMs: 35_000,
+      attempts: 1,
+    });
+  }
+
+  async deleteProfile(id: string): Promise<{ ok: boolean }> {
+    return this.request(`/sash/profiles/${id}`, { method: "DELETE" });
   }
 
   async reloadConfig(): Promise<{ ok: boolean; proxyCount: number; source: string }> {

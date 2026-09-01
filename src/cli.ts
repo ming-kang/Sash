@@ -44,7 +44,7 @@ program
 Examples:
   $ sash start                 install components if needed and launch sash in the background
   $ sash proxy on              enable system proxy (routes OS traffic through sash)
-  $ sash sub set <url>         import a subscription URL
+  $ sash sub set <url>         download a subscription URL as the active profile
   $ sash web                   open the web dashboard
   $ sash status                show runtime state, endpoints, and system proxy status
   $ sash update                upgrade the core binary
@@ -127,22 +127,22 @@ program
   .option("--no-open", "print the URL without opening a browser")
   .action(withCliErrors((opts: { open: boolean }) => runWeb({ noOpen: !opts.open })));
 
-const sub = program.command("sub").description("manage the subscription");
+const sub = program.command("sub").description("manage subscription profiles");
 sub
   .command("set <url>")
-  .description("set the subscription URL and regenerate the config")
+  .description("download a subscription URL as a profile and activate it")
   .action(withCliErrors((url: string) => runSubSet(url)));
 sub
   .command("update")
-  .description("refetch the subscription and reload the running core")
+  .description("update the active profile from its URL and reload the running core")
   .action(withCliErrors(() => runSubUpdate()));
 sub
   .command("show")
-  .description("show the current subscription")
+  .description("list profiles and the active selection")
   .action(withCliErrors(() => runSubShow()));
 sub
   .command("unset")
-  .description("remove the subscription and revert to the default config")
+  .description("deselect the active profile and revert to the default config")
   .action(withCliErrors(() => runSubUnset()));
 
 const config = program.command("config").description("inspect and adjust Sash settings");

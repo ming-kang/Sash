@@ -57,7 +57,93 @@ export function readExistingConfigDoc(
   }
 }
 
-export async function fetchSubscription(url: string): Promise<Record<string, unknown>> {
+/** Traffic quota advertised by a subscription gateway (`subscription-userinfo`). */
+export interface SubscriptionUserinfo {
+  upload: number;
+  download: number;
+  total: number;
+  /** Unix epoch seconds. */
+  expire?: number;
+}
+
+/** A fetched subscription document plus the metadata gateways send as headers. */
+export interface SubscriptionFetch {
+  doc: Record<string, unknown>;
+  /** Raw response body, stored verbatim as the local profile file. */
+  yamlText: string;
+  /** Display name from Content-Disposition, when provided. */
+  name?: string;
+  subInfo?: SubscriptionUserinfo;
+  /** `profile-web-page-url` header. */
+  homePage?: string;
+  /** `profile-update-interval` header, in hours. */
+  intervalHours?: number;
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+/** Parse `subscription-userinfo: upload=..; download=..; total=..; expire=..`. */
+export function parseSubscriptionUserinfo(
+  header: string | undefined,
+): SubscriptionUserinfo | undefined {
+  if (!header) return undefined;
+  const nums: Partial<Record<keyof SubscriptionUserinfo, number>> = {};
+  const knownKeys = new Set(["upload", "download", "total", "expire"]);
+  for (const pair of header.split(";")) {
+    const [k, v] = pair.split("=", 2);
+    const key = k?.trim() ?? "";
+    if (!knownKeys.has(key)) continue;
+    const n = Number(v?.trim());
+    if (Number.isFinite(n) && n >= 0) nums[key as keyof SubscriptionUserinfo] = n;
+  }
+  if (nums.upload === undefined || nums.download === undefined || nums.total === undefined) {
+    return undefined;
+  }
+  return {
+    upload: nums.upload,
+    download: nums.download,
+    total: nums.total,
+    ...(nums.expire !== undefined && nums.expire > 0 ? { expire: nums.expire } : {}),
+  };
+}
+
+/** Parse a display filename out of a Content-Disposition header. */
+export function parseContentDispositionFilename(header: string | undefined): string | undefined {
+  if (!header) return undefined;
+  // RFC 5987 form: filename*=UTF-8''<percent-encoded>
+  const ext = header.match(/filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/);
+  if (ext?.[1]) {
+    try {
+      const decoded = decodeURIComponent(ext[1].trim()).trim();
+      if (decoded) return stripYamlExt(decoded);
+    } catch {
+      // fall through to the plain form
+    }
+  }
+  const plain = header.match(/filename\s*=\s*"?([^";]+)"?/);
+  const value = plain?.[1]?.trim();
+  return value ? stripYamlExt(value) : undefined;
+}
+
+function stripYamlExt(name: string): string {
+  return name.replace(/\.(ya?ml)$/i, "");
+}
+
+function parseIntervalHours(header: string | undefined): number | undefined {
+  if (!header) return undefined;
+  const n = Number(header.trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+}
+
+/**
+ * Fetch a subscription URL, validating the document and extracting the
+ * metadata headers subscription gateways send (usage quota, update interval,
+ * display name, home page).
+ */
+export async function fetchSubscriptionProfile(url: string): Promise<SubscriptionFetch> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -91,6 +177,18 @@ export async function fetchSubscription(url: string): Promise<Record<string, unk
         "Convert non-Clash subscriptions with a subconverter first.",
     );
   }
+  return {
+    doc,
+    yamlText: text,
+    name: parseContentDispositionFilename(firstHeader(res.headers["content-disposition"])),
+    subInfo: parseSubscriptionUserinfo(firstHeader(res.headers["subscription-userinfo"])),
+    homePage: firstHeader(res.headers["profile-web-page-url"])?.trim() || undefined,
+    intervalHours: parseIntervalHours(firstHeader(res.headers["profile-update-interval"])),
+  };
+}
+
+export async function fetchSubscription(url: string): Promise<Record<string, unknown>> {
+  const { doc } = await fetchSubscriptionProfile(url);
   return doc;
 }
 

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Subscription profiles: downloaded subscriptions and imported YAML files live as local profiles under `<root>/profiles/` (Clash-for-Windows-style layout: one `<id>.yaml` per profile plus an `index.json` metadata index). sashd refreshes remote profiles on their provider-suggested interval (`profile-update-interval`, default 24 h) or on demand, tracking usage quota (`subscription-userinfo`) and expiry per profile.
+- WebUI "Profiles" page replacing the old Subscription page: download-from-URL bar with paste and local-file import, "Update All", and a card grid showing each profile's source, last update, quota bar and expiry; clicking a card activates it and hot-reloads the core.
+- Daemon API: `GET/POST /sash/profiles`, `POST /sash/profiles/import`, `PUT /sash/profiles/active`, `POST /sash/profiles/:id/update`, `POST /sash/profiles/update-all`, `DELETE /sash/profiles/:id`, plus a scheduled auto-updater and per-profile `lastError` surfacing.
+- `/sash/status` now reports the `activeProfile` (id/name/url).
+
+### Changed
+
+- WebUI navigation order is now Overview, Profiles, Logs, Connections, Rules, Settings; the old `#/subscription` hash redirects to `#/profiles`.
+- `sash sub set/update/unset/show` operate on profiles; a legacy `subscriptionUrl` setting migrates into an active profile automatically on daemon start (`settings.subscriptionUrl` remains as a mirror of the active profile's URL).
+- `/core/config/reload` and `sash start` compile from the active profile's local file instead of refetching the subscription every time; downloading a new profile no longer switches the active selection unless none exists.
+
 ### Fixed
 
 - Daemon: `GET /ui` now 302-redirects to `/ui/` (preserving the query string) instead of serving `index.html` directly, so the dashboard's relative asset URLs resolve correctly when visiting `/ui`.

@@ -12,7 +12,9 @@ import {
   type DaemonInstance,
   type SysproxyAdapter,
 } from "./daemon.js";
+import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
+import { addProfile } from "./profiles.js";
 import { DEFAULT_SETTINGS, type SashSettings } from "./settings.js";
 import type { SystemProxyState } from "./sysproxy.js";
 
@@ -57,7 +59,7 @@ describe("daemon server", () => {
     overrides: {
       supervisor?: CoreSupervisor;
       sysproxy?: SysproxyAdapter;
-      fetchSub?: (url: string) => Promise<Record<string, unknown>>;
+      fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
     } = {},
   ): Promise<DaemonInstance> {
     const fakeSupervisor: CoreSupervisor =
@@ -76,7 +78,7 @@ describe("daemon server", () => {
       settings,
       supervisor: fakeSupervisor,
       sysproxy: overrides.sysproxy,
-      fetchSubscriptionFn: overrides.fetchSub,
+      fetchProfileFn: overrides.fetchProfile,
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -263,6 +265,184 @@ describe("daemon server", () => {
       const text = await res.body.text();
       assert.equal(res.statusCode, 200);
       assert.match(text, /<html>ui<\/html>/);
+    });
+  });
+
+  describe("/sash/profiles API", () => {
+    const subUrl = "https://good.test/sub";
+    const subYaml = "proxies:\n  - name: node-a\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+
+    function mockFetchProfile(url: string): Promise<SubscriptionFetch> {
+      if (url.includes("bad")) return Promise.reject(new Error("boom"));
+      return Promise.resolve({
+        doc: { proxies: [{ name: "node-a", type: "direct" }], rules: ["MATCH,DIRECT"] },
+        yamlText: subYaml,
+        name: "mock-sub",
+        subInfo: { upload: 1, download: 2, total: 100 },
+      });
+    }
+
+    it("starts empty", async () => {
+      await startServer();
+      const res = await apiRequest("/sash/profiles");
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(res.data, { activeId: null, profiles: [] });
+    });
+
+    it("POST downloads, auto-activates the first profile and mirrors settings", async () => {
+      await startServer({ fetchProfile: mockFetchProfile });
+      const res = await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
+      assert.equal(res.statusCode, 200);
+      const data = res.data as {
+        profile: { id: string; name: string; url: string };
+        activated: boolean;
+        proxyCount: number;
+      };
+      assert.equal(data.activated, true);
+      assert.equal(data.profile.name, "mock-sub");
+      assert.equal(data.proxyCount, 1);
+
+      const list = (await apiRequest("/sash/profiles")).data as {
+        activeId: string;
+        profiles: Array<{ id: string; subInfo?: { total: number } }>;
+      };
+      assert.equal(list.profiles.length, 1);
+      assert.equal(list.activeId, data.profile.id);
+      assert.equal(list.profiles[0]?.subInfo?.total, 100);
+
+      // config.yaml compiled from the profile, settings mirror updated
+      assert.ok(fs.readFileSync(layout.configFile, "utf8").includes("node-a"));
+      const savedSettings = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8"));
+      assert.equal(savedSettings.subscriptionUrl, subUrl);
+
+      // Re-downloading the same URL updates in place instead of duplicating.
+      const again = await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
+      assert.equal(again.statusCode, 200);
+      const list2 = (await apiRequest("/sash/profiles")).data as { profiles: unknown[] };
+      assert.equal(list2.profiles.length, 1);
+    });
+
+    it("a second download does not steal the active selection", async () => {
+      await startServer({ fetchProfile: mockFetchProfile });
+      const first = (await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } }))
+        .data as { profile: { id: string } };
+      const second = await apiRequest("/sash/profiles", {
+        method: "POST",
+        body: { url: "https://good.test/other" },
+      });
+      assert.equal((second.data as { activated: boolean }).activated, false);
+      const list = (await apiRequest("/sash/profiles")).data as {
+        activeId: string;
+        profiles: unknown[];
+      };
+      assert.equal(list.profiles.length, 2);
+      assert.equal(list.activeId, first.profile.id);
+    });
+
+    it("PUT /sash/profiles/active switches and recompiles; unknown id 404s", async () => {
+      await startServer({ fetchProfile: mockFetchProfile });
+      await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
+      const second = (
+        await apiRequest("/sash/profiles", {
+          method: "POST",
+          body: { url: "https://good.test/other" },
+        })
+      ).data as { profile: { id: string } };
+
+      const sel = await apiRequest("/sash/profiles/active", {
+        method: "PUT",
+        body: { id: second.profile.id },
+      });
+      assert.equal(sel.statusCode, 200);
+      assert.equal((sel.data as { activeId: string }).activeId, second.profile.id);
+
+      const missing = await apiRequest("/sash/profiles/active", {
+        method: "PUT",
+        body: { id: "1234567890123" },
+      });
+      assert.equal(missing.statusCode, 404);
+
+      // Deselect reverts to the DIRECT-only default config.
+      const off = await apiRequest("/sash/profiles/active", { method: "PUT", body: { id: null } });
+      assert.equal(off.statusCode, 200);
+      assert.ok(!fs.readFileSync(layout.configFile, "utf8").includes("node-a"));
+    });
+
+    it("import validates content; local profiles cannot be URL-updated", async () => {
+      await startServer({ fetchProfile: mockFetchProfile });
+      const bad = await apiRequest("/sash/profiles/import", {
+        method: "POST",
+        body: { name: "junk", content: "not: a clash config" },
+      });
+      assert.equal(bad.statusCode, 400);
+
+      const good = await apiRequest("/sash/profiles/import", {
+        method: "POST",
+        body: { name: "local", content: subYaml },
+      });
+      assert.equal(good.statusCode, 200);
+      const imported = (good.data as { profile: { id: string; url: string } }).profile;
+      assert.equal(imported.url, "");
+
+      const upd = await apiRequest(`/sash/profiles/${imported.id}/update`, { method: "POST" });
+      assert.equal(upd.statusCode, 400);
+
+      const missing = await apiRequest("/sash/profiles/1234567890123/update", { method: "POST" });
+      assert.equal(missing.statusCode, 404);
+    });
+
+    it("update-all reports per-profile failures and keeps the active one hot", async () => {
+      await startServer({ fetchProfile: mockFetchProfile });
+      await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
+      // Seed a remote profile without fetching (meta-only, content pending).
+      addProfile({ name: "bad", url: "https://bad.test/x" }, layout);
+
+      const res = await apiRequest("/sash/profiles/update-all", { method: "POST" });
+      assert.equal(res.statusCode, 200);
+      const data = res.data as {
+        ok: boolean;
+        updated: number;
+        failed: Array<{ name: string; error: string }>;
+        proxyCount?: number;
+      };
+      assert.equal(data.ok, false);
+      assert.equal(data.updated, 1);
+      assert.equal(data.failed.length, 1);
+      assert.equal(data.failed[0]?.error, "boom");
+      // Active profile updated → recompiled even without a running core.
+      assert.equal(data.proxyCount, 1);
+
+      const list = (await apiRequest("/sash/profiles")).data as {
+        profiles: Array<{ name: string; url: string; lastError?: string }>;
+      };
+      const badProfile = list.profiles.find((p) => p.url === "https://bad.test/x");
+      assert.equal(badProfile?.lastError, "boom");
+    });
+
+    it("DELETE removes the file and deselects when active", async () => {
+      await startServer({ fetchProfile: mockFetchProfile });
+      const created = (
+        await apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } })
+      ).data as { profile: { id: string } };
+
+      const del = await apiRequest(`/sash/profiles/${created.profile.id}`, { method: "DELETE" });
+      assert.equal(del.statusCode, 200);
+      assert.equal((del.data as { wasActive: boolean }).wasActive, true);
+
+      const list = (await apiRequest("/sash/profiles")).data as {
+        activeId: string | null;
+        profiles: unknown[];
+      };
+      assert.equal(list.activeId, null);
+      assert.equal(list.profiles.length, 0);
+      assert.equal(fs.existsSync(`${layout.profilesDir}/${created.profile.id}.yaml`), false);
+
+      // Settings mirror cleared after the active profile was deleted.
+      const savedSettings = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8"));
+      assert.equal(savedSettings.subscriptionUrl, "");
+
+      const missing = await apiRequest("/sash/profiles/1234567890123", { method: "DELETE" });
+      assert.equal(missing.statusCode, 404);
     });
   });
 
