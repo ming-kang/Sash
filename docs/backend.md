@@ -70,7 +70,7 @@ The daemon binds only to `127.0.0.1`. The managed core is a non-detached child p
 
 ### 2.3 `/core/api/*`
 
-Requests are forwarded to the configured controller. sashd removes the browser-supplied Host header and injects the internal controller bearer secret. `/traffic` and `/logs` upgrades are proxied as WebSockets.
+Requests are forwarded to the configured controller. sashd removes daemon credentials and the browser-supplied Host header, then injects the internal controller bearer secret. `/traffic` and `/logs` upgrades are proxied as WebSockets. Upgrade requests must pass loopback Host/Origin checks and authenticate with the CLI bearer/header token or the WebUI's private `sash-token.<bootToken>` subprotocol; that credential subprotocol is stripped before forwarding.
 
 ---
 
@@ -81,7 +81,8 @@ Requests are forwarded to the configured controller. sashd removes the browser-s
 - Every state-changing method requires either:
   - `Authorization: Bearer <daemonSecret>` from the CLI; or
   - `X-Sash-Token: <bootToken>` from the same-origin WebUI.
-- The WebUI refreshes the boot token through `/sash/health`, including after daemon restart.
+- The WebUI refreshes the boot token through `/sash/health`, including after daemon restart. WebSocket streams carry it in a private subprotocol because browser WebSocket clients cannot set arbitrary authorization headers.
+- HTTP and WebSocket route prefixes use segment boundaries; lookalike paths such as `/core/apiX` are not proxied.
 - `/sash/status` and `/sash/settings` expose `PublicSashSettings`; controller and daemon secrets never appear in those responses.
 - The controller secret stays server-side and is injected only by the reverse proxy.
 
@@ -93,13 +94,16 @@ Requests are forwarded to the configured controller. sashd removes the browser-s
 
 Activation flow:
 
-1. Load and validate the requested local profile file; a missing remote file may be fetched, but a missing local import is an error.
-2. Render the candidate config with Sash-managed operational keys.
-3. Snapshot the current config and affected profile state.
-4. Atomically write the candidate `config.yaml`.
-5. Reload the running core when applicable.
-6. Commit the active profile/index mutation.
-7. Restore config/state and reload the previous config if any step fails.
+1. Load and structurally validate the requested local profile file; a missing remote file may be fetched, but a missing local import is an error.
+2. Render the exact candidate config with Sash-managed operational keys.
+3. Write the candidate to an isolated temporary file and run the installed Core with `-t -d <root> -f <candidate>`. Rejected candidates never reach profile/config state.
+4. Snapshot the current config and affected profile state.
+5. Atomically write the candidate `config.yaml`.
+6. Reload the running core when applicable.
+7. Commit the active profile/index mutation.
+8. Restore config/state and reload the previous config if any step fails.
+
+Every Core start now reconciles `config.yaml` from the active profile and current settings instead of trusting an existing generated file. Remote profile bodies are capped at 8 MiB. Failed settings validation/restart restores `sash.json`, the previous generated config and the previous runtime where possible.
 
 Remote Update All performs network fetches with bounded concurrency, deduplicates in-flight requests, then serializes short state commits. Each commit rechecks that the profile still exists and still has the same URL.
 

@@ -35,7 +35,7 @@ sash status
 | Command | Description |
 | :--- | :--- |
 | `sash proxy on` | Route OS-level traffic through the configured mixed port. |
-| `sash proxy off` | Disable the OS-level proxy; also works when the daemon is stopped. |
+| `sash proxy off` | Disable the OS-level proxy; also works when the daemon is stopped and persists the desired state as off. |
 | `sash proxy status` | Show desired, daemon-applied and OS-reported proxy state. |
 
 Changing `mixed-port` while the system proxy is enabled restarts the core and rebinds the OS proxy to the new port.
@@ -134,7 +134,7 @@ State files are written with mode `0o600` on POSIX where applicable.
 ## 6. Troubleshooting
 
 - **System proxy points to a dead port:** run `sash proxy off`, inspect `sash status`, then start/restart again.
-- **Profile update failed:** inspect the profile card's error or run `sash sub update`; the last valid running config remains active on reload failure.
+- **Profile update failed:** inspect the profile card's error or run `sash sub update`; generated candidates are checked by the installed Core before commit, and the last valid running config remains active on validation/reload failure.
 - **Corrupt settings/profile index:** repair the JSON file or move it aside; Sash intentionally does not overwrite corrupt state.
 - **Daemon errors:** `sash logs --daemon --errors`.
 - **Core errors:** `sash logs --errors`.

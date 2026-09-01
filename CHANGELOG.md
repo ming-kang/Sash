@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Shared daemon/profile API contracts used by the server client and WebUI.
 - State-changing daemon requests now accept the persistent CLI bearer or a per-boot WebUI token, with loopback Host validation.
 - WebUI store and confirm-dialog regression tests are included in the normal test runner.
+- Exact generated configurations are validated by the installed Core in an isolated temporary file before profile/config state is committed.
 
 ### Changed
 
@@ -21,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Profile behavior is owned by a single `ProfileService` used by daemon routes and offline CLI commands. Config activation/update transitions snapshot and restore prior state on failure.
 - Remote profile refreshes use in-flight deduplication, bounded network concurrency and serialized state commits.
 - The legacy `subscriptionUrl` setting migrates once into the profile index and is then removed instead of remaining as a second source of truth.
+- Every Core start recompiles and validates `config.yaml` from the active profile and current settings. Remote profile responses are limited to 8 MiB.
 - The default mixed port is consistently `17890`. Installed core version is read from `state/install.json` instead of duplicated in settings.
 - Core updates download and validate the staged binary before stopping the existing runtime, and commit install metadata only after health checks pass.
 - Overview proxy groups share a reusable component; WebUI runtime refresh and polling are centralized in store actions.
@@ -35,6 +37,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Changing `mixed-port` while system proxy is enabled now disables the old binding during restart and applies the new port afterward.
 - Public daemon status/settings responses no longer expose controller or daemon secrets; unauthenticated mutation requests are rejected.
 - Daemon bearer/boot-token headers are stripped before requests enter the core controller reverse proxy.
+- WebSocket Core streams now require loopback Host/Origin validation and bearer/boot-token authentication; the private WebUI token subprotocol is removed upstream.
+- Reverse-proxy path matching now rejects lookalike prefixes such as `/core/apiX`.
+- Failed settings validation/Core restart restores previous settings, generated config and runtime where possible.
+- Offline `sash proxy off` now persists the desired proxy state as disabled before OS cleanup.
 - Corrupt `sash.json` and `profiles/index.json` files are rejected without being overwritten by defaults.
 - Profile home-page metadata accepts only HTTP(S), and invalid provider container shapes are rejected during config validation.
 - PID records now use atomic writes. Static dashboard streams handle read failures and support `HEAD`.
