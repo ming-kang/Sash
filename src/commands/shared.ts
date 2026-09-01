@@ -4,7 +4,7 @@ import { configExists } from "../mihomo-config.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import { migrateLegacyProfileSetting } from "../profile-migration.js";
 import { ProfileService } from "../profile-service.js";
-import { loadSettings, type SashSettings, saveSettings } from "../settings.js";
+import { loadSettings, type SashSettings } from "../settings.js";
 
 export interface RuntimeContext {
   layout: SashLayout;
@@ -22,7 +22,6 @@ export async function ensureCore(ctx: RuntimeContext): Promise<void> {
   if (coreInstalled(ctx.layout)) return;
   log.info("mihomo core not installed; downloading latest release...");
   const { version } = await installCore({ layout: ctx.layout });
-  ctx.settings.coreVersion = version;
   log.ok(`mihomo core ${version} installed`);
 }
 
@@ -42,11 +41,6 @@ export async function ensureConfig(ctx: RuntimeContext, force = false): Promise<
     return;
   }
   log.ok(`config generated from profile "${active.name}" (${result.proxyCount} proxies)`);
-}
-
-/** Persist settings if they were mutated by ensure* helpers. */
-export function persistContext(ctx: RuntimeContext): void {
-  saveSettings(ctx.settings, ctx.layout);
 }
 
 export { currentCoreVersion };

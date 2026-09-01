@@ -161,7 +161,6 @@ export const en: Messages = {
     reloadDesc: "Regenerates config.yaml and signals the core without a restart",
     reloadBtn: "Reload",
     aboutTitle: "Runtime Info",
-    uiVersion: "UI Version",
     coreVersion: "Core Version",
   },
   toast: {

@@ -18,11 +18,13 @@
     "build:ui": "node scripts/build-ui.mjs",
     "build": "npm run clean:build && tsc -p tsconfig.build.json && npm run build:ui",
     "dev": "tsx src/cli.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck:server": "tsc --noEmit",
+    "typecheck:web": "vue-tsc -p web/tsconfig.json --noEmit",
+    "typecheck": "npm run typecheck:server && npm run typecheck:web",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "audit:prod": "npm audit --omit=dev --audit-level=moderate",
-    "test": "tsc --noEmit && node scripts/run-tests.mjs",
+    "test": "npm run typecheck && node scripts/run-tests.mjs",
     "prepublishOnly": "npm run audit:prod && npm test && npm run build"
   },
   "engines": {
@@ -52,8 +54,6 @@
     "adm-zip": "^0.6.0",
     "commander": "^13.1.0",
     "cross-spawn": "^7.0.6",
-    "semver": "^7.8.5",
-    "tar": "^7.5.22",
     "undici": "^7.29.0",
     "yaml": "^2.7.0"
   },
@@ -62,11 +62,11 @@
     "@types/adm-zip": "^0.5.7",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^20.0.0",
-    "@types/semver": "^7.8.0",
-    "@vitejs/plugin-vue": "^6.0.8",
+    "@vitejs/plugin-vue": "^5.2.4",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
-    "vite": "^8.2.2",
-    "vue": "^3.5.42"
+    "vite": "^6.4.3",
+    "vue": "^3.5.42",
+    "vue-tsc": "^3.3.11"
   }
 }

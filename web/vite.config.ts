@@ -1,13 +1,16 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite";
+
+const webRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [vue()],
   base: "./",
-  root: import.meta.dirname,
+  root: webRoot,
   build: {
-    outDir: path.resolve(import.meta.dirname, "../dist/ui"),
+    outDir: path.resolve(webRoot, "../dist/ui"),
     emptyOutDir: true,
     target: "es2022",
     minify: "esbuild",

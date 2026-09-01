@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { request } from "undici";
+import { writeInstallRecord } from "./core.js";
 import {
   type CoreState,
   type CoreSupervisor,
@@ -170,17 +171,22 @@ describe("daemon server", () => {
   });
 
   describe("GET /sash/status", () => {
-    it("returns daemon, core, system proxy, and settings state", async () => {
+    it("returns daemon, core, system proxy, and canonical installed version", async () => {
+      writeInstallRecord(
+        { coreVersion: "v1.2.3", installedAt: "2026-01-01T00:00:00.000Z" },
+        layout,
+      );
       await startServer();
       const res = await apiRequest("/sash/status");
       assert.equal(res.statusCode, 200);
       const data = res.data as {
         daemon: { pid: number };
-        core: { running: boolean };
+        core: { running: boolean; version?: string };
         systemProxy: { desired: boolean };
       };
       assert.equal(data.daemon.pid, process.pid);
       assert.equal(data.core.running, false);
+      assert.equal(data.core.version, "v1.2.3");
       assert.equal(data.systemProxy.desired, false);
     });
   });

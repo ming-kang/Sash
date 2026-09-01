@@ -1,19 +1,12 @@
 import { SashDaemonClient } from "../daemon-client.js";
 import { ensureDaemon, evaluateDaemon, stopDaemonFromCli } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import {
-  ensureConfig,
-  ensureCore,
-  persistContext,
-  type RuntimeContext,
-  runtimeContext,
-} from "./shared.js";
+import { ensureConfig, ensureCore, type RuntimeContext, runtimeContext } from "./shared.js";
 
 export async function runStart(): Promise<void> {
   const ctx = runtimeContext();
   await ensureCore(ctx);
   await ensureConfig(ctx);
-  persistContext(ctx);
 
   await ensureDaemon({ layout: ctx.layout, settings: ctx.settings });
   const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
@@ -54,7 +47,6 @@ export async function runRestart(): Promise<void> {
   const ctx = runtimeContext();
   await ensureCore(ctx);
   await ensureConfig(ctx);
-  persistContext(ctx);
 
   await ensureDaemon({ layout: ctx.layout, settings: ctx.settings });
   const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);

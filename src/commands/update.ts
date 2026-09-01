@@ -4,7 +4,6 @@ import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { MIHOMO_REPO, resolveLatestTag } from "../github.js";
 import { log } from "../log.js";
-import { saveSettings } from "../settings.js";
 import { runtimeContext } from "./shared.js";
 
 /**
@@ -57,8 +56,6 @@ export async function runUpdate(opts: { version?: string; force?: boolean } = {}
 
   try {
     const result = await commitCoreUpdate({ layout: ctx.layout, staged, runtime });
-    ctx.settings.coreVersion = result.version;
-    saveSettings(ctx.settings, ctx.layout);
     log.ok(`mihomo core updated to ${result.version}`);
   } catch (err) {
     log.warn("update failed; the previous binary and install metadata were restored when possible");

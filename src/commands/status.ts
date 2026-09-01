@@ -1,3 +1,4 @@
+import { currentCoreVersion } from "../core.js";
 import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
@@ -10,6 +11,7 @@ import { runtimeContext } from "./shared.js";
 export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
+  const installedCoreVersion = currentCoreVersion(ctx.layout);
   const activeProfile = new ProfileService({
     layout: ctx.layout,
     settings: () => ctx.settings,
@@ -18,7 +20,7 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
   if (opts.json) {
     let coreRunning = false;
     let corePid: number | null = null;
-    let coreVersion: string | null = ctx.settings.coreVersion || null;
+    let coreVersion: string | null = installedCoreVersion || null;
     let proxyApplied = false;
     let osProxy = false;
 
@@ -57,7 +59,6 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
             applied: proxyApplied,
             osEnabled: osProxy,
           },
-          uiVersion: ctx.settings.uiVersion || null,
           uiInstalled: uiInstalled(ctx.layout),
           mixedPort: ctx.settings.mixedPort,
           controller: ctx.settings.controller,
@@ -106,5 +107,5 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
     activeProfile ? `${activeProfile.name} (${activeProfile.url || "local file"})` : "(none)",
   );
   log.kv("tun", ctx.settings.tun ? "on" : "off");
-  log.kv("core version", ctx.settings.coreVersion || "(not installed)");
+  log.kv("core version", installedCoreVersion || "(not installed)");
 }

@@ -72,8 +72,8 @@ const navItems: Array<{ route: Route; icon: string }> = [
 ];
 
 const coreVersion = computed(() => {
-  const v = store.status?.core.version ?? store.status?.settings.coreVersion;
-  return v ? (v.startsWith("v") ? v : `v${v}`) : "";
+  const version = store.status?.core.version;
+  return version ? (version.startsWith("v") ? version : `v${version}`) : "";
 });
 
 const coreTooltip = computed(() =>

@@ -11,8 +11,11 @@ function findTestFiles(dir) {
   });
 }
 
-const srcDir = fileURLToPath(new URL("../src", import.meta.url));
-const testFiles = findTestFiles(srcDir).sort();
+const testRoots = [
+  fileURLToPath(new URL("../src", import.meta.url)),
+  fileURLToPath(new URL("../web/src", import.meta.url)),
+];
+const testFiles = testRoots.flatMap(findTestFiles).sort();
 
 const filters = process.argv.slice(2);
 const selected = filters.length

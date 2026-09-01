@@ -14,10 +14,6 @@ export interface SashSettings {
   secret: string;
   /** Enable TUN inbound in the generated config (requires admin/root). */
   tun: boolean;
-  /** Installed mihomo core version tag, e.g. v1.19.30; empty when unknown. */
-  coreVersion: string;
-  /** Installed MetaCubeXD version tag; empty when not installed. */
-  uiVersion: string;
   /** allow-lan toggle for the generated config. */
   allowLan: boolean;
   /** sashd control API listen port on 127.0.0.1. */
@@ -30,14 +26,7 @@ export interface SashSettings {
 
 export type PublicSashSettings = Pick<
   SashSettings,
-  | "mixedPort"
-  | "controller"
-  | "tun"
-  | "coreVersion"
-  | "uiVersion"
-  | "allowLan"
-  | "daemonPort"
-  | "systemProxy"
+  "mixedPort" | "controller" | "tun" | "allowLan" | "daemonPort" | "systemProxy"
 >;
 
 export function publicSettings(settings: SashSettings): PublicSashSettings {
@@ -45,8 +34,6 @@ export function publicSettings(settings: SashSettings): PublicSashSettings {
     mixedPort: settings.mixedPort,
     controller: settings.controller,
     tun: settings.tun,
-    coreVersion: settings.coreVersion,
-    uiVersion: settings.uiVersion,
     allowLan: settings.allowLan,
     daemonPort: settings.daemonPort,
     systemProxy: settings.systemProxy,
@@ -58,8 +45,6 @@ export const DEFAULT_SETTINGS: SashSettings = {
   controller: "127.0.0.1:9090",
   secret: "",
   tun: false,
-  coreVersion: "",
-  uiVersion: "",
   allowLan: false,
   daemonPort: 19090,
   daemonSecret: "",

@@ -158,8 +158,6 @@ describe("settings", () => {
         controller: "127.0.0.1:9999",
         secret: "custom-secret-key-12345",
         tun: true,
-        coreVersion: "v1.19.30",
-        uiVersion: "v2.5.0",
         allowLan: true,
         daemonPort: 27890,
         daemonSecret: "custom-daemon-secret-67890",

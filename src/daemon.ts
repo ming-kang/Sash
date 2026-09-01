@@ -4,6 +4,7 @@ import http from "node:http";
 import type { Duplex } from "node:stream";
 import { MihomoApi } from "./api.js";
 import type { DaemonStatus } from "./contracts.js";
+import { currentCoreVersion } from "./core.js";
 import {
   isControlMutation,
   isControlRequestAuthorized,
@@ -209,7 +210,12 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       /* /sash/* — Supervisor Domain                                          */
       /* ==================================================================== */
       if (method === "GET" && (pathname === "/sash/status" || pathname === "/status")) {
-        const core = await supervisor.status();
+        const runtimeCore = await supervisor.status();
+        const installedVersion = currentCoreVersion(layout);
+        const core =
+          runtimeCore.version || !installedVersion
+            ? runtimeCore
+            : { ...runtimeCore, version: installedVersion };
         let actualProxy: SystemProxyState | undefined;
         try {
           actualProxy = sysproxyAdapter.getState();

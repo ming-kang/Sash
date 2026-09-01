@@ -159,7 +159,6 @@ export const zh = {
     reloadDesc: "重新生成 config.yaml 并通知核心，无需重启进程",
     reloadBtn: "热加载",
     aboutTitle: "运行信息",
-    uiVersion: "界面版本",
     coreVersion: "核心版本",
   },
   toast: {

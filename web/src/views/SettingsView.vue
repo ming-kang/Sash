@@ -114,10 +114,6 @@
           <dt>{{ t('settings.coreVersion') }}</dt>
           <dd class="mono">{{ coreVersion || '-' }}</dd>
         </div>
-        <div class="info-item">
-          <dt>{{ t('settings.uiVersion') }}</dt>
-          <dd class="mono">{{ store.status?.settings.uiVersion || '-' }}</dd>
-        </div>
       </dl>
     </UiCard>
   </div>
@@ -171,8 +167,8 @@ const portValid = computed(
 );
 
 const coreVersion = computed(() => {
-  const v = store.status?.core.version ?? store.status?.settings.coreVersion;
-  return v ? (v.startsWith("v") ? v : `v${v}`) : "";
+  const version = store.status?.core.version;
+  return version ? (version.startsWith("v") ? version : `v${version}`) : "";
 });
 
 function switchLocale(next: Locale): void {
