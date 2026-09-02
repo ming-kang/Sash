@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { IncomingMessage, Server } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { MihomoApi } from "./api.js";
@@ -161,12 +161,19 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     commit: mutate,
   });
 
-  const server = http.createServer(async (req, res) => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (!isLoopbackHostHeader(req.headers.host)) {
       sendError(res, 421, "Invalid Host header");
       return;
     }
-    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    } catch {
+      sendError(res, 400, "Invalid request target");
+      return;
+    }
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     const method = req.method?.toUpperCase() ?? "GET";
 
@@ -432,13 +439,23 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     } catch (err) {
       sendError(res, 500, (err as Error).message);
     }
+  };
+
+  const server = http.createServer((req, res) => {
+    void handleRequest(req, res).catch((err: unknown) => {
+      console.error("[sashd] unhandled HTTP request error:", err);
+      if (res.writableEnded || res.destroyed) return;
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      sendError(res, 500, "Internal server error");
+    });
   });
 
   // Handle WebSocket upgrade proxying to Core controller (e.g. for /core/api/traffic)
   const upgradedSockets = new Set<Duplex>();
-  server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    upgradedSockets.add(socket);
-    socket.once("close", () => upgradedSockets.delete(socket));
+  const handleUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
     if (!isLoopbackHostHeader(req.headers.host)) {
       rejectUpgrade(socket, 421, "Invalid Host header");
       return;
@@ -457,7 +474,13 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    } catch {
+      rejectUpgrade(socket, 400, "Invalid request target");
+      return;
+    }
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     const isCoreWs =
       matchesPathPrefix(pathname, "/core/api") || pathname === "/traffic" || pathname === "/logs";
@@ -479,6 +502,17 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       runtimeSettings.controller,
       runtimeSettings.secret,
     );
+  };
+
+  server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    upgradedSockets.add(socket);
+    socket.once("close", () => upgradedSockets.delete(socket));
+    try {
+      handleUpgrade(req, socket, head);
+    } catch (err) {
+      console.error("[sashd] unhandled WebSocket upgrade error:", err);
+      if (!socket.destroyed) rejectUpgrade(socket, 500, "WebSocket proxy failed");
+    }
   });
 
   /* ====================================================================== */

@@ -158,6 +158,44 @@ describe("daemon server", () => {
     return { statusCode: res.statusCode, data: json };
   }
 
+  async function rawHttpRequest(target: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const socket = net.createConnection({ host: "127.0.0.1", port: boundPort });
+      let response = "";
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        socket.destroy();
+        if (response) resolve(response);
+        else reject(new Error("HTTP connection closed without a response"));
+      };
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        socket.destroy();
+        reject(new Error("Raw HTTP request timed out"));
+      }, 3000);
+      socket.on("connect", () => {
+        socket.write(
+          `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${boundPort}\r\nConnection: close\r\n\r\n`,
+        );
+      });
+      socket.on("data", (chunk) => {
+        response += chunk.toString("utf8");
+      });
+      socket.on("end", finish);
+      socket.on("close", finish);
+      socket.on("error", (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
   async function rawWebSocketUpgrade(
     pathname: string,
     headers: Record<string, string> = {},
@@ -194,6 +232,32 @@ describe("daemon server", () => {
       });
     });
   }
+
+  describe("request error boundary", () => {
+    it("returns 400 for an invalid request target and keeps serving", async () => {
+      await startServer();
+
+      const response = await rawHttpRequest("http://");
+      assert.match(response, /^HTTP\/1\.1 400 /);
+      assert.match(response, /Invalid request target/);
+
+      const health = await apiRequest("/sash/health", { token: "" });
+      assert.equal(health.statusCode, 200);
+    });
+
+    it("returns 400 for an invalid WebSocket target and keeps serving", async () => {
+      await startServer();
+
+      const response = await rawWebSocketUpgrade("http://", {
+        Authorization: `Bearer ${settings.daemonSecret}`,
+      });
+      assert.match(response, /^HTTP\/1\.1 400 /);
+      assert.match(response, /Invalid request target/);
+
+      const health = await apiRequest("/sash/health", { token: "" });
+      assert.equal(health.statusCode, 200);
+    });
+  });
 
   describe("authentication and namespaces", () => {
     it("allows unauthenticated GET /sash/health returning token and pid", async () => {

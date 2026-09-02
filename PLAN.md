@@ -37,7 +37,7 @@
 
 完成记录：Node.js 24.13.0 环境下 typecheck、lint、306 项测试（305 通过、1 项既有 Windows skip）和 production build 全部通过。
 
-### 2. 隔离畸形 daemon 请求 — 待办
+### 2. 隔离畸形 daemon 请求 — 已完成
 
 目标：任何畸形 HTTP request-target 或 Upgrade 请求都不能产生未处理 rejection 或终止 sashd。
 
@@ -48,6 +48,8 @@
 - 500 使用固定公开文案，详细错误只写 daemon stderr。
 
 验收：畸形 request-target/Upgrade 后 daemon 仍能处理下一请求；真实子进程不退出。
+
+完成记录：HTTP listener 现在显式接住请求 Promise，HTTP 与 Upgrade URL 解析均在错误边界内；新增两项回归测试确认返回 400 后 daemon 继续服务。lint 与 308 项测试（307 通过、1 项既有 Windows skip）通过。
 
 ### 3. 鉴权全部 Core 网关请求 — 待办
 
