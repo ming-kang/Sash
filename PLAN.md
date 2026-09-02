@@ -144,7 +144,7 @@
 
 完成记录：rename/remove helper 对 Windows EPERM/EBUSY/EACCES 有界重试，rename 失败不再删除 caller-owned source；atomic-write temp 由调用方单独补偿，跨目录 rename fsync 两侧目录。Core 一致性检查前恢复唯一 `.unlock-probe`，相同重复文件安全删除，不同内容则原样保留并 fail closed；lock probe 不再让恢复错误被外层重试吞掉。fault injection 覆盖 transient/persistent rename、remove、probe-only/duplicate/conflict 和 consistency recovery；tracked-file Biome、typecheck 与 338 项测试（337 通过、1 项既有 Windows skip）通过。
 
-### 10. 选择兼容的 amd64 资产 — 待办
+### 10. 选择兼容的 amd64 资产 — 已完成
 
 目标：README 所称 x64 平台不默认要求 x86-64-v3。
 
@@ -153,6 +153,8 @@
 - 不增加 CPU feature 探测；未来若有基准证据，再设计显式 variant。
 
 验收：含所有上游资产时选择 compatible；非 amd64 行为不变。
+
+完成记录：Windows/macOS/Linux amd64 候选统一改为 compatible、v1、plain-v3；release 资产选择提取为生产共用 selector，测试以包含全部变体的实际 metadata 集合确认 compatible 被选中，arm64 保持不变。tracked-file Biome、typecheck 与 339 项测试（338 通过、1 项既有 Windows skip）通过。
 
 ### 11. 清洗全部 helper 子进程环境 — 待办
 

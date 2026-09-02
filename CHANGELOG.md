@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- amd64 Core downloads now prefer the upstream broadly compatible x86-64 build, with v1 and the x86-64-v3 plain asset used only as availability fallbacks.
 - WebUI functional iconography now uses tree-shaken Remix Icon line components behind the existing semantic icon API.
 - Built-in WebUI now uses a responsive, theme-aware data-console layout with desktop and mobile navigation, compact runtime cards, accessible controls, paginated data views and reduced background polling.
 - Repeated `sash start` requests now always enter the daemon lifecycle reconciler, so desired runtime and system-proxy state are refreshed even when a Core is already running.

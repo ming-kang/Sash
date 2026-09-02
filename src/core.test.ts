@@ -23,6 +23,7 @@ import {
   markCoreInstallTransactionCommitted,
   recoverCoreInstallTransaction,
 } from "./core-install-transaction.js";
+import { type ReleaseAsset, selectReleaseAsset } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
 describe("core", () => {
@@ -73,12 +74,12 @@ describe("core", () => {
   });
 
   describe("mihomoAssetCandidates", () => {
-    it("returns windows candidates ending in .zip with default, compatible, and v1 variants for win32 x64", () => {
+    it("returns windows candidates ending in .zip with compatible builds first for win32 x64", () => {
       const candidates = mihomoAssetCandidates("v1.19.30", "win32", "x64");
       assert.deepEqual(candidates, [
-        "mihomo-windows-amd64-v1.19.30.zip",
         "mihomo-windows-amd64-compatible-v1.19.30.zip",
         "mihomo-windows-amd64-v1-v1.19.30.zip",
+        "mihomo-windows-amd64-v1.19.30.zip",
       ]);
       for (const c of candidates) {
         assert.ok(c.endsWith(".zip"));
@@ -93,13 +94,33 @@ describe("core", () => {
     it("returns darwin amd64 candidates with all variants ending in .gz", () => {
       const candidates = mihomoAssetCandidates("v1.19.30", "darwin", "x64");
       assert.deepEqual(candidates, [
-        "mihomo-darwin-amd64-v1.19.30.gz",
         "mihomo-darwin-amd64-compatible-v1.19.30.gz",
         "mihomo-darwin-amd64-v1-v1.19.30.gz",
+        "mihomo-darwin-amd64-v1.19.30.gz",
       ]);
       for (const c of candidates) {
         assert.ok(c.endsWith(".gz"));
       }
+    });
+
+    it("actually selects the compatible asset when all amd64 variants exist", () => {
+      const candidates = mihomoAssetCandidates("v1.19.30", "linux", "x64");
+      const asset = (name: string): ReleaseAsset => ({
+        name,
+        browser_download_url: `https://example.test/${name}`,
+        size: 1,
+        digest: `sha256:${"a".repeat(64)}`,
+      });
+      const assets = [
+        asset("mihomo-linux-amd64-v1.19.30.gz"),
+        asset("mihomo-linux-amd64-v1-v1.19.30.gz"),
+        asset("mihomo-linux-amd64-compatible-v1.19.30.gz"),
+      ];
+
+      assert.equal(
+        selectReleaseAsset(assets, candidates)?.name,
+        "mihomo-linux-amd64-compatible-v1.19.30.gz",
+      );
     });
   });
 

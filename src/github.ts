@@ -177,12 +177,19 @@ export interface DownloadOptions {
   onProgress?: (downloaded: number, total: number | undefined) => void;
 }
 
-export async function downloadReleaseAsset(opts: DownloadOptions): Promise<string> {
-  const chosen = opts.candidates
+export function selectReleaseAsset(
+  assets: ReleaseAsset[],
+  candidates: string[],
+): ReleaseAsset | undefined {
+  return candidates
     .map((candidate) =>
-      opts.assets.find((asset) => asset.name.toLowerCase() === candidate.toLowerCase()),
+      assets.find((asset) => asset.name.toLowerCase() === candidate.toLowerCase()),
     )
     .find((asset): asset is ReleaseAsset => asset !== undefined);
+}
+
+export async function downloadReleaseAsset(opts: DownloadOptions): Promise<string> {
+  const chosen = selectReleaseAsset(opts.assets, opts.candidates);
   if (!chosen) {
     throw new Error(
       `No trusted release asset matched ${opts.candidates.join(", ")} for ${opts.repo}@${opts.tag}`,

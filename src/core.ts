@@ -44,9 +44,9 @@ export function goOsArch(
 }
 
 /**
- * Asset name candidates in preference order. mihomo publishes many amd64
- * micro-architecture/toolchain variants; the plain name is the default build,
- * `compatible` runs on pre-v3 CPUs, `v1` is the baseline x86-64 build.
+ * Asset name candidates in preference order. The upstream plain amd64 asset
+ * requires x86-64-v3; Sash defaults to the broadly compatible/v1 builds and
+ * keeps the optimized plain asset only as a last availability fallback.
  */
 export function mihomoAssetCandidates(
   tag: string,
@@ -57,9 +57,9 @@ export function mihomoAssetCandidates(
   const ext = platform === "win32" ? "zip" : "gz";
   if (goArch === "amd64") {
     return [
-      `mihomo-${os}-amd64-${tag}.${ext}`,
       `mihomo-${os}-amd64-compatible-${tag}.${ext}`,
       `mihomo-${os}-amd64-v1-${tag}.${ext}`,
+      `mihomo-${os}-amd64-${tag}.${ext}`,
     ];
   }
   return [`mihomo-${os}-arm64-${tag}.${ext}`];
