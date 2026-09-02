@@ -2,128 +2,189 @@
   <div>
     <PageHeader :title="t('page.settings.title')" :desc="t('page.settings.desc')" />
 
-    <!-- Interface -->
-    <UiCard :title="t('settings.langTitle')" :desc="t('settings.langDesc')">
-      <div class="segmented">
-        <button
-          class="segmented-item"
-          :class="{ active: locale === 'zh' }"
-          @click="switchLocale('zh')"
+    <div class="settings-grid">
+      <!-- Interface -->
+      <UiCard
+        :title="t('settings.appearanceTitle')"
+        :desc="t('settings.appearanceDesc')"
+        class="settings-card"
+      >
+        <div
+          class="segmented preference-control"
+          role="group"
+          :aria-label="t('settings.appearanceTitle')"
         >
-          中文
-        </button>
-        <button
-          class="segmented-item"
-          :class="{ active: locale === 'en' }"
-          @click="switchLocale('en')"
-        >
-          English
-        </button>
-      </div>
-    </UiCard>
-
-    <!-- Network -->
-    <UiCard :title="t('settings.networkTitle')" class="mt-4">
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-name">{{ t('settings.mixedPortTitle') }}</span>
-          <span class="setting-desc">{{ t('settings.mixedPortDesc') }}</span>
-        </div>
-        <div class="setting-action">
-          <input
-            v-model.number="mixedPort"
-            type="number"
-            min="1"
-            max="65535"
-            class="input input-sm port-input"
-            :disabled="savingPort"
-            @input="portDirty = true"
-          />
           <button
-            class="btn btn-secondary btn-sm"
-            :disabled="savingPort || !portValid"
-            @click="saveMixedPort"
+            type="button"
+            class="segmented-item"
+            :class="{ active: theme === 'system' }"
+            :aria-pressed="theme === 'system'"
+            @click="switchTheme('system')"
           >
-            {{ savingPort ? t('common.loading') : t('common.save') }}
+            {{ t('theme.system') }}
+          </button>
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: theme === 'light' }"
+            :aria-pressed="theme === 'light'"
+            @click="switchTheme('light')"
+          >
+            {{ t('theme.light') }}
+          </button>
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: theme === 'dark' }"
+            :aria-pressed="theme === 'dark'"
+            @click="switchTheme('dark')"
+          >
+            {{ t('theme.dark') }}
           </button>
         </div>
-      </div>
+      </UiCard>
 
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-name">{{ t('settings.allowLanTitle') }}</span>
-          <span class="setting-desc">{{ t('settings.allowLanDesc') }}</span>
-        </div>
-        <div class="setting-action">
-          <UiSwitch
-            :model-value="store.status?.settings.allowLan ?? false"
-            :disabled="store.operations.networkSetting"
-            @update:model-value="toggleAllowLan"
-          />
-        </div>
-      </div>
-
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-name">{{ t('settings.tunTitle') }}</span>
-          <span class="setting-desc">{{ t('settings.tunDesc') }}</span>
-        </div>
-        <div class="setting-action">
-          <UiSwitch
-            :model-value="store.status?.settings.tun ?? false"
-            :disabled="store.operations.networkSetting"
-            @update:model-value="toggleTun"
-          />
-        </div>
-      </div>
-    </UiCard>
-
-    <!-- Core control -->
-    <UiCard :title="t('settings.coreTitle')" class="mt-4">
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-name">{{ t('settings.restartTitle') }}</span>
-          <span class="setting-desc">{{ t('settings.restartDesc') }}</span>
-        </div>
-        <div class="setting-action">
-          <button class="btn btn-secondary btn-sm" :disabled="restarting" @click="restartCore">
-            <Icon name="power" :size="12" :class="{ spin: restarting }" />
-            <span>{{ t('settings.restartBtn') }}</span>
+      <UiCard :title="t('settings.langTitle')" :desc="t('settings.langDesc')" class="settings-card">
+        <div class="segmented preference-control" role="group" :aria-label="t('settings.langTitle')">
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: locale === 'zh' }"
+            :aria-pressed="locale === 'zh'"
+            @click="switchLocale('zh')"
+          >
+            中文
+          </button>
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: locale === 'en' }"
+            :aria-pressed="locale === 'en'"
+            @click="switchLocale('en')"
+          >
+            English
           </button>
         </div>
-      </div>
+      </UiCard>
 
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-name">{{ t('settings.reloadTitle') }}</span>
-          <span class="setting-desc">{{ t('settings.reloadDesc') }}</span>
+      <!-- Network -->
+      <UiCard :title="t('settings.networkTitle')" class="settings-card">
+        <div class="setting-row interrupt-row">
+          <div class="setting-info">
+            <label class="setting-name" for="mixed-port">{{ t('settings.mixedPortTitle') }}</label>
+            <span class="setting-desc">{{ t('settings.mixedPortDesc') }}</span>
+          </div>
+          <div class="setting-action port-action">
+            <input
+              id="mixed-port"
+              v-model.number="mixedPort"
+              type="number"
+              min="1"
+              max="65535"
+              class="input input-sm port-input"
+              :aria-label="t('settings.mixedPortTitle')"
+              :disabled="savingPort"
+              @input="portDirty = true"
+            />
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm interrupt-save"
+              :disabled="savingPort || !portValid"
+              @click="saveMixedPort"
+            >
+              {{ savingPort ? t('common.loading') : t('common.save') }}
+            </button>
+          </div>
         </div>
-        <div class="setting-action">
-          <button class="btn btn-secondary btn-sm" :disabled="reloading" @click="reloadConfig">
-            <Icon name="refresh" :size="12" :class="{ spin: reloading }" />
-            <span>{{ t('settings.reloadBtn') }}</span>
-          </button>
-        </div>
-      </div>
-    </UiCard>
 
-    <!-- Runtime info -->
-    <UiCard :title="t('settings.aboutTitle')" class="mt-4">
-      <dl class="info-grid">
-        <div class="info-item">
-          <dt>{{ t('overview.daemonPort') }}</dt>
-          <dd class="mono">127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}</dd>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">{{ t('settings.allowLanTitle') }}</span>
+            <span class="setting-desc">{{ t('settings.allowLanDesc') }}</span>
+          </div>
+          <div class="setting-action">
+            <UiSwitch
+              :model-value="store.status?.settings.allowLan ?? false"
+              :label="t('settings.allowLanTitle')"
+              :disabled="store.operations.networkSetting"
+              @update:model-value="toggleAllowLan"
+            />
+          </div>
         </div>
-        <div class="info-item">
-          <dt>{{ t('overview.controller') }}</dt>
-          <dd class="mono">{{ store.status?.settings.controller || '-' }}</dd>
+
+        <div class="setting-row caution-row">
+          <div class="setting-info">
+            <span class="setting-name">{{ t('settings.tunTitle') }}</span>
+            <span class="setting-desc">{{ t('settings.tunDesc') }}</span>
+          </div>
+          <div class="setting-action">
+            <UiSwitch
+              :model-value="store.status?.settings.tun ?? false"
+              :label="t('settings.tunTitle')"
+              :disabled="store.operations.networkSetting"
+              @update:model-value="toggleTun"
+            />
+          </div>
         </div>
-        <div class="info-item">
-          <dt>{{ t('settings.coreVersion') }}</dt>
-          <dd class="mono">{{ coreVersion || '-' }}</dd>
+      </UiCard>
+
+      <!-- Core control -->
+      <UiCard :title="t('settings.coreTitle')" class="settings-card">
+        <div class="setting-row danger-row">
+          <div class="setting-info">
+            <span class="setting-name">{{ t('settings.restartTitle') }}</span>
+            <span class="setting-desc">{{ t('settings.restartDesc') }}</span>
+          </div>
+          <div class="setting-action">
+            <button
+              type="button"
+              class="btn btn-sm danger-action"
+              :disabled="restarting"
+              @click="restartCore"
+            >
+              <Icon name="power" :size="13" :class="{ spin: restarting }" />
+              <span>{{ t('settings.restartBtn') }}</span>
+            </button>
+          </div>
         </div>
-      </dl>
-    </UiCard>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">{{ t('settings.reloadTitle') }}</span>
+            <span class="setting-desc">{{ t('settings.reloadDesc') }}</span>
+          </div>
+          <div class="setting-action">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="reloading"
+              @click="reloadConfig"
+            >
+              <Icon name="refresh" :size="13" :class="{ spin: reloading }" />
+              <span>{{ t('settings.reloadBtn') }}</span>
+            </button>
+          </div>
+        </div>
+      </UiCard>
+
+      <!-- Runtime info -->
+      <UiCard :title="t('settings.aboutTitle')" class="settings-card runtime-card">
+        <dl class="info-grid">
+          <div class="info-item">
+            <dt>{{ t('overview.daemonPort') }}</dt>
+            <dd class="mono">127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}</dd>
+          </div>
+          <div class="info-item">
+            <dt>{{ t('overview.controller') }}</dt>
+            <dd class="mono">{{ store.status?.settings.controller || '-' }}</dd>
+          </div>
+          <div class="info-item">
+            <dt>{{ t('settings.coreVersion') }}</dt>
+            <dd class="mono">{{ coreVersion || '-' }}</dd>
+          </div>
+        </dl>
+      </UiCard>
+    </div>
   </div>
 </template>
 
@@ -143,6 +204,7 @@ import {
   store,
   toast,
 } from "../stores/index.js";
+import { setTheme, theme, type Theme } from "../theme.js";
 
 const mixedPort = ref(store.status?.settings.mixedPort ?? 17890);
 
@@ -171,6 +233,10 @@ const coreVersion = computed(() => {
   const version = store.status?.core.version;
   return version ? (version.startsWith("v") ? version : `v${version}`) : "";
 });
+
+function switchTheme(next: Theme): void {
+  if (next !== theme.value) setTheme(next);
+}
 
 function switchLocale(next: Locale): void {
   if (next === locale.value) return;
@@ -248,77 +314,179 @@ async function reloadConfig(): Promise<void> {
 </script>
 
 <style scoped>
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 16px;
+}
+.settings-card {
+  min-width: 0;
+}
+.runtime-card {
+  grid-column: 1 / -1;
+}
+.preference-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+}
+.preference-control .segmented-item {
+  min-height: 34px;
+}
+
 .setting-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 13px 0;
+  min-height: 68px;
+  padding: 13px 10px;
   border-bottom: 1px solid var(--border);
 }
 .setting-row:first-child {
-  padding-top: 2px;
+  margin-top: -2px;
 }
 .setting-row:last-child {
   border-bottom: none;
-  padding-bottom: 0;
+}
+.interrupt-row,
+.caution-row {
+  background: var(--warning-soft);
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+.danger-row {
+  background: var(--danger-soft);
+  box-shadow: inset 3px 0 0 var(--danger);
 }
 .setting-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
 .setting-name {
+  color: var(--text-primary);
   font-size: 13.5px;
   font-weight: 600;
 }
 .setting-desc {
-  font-size: 12px;
   color: var(--text-muted);
+  font-size: 12px;
   line-height: 1.5;
 }
 .setting-action {
   display: flex;
   align-items: center;
-  gap: 8px;
   flex-shrink: 0;
+  gap: 8px;
 }
 .port-input {
   width: 96px;
-  text-align: right;
   font-family: var(--font-mono);
+  text-align: right;
+}
+.interrupt-save {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: var(--warning);
+}
+.danger-action {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+.interrupt-save:hover:not(:disabled),
+.danger-action:hover:not(:disabled) {
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 .info-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 32px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 24px;
 }
 .info-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px dashed var(--border);
+  padding: 10px 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 .info-item dt {
-  font-size: 12.5px;
+  flex-shrink: 0;
   color: var(--text-muted);
+  font-size: 12.5px;
 }
 .info-item dd {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
   font-size: 12.5px;
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .runtime-card {
+    grid-column: auto;
+  }
   .info-grid {
     grid-template-columns: 1fr;
   }
+  .preference-control .segmented-item,
+  .setting-action .btn {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-grid {
+    gap: 12px;
+  }
+  .preference-control {
+    grid-template-columns: 1fr;
+  }
+  .preference-control .segmented-item {
+    min-height: 44px;
+  }
   .setting-row {
     flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 10px;
+  }
+  .setting-action {
+    align-self: stretch;
+    justify-content: flex-end;
+  }
+  .port-action {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .port-input {
+    width: 100%;
+    min-height: 44px;
+    text-align: left;
+  }
+  .setting-action .btn {
+    min-height: 44px;
+  }
+  .info-item {
     align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .info-item dd {
+    width: 100%;
   }
 }
 </style>

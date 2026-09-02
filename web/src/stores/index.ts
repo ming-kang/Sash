@@ -291,11 +291,30 @@ export async function refreshProfiles(): Promise<void> {
 
 /** Self-scheduling polling prevents overlapping cycles and only probes Core after a healthy status. */
 export function startRuntimePolling(intervalMs = 2000): () => void {
+  const backgroundIntervalMs = Math.max(intervalMs, 15_000);
   let stopped = false;
+  let running = false;
+  let refreshWhenIdle = false;
   let timer: number | null = null;
   let cycle = 0;
 
-  const tick = async () => {
+  const clearTimer = (): void => {
+    if (timer === null) return;
+    window.clearTimeout(timer);
+    timer = null;
+  };
+
+  const schedule = (delayMs: number): void => {
+    clearTimer();
+    timer = window.setTimeout(() => {
+      timer = null;
+      void tick();
+    }, delayMs);
+  };
+
+  const tick = async (): Promise<void> => {
+    if (stopped || running) return;
+    running = true;
     try {
       await api.initialize();
       const result = await refreshStatus();
@@ -308,14 +327,38 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
       api.clearSession();
       markDaemonOffline();
     } finally {
-      if (!stopped) timer = window.setTimeout(tick, intervalMs);
+      running = false;
+      if (!stopped) {
+        if (refreshWhenIdle && !document.hidden) {
+          refreshWhenIdle = false;
+          schedule(0);
+        } else {
+          schedule(document.hidden ? backgroundIntervalMs : intervalMs);
+        }
+      }
     }
   };
 
+  const onVisibilityChange = (): void => {
+    if (stopped) return;
+    clearTimer();
+    if (document.hidden) {
+      refreshWhenIdle = false;
+      if (!running) schedule(backgroundIntervalMs);
+    } else if (running) {
+      refreshWhenIdle = true;
+    } else {
+      void tick();
+    }
+  };
+
+  document.addEventListener("visibilitychange", onVisibilityChange);
   void tick();
   return () => {
     stopped = true;
-    if (timer !== null) clearTimeout(timer);
+    refreshWhenIdle = false;
+    clearTimer();
+    document.removeEventListener("visibilitychange", onVisibilityChange);
   };
 }
 

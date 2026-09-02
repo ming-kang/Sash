@@ -3,59 +3,62 @@
     type="button"
     role="switch"
     :aria-checked="modelValue"
+    :aria-label="label ?? t('common.toggle')"
     class="switch"
     :class="{ on: modelValue }"
     :disabled="disabled"
     @click="$emit('update:modelValue', !modelValue)"
   >
-    <span class="knob" />
+    <span class="knob" aria-hidden="true" />
   </button>
 </template>
 
 <script setup lang="ts">
-defineProps<{ modelValue: boolean; disabled?: boolean }>();
+import { t } from "../i18n/index.js";
+
+defineProps<{ modelValue: boolean; disabled?: boolean; label?: string }>();
 defineEmits<{ "update:modelValue": [value: boolean] }>();
 </script>
 
 <style scoped>
 .switch {
   position: relative;
-  width: 38px;
-  height: 22px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: #e4e6ea;
-  cursor: pointer;
-  padding: 0;
+  width: 42px;
+  height: 24px;
   flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--switch-off);
+  cursor: pointer;
   transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
+    background var(--motion-normal) var(--ease-standard),
+    border-color var(--motion-normal) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
+}
+.switch:hover:not(:disabled) {
+  border-color: var(--text-muted);
 }
 .switch.on {
   background: var(--accent);
   border-color: var(--accent);
 }
 .switch:disabled {
-  opacity: 0.45;
   cursor: not-allowed;
-}
-.switch:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  opacity: 0.48;
 }
 .knob {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18);
-  transition: transform 0.16s ease;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--switch-knob);
+  box-shadow: var(--shadow-switch);
+  transition: transform var(--motion-normal) var(--ease-spring);
 }
 .switch.on .knob {
-  transform: translateX(16px);
+  transform: translateX(18px);
 }
 </style>

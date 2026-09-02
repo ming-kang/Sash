@@ -39,8 +39,11 @@ web/src/
 │   ├── RulesView.vue
 │   └── SettingsView.vue
 ├── App.vue                       shell, view selection and stream lifecycle
+├── theme.ts                      persisted system/light/dark theme state
 └── router.ts                     small hash router
 ```
+
+The shell uses a compact desktop navigation rail and switches to a sticky header plus safe-area-aware bottom navigation below 900px. `styles/main.css` owns theme tokens, component states and reduced-motion behavior without a runtime UI dependency. Long connection and rule sets are paginated and become card layouts on narrow screens.
 
 Daemon/profile contracts live in `src/contracts.ts` and are imported as types by both `src/daemon-client.ts` and the WebUI. This prevents manually duplicated `SashStatus` and profile response shapes.
 
@@ -61,7 +64,7 @@ Canonical actions include:
 - runtime intent actions such as `setOutboundMode()` and `selectGroupProxy()`
 - `startRuntimePolling()`
 
-Polling is self-scheduling with `setTimeout` after the previous cycle completes. Domain request generations discard responses made stale by a newer refresh or user mutation. Core-specific API calls are made only after status reports `running && healthy`.
+Polling is self-scheduling with `setTimeout` after the previous cycle completes. It slows to a 15-second interval while the page is hidden and refreshes immediately after returning to the foreground. Domain request generations discard responses made stale by a newer refresh or user mutation. Core-specific API calls are made only after status reports `running && healthy`.
 
 Core snapshots have an explicit ownership boundary. A stopped/unhealthy Core or unreachable daemon clears proxy groups, rules, connections/totals and traffic rates/history. A changed daemon boot, Core identity or daemon-provided profile revision clears the old runtime generation and performs one coherent configs/proxies/rules/connections/profiles refresh. The profile revision changes after durable manual or scheduled profile publication, so scheduler changes propagate without making heavy Core requests every two seconds.
 

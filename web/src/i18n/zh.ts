@@ -3,6 +3,7 @@ export const zh = {
     subtitle: "本地网络控制台",
     coreRunning: "核心运行中",
     coreStopped: "核心已停止",
+    navigation: "主导航",
   },
   nav: {
     overview: "概览",
@@ -43,6 +44,17 @@ export const zh = {
     nodesCount: "{n} 个节点",
     rulesCount: "{n} 条规则",
     entriesCount: "{n} 条",
+    previous: "上一页",
+    next: "下一页",
+    pageSummary: "第 {page} 页，共 {total} 页",
+    toggle: "切换开关",
+  },
+  theme: {
+    system: "跟随系统",
+    light: "浅色",
+    dark: "深色",
+    current: "当前主题：{theme}",
+    switch: "切换主题",
   },
   overview: {
     trafficTitle: "实时流量",
@@ -80,6 +92,7 @@ export const zh = {
   },
   proxies: {
     testAll: "测试延迟",
+    testNode: "测试 {name} 的延迟",
     manual: "手动选择",
     auto: "自动选择",
     currentTag: "当前",
@@ -140,6 +153,8 @@ export const zh = {
     deleteConfirmMsg: "删除「{name}」？此操作不可恢复。",
   },
   settings: {
+    appearanceTitle: "外观",
+    appearanceDesc: "跟随系统或选择控制台主题",
     langTitle: "界面语言",
     langDesc: "切换控制台显示语言",
     networkTitle: "网络与监听",

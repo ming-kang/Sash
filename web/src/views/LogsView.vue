@@ -1,28 +1,49 @@
 <template>
   <div>
     <PageHeader :title="t('page.logs.title')" :desc="t('page.logs.desc')">
-      <div class="segmented">
+      <div class="segmented level-filter" role="group" :aria-label="t('page.logs.title')">
         <button
           v-for="lvl in levels"
           :key="lvl"
           class="segmented-item"
           :class="{ active: selectedLevel === lvl }"
+          :aria-label="lvl === 'all' ? t('logs.levelAll') : lvl.toUpperCase()"
+          :aria-pressed="selectedLevel === lvl"
           @click="selectedLevel = lvl"
         >
           {{ lvl === 'all' ? t('logs.levelAll') : lvl.toUpperCase() }}
         </button>
       </div>
-      <button class="btn btn-secondary btn-sm" @click="paused = !paused">
+      <button
+        class="btn btn-secondary btn-sm"
+        :aria-label="paused ? t('logs.resume') : t('logs.pause')"
+        :aria-pressed="paused"
+        @click="togglePaused"
+      >
         <Icon :name="paused ? 'play' : 'pause'" :size="12" />
         <span>{{ paused ? t('logs.resume') : t('logs.pause') }}</span>
       </button>
-      <button class="btn btn-secondary btn-sm" :disabled="store.logs.length === 0" @click="clearLogs">
+      <button
+        class="btn btn-secondary btn-sm"
+        :aria-label="t('common.clear')"
+        :disabled="store.logs.length === 0"
+        @click="clearLogs"
+      >
         <Icon name="trash" :size="12" />
         <span>{{ t('common.clear') }}</span>
       </button>
     </PageHeader>
 
-    <div ref="paneRef" class="log-pane card" @scroll="onScroll">
+    <div
+      ref="paneRef"
+      class="log-pane card"
+      role="log"
+      tabindex="0"
+      aria-live="off"
+      aria-atomic="false"
+      :aria-label="t('page.logs.title')"
+      @scroll="onScroll"
+    >
       <div v-if="filteredLogs.length === 0" class="log-empty text-muted">
         {{ store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
       </div>
@@ -38,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
@@ -49,6 +70,8 @@ const selectedLevel = ref("all");
 const paused = ref(false);
 const paneRef = ref<HTMLElement | null>(null);
 const stickToBottom = ref(true);
+let scrollFrame: number | null = null;
+let disposed = false;
 
 const filteredLogs = computed(() => {
   if (selectedLevel.value === "all") return store.logs;
@@ -66,25 +89,50 @@ function onScroll(): void {
   stickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
 }
 
+async function scrollToBottom(): Promise<void> {
+  await nextTick();
+  if (disposed || paused.value || !stickToBottom.value) return;
+  if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = null;
+    const el = paneRef.value;
+    if (el && !disposed && !paused.value && stickToBottom.value) el.scrollTop = el.scrollHeight;
+  });
+}
+
+function togglePaused(): void {
+  paused.value = !paused.value;
+  if (!paused.value) void scrollToBottom();
+}
+
 watch(
   () => store.logs.at(-1)?.id,
-  async () => {
-    if (paused.value || !stickToBottom.value) return;
-    await nextTick();
-    const el = paneRef.value;
-    if (el) el.scrollTop = el.scrollHeight;
+  () => {
+    if (!paused.value && stickToBottom.value) void scrollToBottom();
   },
 );
+
+onBeforeUnmount(() => {
+  disposed = true;
+  if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
+});
 </script>
 
 <style scoped>
 .log-pane {
   height: calc(100vh - 220px);
   min-height: 320px;
+  max-width: 100%;
   overflow-y: auto;
   padding: 12px 14px;
+  contain: layout paint;
   font-size: 12px;
-  background: #fcfcfd;
+  background: var(--bg-card);
+}
+.log-pane:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 .log-empty {
   padding: 8px 2px;
@@ -94,8 +142,12 @@ watch(
   display: flex;
   align-items: baseline;
   gap: 10px;
+  min-width: 0;
   padding: 2.5px 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
+  contain: layout paint style;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 24px;
   line-height: 1.5;
 }
 .log-line:hover {
@@ -126,9 +178,72 @@ watch(
   color: var(--text-muted);
 }
 .log-payload {
+  min-width: 0;
   color: var(--text-primary);
-  word-break: break-all;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 11.5px;
+}
+.segmented-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+@media (max-width: 760px) {
+  :deep(.page-head-actions) {
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .level-filter {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .segmented-item,
+  :deep(.page-head-actions > .btn) {
+    min-height: 36px;
+  }
+  .log-pane {
+    height: calc(100dvh - 250px);
+    min-height: 280px;
+    padding: 10px 12px;
+  }
+  .log-line {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 1px 10px;
+    padding: 5px 2px;
+  }
+  .log-level {
+    width: auto;
+  }
+  .log-payload {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 480px) {
+  :deep(.page-head) {
+    flex-direction: column;
+  }
+  :deep(.page-head-actions) {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .level-filter {
+    width: 100%;
+  }
+  .segmented-item {
+    flex: 1 0 auto;
+  }
+  .log-pane {
+    height: calc(100dvh - 290px);
+    min-height: 260px;
+  }
+  .log-time {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 </style>

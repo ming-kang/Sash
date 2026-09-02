@@ -5,6 +5,7 @@ export const en: Messages = {
     subtitle: "Local Network Console",
     coreRunning: "Core running",
     coreStopped: "Core stopped",
+    navigation: "Primary navigation",
   },
   nav: {
     overview: "Overview",
@@ -45,6 +46,17 @@ export const en: Messages = {
     nodesCount: "{n} nodes",
     rulesCount: "{n} rules",
     entriesCount: "{n} entries",
+    previous: "Previous",
+    next: "Next",
+    pageSummary: "Page {page} of {total}",
+    toggle: "Toggle setting",
+  },
+  theme: {
+    system: "System",
+    light: "Light",
+    dark: "Dark",
+    current: "Current theme: {theme}",
+    switch: "Switch theme",
   },
   overview: {
     trafficTitle: "Live Traffic",
@@ -82,6 +94,7 @@ export const en: Messages = {
   },
   proxies: {
     testAll: "Test latency",
+    testNode: "Test latency for {name}",
     manual: "Manual Selection",
     auto: "Automatic",
     currentTag: "current",
@@ -102,7 +115,7 @@ export const en: Messages = {
     colRule: "Rule",
     colDown: "Down",
     colUp: "Up",
-    colAction: "",
+    colAction: "Action",
     empty: "No active connections match",
     closeTitle: "Close connection",
     closeAllConfirm: "This will force-close all {n} active connections. Continue?",
@@ -142,6 +155,8 @@ export const en: Messages = {
     deleteConfirmMsg: 'Delete "{name}"? This cannot be undone.',
   },
   settings: {
+    appearanceTitle: "Appearance",
+    appearanceDesc: "Follow the system or choose a console theme",
     langTitle: "Language",
     langDesc: "Display language of the console",
     networkTitle: "Network & Listeners",

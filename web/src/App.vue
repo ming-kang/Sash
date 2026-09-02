@@ -4,7 +4,7 @@
 
     <main class="app-main">
       <Transition name="fade">
-        <div v-if="!store.daemonOnline" class="offline-banner">
+        <div v-if="!store.daemonOnline" class="offline-banner" role="status" aria-live="polite">
           <Icon name="alert" :size="13" />
           <span>{{ t('status.offline') }}</span>
         </div>
@@ -87,42 +87,59 @@ onUnmounted(() => {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg-app);
 }
 
 .app-main {
-  flex: 1;
-  min-width: 0;
   display: flex;
+  min-width: 0;
+  flex: 1;
   flex-direction: column;
 }
 
 .offline-banner {
+  position: sticky;
+  top: 0;
+  z-index: 15;
   display: flex;
+  min-height: 34px;
   align-items: center;
   justify-content: center;
   gap: 7px;
+  padding: 7px 18px;
   background: var(--warning-soft);
-  border-bottom: 1px solid #fde6b5;
+  border-bottom: 1px solid var(--warning-border);
   color: var(--warning);
-  font-size: 12.5px;
-  font-weight: 500;
-  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .page-container {
-  flex: 1;
   width: 100%;
-  max-width: 1060px;
+  max-width: 1440px;
+  flex: 1;
   margin: 0 auto;
-  padding: 24px 28px 48px;
+  padding: 30px clamp(24px, 3vw, 48px) 56px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 899px) {
   .app-shell {
     flex-direction: column;
   }
+  .offline-banner {
+    top: 60px;
+  }
   .page-container {
-    padding: 18px 16px 40px;
+    padding: 20px 16px calc(82px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 480px) {
+  .page-container {
+    padding-right: 12px;
+    padding-left: 12px;
   }
 }
 </style>

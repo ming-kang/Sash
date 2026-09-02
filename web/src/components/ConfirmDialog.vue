@@ -2,14 +2,27 @@
   <Teleport to="body">
     <Transition name="fade">
       <div v-if="confirmState.visible" class="overlay" @click.self="settleConfirm(false)">
-        <div class="dialog card" role="alertdialog" :aria-label="confirmState.title">
-          <h3 class="dialog-title">{{ confirmState.title }}</h3>
-          <p class="dialog-msg">{{ confirmState.message }}</p>
+        <div
+          ref="dialogElement"
+          class="dialog card"
+          role="alertdialog"
+          aria-modal="true"
+          :aria-labelledby="titleId"
+          :aria-describedby="descriptionId"
+          tabindex="-1"
+        >
+          <h3 :id="titleId" class="dialog-title">{{ confirmState.title }}</h3>
+          <p :id="descriptionId" class="dialog-msg">{{ confirmState.message }}</p>
           <div class="dialog-actions">
-            <button class="btn btn-secondary btn-sm" @click="settleConfirm(false)">
+            <button
+              ref="cancelButton"
+              class="btn btn-secondary btn-sm"
+              @click="settleConfirm(false)"
+            >
               {{ confirmState.cancelText }}
             </button>
             <button
+              ref="confirmButton"
               class="btn btn-sm"
               :class="confirmState.danger ? 'btn-danger' : 'btn-primary'"
               @click="settleConfirm(true)"
@@ -24,13 +37,103 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from "vue";
+import { nextTick, onMounted, onUnmounted, ref, useId, watch } from "vue";
 import { currentRoute } from "../router.js";
 import { confirmState, settleConfirm } from "./confirm.js";
 
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape" && confirmState.visible) settleConfirm(false);
+const dialogElement = ref<HTMLElement | null>(null);
+const cancelButton = ref<HTMLButtonElement | null>(null);
+const confirmButton = ref<HTMLButtonElement | null>(null);
+const id = useId();
+const titleId = `${id}-title`;
+const descriptionId = `${id}-description`;
+
+let triggerElement: HTMLElement | null = null;
+let previousBodyOverflow: string | null = null;
+let previousRootOverflow: string | null = null;
+
+function lockBackgroundScroll(): void {
+  if (previousBodyOverflow !== null) return;
+  previousBodyOverflow = document.body.style.overflow;
+  previousRootOverflow = document.documentElement.style.overflow;
+  document.body.style.overflow = "hidden";
+  document.documentElement.style.overflow = "hidden";
 }
+
+function restoreBackgroundScroll(): void {
+  if (previousBodyOverflow === null || previousRootOverflow === null) return;
+  document.body.style.overflow = previousBodyOverflow;
+  document.documentElement.style.overflow = previousRootOverflow;
+  previousBodyOverflow = null;
+  previousRootOverflow = null;
+}
+
+function takeTriggerElement(): HTMLElement | null {
+  const trigger = triggerElement;
+  triggerElement = null;
+  return trigger?.isConnected ? trigger : null;
+}
+
+function focusableElements(): HTMLElement[] {
+  if (!dialogElement.value) return [];
+  return Array.from(
+    dialogElement.value.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.hasAttribute("hidden"));
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (!confirmState.visible) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    settleConfirm(false);
+    return;
+  }
+  if (event.key !== "Tab") return;
+
+  const focusable = focusableElements();
+  if (focusable.length === 0) {
+    event.preventDefault();
+    dialogElement.value?.focus();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (
+    event.shiftKey &&
+    (active === first || active === dialogElement.value || !dialogElement.value?.contains(active))
+  ) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && (active === last || !dialogElement.value?.contains(active))) {
+    event.preventDefault();
+    first?.focus();
+  }
+}
+
+watch(
+  () => confirmState.visible,
+  async (visible) => {
+    if (visible) {
+      triggerElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      lockBackgroundScroll();
+      await nextTick();
+      if (!confirmState.visible) return;
+      const preferredButton = confirmState.danger ? cancelButton.value : confirmButton.value;
+      (preferredButton ?? cancelButton.value ?? dialogElement.value)?.focus();
+      return;
+    }
+
+    restoreBackgroundScroll();
+    const trigger = takeTriggerElement();
+    await nextTick();
+    trigger?.focus({ preventScroll: true });
+  },
+  { immediate: true },
+);
 
 watch(currentRoute, () => {
   if (confirmState.visible) settleConfirm(false);
@@ -40,6 +143,8 @@ onMounted(() => window.addEventListener("keydown", onKeydown));
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown);
   if (confirmState.visible) settleConfirm(false);
+  restoreBackgroundScroll();
+  takeTriggerElement()?.focus({ preventScroll: true });
 });
 </script>
 
@@ -48,7 +153,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgba(24, 26, 32, 0.32);
+  background: var(--bg-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
