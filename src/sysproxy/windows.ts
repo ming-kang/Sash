@@ -120,9 +120,16 @@ export function parseWindowsRegistryProxyValues(output: string): WindowsRegistry
 
   const values = emptyWindowsRegistryProxyValues();
   const seen = new Set<string>();
+  const headerText = (lines[headerIndex] ?? "").trim().toLowerCase();
   for (let index = headerIndex + 1; index < lines.length; index++) {
     const line = lines[index] ?? "";
     if (line.trim().length === 0) continue;
+    if (!line.startsWith(" ") && !line.startsWith("\t")) {
+      // Value lines are always indented. `reg query` prints the queried key's
+      // subkey paths flush-left after its values; they carry no value data.
+      if (line.trim().toLowerCase().startsWith(`${headerText}\\`)) break;
+      throw new Error("Invalid Windows registry output: unexpected line in registry response");
+    }
     if (parseManagedWindowsRegistryValue(line, values, seen)) continue;
     if (MANAGED_VALUE_PREFIX.test(line)) {
       throw new Error("Invalid Windows registry output: malformed managed value");
@@ -244,8 +251,10 @@ export function applyWindowsSnapshot(value: unknown): void {
   try {
     // Disable/restore PAC metadata before enabling the manual proxy. Keep
     // ProxyEnable last so partially-written targets do not become active first.
+    // AutoDetect is intentionally not written: Windows owns the legacy flat
+    // value and rewrites it from DefaultConnectionSettings on every WinINet
+    // refresh, so it can neither be applied nor verified reliably.
     applyWindowsValue("AutoConfigURL", "REG_SZ", snapshot.autoConfigUrl);
-    applyWindowsValue("AutoDetect", "REG_DWORD", snapshot.autoDetect);
     applyWindowsValue("ProxyServer", "REG_SZ", snapshot.proxyServer);
     applyWindowsValue("ProxyOverride", "REG_SZ", snapshot.proxyOverride);
     applyWindowsValue("ProxyEnable", "REG_DWORD", snapshot.proxyEnable);
@@ -267,7 +276,9 @@ export function createWindowsTarget(
     proxyServer: formatHostPort(normalized.host, normalized.port),
     proxyOverride: formatWindowsBypass(normalized.bypass),
     autoConfigUrl: null,
-    autoDetect: 0,
+    // A manual proxy takes precedence over WPAD, and the flat AutoDetect value
+    // is not durable across WinINet refreshes, so it is left untouched.
+    autoDetect: null,
   };
 }
 

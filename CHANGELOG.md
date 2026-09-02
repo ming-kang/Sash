@@ -68,6 +68,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Windows system-proxy ownership no longer fails on real `reg query` responses: the strict parser now accepts the flush-left subkey listings that follow a whole-key query, while still rejecting unrelated or malformed output.
+- Windows system-proxy enable/restore no longer writes or verifies the legacy flat `AutoDetect` value. Windows rewrites it from the `DefaultConnectionSettings` blob on WinINet refreshes, so managing it made every enable fail verification and roll back; it is now observed but unmanaged, and excluded from ownership equivalence. PAC (`AutoConfigURL`) handling is unchanged.
 - Test subprocesses force loopback into `NO_PROXY`, preventing local HTTP fixtures from traversing a developer's configured proxy or live runtime.
 - Package verification now rejects empty/missing UI output and forbidden source/test/user/secret/binary paths, installs the actual tarball, exercises its bin shims and resolves its installed UI; Windows force-termination identity revalidation is covered through injected signals instead of being skipped.
 - `sash logs -f` now waits for delayed files, follows bounded appends across truncation and identity-changing rotation, and cleans up watchers/timers on SIGINT or SIGTERM; `-n` rejects non-canonical, fractional, prefixed and overflowing values.

@@ -125,6 +125,26 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
       });
     });
 
+    it("ignores trailing subkey listings from reg query", () => {
+      // A whole-key `reg query` prints the key's own values first, then the
+      // flush-left paths of its subkeys (always present under Internet Settings).
+      const header =
+        "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+      const parsed = parseWindowsRegistryProxyValues(
+        `\r\n${header}\r\n` +
+          "    ProxyEnable    REG_DWORD    0x0\r\n" +
+          "    ProxyServer    REG_SZ    127.0.0.1:7890\r\n" +
+          "    ProxyOverride    REG_SZ    localhost;<local>\r\n" +
+          "\r\n" +
+          `${header}\\5.0\r\n` +
+          `${header}\\Cache\r\n` +
+          `${header}\\Connections\r\n`,
+      );
+      assert.equal(parsed.proxyEnable, 0);
+      assert.equal(parsed.proxyServer, "127.0.0.1:7890");
+      assert.equal(parsed.proxyOverride, "localhost;<local>");
+    });
+
     it("fails closed for empty, unrelated, truncated, and wrong registry responses", () => {
       const header =
         "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
@@ -133,6 +153,8 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
         `${header}\n    MigrateProxy    REG_DWORD    0x1\n`,
         `${header}\n    ProxyEnable    REG_DWORD\n`,
         "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\n    ProxyEnable    REG_DWORD    0x1\n",
+        `${header}\n    ProxyEnable    REG_DWORD    0x1\nGARBAGE\n`,
+        `${header}\n    ProxyEnable    REG_DWORD    0x1\n${header}\n`,
       ]) {
         assert.throws(
           () => parseWindowsRegistryProxyValues(output),
@@ -335,6 +357,31 @@ Authenticated Proxy Enabled: 0
       assert.equal(backend.equivalent(original, { ...original }), true);
       assert.equal(backend.compatible(partial, original, target), true);
       assert.equal(backend.compatible(thirdParty, original, target), false);
+
+      // The flat AutoDetect value is rewritten by Windows on WinINet refreshes,
+      // so it is excluded from ownership equivalence and compatibility.
+      assert.equal(backend.equivalent(target, { ...target, autoDetect: null }), true);
+      assert.equal(backend.compatible({ ...partial, autoDetect: null }, original, target), true);
+      assert.equal(backend.compatible({ ...partial, autoDetect: 0 }, original, target), true);
+    });
+
+    it("leaves the unmanaged Windows AutoDetect value out of targets", () => {
+      const backend = createSystemProxyBackend("win32");
+      const original = {
+        version: 1 as const,
+        platform: "win32" as const,
+        proxyEnable: 0,
+        proxyServer: null,
+        proxyOverride: null,
+        autoConfigUrl: null,
+        autoDetect: 1,
+      };
+      const target = backend.createTarget(original, { port: 17890 });
+      assert.equal(target.platform, "win32");
+      if (target.platform !== "win32") return;
+      assert.equal(target.autoDetect, null);
+      assert.equal(target.proxyEnable, 1);
+      assert.equal(target.proxyServer, "127.0.0.1:17890");
     });
   });
 });

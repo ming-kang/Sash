@@ -241,10 +241,20 @@ export function linuxSnapshot(value: unknown): LinuxSystemProxySnapshot {
   return snapshot;
 }
 
+/**
+ * Windows rewrites the legacy flat AutoDetect value from the
+ * DefaultConnectionSettings blob whenever WinINet refreshes, so Sash can
+ * observe but never manage it; ownership comparisons ignore it.
+ */
+function normalizeForEquivalence(snapshot: SystemProxySnapshot): SystemProxySnapshot {
+  return snapshot.platform === "win32" ? { ...snapshot, autoDetect: null } : snapshot;
+}
+
 export function snapshotsEquivalent(a: SystemProxySnapshot, b: SystemProxySnapshot): boolean {
   try {
     return (
-      JSON.stringify(parseSystemProxySnapshot(a)) === JSON.stringify(parseSystemProxySnapshot(b))
+      JSON.stringify(normalizeForEquivalence(parseSystemProxySnapshot(a))) ===
+      JSON.stringify(normalizeForEquivalence(parseSystemProxySnapshot(b)))
     );
   } catch {
     return false;
@@ -339,11 +349,6 @@ export function snapshotsCompatible(
             parsedCurrent.autoConfigUrl,
             parsedOriginal.autoConfigUrl,
             parsedTarget.autoConfigUrl,
-          ) &&
-          leafIsCompatible(
-            parsedCurrent.autoDetect,
-            parsedOriginal.autoDetect,
-            parsedTarget.autoDetect,
           )
         );
       case "darwin":
