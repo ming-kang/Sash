@@ -1,7 +1,7 @@
 <template>
   <div class="empty-state" role="status">
     <span class="empty-icon" aria-hidden="true">
-      <Icon :name="icon" :size="28" :stroke-width="1.7" />
+      <Icon :name="icon" :size="28" />
     </span>
     <p class="empty-title">{{ title }}</p>
     <p v-if="hint" class="empty-hint">{{ hint }}</p>

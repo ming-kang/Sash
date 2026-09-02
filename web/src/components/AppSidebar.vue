@@ -21,11 +21,11 @@
       <div class="mobile-tools">
         <div class="mobile-speeds" aria-live="off">
           <span class="speed-item down" :title="t('overview.download')">
-            <Icon name="arrow-down" :size="11" :stroke-width="2.5" />
+            <Icon name="arrow-down" :size="11" />
             <span class="mono">{{ formatSpeed(store.traffic.down) }}</span>
           </span>
           <span class="speed-item up" :title="t('overview.upload')">
-            <Icon name="arrow-up" :size="11" :stroke-width="2.5" />
+            <Icon name="arrow-up" :size="11" />
             <span class="mono">{{ formatSpeed(store.traffic.up) }}</span>
           </span>
         </div>
@@ -61,11 +61,11 @@
     <div class="side-foot">
       <div class="speed-stack" aria-live="off">
         <span class="speed-item down" :title="t('overview.download')">
-          <Icon name="arrow-down" :size="12" :stroke-width="2.5" />
+          <Icon name="arrow-down" :size="12" />
           <span class="mono">{{ formatSpeed(store.traffic.down) }}</span>
         </span>
         <span class="speed-item up" :title="t('overview.upload')">
-          <Icon name="arrow-up" :size="12" :stroke-width="2.5" />
+          <Icon name="arrow-up" :size="12" />
           <span class="mono">{{ formatSpeed(store.traffic.up) }}</span>
         </span>
       </div>

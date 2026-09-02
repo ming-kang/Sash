@@ -4,7 +4,7 @@
       <TransitionGroup name="toast">
         <div v-for="item in store.toasts" :key="item.id" class="toast" :class="`toast-${item.kind}`">
           <span class="toast-icon">
-            <Icon :name="iconFor(item.kind)" :size="14" :stroke-width="2.2" />
+            <Icon :name="iconFor(item.kind)" :size="14" />
           </span>
           <span class="toast-text">{{ item.text }}</span>
           <button
