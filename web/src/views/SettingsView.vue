@@ -398,15 +398,13 @@ async function reloadConfig(): Promise<void> {
 <style scoped>
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: stretch;
-  gap: 16px;
+  width: min(900px, 100%);
+  grid-template-columns: 1fr;
+  gap: 18px;
+  margin: 0 auto;
 }
 .settings-card {
   min-width: 0;
-}
-.runtime-card {
-  grid-column: 1 / -1;
 }
 .preference-control {
   display: grid;
@@ -414,48 +412,50 @@ async function reloadConfig(): Promise<void> {
   width: 100%;
 }
 .preference-control .segmented-item {
-  min-height: 34px;
+  min-height: 35px;
 }
 
 .setting-row {
   display: flex;
+  min-height: 52px;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  min-height: 68px;
-  padding: 13px 10px;
+  gap: 24px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+  transition: background var(--motion-fast) var(--ease-standard);
 }
 .setting-row:first-child {
   margin-top: -2px;
 }
 .setting-row:last-child {
-  border-bottom: none;
+  border-bottom: 0;
 }
-.interrupt-row,
-.caution-row {
-  background: var(--warning-soft);
-  box-shadow: inset 3px 0 0 var(--warning);
+.setting-row:hover {
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
-.danger-row {
-  background: var(--danger-soft);
-  box-shadow: inset 3px 0 0 var(--danger);
+.caution-row .setting-name {
+  color: var(--warning);
+}
+.danger-row .setting-name {
+  color: var(--danger);
 }
 .setting-info {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
   min-width: 0;
+  flex-direction: column;
+  gap: 2px;
 }
 .setting-name {
   color: var(--text-primary);
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .setting-desc {
+  max-width: 630px;
   color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 .setting-action {
   display: flex;
@@ -470,60 +470,54 @@ async function reloadConfig(): Promise<void> {
 }
 .interrupt-save {
   color: var(--warning);
-  background: var(--warning-soft);
-  border-color: var(--warning);
+  background: transparent;
+  border-color: var(--warning-border);
 }
 .danger-action {
   color: var(--danger);
-  background: var(--danger-soft);
-  border-color: var(--danger);
+  background: transparent;
+  border-color: var(--danger-border);
 }
-.interrupt-save:hover:not(:disabled),
+.interrupt-save:hover:not(:disabled) {
+  background: var(--warning-soft);
+}
 .danger-action:hover:not(:disabled) {
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  background: var(--danger-soft);
 }
 
 .info-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px 24px;
+  grid-template-columns: 1fr;
 }
 .info-item {
   display: flex;
+  min-width: 0;
+  min-height: 45px;
   align-items: center;
   justify-content: space-between;
-  min-width: 0;
   gap: 12px;
-  padding: 10px 12px;
-  background: var(--bg-inset);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.info-item:last-child {
+  border-bottom: 0;
 }
 .info-item dt {
   flex-shrink: 0;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 12.5px;
 }
 .info-item dd {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 @media (max-width: 760px) {
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
-  .runtime-card {
-    grid-column: auto;
-  }
-  .info-grid {
-    grid-template-columns: 1fr;
-  }
   .preference-control .segmented-item,
   .setting-action .btn {
     min-height: 40px;
@@ -541,10 +535,11 @@ async function reloadConfig(): Promise<void> {
     min-height: 44px;
   }
   .setting-row {
-    flex-direction: column;
+    min-height: 0;
     align-items: stretch;
-    gap: 12px;
-    padding: 14px 10px;
+    flex-direction: column;
+    gap: 11px;
+    padding: 13px 8px;
   }
   .setting-action {
     align-self: stretch;
@@ -563,9 +558,11 @@ async function reloadConfig(): Promise<void> {
     min-height: 44px;
   }
   .info-item {
+    min-height: 0;
     align-items: flex-start;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
+    padding: 10px 8px;
   }
   .info-item dd {
     width: 100%;

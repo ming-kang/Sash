@@ -100,16 +100,20 @@ onUnmounted(() => {
 <style scoped>
 .app-shell {
   display: flex;
-  min-height: 100vh;
-  min-height: 100dvh;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--bg-app);
 }
 
 .app-main {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex: 1;
   flex-direction: column;
+  background: var(--bg-app);
 }
 
 .runtime-banner {
@@ -117,13 +121,14 @@ onUnmounted(() => {
   top: 0;
   z-index: 15;
   display: flex;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   gap: 7px;
-  padding: 7px 18px;
+  padding: 6px 18px;
   background: var(--danger-soft);
-  border-bottom: 1px solid var(--danger);
+  border-bottom: 1px solid var(--danger-border);
   color: var(--danger);
   font-size: 12px;
   font-weight: 600;
@@ -138,21 +143,31 @@ onUnmounted(() => {
 
 .page-container {
   width: 100%;
-  max-width: 1440px;
+  min-height: 0;
   flex: 1;
-  margin: 0 auto;
-  padding: 30px clamp(24px, 3vw, 48px) 56px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 clamp(24px, 3.4vw, 52px) 48px;
 }
 
 @media (max-width: 899px) {
   .app-shell {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
     flex-direction: column;
   }
+  .app-main {
+    min-height: calc(100dvh - 58px);
+    overflow: visible;
+  }
   .runtime-banner {
-    top: 60px;
+    top: 58px;
   }
   .page-container {
-    padding: 20px 16px calc(82px + env(safe-area-inset-bottom));
+    overflow: visible;
+    padding: 0 16px calc(78px + env(safe-area-inset-bottom));
   }
 }
 

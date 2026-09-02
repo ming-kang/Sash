@@ -131,9 +131,9 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 9px 12px;
   border-top: 1px solid var(--border);
-  background: var(--bg-card);
+  background: var(--bg-panel);
 }
 .pagination-summary {
   color: var(--text-muted);
@@ -175,9 +175,9 @@ watch(
   .data-table tbody tr {
     padding: 10px 12px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--bg-card);
-    box-shadow: var(--shadow-card);
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+    box-shadow: none;
   }
   .data-table td {
     display: grid;

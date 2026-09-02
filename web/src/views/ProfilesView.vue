@@ -2,8 +2,7 @@
   <div>
     <PageHeader :title="t('page.profiles.title')" :desc="t('page.profiles.desc')" />
 
-    <!-- download / import control panel -->
-    <div class="dl-panel card" :aria-busy="downloading || updatingAll || importing || profileBusy">
+    <div class="dl-panel" :aria-busy="downloading || updatingAll || importing || profileBusy">
       <div class="dl-input-wrap">
         <input
           v-model="dlUrl"
@@ -65,7 +64,7 @@
       />
     </div>
 
-    <div v-if="profiles.length === 0" class="card">
+    <div v-if="profiles.length === 0" class="empty-panel">
       <EmptyState
         icon="layers"
         :title="t('profiles.emptyTitle')"
@@ -93,7 +92,7 @@
         >
           <div class="profile-name-row">
             <span class="profile-name" :title="p.name">{{ p.name }}</span>
-            <span v-if="p.id === store.activeProfileId" class="badge badge-accent">
+            <span v-if="p.id === store.activeProfileId" class="active-label">
               {{ t('profiles.active') }}
             </span>
           </div>
@@ -185,7 +184,6 @@ const profiles = computed(() => store.profiles);
 const hasRemote = computed(() => store.profiles.some((p) => p.url !== ""));
 const profileBusy = computed(() => store.operations.profileMutation);
 
-/* ---------- display helpers ---------- */
 function sourceLabel(p: ProfileMeta): string {
   if (!p.url) return t("profiles.localFile");
   try {
@@ -215,7 +213,6 @@ onMounted(() => {
   void refreshProfiles().catch(() => {});
 });
 
-/* ---------- actions ---------- */
 async function download(): Promise<void> {
   const url = dlUrl.value.trim();
   if (!url || downloading.value) return;
@@ -224,7 +221,9 @@ async function download(): Promise<void> {
     const res = await addProfile(url);
     dlUrl.value = "";
     if (res.activated) {
-      toast.success(t("toast.profileActivated", { name: res.profile.name, n: res.proxyCount ?? 0 }));
+      toast.success(
+        t("toast.profileActivated", { name: res.profile.name, n: res.proxyCount ?? 0 }),
+      );
     } else {
       toast.success(t("toast.profileAdded", { name: res.profile.name }));
     }
@@ -256,9 +255,7 @@ async function updateAll(): Promise<void> {
     if (res.failed.length === 0) {
       toast.success(t("toast.profilesUpdateAllOk", { n: res.updated }));
     } else {
-      toast.error(
-        t("toast.profilesUpdateAllPartial", { n: res.updated, f: res.failed.length }),
-      );
+      toast.error(t("toast.profilesUpdateAllPartial", { n: res.updated, f: res.failed.length }));
     }
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -328,11 +325,14 @@ async function pasteFromClipboard(): Promise<void> {
 <style scoped>
 .dl-panel {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) auto;
+  grid-template-columns: minmax(260px, 1fr) auto;
   align-items: center;
   gap: 10px;
+  margin-bottom: 22px;
   padding: 12px;
-  margin-bottom: 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 .dl-input-wrap {
   position: relative;
@@ -343,13 +343,13 @@ async function pasteFromClipboard(): Promise<void> {
   min-height: 38px;
   padding-right: 42px;
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 .dl-paste {
   position: absolute;
   top: 50%;
   right: 4px;
-  width: 32px;
+  width: 31px;
   height: 30px;
   transform: translateY(-50%);
 }
@@ -365,50 +365,53 @@ async function pasteFromClipboard(): Promise<void> {
 .hidden-file {
   display: none;
 }
+.empty-panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
 
 .profiles-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 12px 16px;
 }
 .profile-card {
   position: relative;
   display: flex;
+  min-width: 0;
+  min-height: 112px;
   align-items: flex-start;
   gap: 10px;
-  min-width: 0;
-  padding: 16px 12px 16px 18px;
+  padding: 15px 11px 15px 18px;
   overflow: hidden;
   cursor: pointer;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
+  background: var(--bg-panel);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   transition:
-    transform 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
 }
 .profile-card::before {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
+  inset: 5px auto 5px 0;
+  width: 5px;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
   content: "";
-  background: transparent;
-  transition: background 0.15s ease;
+  background: var(--border-strong);
 }
 .profile-card:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-pop);
-  transform: translateY(-1px);
+  background: var(--bg-hover);
+  border-color: var(--border);
 }
 .profile-card.active {
   cursor: default;
-  border-color: var(--border-accent);
-  box-shadow: var(--shadow-card), 0 0 0 3px var(--accent-ring);
+  background: var(--selection-soft);
+  border-color: var(--selection-border);
 }
 .profile-card.active::before {
-  background: var(--accent);
+  background: var(--selection);
 }
 .profile-card.busy {
   cursor: wait;
@@ -431,16 +434,22 @@ async function pasteFromClipboard(): Promise<void> {
 .profile-name {
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 14.5px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.active-label {
+  flex-shrink: 0;
+  color: var(--selection);
+  font-size: 10px;
+  font-weight: 650;
 }
 .profile-source {
   margin-top: 4px;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -452,24 +461,23 @@ async function pasteFromClipboard(): Promise<void> {
   justify-content: space-between;
   gap: 10px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 .usage-expire {
   color: var(--text-muted);
 }
 .usage-bar {
-  height: 6px;
+  height: 4px;
   margin-top: 6px;
   overflow: hidden;
-  background: var(--bg-inset);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  background: var(--border);
+  border-radius: var(--radius-full);
 }
 .usage-fill {
   height: 100%;
-  background: var(--accent);
-  border-radius: 999px;
-  transition: width 0.2s ease;
+  background: var(--selection);
+  border-radius: var(--radius-full);
+  transition: width var(--motion-normal) var(--ease-standard);
 }
 .usage-fill-hot {
   background: var(--danger);
@@ -479,13 +487,9 @@ async function pasteFromClipboard(): Promise<void> {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 6px 8px;
   margin-top: 10px;
   color: var(--danger);
-  font-size: 11.5px;
-  background: var(--danger-soft);
-  border: 1px solid var(--danger);
-  border-radius: var(--radius-sm);
+  font-size: 11px;
 }
 .profile-error-text {
   overflow: hidden;
@@ -494,13 +498,12 @@ async function pasteFromClipboard(): Promise<void> {
 }
 .profile-actions {
   display: flex;
-  flex-direction: column;
   flex-shrink: 0;
-  gap: 5px;
+  gap: 3px;
 }
 .profile-actions .icon-btn {
-  width: 34px;
-  height: 34px;
+  width: 31px;
+  height: 31px;
 }
 .danger-hover:hover:not(:disabled) {
   color: var(--danger);
@@ -510,7 +513,7 @@ async function pasteFromClipboard(): Promise<void> {
   animation: rotate 0.9s linear infinite;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   .dl-panel {
     grid-template-columns: 1fr;
   }
@@ -521,11 +524,11 @@ async function pasteFromClipboard(): Promise<void> {
   .dl-actions .btn {
     min-width: 0;
   }
+}
+
+@media (max-width: 760px) {
   .profiles-grid {
     grid-template-columns: 1fr;
-  }
-  .profile-card {
-    min-height: 112px;
   }
   .profile-actions .icon-btn {
     width: 40px;
@@ -560,9 +563,12 @@ async function pasteFromClipboard(): Promise<void> {
     flex-direction: column;
     gap: 2px;
   }
+  .profile-actions {
+    flex-direction: column;
+  }
   .profile-actions .icon-btn {
-    width: 44px;
-    height: 44px;
+    width: 42px;
+    height: 42px;
   }
 }
 </style>

@@ -153,31 +153,34 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: var(--bg-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
+  background: var(--bg-scrim);
 }
 .dialog {
-  width: min(400px, 100%);
-  padding: 20px;
+  width: min(420px, 100%);
+  padding: 20px 22px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-pop);
 }
 .dialog-title {
-  font-size: 14.5px;
-  font-weight: 650;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 550;
 }
 .dialog-msg {
-  margin-top: 8px;
-  font-size: 13px;
+  margin-top: 9px;
   color: var(--text-secondary);
-  line-height: 1.55;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 .dialog-actions {
-  margin-top: 18px;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  margin-top: 21px;
 }
 </style>
