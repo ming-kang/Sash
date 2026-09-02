@@ -4,6 +4,7 @@ import type { PreparedActiveConfig, ProfileService } from "./profile-service.js"
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { applyManagedKey, requiresCoreRestart, type SashSettings } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
+import { tunPrivilegeGuidance } from "./tun-guidance.js";
 
 export class SettingsInputError extends Error {}
 
@@ -142,8 +143,8 @@ export class SettingsService {
             if (key === "tun" && candidate.tun && result.tunActive !== true) {
               throw new Error(
                 result.tunActive === false
-                  ? "TUN did not become active; Administrator/root privileges are usually required"
-                  : "TUN activation could not be verified through the Core controller",
+                  ? `TUN did not become active. ${tunPrivilegeGuidance("activation-rolled-back", { root: this.options.layout.root })}`
+                  : `TUN activation could not be verified through the Core controller. ${tunPrivilegeGuidance("activation-rolled-back", { root: this.options.layout.root })}`,
               );
             }
           },

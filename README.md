@@ -12,7 +12,7 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 - **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
 - **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles (`sash sub`)
 - **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)
-- **TUN mode** — device-level traffic takeover (requires elevated privileges)
+- **TUN mode** — device-level traffic takeover (requires starting the whole Sash runtime with elevated privileges)
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
 
 ## Requirements

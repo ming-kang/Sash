@@ -93,6 +93,7 @@ describe("lifecycle commands", () => {
 
     assert.equal(startCalls, 1);
     assert.match(warnings.join("\n"), /TUN was requested but is inactive/);
+    assert.match(warnings.join("\n"), /sash restart.*alone does not elevate sashd/);
   });
 
   it("rejects stop when daemon shutdown cannot be verified", async () => {

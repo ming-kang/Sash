@@ -107,14 +107,34 @@ Settings changes are prepared as an all-or-nothing candidate: active configurati
 
 ## 4. TUN Mode
 
+TUN requires the whole Sash daemon to be started with elevated privileges. First stop the current daemon and save the setting while Sash is offline:
+
 ```sh
+sash stop
 sash config set tun on
-sash restart
+sash config show  # note the printed data root
 ```
 
-TUN mode normally requires Administrator/root privileges. Sash distinguishes the desired setting from the Core's actual runtime state: `sash status` reports `on (active)`, `on (inactive)` or `on (unverified)`, and `sash status --json` retains `tun` as the desired boolean while adding `tunActive` (`true`, `false` or `null`).
+On Windows, open PowerShell as Administrator and use that same data root:
 
-When a running Core is switched from TUN off to on, Sash reads back `tun.enable` from the Core before committing the setting. If the Core remains inactive or cannot be verified, the settings/config transaction and prior runtime are restored. A TUN setting saved while the Core is stopped can only be verified on the next start; startup leaves the ordinary proxy Core available and reports any inactive or unverified TUN state explicitly.
+```powershell
+$env:SASH_HOME = '<data root printed above>'
+sash start
+```
+
+On macOS or Linux, start Sash as root while preserving the same data root and Sash executable:
+
+```sh
+sudo env SASH_HOME='<data root printed above>' "$(command -v sash)" start
+```
+
+While that elevated daemon is running on macOS or Linux, use the same `sudo` and `SASH_HOME` prefix for later lifecycle commands such as `status` or `stop`, so they target the same runtime and can read its protected state.
+
+If TUN was already saved as on, omit `sash config set tun on`. Running `sash restart` alone against an existing unprivileged daemon only restarts its Core child and does not elevate `sashd`; stop the daemon and start the whole Sash runtime from the elevated shell instead.
+
+Sash distinguishes the desired setting from the Core's actual runtime state: `sash status` reports `on (active)`, `on (inactive)` or `on (unverified)`, and `sash status --json` retains `tun` as the desired boolean while adding `tunActive` (`true`, `false` or `null`).
+
+When a running Core is switched from TUN off to on, Sash reads back `tun.enable` from the Core before committing the setting. If the Core remains inactive or cannot be verified, the settings/config transaction and prior runtime are restored. An inactive result includes the platform-appropriate full-daemon restart instructions above. A TUN setting saved while the Core is stopped can only be verified on the next start; startup leaves the ordinary proxy Core available and reports any inactive or unverified TUN state explicitly. If an elevated start still leaves TUN inactive, inspect the Core error log.
 
 Do not enable TUN in automated smoke tests.
 

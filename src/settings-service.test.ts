@@ -215,7 +215,10 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await assert.rejects(() => service.update("tun", "on"), /TUN did not become active/);
+    await assert.rejects(
+      () => service.update("tun", "on"),
+      /TUN did not become active.*sash stop.*sash config set tun on/s,
+    );
 
     assert.equal(restartCalls, 2);
     assert.equal(runtime.tun, false);

@@ -165,15 +165,17 @@ export const en: Messages = {
     allowLanTitle: "Allow LAN Connections",
     allowLanDesc: "Accept proxy requests from other devices on the LAN",
     tunTitle: "TUN Mode (Virtual NIC)",
-    tunDesc: "Transparently routes all system traffic; requires Administrator / root",
+    tunDesc:
+      "Transparently routes all system traffic; Sash must be started as Administrator / root",
     tunStateActive: "Active",
     tunStateInactive: "Inactive",
     tunStateUnverified: "Unverified",
     tunStateStopped: "Pending start",
     tunStateUnexpected: "State mismatch",
     tunInactiveDesc:
-      "The Core is running, but TUN is inactive; check privileges and Core error logs",
-    tunUnverifiedDesc: "TUN is configured, but its actual Core runtime state could not be verified",
+      "The Core is running without TUN. Run sash stop, then run sash start from an Administrator / root shell; sash restart is not enough. If Sash was already elevated, inspect the Core error log",
+    tunUnverifiedDesc:
+      "TUN is configured, but its runtime state could not be verified. Run sash stop, then run sash start from an Administrator / root shell; if Sash was already elevated, inspect the Core error log",
     tunUnexpectedDesc: "The Core reports TUN active while the Sash setting is off",
     coreTitle: "Core Control",
     restartTitle: "Restart Core Process",

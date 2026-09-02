@@ -6,6 +6,7 @@ import { withStateLock } from "../state-lock.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { disableLegacySystemProxyIfOwned } from "../sysproxy.js";
 import { SystemProxyManager } from "../system-proxy-manager.js";
+import { tunPrivilegeGuidance } from "../tun-guidance.js";
 import { ensureCore, type RuntimeContext, runOfflineMutation, runtimeContext } from "./shared.js";
 
 function withRuntimeOperation<T>(
@@ -103,10 +104,12 @@ function reportTunState(ctx: RuntimeContext, result: CoreStartResult): void {
     log.ok("TUN active");
   } else if (result.tunActive === false) {
     log.warn(
-      "TUN was requested but is inactive; the core remains available without TUN. Administrator/root privileges are usually required.",
+      `TUN was requested but is inactive; the core remains available without TUN. ${tunPrivilegeGuidance("runtime-inactive", { root: ctx.layout.root })}`,
     );
   } else {
-    log.warn("TUN was requested, but its runtime state could not be verified.");
+    log.warn(
+      `TUN was requested, but its runtime state could not be verified. ${tunPrivilegeGuidance("runtime-inactive", { root: ctx.layout.root })}`,
+    );
   }
 }
 

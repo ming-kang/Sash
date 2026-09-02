@@ -545,7 +545,10 @@ describe("daemon server", () => {
       });
 
       assert.equal(res.statusCode, 500);
-      assert.match((res.data as { error: string }).error, /TUN did not become active/);
+      assert.match(
+        (res.data as { error: string }).error,
+        /TUN did not become active.*sash stop.*sash config set tun on/s,
+      );
       assert.equal(restartCalls, 2);
       const raw = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as { tun: boolean };
       assert.equal(raw.tun, false);

@@ -4,6 +4,7 @@ import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { ProfileService } from "../profile-service.js";
 import { SystemProxyManager } from "../system-proxy-manager.js";
+import { tunPrivilegeGuidance } from "../tun-guidance.js";
 import { uiInstalled } from "../webui.js";
 import { runtimeContext } from "./shared.js";
 
@@ -124,4 +125,7 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
         : "off",
   );
   log.kv("core version", installedCoreVersion || "(not installed)");
+  if (ctx.settings.tun && (!coreRunning || tunActive !== true)) {
+    log.warn(tunPrivilegeGuidance("runtime-inactive", { root: ctx.layout.root }));
+  }
 }
