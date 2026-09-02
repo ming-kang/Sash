@@ -11,7 +11,7 @@ The WebUI is a Vue 3 application built with Vite and bundled into `dist/ui/`. sa
 - `npm test` runs server type checking, WebUI type checking, backend tests and WebUI TypeScript tests.
 - Biome checks WebUI TypeScript and Vite configuration. Vue templates are type-checked by `vue-tsc` and compiled by Vite.
 - Vite 6 builds the bundled dashboard on the declared Node.js 24 baseline.
-- CI runs lint, server/WebUI type checks, all tests, production builds and package dry-runs on Windows, macOS and Linux with Node.js 24.
+- CI runs lint, server/WebUI type checks, all tests, production builds and actual tarball pack/install/CLI/UI smoke on Windows, macOS and Linux with Node.js 24.
 
 ---
 
@@ -53,7 +53,7 @@ Daemon/profile contracts live in `src/contracts.ts` and are imported as types by
 
 ## 3. Runtime State Ownership
 
-`web/src/stores/index.ts` owns status, profiles, proxy groups, rules, connections, traffic history, manual delay results, logs, operation flags and toasts. Pure ownership/generation helpers live in `web/src/stores/state-ownership.ts` and are covered by browser-free `node:test` tests.
+`web/src/stores/index.ts` owns status, profiles, proxy groups, rules, connections, traffic history, manual delay results, logs, operation flags and toasts. Pure ownership/generation helpers live in `web/src/stores/state-ownership.ts` and are covered by browser-free `node:test` tests. A pinned `happy-dom` dev dependency supplies the minimal DOM behavior harness for mounting a real Vue `createApp` render path and asserting reactive notice transitions; no second test runner or coverage-only gate is introduced.
 
 Canonical actions include:
 

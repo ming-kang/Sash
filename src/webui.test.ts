@@ -7,12 +7,22 @@ import { sashLayout } from "./paths.js";
 import { resolveUiDir, uiInstalled } from "./webui.js";
 
 describe("webui resolution", () => {
-  it("resolves built-in UI directory if dist/ui exists", () => {
-    const dir = resolveUiDir();
-    // In build/test environment dist/ui should be found
-    if (dir) {
-      assert.equal(fs.existsSync(path.join(dir, "index.html")), true);
-      assert.equal(uiInstalled(), true);
+  it("resolves a non-empty built-in production UI without relying on workspace dist", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sash-bundled-ui-test-"));
+    const layout = sashLayout(path.join(tempRoot, "data"));
+    const runtimeDir = path.join(tempRoot, "package", "dist");
+    const builtInUi = path.join(runtimeDir, "ui");
+    try {
+      fs.mkdirSync(path.join(builtInUi, "assets"), { recursive: true });
+      fs.writeFileSync(path.join(builtInUi, "index.html"), "<html>built in</html>");
+      fs.writeFileSync(path.join(builtInUi, "assets", "app.js"), "console.log('built in')");
+
+      assert.equal(resolveUiDir(layout, runtimeDir), builtInUi);
+      assert.equal(uiInstalled(layout, runtimeDir), true);
+      assert.ok(fs.statSync(path.join(builtInUi, "index.html")).size > 0);
+      assert.ok(fs.statSync(path.join(builtInUi, "assets", "app.js")).size > 0);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 

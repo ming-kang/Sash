@@ -237,7 +237,7 @@
 
 完成记录：虚构的 `[0.1.0]` release 已移回 `[Unreleased]` 并清除过时发布叙述；README 明确 npm 尚未发布，只提供现有 checkout 的 `npm ci`/build/link 流程。开发包设为 `private: true`，首次正式发布必须另行明确移除。README attribution 现在链接上游 Meta branch、releases 与 v1.19.30 GPL-3.0 tag license，不再错误声明 MIT；npm 包继续不包含 Core。新增 `THIRD_PARTY_NOTICES.md`，完整包含 Vue MIT notice、指向随包分发的 Remix Icon License v1.0 全文，并记录 runtime-downloaded Core 的 release-specific attribution；package files 明确包含 notice。metadata/Changelog 检查、pack dry-run（71 files，LICENSE/notice/Remix license 均存在）与 362 项测试（361 通过、1 项既有 Windows skip）通过；未执行 publish/tag/push。
 
-### 17. 在 CI 验证打包产物 — 待办
+### 17. 在 CI 验证打包产物 — 已完成
 
 目标：CI 验证用户实际安装的 tarball，而不是只验证源码树和 dry-run。
 
@@ -250,6 +250,8 @@
 - 评估并引入最小 Vue 行为测试栈；不以覆盖率数字替代行为测试。
 
 验收：三平台 CI、生产依赖 audit、完整测试、build 和真实 tarball smoke 全部通过。
+
+完成记录：`webui.test.ts` 改为自建 non-empty production UI fixture，clean test 不再可能零断言通过。新增 `scripts/package-smoke.mjs`：先验证 build tree，再实际 pack，按 allowlist/denylist 断言 UI/docs/notices 存在且 source/tests/node_modules/user data/secrets/upstream binary/archive 不存在，随后用临时 prefix 安装 tarball，核对安装文件集，解析 installed UI，并通过本地 bin shim 运行 `sash --version`/`--help`。CI 三平台 matrix 与 `prepublishOnly` 均接入该 smoke；test runner 强制 loopback `NO_PROXY`，避免 fixture 误入开发者代理/真实实例。Windows force escalation 测试改用不可绕过 verify 的 signal/liveness 注入，363 项测试现为 363 passed、0 skipped。评估后仅新增 pinned `happy-dom` dev dependency，直接使用 Vue `createApp` + node:test 验证 reactive notice DOM 转换，不引入第二 test runner 或以 coverage 代替行为断言。Windows 本机的 tracked/new-file Biome、typecheck、production build、production audit（0 vulnerabilities）、完整测试和真实 71-file tarball install/CLI/UI smoke 全部通过；远端三平台 workflow 因禁止 push 未触发，但三个 matrix runner 已使用同一 gate。
 
 ## 最终完成条件
 

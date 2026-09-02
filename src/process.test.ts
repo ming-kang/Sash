@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -58,35 +56,23 @@ describe("process utilities", () => {
       assert.equal(isProcessAlive(process.pid), true);
     });
 
-    it("revalidates identity before escalating to a force signal", {
-      skip: process.platform === "win32",
-    }, async () => {
-      const child = spawn(
-        process.execPath,
-        [
-          "-e",
-          'process.on("SIGTERM", () => {}); process.send?.("ready"); setInterval(() => {}, 1000)',
-        ],
-        { stdio: ["ignore", "ignore", "ignore", "ipc"] },
-      );
-      await once(child, "message");
-      const pid = child.pid;
-      assert.ok(pid);
+    it("revalidates identity before escalating to a force signal", async () => {
       let identityChecks = 0;
+      const signals: boolean[] = [];
+      const stopped = await killProcessGracefully(1234, {
+        timeoutMs: 2,
+        verify: () => (++identityChecks === 1 ? "match" : "mismatch"),
+        isAliveFn: () => true,
+        signalFn: async (_pid, force) => {
+          signals.push(force);
+          return true;
+        },
+        sleepFn: async () => undefined,
+      });
 
-      try {
-        const stopped = await killProcessGracefully(pid, {
-          timeoutMs: 500,
-          verify: () => (++identityChecks === 1 ? "match" : "mismatch"),
-        });
-
-        assert.equal(stopped, false);
-        assert.ok(identityChecks >= 2);
-        assert.equal(isProcessAlive(pid), true);
-      } finally {
-        child.kill("SIGKILL");
-        await once(child, "close");
-      }
+      assert.equal(stopped, false);
+      assert.ok(identityChecks >= 2);
+      assert.deepEqual(signals, [false]);
     });
   });
 

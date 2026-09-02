@@ -381,6 +381,12 @@ export interface KillProcessOptions {
   timeoutMs?: number;
   /** Revalidate ownership immediately before every termination signal. */
   verify: () => ProcessIdentity | Promise<ProcessIdentity>;
+  /** Test seam; production callers use the real liveness probe. */
+  isAliveFn?: (pid: number) => boolean;
+  /** Test seam; the boolean is true only for the force signal. */
+  signalFn?: (pid: number, force: boolean) => Promise<boolean>;
+  /** Test seam for bounded termination polling. */
+  sleepFn?: (ms: number) => Promise<void>;
 }
 
 async function processIdentityMatches(verify: KillProcessOptions["verify"]): Promise<boolean> {
@@ -391,63 +397,45 @@ async function processIdentityMatches(verify: KillProcessOptions["verify"]): Pro
   }
 }
 
+async function sendTerminationSignal(pid: number, force: boolean): Promise<boolean> {
+  if (process.platform === "win32") return runTaskkill(pid, force);
+  try {
+    process.kill(pid, force ? "SIGKILL" : "SIGTERM");
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ESRCH") return true;
+    throw err;
+  }
+}
+
 /** Terminate a process without ever signalling a PID whose ownership became uncertain. */
 export async function killProcessGracefully(
   pid: number,
   opts: KillProcessOptions,
 ): Promise<boolean> {
-  if (!isProcessAlive(pid)) return true;
+  const isAlive = opts.isAliveFn ?? isProcessAlive;
+  const signal = opts.signalFn ?? sendTerminationSignal;
+  const wait = opts.sleepFn ?? sleep;
+  if (!isAlive(pid)) return true;
   if (!(await processIdentityMatches(opts.verify))) return false;
 
   const totalTimeout = opts.timeoutMs ?? 10_000;
   const graceMs = Math.min(5000, Math.floor(totalTimeout / 2));
   const forceMs = Math.max(1000, totalTimeout - graceMs);
-
-  if (process.platform === "win32") {
-    const gracefulOk = await runTaskkill(pid, false);
-    if (gracefulOk) {
-      const deadline = Date.now() + graceMs;
-      while (Date.now() < deadline && isProcessAlive(pid)) {
-        await sleep(200);
-      }
-    }
-    if (isProcessAlive(pid)) {
-      if (!(await processIdentityMatches(opts.verify))) return false;
-      await runTaskkill(pid, true);
-      const hardDeadline = Date.now() + forceMs;
-      while (Date.now() < hardDeadline && isProcessAlive(pid)) {
-        await sleep(100);
-      }
-    }
-  } else {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "ESRCH") throw err;
-    }
-
+  const gracefulOk = await signal(pid, false);
+  if (gracefulOk) {
     const deadline = Date.now() + graceMs;
-    while (Date.now() < deadline && isProcessAlive(pid)) {
-      await sleep(200);
-    }
-
-    if (isProcessAlive(pid)) {
-      if (!(await processIdentityMatches(opts.verify))) return false;
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== "ESRCH") throw err;
-      }
-      const hardDeadline = Date.now() + forceMs;
-      while (Date.now() < hardDeadline && isProcessAlive(pid)) {
-        await sleep(100);
-      }
-    }
+    while (Date.now() < deadline && isAlive(pid)) await wait(200);
   }
 
-  return !isProcessAlive(pid);
+  if (isAlive(pid)) {
+    if (!(await processIdentityMatches(opts.verify))) return false;
+    await signal(pid, true);
+    const hardDeadline = Date.now() + forceMs;
+    while (Date.now() < hardDeadline && isAlive(pid)) await wait(100);
+  }
+
+  return !isAlive(pid);
 }
 
 export function readPidRecord(pidFile: string): PidRecord | undefined {

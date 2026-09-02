@@ -10,21 +10,23 @@ import { type SashLayout, sashLayout } from "./paths.js";
  * npm package. Sashd serves it directly at /ui/ with no download step.
  * Custom user dashboards in <root>/ui take precedence if present.
  */
-export function resolveUiDir(layout: SashLayout = sashLayout()): string | null {
+export function resolveUiDir(
+  layout: SashLayout = sashLayout(),
+  runtimeDir = path.dirname(fileURLToPath(import.meta.url)),
+): string | null {
   // 1. Optional user-customized override in <root>/ui
   if (fs.existsSync(path.join(layout.uiDir, "index.html"))) {
     return layout.uiDir;
   }
 
-  const here = path.dirname(fileURLToPath(import.meta.url));
   // 2. In production (dist/): dist/ui
-  const distUi = path.join(here, "ui");
+  const distUi = path.join(runtimeDir, "ui");
   if (fs.existsSync(path.join(distUi, "index.html"))) {
     return distUi;
   }
 
   // 3. In dev / test (src/): ../dist/ui
-  const devUi = path.join(path.dirname(here), "dist", "ui");
+  const devUi = path.join(path.dirname(runtimeDir), "dist", "ui");
   if (fs.existsSync(path.join(devUi, "index.html"))) {
     return devUi;
   }
@@ -32,6 +34,9 @@ export function resolveUiDir(layout: SashLayout = sashLayout()): string | null {
   return null;
 }
 
-export function uiInstalled(layout: SashLayout = sashLayout()): boolean {
-  return resolveUiDir(layout) !== null;
+export function uiInstalled(
+  layout: SashLayout = sashLayout(),
+  runtimeDir = path.dirname(fileURLToPath(import.meta.url)),
+): boolean {
+  return resolveUiDir(layout, runtimeDir) !== null;
 }

@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Profile daemon API: list/add/import/activate/update/update-all/delete endpoints and scheduled due-profile refresh.
 - Shared daemon/profile API contracts used by the server client and WebUI.
 - State-changing daemon requests now accept the persistent CLI bearer or a per-boot WebUI token, with loopback Host validation.
-- WebUI store and confirm-dialog regression tests are included in the normal test runner.
+- WebUI store/confirm regression tests and a minimal happy-dom Vue mount behavior harness are included in the normal Node test runner.
 - Exact generated configurations are validated by the installed Core in an isolated temporary file before profile/config state is committed.
 - One-time, crash-recoverable import of a qualifying pre-profile `config.yaml` into an active local profile, with conservative default-config detection and fail-closed validation.
 - Versioned `sash.json` runtime schema with strict field validation and explicit v0 migration.
@@ -30,7 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Durable Core update journal recording previous/target install records and prepared/swapped/health-verified phases, including deferred health validation for stopped runtimes.
 - Authenticated maintenance shutdown API returning an atomic Core-running snapshot for executable updates.
 - Durable system-proxy ownership journal that snapshots and conditionally restores prior manual/PAC state.
-- Windows/macOS/Linux and Node.js 24 CI matrix covering lint, tests, builds and package dry-runs.
+- Windows/macOS/Linux and Node.js 24 CI matrix covering lint, tests, builds and actual tarball pack/install/CLI/UI smoke.
 - Unified third-party notices for bundled Vue/Remix Icon assets and the separately downloaded runtime Core.
 
 ### Changed
@@ -68,6 +68,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Test subprocesses force loopback into `NO_PROXY`, preventing local HTTP fixtures from traversing a developer's configured proxy or live runtime.
+- Package verification now rejects empty/missing UI output and forbidden source/test/user/secret/binary paths, installs the actual tarball, exercises its bin shims and resolves its installed UI; Windows force-termination identity revalidation is covered through injected signals instead of being skipped.
 - `sash logs -f` now waits for delayed files, follows bounded appends across truncation and identity-changing rotation, and cleans up watchers/timers on SIGINT or SIGTERM; `-n` rejects non-canonical, fractional, prefixed and overflowing values.
 - CLI status now preserves unknown daemon/Core/proxy/TUN values as `null`, exposes a versioned JSON observation contract, uses exit code 2 for incomplete reads, avoids success output for unresponsive daemons and limits TUN privilege guidance to verified runtime states; proxy status separates desired, daemon-applied and OS-observed values.
 - WebUI now keeps daemon reachability, profile revisions and Core snapshot ownership independent: same-owner Core API failures preserve and mark stale data, new owners clear stale snapshots, stopped profile revisions still refresh, malformed stream frames are dropped and mixed-port drafts can be reverted/reset against committed settings.

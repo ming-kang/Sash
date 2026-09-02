@@ -27,8 +27,18 @@ if (selected.length === 0) {
   process.exit(1);
 }
 
+const noProxyEntries = [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1", "localhost", "::1"]
+  .filter(Boolean)
+  .flatMap((value) => value.split(","))
+  .map((value) => value.trim())
+  .filter(Boolean);
+const noProxy = [...new Set(noProxyEntries)].join(",");
+
 const result = spawnSync(process.execPath, ["--import", "tsx", "--test", ...selected], {
   stdio: "inherit",
+  // Local fixtures must never be sent through a developer's configured proxy
+  // (which may itself be a running Sash/Core instance).
+  env: { ...process.env, NO_PROXY: noProxy, no_proxy: noProxy },
 });
 
 if (result.error) throw result.error;
