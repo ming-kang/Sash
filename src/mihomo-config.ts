@@ -151,7 +151,8 @@ export const PROFILE_DOWNLOAD_SIZE_LIMIT = 8 * 1024 * 1024;
 const MAX_SUBSCRIPTION_REDIRECTS = 5;
 const PROFILE_FETCH_DEADLINE_MS = 30_000;
 
-function isRestrictedIpv4Prefix(a: number, b: number): boolean {
+function isRestrictedIpv4Address(parts: number[]): boolean {
+  const [a = 0, b = 0, c = 0] = parts;
   return (
     a === 0 ||
     a === 10 ||
@@ -159,11 +160,95 @@ function isRestrictedIpv4Prefix(a: number, b: number): boolean {
     (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && (b === 0 || b === 168)) ||
-    (a === 198 && (b === 18 || b === 19 || b === 51)) ||
-    (a === 203 && b === 0) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
     a >= 224
   );
+}
+
+function parseIpv6Bytes(host: string): Uint8Array | undefined {
+  const pieces = host.toLowerCase().split("::");
+  if (pieces.length > 2) return undefined;
+  const parseSide = (side: string): number[] | undefined => {
+    if (!side) return [];
+    const words: number[] = [];
+    for (const token of side.split(":")) {
+      if (token.includes(".")) {
+        const ipv4 = token.split(".").map(Number);
+        if (
+          ipv4.length !== 4 ||
+          ipv4.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+        ) {
+          return undefined;
+        }
+        words.push(((ipv4[0] ?? 0) << 8) | (ipv4[1] ?? 0));
+        words.push(((ipv4[2] ?? 0) << 8) | (ipv4[3] ?? 0));
+        continue;
+      }
+      if (!/^[0-9a-f]{1,4}$/.test(token)) return undefined;
+      words.push(Number.parseInt(token, 16));
+    }
+    return words;
+  };
+  const left = parseSide(pieces[0] ?? "");
+  const right = parseSide(pieces[1] ?? "");
+  if (!left || !right) return undefined;
+  const omitted = 8 - left.length - right.length;
+  if ((pieces.length === 1 && omitted !== 0) || (pieces.length === 2 && omitted < 1)) {
+    return undefined;
+  }
+  const words = [...left, ...Array.from({ length: omitted }, () => 0), ...right];
+  if (words.length !== 8) return undefined;
+  const bytes = new Uint8Array(16);
+  for (let index = 0; index < words.length; index++) {
+    const word = words[index] ?? 0;
+    bytes[index * 2] = word >> 8;
+    bytes[index * 2 + 1] = word & 0xff;
+  }
+  return bytes;
+}
+
+function isRestrictedIpv6Address(host: string): boolean {
+  const bytes = parseIpv6Bytes(host);
+  if (!bytes) return true;
+  const allZero = bytes.every((byte) => byte === 0);
+  const loopback = bytes.slice(0, 15).every((byte) => byte === 0) && bytes[15] === 1;
+  if (allZero || loopback) return true;
+
+  const compatiblePrefix = bytes.slice(0, 12).every((byte) => byte === 0);
+  const mappedPrefix =
+    bytes.slice(0, 10).every((byte) => byte === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
+  const translatedPrefix =
+    bytes.slice(0, 8).every((byte) => byte === 0) &&
+    bytes[8] === 0xff &&
+    bytes[9] === 0xff &&
+    bytes[10] === 0 &&
+    bytes[11] === 0;
+  const wellKnownNat64Prefix =
+    bytes[0] === 0 &&
+    bytes[1] === 0x64 &&
+    bytes[2] === 0xff &&
+    bytes[3] === 0x9b &&
+    bytes.slice(4, 12).every((byte) => byte === 0);
+  if (compatiblePrefix || mappedPrefix || translatedPrefix || wellKnownNat64Prefix) {
+    return isRestrictedIpv4Address(Array.from(bytes.slice(12)));
+  }
+  if (bytes[0] === 0x20 && bytes[1] === 0x02) {
+    return isRestrictedIpv4Address(Array.from(bytes.slice(2, 6))); // 6to4
+  }
+
+  if (((bytes[0] ?? 0) & 0xfe) === 0xfc) return true; // fc00::/7 ULA
+  if (bytes[0] === 0xfe && ((bytes[1] ?? 0) & 0xc0) >= 0x80) return true; // link/site local
+  if (bytes[0] === 0xff) return true; // multicast
+  if (bytes[0] === 0x01 && bytes.slice(1, 8).every((byte) => byte === 0)) return true; // discard
+  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) {
+    return true; // documentation
+  }
+  return false;
 }
 
 function isRestrictedSubscriptionHost(hostname: string): boolean {
@@ -173,17 +258,9 @@ function isRestrictedSubscriptionHost(hostname: string): boolean {
     .replace(/\.$/, "");
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   if (isIP(host) === 4) {
-    const parts = host.split(".");
-    return isRestrictedIpv4Prefix(Number(parts[0]), Number(parts[1]));
+    return isRestrictedIpv4Address(host.split(".").map(Number));
   }
-  if (isIP(host) === 6) {
-    const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
-    if (mapped?.[1] && mapped[2]) {
-      const high = Number.parseInt(mapped[1], 16);
-      return isRestrictedIpv4Prefix(high >> 8, high & 0xff);
-    }
-    return host === "::" || host === "::1" || /^(?:fc|fd|fe[89ab])/i.test(host);
-  }
+  if (isIP(host) === 6) return isRestrictedIpv6Address(host);
   return false;
 }
 

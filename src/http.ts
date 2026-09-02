@@ -246,8 +246,17 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
 
 export type DownloadProgress = (downloaded: number, total: number | undefined) => void;
 
+type UndiciResponseBody = Awaited<ReturnType<typeof request>>["body"];
+
+function abortResponseBody(body: UndiciResponseBody): void {
+  body.on("error", () => undefined);
+  body.destroy();
+}
+
 export interface DownloadOptions {
   stallMs?: number;
+  /** Absolute budget across redirects, headers, and the complete body. Default 15 minutes. */
+  deadlineMs?: number;
   maxBytes?: number;
   onProgress?: DownloadProgress;
   headers?: Record<string, string>;
@@ -276,81 +285,98 @@ function validateRedirectTarget(
 }
 
 /**
- * Download a URL to a file with stall detection. Throws on non-2xx or when no
- * bytes arrive for stallMs. Partial files are removed on failure.
+ * Download a URL to a file with stall and absolute-deadline detection. Throws
+ * on non-2xx, when no bytes arrive for stallMs, or when the total redirect/body
+ * budget expires. Partial files are removed on failure.
  */
 export async function downloadToFile(
   url: string,
   dest: string,
   opts: DownloadOptions,
 ): Promise<number> {
-  const stallMs = opts.stallMs ?? 60_000;
+  const stallMs = positiveTimeout(opts.stallMs, 60_000, "stallMs");
+  const deadlineMs = positiveTimeout(opts.deadlineMs, 15 * 60_000, "deadlineMs");
   const maxRedirects = 5;
-
-  let currentUrl = validateRedirectTarget(url, url, opts.allowedHosts, opts.requireHttps);
-  let res: Awaited<ReturnType<typeof request>>;
+  const deadline = new AbortController();
+  const deadlineTimer = setTimeout(() => {
+    deadline.abort(new Error(`Download deadline exceeded after ${deadlineMs}ms`));
+  }, deadlineMs);
   const dispatcher = pickDispatcher({ direct: false, manualRedirect: true });
-  let hops = 0;
-  for (;;) {
-    res = await request(currentUrl, {
-      method: "GET",
-      headers: { "user-agent": USER_AGENT, ...opts.headers },
-      headersTimeout: 30_000,
-      bodyTimeout: stallMs,
-      dispatcher,
-    });
-    const isRedirect =
-      res.statusCode >= 300 && res.statusCode < 400 && Boolean(res.headers.location);
-    if (!isRedirect) break;
-    const locationHeader = res.headers.location;
-    const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader;
-    await res.body.dump();
-    if (!location) throw new Error(`Redirect without Location header from ${currentUrl}`);
-    hops += 1;
-    if (hops > maxRedirects) {
-      throw new Error(`Too many redirects (>${maxRedirects}) downloading ${url}`);
-    }
-    currentUrl = validateRedirectTarget(location, currentUrl, opts.allowedHosts, opts.requireHttps);
-  }
-
-  if (res.statusCode < 200 || res.statusCode >= 300) {
-    await res.body.dump();
-    throw new Error(`HTTP ${res.statusCode} for ${currentUrl}`);
-  }
-  const totalHeader = res.headers["content-length"];
-  const parsedTotal =
-    typeof totalHeader === "string" ? Number.parseInt(totalHeader, 10) : Number.NaN;
-  const total = Number.isFinite(parsedTotal) && parsedTotal >= 0 ? parsedTotal : undefined;
-  const maxBytes = opts.maxBytes;
-  if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)) {
-    res.body.destroy();
-    throw new Error(`Invalid download size limit: ${maxBytes}`);
-  }
-  if (maxBytes !== undefined && total !== undefined && total > maxBytes) {
-    res.body.destroy();
-    throw new Error(`Download exceeds ${maxBytes} byte safety limit: ${currentUrl}`);
-  }
-
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  let downloaded = 0;
-  const limiter = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      downloaded += chunk.length;
-      if (maxBytes !== undefined && downloaded > maxBytes) {
-        callback(new Error(`Download exceeds ${maxBytes} byte safety limit: ${currentUrl}`));
-        return;
-      }
-      opts.onProgress?.(downloaded, total);
-      callback(null, chunk);
-    },
-  });
+  let outputStarted = false;
+  let res: Awaited<ReturnType<typeof request>> | undefined;
 
   try {
+    let currentUrl = validateRedirectTarget(url, url, opts.allowedHosts, opts.requireHttps);
+    let hops = 0;
+    for (;;) {
+      res = await request(currentUrl, {
+        method: "GET",
+        headers: { "user-agent": USER_AGENT, ...opts.headers },
+        headersTimeout: 30_000,
+        bodyTimeout: stallMs,
+        signal: deadline.signal,
+        dispatcher,
+      });
+      const isRedirect =
+        res.statusCode >= 300 && res.statusCode < 400 && Boolean(res.headers.location);
+      if (!isRedirect) break;
+      const locationHeader = res.headers.location;
+      const location = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader;
+      await res.body.dump();
+      if (!location) throw new Error(`Redirect without Location header from ${currentUrl}`);
+      hops += 1;
+      if (hops > maxRedirects) {
+        throw new Error(`Too many redirects (>${maxRedirects}) downloading ${url}`);
+      }
+      currentUrl = validateRedirectTarget(
+        location,
+        currentUrl,
+        opts.allowedHosts,
+        opts.requireHttps,
+      );
+    }
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      await res.body.dump();
+      throw new Error(`HTTP ${res.statusCode} for ${currentUrl}`);
+    }
+    const totalHeader = res.headers["content-length"];
+    const parsedTotal =
+      typeof totalHeader === "string" ? Number.parseInt(totalHeader, 10) : Number.NaN;
+    const total = Number.isFinite(parsedTotal) && parsedTotal >= 0 ? parsedTotal : undefined;
+    const maxBytes = opts.maxBytes;
+    if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)) {
+      abortResponseBody(res.body);
+      throw new Error(`Invalid download size limit: ${maxBytes}`);
+    }
+    if (maxBytes !== undefined && total !== undefined && total > maxBytes) {
+      abortResponseBody(res.body);
+      throw new Error(`Download exceeds ${maxBytes} byte safety limit: ${currentUrl}`);
+    }
+
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    let downloaded = 0;
+    const limiter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        downloaded += chunk.length;
+        if (maxBytes !== undefined && downloaded > maxBytes) {
+          callback(new Error(`Download exceeds ${maxBytes} byte safety limit: ${currentUrl}`));
+          return;
+        }
+        opts.onProgress?.(downloaded, total);
+        callback(null, chunk);
+      },
+    });
+
+    outputStarted = true;
     await pipeline(res.body, limiter, fs.createWriteStream(dest, { mode: 0o755 }));
     if (downloaded === 0) throw new Error(`Empty download from ${currentUrl}`);
     return downloaded;
   } catch (err) {
-    fs.rmSync(dest, { force: true });
+    if (res) abortResponseBody(res.body);
+    if (outputStarted) fs.rmSync(dest, { force: true });
     throw err;
+  } finally {
+    clearTimeout(deadlineTimer);
   }
 }

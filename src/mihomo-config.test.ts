@@ -84,10 +84,29 @@ describe("mihomo-config", () => {
         () => resolveSubscriptionRedirect(publicHttp, publicHttp, "http://127.0.0.1:9090/private"),
         /restricted host/,
       );
-      assert.throws(
-        () =>
-          resolveSubscriptionRedirect(publicHttp, publicHttp, "http://[::ffff:127.0.0.1]/private"),
-        /restricted host/,
+      for (const target of [
+        "http://[::ffff:127.0.0.1]/private",
+        "http://[::7f00:1]/private",
+        "http://[::ffff:0:7f00:1]/private",
+        "http://[64:ff9b::7f00:1]/private",
+        "http://[2002:7f00:1::]/private",
+        "http://[fc00::1]/private",
+        "http://[fe80::1]/private",
+        "http://[fec0::1]/private",
+        "http://[ff02::1]/private",
+        "http://[2001:db8::1]/private",
+      ]) {
+        assert.throws(
+          () => resolveSubscriptionRedirect(publicHttp, publicHttp, target),
+          /restricted host/,
+          target,
+        );
+      }
+      assert.doesNotThrow(() =>
+        resolveSubscriptionRedirect(publicHttp, publicHttp, "http://[2606:4700:4700::1111]/next"),
+      );
+      assert.doesNotThrow(() =>
+        resolveSubscriptionRedirect(publicHttp, publicHttp, "http://203.0.1.10/next"),
       );
       const loopback = new URL("http://127.0.0.1:9090/profile");
       assert.throws(

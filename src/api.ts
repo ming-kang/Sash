@@ -98,8 +98,8 @@ export class MihomoApi {
   }
 
   async reloadConfig(configPath: string): Promise<void> {
-    const body = JSON.stringify({ path: configPath, force: true });
-    const res = await this.request("/configs", {
+    const body = JSON.stringify({ path: configPath });
+    const res = await this.request("/configs?force=true", {
       method: "PUT",
       body,
       deadlineMs: 5_000,

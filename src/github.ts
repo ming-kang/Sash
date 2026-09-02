@@ -171,6 +171,8 @@ export async function sha256File(file: string): Promise<string> {
 export interface DownloadOptions {
   repo: string;
   tag: string;
+  /** Absolute budget shared by all mirror attempts. Default 15 minutes. */
+  deadlineMs?: number;
   assets: ReleaseAsset[];
   candidates: string[];
   dest: string;
@@ -204,9 +206,19 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
 
   const directUrl = `https://github.com/${opts.repo}/releases/download/${opts.tag}/${chosen.name}`;
   const urls = mirrorize(directUrl);
+  const deadlineMs = opts.deadlineMs ?? 15 * 60_000;
+  if (!Number.isSafeInteger(deadlineMs) || deadlineMs <= 0) {
+    throw new Error("Core asset deadlineMs must be a positive safe integer");
+  }
+  const deadlineAt = Date.now() + deadlineMs;
 
   let lastError: Error | undefined;
   for (const url of urls) {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) {
+      lastError = new Error(`Core asset download deadline exceeded after ${deadlineMs}ms`);
+      break;
+    }
     try {
       await downloadToFile(url, opts.dest, {
         allowedHosts: GITHUB_DOWNLOAD_HOSTS,
@@ -214,6 +226,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
         requireHttps: true,
         onProgress: opts.onProgress,
         stallMs: 60_000,
+        deadlineMs: remainingMs,
       });
       const actualDigest = await sha256File(opts.dest);
       if (actualDigest !== expectedDigest) {

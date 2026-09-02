@@ -43,6 +43,11 @@ describe("downloadToFile redirect allowlist", () => {
         res.writeHead(200, { "transfer-encoding": "chunked" });
         res.write("12345");
         res.end("67890");
+      } else if (url === "/drip") {
+        res.writeHead(200, { "transfer-encoding": "chunked" });
+        res.write(".");
+        const interval = setInterval(() => res.write("."), 20);
+        req.on("close", () => clearInterval(interval));
       } else {
         res.writeHead(404);
         res.end();
@@ -148,6 +153,22 @@ describe("downloadToFile redirect allowlist", () => {
         }),
       /exceeds 5 byte safety limit/,
     );
+    assert.equal(fs.existsSync(dest), false);
+  });
+
+  it("aborts a continuously dripping download at its absolute deadline", async () => {
+    const dest = path.join(tmpDir, "drip.bin");
+    const started = Date.now();
+
+    await assert.rejects(() =>
+      downloadToFile(`${baseUrl}/drip`, dest, {
+        allowedHosts: new Set(["127.0.0.1"]),
+        stallMs: 1000,
+        deadlineMs: 120,
+      }),
+    );
+
+    assert.ok(Date.now() - started < 600, "dripping download outlived its total deadline");
     assert.equal(fs.existsSync(dest), false);
   });
 });

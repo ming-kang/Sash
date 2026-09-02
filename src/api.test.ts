@@ -78,11 +78,18 @@ describe("MihomoApi", () => {
     }
   });
 
-  it("drains a successful reload response before resolving", async () => {
+  it("uses the upstream force query and drains a successful reload response", async () => {
+    let requestBody = "";
     const server = http.createServer((req, res) => {
-      if (req.method === "PUT" && req.url === "/configs") {
-        res.writeHead(200);
-        setTimeout(() => res.end("reload complete"), 50);
+      if (req.method === "PUT" && req.url === "/configs?force=true") {
+        req.setEncoding("utf8");
+        req.on("data", (chunk: string) => {
+          requestBody += chunk;
+        });
+        req.on("end", () => {
+          res.writeHead(200);
+          setTimeout(() => res.end("reload complete"), 50);
+        });
         return;
       }
       res.writeHead(404);
@@ -97,6 +104,7 @@ describe("MihomoApi", () => {
       const started = Date.now();
       await api.reloadConfig("/tmp/config.yaml");
       assert.ok(Date.now() - started >= 40, "reload resolved before its response body was drained");
+      assert.deepEqual(JSON.parse(requestBody), { path: "/tmp/config.yaml" });
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

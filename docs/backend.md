@@ -32,7 +32,7 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/sysproxy.ts` / `src/sysproxy/`: public system-proxy API plus focused Windows, macOS and GNOME snapshot/apply backends.
 - `src/profile-service.ts`: profile/config application transactions.
 - `src/core-update.ts`: executable/install-record update transaction and crash recovery.
-- `src/http.ts` / `src/github.ts`: bounded networking and trusted release downloads.
+- `src/http.ts` / `src/github.ts`: bounded networking and trusted release downloads, including one absolute asset budget shared across mirror attempts and redirects.
 - `src/settings.ts`: versioned runtime schema and immutable managed-key candidates for `sash.json`.
 - `src/settings-service.ts`: shared online/offline settings preparation, durable publication and runtime-transition orchestration.
 - `src/contracts.ts`: API contracts shared by the daemon client and WebUI.

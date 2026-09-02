@@ -168,7 +168,7 @@
 
 完成记录：新增统一同步 helper runner，默认 shell=false、scrubbed env、timeout/windowsHide/有界输出；PowerShell、tasklist/taskkill、ps、reg、networksetup 与 gsettings 全部迁移。Windows/macOS 固定工具使用系统绝对路径，Linux/POSIX helper 只从绝对 PATH 项解析；npm credential files、username/password 变量也被清除。真实 process/sysproxy helper 子进程确认看不到 GitHub/NPM token/userconfig；tracked-file Biome、typecheck 与 342 项测试（341 通过、1 项既有 Windows skip）通过。
 
-### 12. 限制下载总时长 — 待办
+### 12. 限制下载总时长 — 已完成
 
 目标：持续产生小块数据的响应也不能无限占用更新命令。
 
@@ -179,6 +179,8 @@
 - IPv6 redirect 分类改用字节/CIDR 判断，覆盖 mapped/compatible、ULA、link-local、multicast 和 loopback。
 
 验收：永不 stall 的慢流仍在 deadline 到达时终止；redirect/body/force query/IPv6 分类测试通过。
+
+完成记录：downloadToFile 使用跨 redirect/header/body 的共享 AbortSignal 和默认 15 分钟绝对 deadline，Core asset 的所有 mirror 尝试再共享同一预算；redirect/error body 在 deadline 保护下丢弃，失败 partial 被删除。Core reload 改为 `/configs?force=true` 且 body 仅含 path。IPv6 改为字节解析，覆盖 compatible/mapped/translated、NAT64、6to4、ULA、link/site-local、multicast、discard/documentation，并修正过宽 IPv4 `/16`。连续 drip 测试在 120ms deadline 中止并清理文件；tracked-file Biome、typecheck 与 343 项测试（342 通过、1 项既有 Windows skip）通过。
 
 ### 13. 同步前端运行时所有权 — 待办
 

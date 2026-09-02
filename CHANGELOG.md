@@ -62,6 +62,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Release downloads now enforce one absolute budget across mirrors, redirects, headers and streaming bodies; continuously dripping responses cannot keep updates alive indefinitely.
+- Core config reload now sends `force=true` in the upstream query contract instead of an ignored JSON field.
+- Subscription redirect classification now handles IPv4-compatible/mapped/translated, NAT64, 6to4, ULA, link/site-local, multicast and documentation IPv6 ranges without overblocking unrelated public IPv4 `/16`s.
 - OS proxy/process-inspection helpers now share the scrubbed child environment; Windows/macOS system tools use trusted absolute paths and Linux helper lookup ignores relative PATH entries.
 - Durable rename/remove operations retry Windows sharing violations without deleting caller-owned sources, and startup restores an interrupted `.unlock-probe` or fails closed while preserving conflicting files.
 - Profile and settings publications now recheck exact stored-content SHA-256 snapshots under the commit boundary, retry one settings preparation conflict, and reject stale fetches/errors instead of overwriting newer profile content.
