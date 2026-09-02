@@ -22,11 +22,20 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 
 Automatic Linux system-proxy integration currently requires a GNOME desktop with `gsettings`; Core lifecycle and local endpoints do not have that desktop requirement.
 
-## Install
+## Development Status and Source Install
+
+Sash has not yet been published to npm. The `@astralyn/sash` package name and `npm install -g @astralyn/sash` command are reserved for the first approved release; they are not currently an installation path.
+
+From an existing source checkout, install the current development tree with:
 
 ```sh
-npm install -g @astralyn/sash
+npm ci
+npm run build
+npm link
+sash --help
 ```
+
+`npm link` installs the locally built checkout. Remove it with `npm unlink -g @astralyn/sash` when finished.
 
 ## Quick Start
 
@@ -46,6 +55,7 @@ Comprehensive documentation is available in the [`docs/`](./docs) directory:
 - [**User & Operations Guide**](./docs/usage.md) — complete CLI command reference, configuration parameters, TUN mode, and troubleshooting.
 - [**Backend Architecture**](./docs/backend.md) — supervisor daemon model (`sashd`), API endpoints, lifecycle management, system proxy adapters, and safety invariants.
 - [**Frontend Architecture**](./docs/frontend.md) — built-in Vue 3 + Vite dashboard, shared API contracts, reactive runtime state, and WebSocket streaming.
+- [**Third-Party Notices**](./THIRD_PARTY_NOTICES.md) — licenses and attribution for code/assets embedded in the dashboard and the runtime-downloaded Core.
 
 ## Disclaimer
 
@@ -53,8 +63,8 @@ Sash is a network tool created for **learning, research, and development debuggi
 
 ## Upstream Components
 
-Sash is MIT-licensed open source and an independent project. On first run it downloads the unmodified upstream network core binary, published under the MIT license by its authors:
+Sash is MIT-licensed open source and an independent project. It does not bundle the upstream Core in this repository or npm package; at runtime it downloads an unmodified release artifact from [`MetaCubeX/mihomo`](https://github.com/MetaCubeX/mihomo).
 
-- the network core: [`MetaCubeX/mihomo`](https://github.com/MetaCubeX/mihomo)
+The upstream project's working source branch is [`Meta`](https://github.com/MetaCubeX/mihomo/tree/Meta), and release artifacts are published on its [releases page](https://github.com/MetaCubeX/mihomo/releases). Licensing is determined by the selected upstream release and its accompanying notices. Sash's currently tested Core contract is `v1.19.30`, whose source tag carries the [GNU General Public License v3.0](https://github.com/MetaCubeX/mihomo/blob/v1.19.30/LICENSE).
 
-The component remains the work of its respective authors; all credit belongs upstream.
+The downloaded component remains the work of its respective authors; all credit belongs upstream. See [Third-Party Notices](./THIRD_PARTY_NOTICES.md) for the bundled dashboard notices and release-specific Core attribution.

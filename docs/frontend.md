@@ -45,7 +45,7 @@ web/src/
 └── router.ts                     small hash router
 ```
 
-The shell uses a compact desktop navigation rail and switches to a sticky header plus safe-area-aware bottom navigation below 900px. `styles/main.css` owns theme tokens, component states and reduced-motion behavior without a runtime-loaded UI dependency. Functional icons use selected, tree-shaken `@remixicon/vue` line components behind the local semantic `Icon.vue` API; the Sash brand mark remains project-owned. The applicable third-party terms are included in `docs/remix-icon-license.txt`. Long connection and rule sets are paginated and become card layouts on narrow screens.
+The shell uses a compact desktop navigation rail and switches to a sticky header plus safe-area-aware bottom navigation below 900px. `styles/main.css` owns theme tokens, component states and reduced-motion behavior without a runtime-loaded UI dependency. Functional icons use selected, tree-shaken `@remixicon/vue` line components behind the local semantic `Icon.vue` API; the Sash brand mark remains project-owned. `THIRD_PARTY_NOTICES.md` records the bundled Vue MIT and Remix Icon notices, and the complete Remix Icon License v1.0 remains in `docs/remix-icon-license.txt`; both are included in the npm tarball. Long connection and rule sets are paginated and become card layouts on narrow screens.
 
 Daemon/profile contracts live in `src/contracts.ts` and are imported as types by both `src/daemon-client.ts` and the WebUI. This prevents manually duplicated `SashStatus` and profile response shapes.
 

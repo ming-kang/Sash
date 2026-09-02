@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Cross-platform CLI lifecycle for installing, starting, stopping, restarting, inspecting and logging the managed runtime.
+- First-run Core bootstrap, transactional Core updates, npm self-upgrade command and managed configuration commands.
+- Platform-conventional private data directories with an absolute `SASH_HOME` override.
+- Non-detached Core supervision with PID identity verification and conservative, fail-closed termination.
 - Built-in Vue 3 dashboard is bundled in the npm package under `dist/ui/`, with no runtime dashboard download.
 - WebUI includes Chinese and English localization with a Settings-page language switcher.
 - Dedicated `sash proxy on|off|status` commands manage explicit OS system-proxy ownership and recovery.
@@ -27,9 +31,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Authenticated maintenance shutdown API returning an atomic Core-running snapshot for executable updates.
 - Durable system-proxy ownership journal that snapshots and conditionally restores prior manual/PAC state.
 - Windows/macOS/Linux and Node.js 24 CI matrix covering lint, tests, builds and package dry-runs.
+- Unified third-party notices for bundled Vue/Remix Icon assets and the separately downloaded runtime Core.
 
 ### Changed
 
+- Pre-release metadata is marked private, source installation is documented explicitly, and the unreleased `0.1.0` history is consolidated under `[Unreleased]`.
 - amd64 Core downloads now prefer the upstream broadly compatible x86-64 build, with v1 and the x86-64-v3 plain asset used only as availability fallbacks.
 - WebUI functional iconography now uses tree-shaken Remix Icon line components behind the existing semantic icon API.
 - Built-in WebUI now uses a responsive, theme-aware data-console layout with desktop and mobile navigation, compact runtime cards, accessible controls, paginated data views and reduced background polling.
@@ -122,30 +128,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Core update rollback slots remain available until daemon/runtime restoration succeeds; malformed install metadata and backup-only mismatch states are rejected before execution.
 - Core startup fails closed when executable and install metadata are missing, malformed or inconsistent, with an explicit `sash update --force` repair path.
 - npm upgrade and browser-launch children now receive the same scrubbed environment as managed runtime children.
-
-## [0.1.0] - 2026-08-31
-
-### Added
-
-- Initial release: full lifecycle management for a rule-based network core (`start` / `stop` / `restart` / `status` / `logs`).
-- First-run bootstrap that downloads the latest core and web dashboard, with automatic fallback to public GitHub mirrors.
-- Remote profile management: `sash sub set|update|show|unset` with hot reload of the running core.
-- Integrated web dashboard served by the core's external controller.
-- `sash update`: atomic core upgrades with automatic rollback.
-- `sash upgrade`: self-upgrade via npm.
-- `sash config`: managed keys (`tun`, `allow-lan`, `mixed-port`, `controller`, `secret`) with config regeneration and reload.
-- Cross-platform data directory conventions with `SASH_HOME` override.
-- Background process supervision with PID identity verification and safe, conservative termination.
-- Dashboard auto-authentication: `sash web` opens the dashboard through its own setup deep-link, passing the controller address and secret as query parameters, so the panel connects without a sign-in step. No credentials are written to disk.
-- README now documents behavior that was previously only in code: Sash-owned operational keys override profile values (`mixed-port`/`controller`/`secret`/`tun`/`allow-lan` etc.), the `sash.json` settings file (defaults, auto-generated secret, `secret regenerate`), restart-on-config-change and profile refetch semantics, `web --no-open` printing a credential-bearing URL, the fail-closed `stop` refusal mode, best-effort dashboard installation, and the pre-x86-64-v3 CPU workaround.
-
-### Fixed
-
-- `sash config set` for listener/auth keys (`controller`, `secret`, `tun`, `mixed-port`, `allow-lan`) now restarts a running core instead of attempting a hot reload that could never reach it.
-- Download redirect targets are now validated against the host allowlist hop-by-hop; partial downloads are cleaned up on failure.
-- Archive extraction hardening: dashboard tarballs only accept regular files/directories (no symlink/hardlink/path-traversal entries); core `.gz` decompression is streamed with a size cap; multi-executable zips prefer the `mihomo*.exe` entry.
-- Startup health polling no longer spawns a process-identity probe on every tick (Windows PowerShell stall).
-- `stop` keeps the pid record when a process's identity cannot be verified, instead of orphaning it.
-- Removed a dead API client method that would hang on the core's infinite traffic stream.
-- `sash logs -n` rejects non-positive-integer input; `controller` validation accepts IPv6 and enforces port range.
-- `ALL_PROXY` is honoured via dispatcher constructor options without mutating `process.env`.

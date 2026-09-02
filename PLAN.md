@@ -223,7 +223,7 @@
 
 完成记录：新增 `src/log-follow.ts` 的 bounded tail-F cursor，以 dev/ino/birthtime identity 与 size 区分 append、truncate、replacement/rename rotation；目录或文件尚未创建时由 directory watcher 加 polling fallback 持续等待，每次读取最多 64 KiB 且文件描述符立即关闭。`runLogs` 同时处理 SIGINT/SIGTERM，并在退出时移除 listener、watcher 和 timer；stdout backpressure 被等待。`-n` 改为 `/^[1-9]\d*$/` 与 safe-integer 校验。延迟目录/文件、append、truncate、rename rotation、停止后无输出、双 signal 清理和参数拒绝测试通过；tracked/new-file Biome、typecheck、production build、隔离 CLI 参数 smoke 与 362 项测试（361 通过、1 项既有 Windows skip）通过。
 
-### 16. 对齐预发布状态与第三方 notices — 待办
+### 16. 对齐预发布状态与第三方 notices — 已完成
 
 目标：文档准确表达开发状态，首次发布前许可告知完整。
 
@@ -234,6 +234,8 @@
 - 新增统一 third-party notices，包含 Vue MIT 和 Remix Icon，并确保进入 tarball。
 
 验收：文档/metadata 一致；tarball 包含 notices；不执行 publish/tag/push。
+
+完成记录：虚构的 `[0.1.0]` release 已移回 `[Unreleased]` 并清除过时发布叙述；README 明确 npm 尚未发布，只提供现有 checkout 的 `npm ci`/build/link 流程。开发包设为 `private: true`，首次正式发布必须另行明确移除。README attribution 现在链接上游 Meta branch、releases 与 v1.19.30 GPL-3.0 tag license，不再错误声明 MIT；npm 包继续不包含 Core。新增 `THIRD_PARTY_NOTICES.md`，完整包含 Vue MIT notice、指向随包分发的 Remix Icon License v1.0 全文，并记录 runtime-downloaded Core 的 release-specific attribution；package files 明确包含 notice。metadata/Changelog 检查、pack dry-run（71 files，LICENSE/notice/Remix license 均存在）与 362 项测试（361 通过、1 项既有 Windows skip）通过；未执行 publish/tag/push。
 
 ### 17. 在 CI 验证打包产物 — 待办
 
