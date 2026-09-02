@@ -24,7 +24,8 @@ import {
   RequestGenerations,
   resolvedProxyDelay,
   runProfileMutationSequence,
-  runtimeCoherenceKey,
+  runtimeNoticeKind,
+  runtimeOwnerKey,
   syncCommittedBooleanSetting,
   systemProxyNeedsDisable,
   tunRuntimeState,
@@ -43,6 +44,9 @@ export interface StoredLogMessage extends LogMessage {
 export interface StoreState {
   status: SashStatus | null;
   daemonOnline: boolean;
+  lastProfileRevision: number | null;
+  coreSnapshotAvailable: boolean;
+  coreSnapshotError: string | null;
   mode: OutboundMode;
   traffic: {
     up: number;
@@ -75,12 +79,16 @@ export interface StoreState {
 const HISTORY_LEN = 60;
 const LOG_LEN = 600;
 const requests = new RequestGenerations();
-let coherentRuntimeKey: string | null = null;
+let observedRuntimeOwner: string | null = null;
+let snapshotProfileRevision: number | null = null;
 let lastDaemonStartedAt: string | null = null;
 
 export const store = reactive<StoreState>({
   status: null,
   daemonOnline: true,
+  lastProfileRevision: null,
+  coreSnapshotAvailable: false,
+  coreSnapshotError: null,
   mode: "rule",
   traffic: {
     up: 0,
@@ -114,6 +122,14 @@ export const isSysProxyOn = computed(() => systemProxyNeedsDisable(store.status)
 export const isCoreRunning = computed(() => store.status?.core.running ?? false);
 export const isCoreReady = computed(() => isCoreHealthy(store.status));
 export const tunRuntime = computed(() => tunRuntimeState(store.status));
+export const runtimeNotice = computed(() =>
+  runtimeNoticeKind(
+    store.daemonOnline,
+    isCoreHealthy(store.status),
+    store.coreSnapshotAvailable,
+    store.coreSnapshotError,
+  ),
+);
 export const canToggleSystemProxy = computed(
   () =>
     !store.operations.systemProxy &&
@@ -144,17 +160,46 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
   }
 }
 
-function resetCoreSnapshots(): void {
-  const alreadyEmpty =
-    coherentRuntimeKey === null &&
-    Object.keys(store.proxies).length === 0 &&
-    store.connections.length === 0 &&
-    store.rules.length === 0 &&
-    Object.keys(store.manualProxyDelays).length === 0 &&
-    store.traffic.up === 0 &&
-    store.traffic.down === 0;
-  if (!alreadyEmpty) clearCoreOwnedState(store, HISTORY_LEN);
-  coherentRuntimeKey = null;
+function transitionRuntimeOwner(status: SashStatus | null): void {
+  const nextOwner = runtimeOwnerKey(status);
+  if (nextOwner === observedRuntimeOwner) {
+    if (nextOwner === null) {
+      store.coreSnapshotAvailable = false;
+      store.coreSnapshotError = null;
+      snapshotProfileRevision = null;
+    }
+    return;
+  }
+
+  observedRuntimeOwner = nextOwner;
+  snapshotProfileRevision = null;
+  store.coreSnapshotAvailable = false;
+  store.coreSnapshotError = null;
+  clearCoreOwnedState(store, HISTORY_LEN);
+}
+
+function adoptDaemonStatus(status: SashStatus): void {
+  if (lastDaemonStartedAt !== status.daemon.startedAt) {
+    requests.invalidate("profiles");
+    store.lastProfileRevision = null;
+  }
+  lastDaemonStartedAt = status.daemon.startedAt;
+  store.status = status;
+  store.daemonOnline = true;
+  transitionRuntimeOwner(status);
+}
+
+function coreRequestIsCurrent(status: SashStatus, runtimeRequest: number): boolean {
+  return (
+    requests.isCurrent("runtime", runtimeRequest) &&
+    runtimeOwnerKey(status) !== null &&
+    runtimeOwnerKey(store.status) === runtimeOwnerKey(status)
+  );
+}
+
+function recordCoreSnapshotError(status: SashStatus, runtimeRequest: number, err: unknown): void {
+  if (!coreRequestIsCurrent(status, runtimeRequest)) return;
+  store.coreSnapshotError = errorText(err).slice(0, 300);
 }
 
 export function resetTraffic(): void {
@@ -165,137 +210,169 @@ export function resetTraffic(): void {
 }
 
 export function markDaemonOffline(): void {
+  requests.invalidate("runtime");
+  requests.invalidate("profiles");
+  transitionRuntimeOwner(null);
   store.daemonOnline = false;
   store.status = null;
-  resetCoreSnapshots();
 }
 
-async function refreshFullRuntime(
+async function refreshProfilesForStatus(
   status: SashStatus,
   runtimeRequest: number,
-  profileRequest: number,
 ): Promise<boolean> {
-  const [profiles, configs, proxies, rules, connections] = await Promise.all([
-    api.getProfiles(),
+  if (store.lastProfileRevision === status.revisions.profiles) return true;
+  const profileRequest = requests.begin("profiles");
+  try {
+    const profiles = await api.getProfiles();
+    if (
+      !requests.isCurrent("runtime", runtimeRequest) ||
+      !requests.isCurrent("profiles", profileRequest) ||
+      store.status?.daemon.startedAt !== status.daemon.startedAt
+    ) {
+      return false;
+    }
+    setProfiles(profiles);
+    store.lastProfileRevision = status.revisions.profiles;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshCoreSnapshot(status: SashStatus, runtimeRequest: number): Promise<boolean> {
+  if (runtimeOwnerKey(status) === null) return false;
+
+  const [configs, proxies, rules, connections] = await Promise.allSettled([
     api.getConfigs(),
     api.getProxies(),
     api.getRules(),
     api.getConnections(),
   ]);
   if (
-    !requests.isCurrent("runtime", runtimeRequest) ||
-    !requests.isCurrent("profiles", profileRequest)
+    configs.status === "rejected" ||
+    proxies.status === "rejected" ||
+    rules.status === "rejected" ||
+    connections.status === "rejected"
   ) {
+    const failure = [configs, proxies, rules, connections].find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    recordCoreSnapshotError(status, runtimeRequest, failure?.reason ?? "Core snapshot failed");
     return false;
   }
+  if (!coreRequestIsCurrent(status, runtimeRequest)) return false;
 
-  store.status = status;
-  store.daemonOnline = true;
-  setProfiles(profiles);
-  store.mode = configs.mode;
-  setProxies(proxies.proxies);
-  store.rules = rules.rules;
-  store.connections = normalizeConnections(connections.connections);
-  store.connectionsUploadTotal = connections.uploadTotal;
-  store.connectionsDownloadTotal = connections.downloadTotal;
-  coherentRuntimeKey = runtimeCoherenceKey(status);
-  lastDaemonStartedAt = status.daemon.startedAt;
+  if (snapshotProfileRevision !== null && snapshotProfileRevision !== status.revisions.profiles) {
+    store.manualProxyDelays = {};
+    resetTraffic();
+    store.runtimeGeneration += 1;
+  }
+  store.mode = configs.value.mode;
+  setProxies(proxies.value.proxies);
+  store.rules = rules.value.rules;
+  store.connections = normalizeConnections(connections.value.connections);
+  store.connectionsUploadTotal = connections.value.uploadTotal;
+  store.connectionsDownloadTotal = connections.value.downloadTotal;
+  snapshotProfileRevision = status.revisions.profiles;
+  store.coreSnapshotAvailable = true;
+  store.coreSnapshotError = null;
   return true;
 }
 
 export async function refreshRuntimeState(): Promise<void> {
   const runtimeRequest = requests.begin("runtime");
-  const profileRequest = requests.begin("profiles");
   const status = await api.getStatus();
   if (!requests.isCurrent("runtime", runtimeRequest)) return;
+  adoptDaemonStatus(status);
 
+  const profiles = refreshProfilesForStatus(status, runtimeRequest);
   if (!isCoreHealthy(status)) {
-    store.status = status;
-    store.daemonOnline = true;
-    resetCoreSnapshots();
-    const profiles = await api.getProfiles();
-    if (
-      requests.isCurrent("runtime", runtimeRequest) &&
-      requests.isCurrent("profiles", profileRequest)
-    ) {
-      setProfiles(profiles);
-      lastDaemonStartedAt = status.daemon.startedAt;
-    }
+    await profiles;
     return;
   }
-
-  if (runtimeCoherenceKey(status) !== coherentRuntimeKey) resetCoreSnapshots();
-  await refreshFullRuntime(status, runtimeRequest, profileRequest);
+  await Promise.all([profiles, refreshCoreSnapshot(status, runtimeRequest)]);
 }
 
-export async function refreshStatus(): Promise<"full" | "status" | "stopped"> {
+export async function refreshStatus(): Promise<"full" | "status" | "stopped" | "degraded"> {
   const runtimeRequest = requests.begin("runtime");
   const status = await api.getStatus();
   if (!requests.isCurrent("runtime", runtimeRequest)) return "status";
+  adoptDaemonStatus(status);
 
+  const profiles = refreshProfilesForStatus(status, runtimeRequest);
   if (!isCoreHealthy(status)) {
-    const daemonChanged = lastDaemonStartedAt !== status.daemon.startedAt;
-    store.status = status;
-    store.daemonOnline = true;
-    resetCoreSnapshots();
-    if (daemonChanged) {
-      const profileRequest = requests.begin("profiles");
-      const profiles = await api.getProfiles();
-      if (
-        requests.isCurrent("runtime", runtimeRequest) &&
-        requests.isCurrent("profiles", profileRequest)
-      ) {
-        setProfiles(profiles);
-        lastDaemonStartedAt = status.daemon.startedAt;
-      }
-    }
+    await profiles;
     return "stopped";
   }
 
-  const nextKey = runtimeCoherenceKey(status);
-  if (nextKey !== coherentRuntimeKey) {
-    resetCoreSnapshots();
-    const profileRequest = requests.begin("profiles");
-    await refreshFullRuntime(status, runtimeRequest, profileRequest);
-    return "full";
+  const needsSnapshot =
+    !store.coreSnapshotAvailable ||
+    store.coreSnapshotError !== null ||
+    snapshotProfileRevision !== status.revisions.profiles;
+  if (needsSnapshot) {
+    const [, refreshed] = await Promise.all([
+      profiles,
+      refreshCoreSnapshot(status, runtimeRequest),
+    ]);
+    return refreshed ? "full" : "degraded";
   }
 
-  store.status = status;
-  store.daemonOnline = true;
-  lastDaemonStartedAt = status.daemon.startedAt;
+  await profiles;
   return "status";
 }
 
 export async function refreshConnections(): Promise<void> {
-  if (!isCoreHealthy(store.status)) return;
+  const status = store.status;
+  if (status === null || !isCoreHealthy(status)) return;
   const runtimeRequest = requests.begin("runtime");
-  const connections = await api.getConnections();
-  if (!requests.isCurrent("runtime", runtimeRequest) || !isCoreHealthy(store.status)) return;
-  store.connections = normalizeConnections(connections.connections);
-  store.connectionsUploadTotal = connections.uploadTotal;
-  store.connectionsDownloadTotal = connections.downloadTotal;
+  try {
+    const connections = await api.getConnections();
+    if (!coreRequestIsCurrent(status, runtimeRequest)) return;
+    store.connections = normalizeConnections(connections.connections);
+    store.connectionsUploadTotal = connections.uploadTotal;
+    store.connectionsDownloadTotal = connections.downloadTotal;
+  } catch (err) {
+    recordCoreSnapshotError(status, runtimeRequest, err);
+    throw err;
+  }
 }
 
 export async function refreshProxies(): Promise<void> {
-  if (!isCoreHealthy(store.status)) return;
+  const status = store.status;
+  if (status === null || !isCoreHealthy(status)) return;
   const runtimeRequest = requests.begin("runtime");
-  const proxies = await api.getProxies();
-  if (!requests.isCurrent("runtime", runtimeRequest) || !isCoreHealthy(store.status)) return;
-  setProxies(proxies.proxies);
+  try {
+    const proxies = await api.getProxies();
+    if (coreRequestIsCurrent(status, runtimeRequest)) setProxies(proxies.proxies);
+  } catch (err) {
+    recordCoreSnapshotError(status, runtimeRequest, err);
+    throw err;
+  }
 }
 
 export async function refreshRules(): Promise<void> {
-  if (!isCoreHealthy(store.status)) return;
+  const status = store.status;
+  if (status === null || !isCoreHealthy(status)) return;
   const runtimeRequest = requests.begin("runtime");
-  const rules = await api.getRules();
-  if (!requests.isCurrent("runtime", runtimeRequest) || !isCoreHealthy(store.status)) return;
-  store.rules = rules.rules;
+  try {
+    const rules = await api.getRules();
+    if (coreRequestIsCurrent(status, runtimeRequest)) store.rules = rules.rules;
+  } catch (err) {
+    recordCoreSnapshotError(status, runtimeRequest, err);
+    throw err;
+  }
 }
 
 export async function refreshProfiles(): Promise<void> {
   const profileRequest = requests.begin("profiles");
+  const status = store.status;
   const profiles = await api.getProfiles();
-  if (requests.isCurrent("profiles", profileRequest)) setProfiles(profiles);
+  if (!requests.isCurrent("profiles", profileRequest)) return;
+  setProfiles(profiles);
+  if (status && store.status?.daemon.startedAt === status.daemon.startedAt) {
+    store.lastProfileRevision = status.revisions.profiles;
+  }
 }
 
 /** Self-scheduling polling prevents overlapping cycles and only probes Core after a healthy status. */
@@ -517,8 +594,8 @@ export function proxyDelay(name: string): number | undefined {
   return resolvedProxyDelay(name, store.proxies, store.manualProxyDelays);
 }
 
-export function addTraffic(msg: TrafficMessage): void {
-  if (!isCoreHealthy(store.status)) return;
+export function addTraffic(msg: TrafficMessage, generation = store.runtimeGeneration): void {
+  if (generation !== store.runtimeGeneration || !isCoreHealthy(store.status)) return;
   store.traffic.up = msg.up;
   store.traffic.down = msg.down;
   store.traffic.historyUp.push(msg.up);
@@ -529,7 +606,8 @@ export function addTraffic(msg: TrafficMessage): void {
 
 let logSeq = 0;
 
-export function addLog(msg: LogMessage): void {
+export function addLog(msg: LogMessage, generation = store.runtimeGeneration): void {
+  if (generation !== store.runtimeGeneration) return;
   store.logs.push({ ...msg, id: ++logSeq });
   if (store.logs.length > LOG_LEN) store.logs.shift();
 }

@@ -182,7 +182,7 @@
 
 完成记录：downloadToFile 使用跨 redirect/header/body 的共享 AbortSignal 和默认 15 分钟绝对 deadline，Core asset 的所有 mirror 尝试再共享同一预算；redirect/error body 在 deadline 保护下丢弃，失败 partial 被删除。Core reload 改为 `/configs?force=true` 且 body 仅含 path。IPv6 改为字节解析，覆盖 compatible/mapped/translated、NAT64、6to4、ULA、link/site-local、multicast、discard/documentation，并修正过宽 IPv4 `/16`。连续 drip 测试在 120ms deadline 中止并清理文件；tracked-file Biome、typecheck 与 343 项测试（342 通过、1 项既有 Windows skip）通过。
 
-### 13. 同步前端运行时所有权 — 待办
+### 13. 同步前端运行时所有权 — 已完成
 
 目标：profile、daemon 和 Core 状态独立表达，不把下游瞬时失败伪装成 daemon 离线。
 
@@ -193,6 +193,8 @@
 - Settings dirty 改为与 committed value 比较，并提供 reset。
 
 验收：stopped revision、Core 502、daemon 重启、generation 更换和 settings revert 均有 store/component 行为测试。
+
+完成记录：WebUI 现将 daemon reachability、lastProfileRevision、Core owner 与完整 snapshot available/error 分开保存；Core 停止时 revision 变化仍刷新 profiles，同 owner 的 502 保留最后有效快照并显示 degraded，新 daemon/Core owner 在取新快照前清除旧数据。traffic/log WebSocket 帧经轻量运行时校验并绑定 generation，旧 socket 关闭不会清空替代流。mixed-port dirty 与 committed value 比较并提供 reset。stopped revision、同/异 owner 502、daemon 同 revision 重启、profile generation、malformed frame 和 settings revert/reset 测试通过；tracked-file Biome、typecheck、Vite production build 与 348 项隔离测试（347 通过、1 项既有 Windows skip）通过。
 
 ### 14. 显式表示 CLI 未知状态 — 待办
 

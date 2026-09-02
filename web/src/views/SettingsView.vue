@@ -84,8 +84,16 @@
               class="input input-sm port-input"
               :aria-label="t('settings.mixedPortTitle')"
               :disabled="savingPort"
-              @input="portDirty = true"
             />
+            <button
+              v-if="portDirty"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="savingPort"
+              @click="resetMixedPort"
+            >
+              {{ t('common.reset') }}
+            </button>
             <button
               type="button"
               class="btn btn-secondary btn-sm interrupt-save"
@@ -213,29 +221,43 @@ import {
   toast,
   tunRuntime,
 } from "../stores/index.js";
+import {
+  isCommittedDraftDirty,
+  reconcileCommittedDraft,
+} from "../stores/state-ownership.js";
 import { setTheme, theme, type Theme } from "../theme.js";
 
-const mixedPort = ref(store.status?.settings.mixedPort ?? 17890);
+const committedMixedPort = ref(store.status?.settings.mixedPort ?? 17890);
+const mixedPort = ref(committedMixedPort.value);
 
 const savingPort = ref(false);
-const portDirty = ref(false);
 const restarting = ref(false);
 const reloading = ref(false);
 
 watch(
-  () => store.status?.settings,
-  (s) => {
-    if (!s) return;
-    if (!portDirty.value && !savingPort.value) mixedPort.value = s.mixedPort;
+  () => store.status?.settings.mixedPort,
+  (next) => {
+    if (next === undefined) return;
+    const previous = committedMixedPort.value;
+    committedMixedPort.value = next;
+    mixedPort.value = reconcileCommittedDraft(
+      mixedPort.value,
+      previous,
+      next,
+      savingPort.value,
+    );
   },
 );
 
+const portDirty = computed(() =>
+  isCommittedDraftDirty(mixedPort.value, committedMixedPort.value),
+);
 const portValid = computed(
   () =>
     Number.isInteger(mixedPort.value) &&
     mixedPort.value >= 1 &&
     mixedPort.value <= 65535 &&
-    mixedPort.value !== store.status?.settings.mixedPort,
+    portDirty.value,
 );
 
 const coreVersion = computed(() => {
@@ -301,6 +323,10 @@ function switchLocale(next: Locale): void {
   toast.success(t("toast.langSwitched"));
 }
 
+function resetMixedPort(): void {
+  mixedPort.value = committedMixedPort.value;
+}
+
 async function saveMixedPort(): Promise<void> {
   if (!portValid.value || savingPort.value) return;
   savingPort.value = true;
@@ -308,7 +334,6 @@ async function saveMixedPort(): Promise<void> {
     const result = await api.patchSetting("mixed-port", String(mixedPort.value));
     if (store.status) store.status = { ...store.status, settings: result.settings };
     await refreshRuntimeState();
-    portDirty.value = false;
     toast.success(t("toast.portSaved"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -527,7 +552,7 @@ async function reloadConfig(): Promise<void> {
   }
   .port-action {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
   .port-input {
     width: 100%;

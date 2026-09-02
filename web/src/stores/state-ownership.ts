@@ -1,5 +1,5 @@
 import type { PublicSashSettings } from "../../../src/settings.js";
-import type { ProxyItem, SashStatus } from "../types/index.js";
+import type { LogMessage, ProxyItem, SashStatus, TrafficMessage } from "../types/index.js";
 
 export class RequestGenerations {
   private readonly values = new Map<string, number>();
@@ -59,20 +59,82 @@ export function isCoreHealthy(status: SashStatus | null): boolean {
   return Boolean(status?.core.running && status.core.healthy);
 }
 
-export function runtimeCoherenceKey(status: SashStatus | null): string | null {
+export function runtimeOwnerKey(status: SashStatus | null): string | null {
   if (!isCoreHealthy(status)) return null;
   return [
     status?.daemon.startedAt ?? "",
     status?.core.pid ?? "",
     status?.core.startedAt ?? "",
-    status?.revisions.profiles ?? 0,
   ].join("|");
+}
+
+export function runtimeCoherenceKey(status: SashStatus | null): string | null {
+  const owner = runtimeOwnerKey(status);
+  return owner === null ? null : `${owner}|${status?.revisions.profiles ?? 0}`;
 }
 
 export function needsRecoveryRefresh(previous: SashStatus | null, next: SashStatus): boolean {
   const nextKey = runtimeCoherenceKey(next);
   if (nextKey === null) return false;
   return runtimeCoherenceKey(previous) !== nextKey;
+}
+
+export type RuntimeNoticeKind = "offline" | "coreDegraded" | "coreUnavailable";
+
+export function runtimeNoticeKind(
+  daemonOnline: boolean,
+  coreHealthy: boolean,
+  snapshotAvailable: boolean,
+  snapshotError: string | null,
+): RuntimeNoticeKind | null {
+  if (!daemonOnline) return "offline";
+  if (!coreHealthy || snapshotError === null) return null;
+  return snapshotAvailable ? "coreDegraded" : "coreUnavailable";
+}
+
+export function isCommittedDraftDirty<T>(draft: T, committed: T): boolean {
+  return !Object.is(draft, committed);
+}
+
+export function reconcileCommittedDraft<T>(
+  draft: T,
+  previousCommitted: T,
+  nextCommitted: T,
+  saving: boolean,
+): T {
+  return !saving && Object.is(draft, previousCommitted) ? nextCommitted : draft;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+export function parseTrafficFrame(value: unknown): TrafficMessage | null {
+  const frame = objectRecord(value);
+  if (!frame) return null;
+  const { up, down } = frame;
+  if (
+    typeof up !== "number" ||
+    !Number.isFinite(up) ||
+    up < 0 ||
+    typeof down !== "number" ||
+    !Number.isFinite(down) ||
+    down < 0
+  ) {
+    return null;
+  }
+  return { up, down };
+}
+
+const LOG_TYPES = new Set<LogMessage["type"]>(["info", "warning", "error", "debug"]);
+
+export function parseLogFrame(value: unknown): LogMessage | null {
+  const frame = objectRecord(value);
+  if (!frame || typeof frame.type !== "string" || typeof frame.payload !== "string") return null;
+  if (!LOG_TYPES.has(frame.type as LogMessage["type"])) return null;
+  return { type: frame.type as LogMessage["type"], payload: frame.payload };
 }
 
 export type TunRuntimeState =

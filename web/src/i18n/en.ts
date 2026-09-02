@@ -37,6 +37,7 @@ export const en: Messages = {
     loading: "Loading…",
     none: "None",
     retry: "Retry",
+    reset: "Reset",
     timeout: "Timeout",
     untested: "Untested",
     running: "Running",
@@ -214,5 +215,7 @@ export const en: Messages = {
   },
   status: {
     offline: "Sash daemon unreachable, retrying automatically…",
+    coreDegraded: "Core data refresh failed; showing the last valid snapshot while retrying…",
+    coreUnavailable: "Core is running, but runtime data is temporarily unavailable; retrying…",
   },
 } as const;

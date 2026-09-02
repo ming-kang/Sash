@@ -62,6 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- WebUI now keeps daemon reachability, profile revisions and Core snapshot ownership independent: same-owner Core API failures preserve and mark stale data, new owners clear stale snapshots, stopped profile revisions still refresh, malformed stream frames are dropped and mixed-port drafts can be reverted/reset against committed settings.
 - Release downloads now enforce one absolute budget across mirrors, redirects, headers and streaming bodies; continuously dripping responses cannot keep updates alive indefinitely.
 - Core config reload now sends `force=true` in the upstream query contract instead of an ignored JSON field.
 - Subscription redirect classification now handles IPv4-compatible/mapped/translated, NAT64, 6to4, ULA, link/site-local, multicast and documentation IPv6 ranges without overblocking unrelated public IPv4 `/16`s.

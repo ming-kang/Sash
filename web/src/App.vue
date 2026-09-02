@@ -4,9 +4,16 @@
 
     <main class="app-main">
       <Transition name="fade">
-        <div v-if="!store.daemonOnline" class="offline-banner" role="status" aria-live="polite">
+        <div
+          v-if="runtimeNotice"
+          class="runtime-banner"
+          :class="runtimeNotice"
+          role="status"
+          aria-live="polite"
+          :title="store.coreSnapshotError ?? undefined"
+        >
           <Icon name="alert" :size="13" />
-          <span>{{ t('status.offline') }}</span>
+          <span>{{ t(`status.${runtimeNotice}`) }}</span>
         </div>
       </Transition>
 
@@ -39,6 +46,7 @@ import {
   addTraffic,
   isCoreReady,
   resetTraffic,
+  runtimeNotice,
   startRuntimePolling,
   store,
 } from "./stores/index.js";
@@ -62,14 +70,20 @@ function stopStreams(): void {
 }
 
 watch(
-  () => store.daemonOnline && isCoreReady.value && api.hasSession(),
-  (available) => {
-    if (!available) {
-      stopStreams();
-      return;
-    }
-    if (!unsubTraffic) unsubTraffic = api.connectTraffic(addTraffic, resetTraffic);
-    if (!unsubLogs) unsubLogs = api.connectLogs(addLog);
+  () =>
+    store.daemonOnline && isCoreReady.value && api.hasSession()
+      ? store.runtimeGeneration
+      : null,
+  (generation) => {
+    stopStreams();
+    if (generation === null) return;
+    unsubTraffic = api.connectTraffic(
+      (message) => addTraffic(message, generation),
+      () => {
+        if (generation === store.runtimeGeneration) resetTraffic();
+      },
+    );
+    unsubLogs = api.connectLogs((message) => addLog(message, generation));
   },
 );
 
@@ -98,7 +112,7 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-.offline-banner {
+.runtime-banner {
   position: sticky;
   top: 0;
   z-index: 15;
@@ -108,12 +122,18 @@ onUnmounted(() => {
   justify-content: center;
   gap: 7px;
   padding: 7px 18px;
-  background: var(--warning-soft);
-  border-bottom: 1px solid var(--warning-border);
-  color: var(--warning);
+  background: var(--danger-soft);
+  border-bottom: 1px solid var(--danger);
+  color: var(--danger);
   font-size: 12px;
   font-weight: 600;
   text-align: center;
+}
+.runtime-banner.coreDegraded,
+.runtime-banner.coreUnavailable {
+  background: var(--warning-soft);
+  border-bottom-color: var(--warning-border);
+  color: var(--warning);
 }
 
 .page-container {
@@ -128,7 +148,7 @@ onUnmounted(() => {
   .app-shell {
     flex-direction: column;
   }
-  .offline-banner {
+  .runtime-banner {
     top: 60px;
   }
   .page-container {

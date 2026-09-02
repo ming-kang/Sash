@@ -4,10 +4,16 @@ import type { SashStatus } from "../types/index.js";
 import {
   canSetSystemProxyTarget,
   clearCoreOwnedState,
+  isCommittedDraftDirty,
   needsRecoveryRefresh,
+  parseLogFrame,
+  parseTrafficFrame,
   RequestGenerations,
+  reconcileCommittedDraft,
   resolvedProxyDelay,
   runProfileMutationSequence,
+  runtimeNoticeKind,
+  runtimeOwnerKey,
   syncCommittedBooleanSetting,
   tunRuntimeState,
 } from "./state-ownership.js";
@@ -113,14 +119,16 @@ describe("frontend state ownership helpers", () => {
     assert.equal(owned.runtimeGeneration, 8);
   });
 
-  it("requests one recovery refresh for health, daemon boot, Core, or profile revision changes", () => {
+  it("separates runtime ownership from profile snapshot revisions", () => {
     const current = status();
+    const revised = status({ profileRevision: 1 });
     assert.equal(needsRecoveryRefresh(null, current), true);
     assert.equal(needsRecoveryRefresh(status({ running: false, healthy: false }), current), true);
     assert.equal(needsRecoveryRefresh(current, status()), false);
     assert.equal(needsRecoveryRefresh(current, status({ daemonStartedAt: "later" })), true);
     assert.equal(needsRecoveryRefresh(current, status({ pid: 201 })), true);
-    assert.equal(needsRecoveryRefresh(current, status({ profileRevision: 1 })), true);
+    assert.equal(needsRecoveryRefresh(current, revised), true);
+    assert.equal(runtimeOwnerKey(current), runtimeOwnerKey(revised));
   });
 
   it("distinguishes desired TUN state from the actual Core runtime", () => {
@@ -166,6 +174,35 @@ describe("frontend state ownership helpers", () => {
     assert.equal(previous.settings.allowLan, false);
     assert.equal(next?.settings.allowLan, true);
     assert.equal(next?.settings.tun, false);
+  });
+
+  it("derives settings dirty state from the committed value and supports revert/reset", () => {
+    assert.equal(isCommittedDraftDirty(17890, 17890), false);
+    assert.equal(isCommittedDraftDirty(18000, 17890), true);
+    assert.equal(reconcileCommittedDraft(17890, 17890, 18000, false), 18000);
+    assert.equal(reconcileCommittedDraft(19000, 17890, 18000, false), 19000);
+    assert.equal(reconcileCommittedDraft(17890, 17890, 18000, true), 17890);
+  });
+
+  it("selects offline and Core snapshot degradation notices independently", () => {
+    assert.equal(runtimeNoticeKind(false, false, false, null), "offline");
+    assert.equal(runtimeNoticeKind(true, false, false, "ignored"), null);
+    assert.equal(runtimeNoticeKind(true, true, true, "HTTP 502"), "coreDegraded");
+    assert.equal(runtimeNoticeKind(true, true, false, "HTTP 502"), "coreUnavailable");
+    assert.equal(runtimeNoticeKind(true, true, true, null), null);
+  });
+
+  it("accepts only finite traffic and known textual log frames", () => {
+    assert.deepEqual(parseTrafficFrame({ up: 12, down: 34, extra: true }), { up: 12, down: 34 });
+    assert.equal(parseTrafficFrame({ up: -1, down: 0 }), null);
+    assert.equal(parseTrafficFrame({ up: Number.POSITIVE_INFINITY, down: 0 }), null);
+    assert.equal(parseTrafficFrame({ up: "12", down: 34 }), null);
+    assert.deepEqual(parseLogFrame({ type: "warning", payload: "slow", extra: true }), {
+      type: "warning",
+      payload: "slow",
+    });
+    assert.equal(parseLogFrame({ type: "fatal", payload: "bad" }), null);
+    assert.equal(parseLogFrame({ type: "info", payload: 12 }), null);
   });
 
   it("refreshes profiles after a single-profile update failure before rethrowing", async () => {

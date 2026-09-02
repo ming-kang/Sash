@@ -6,6 +6,7 @@ import {
   WEB_SOCKET_AUTH_PROTOCOL,
   WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
 } from "../../../src/contracts.js";
+import { parseLogFrame, parseTrafficFrame } from "../stores/state-ownership.js";
 import type {
   ConfigsResponse,
   ConnectionsResponse,
@@ -74,9 +75,9 @@ async function request(endpoint: string, options: RequestOptions = {}): Promise<
 }
 
 /** Persistent WebSocket with one reconnect timer. Returns an unsubscribe function. */
-function connectStream<T>(
+function connectStream(
   path: string,
-  onData: (msg: T) => void,
+  onData: (msg: unknown) => void,
   onDisconnect?: () => void,
 ): () => void {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -102,9 +103,9 @@ function connectStream<T>(
         : undefined;
       ws = new WebSocket(wsUrl, protocols);
       ws.onmessage = (event) => {
-        let parsed: T;
+        let parsed: unknown;
         try {
-          parsed = JSON.parse(event.data) as T;
+          parsed = JSON.parse(event.data) as unknown;
         } catch {
           return;
         }
@@ -221,10 +222,17 @@ export const api = {
   getRules: () => request<RulesResponse>("/core/api/rules"),
 
   connectTraffic: (onData: (msg: TrafficMessage) => void, onDisconnect?: () => void) =>
-    connectStream<TrafficMessage>("/core/api/traffic", onData, onDisconnect),
+    connectStream(
+      "/core/api/traffic",
+      (value) => {
+        const message = parseTrafficFrame(value);
+        if (message) onData(message);
+      },
+      onDisconnect,
+    ),
   connectLogs: (onLog: (msg: LogMessage) => void) =>
-    connectStream<LogMessage>("/core/api/logs", (msg) => {
-      msg.time = formatTime();
-      onLog(msg);
+    connectStream("/core/api/logs", (value) => {
+      const message = parseLogFrame(value);
+      if (message) onLog({ ...message, time: formatTime() });
     }),
 };
