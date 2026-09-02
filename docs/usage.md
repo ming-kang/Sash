@@ -103,6 +103,10 @@ Changing `mixed-port` while the system proxy is enabled restores the old binding
 
 Text output follows the same distinction: an unresponsive daemon is reported as unavailable, never with a success marker. `sash proxy status` prints separate daemon, desired, daemon-applied and OS-observed lines and uses exit code 2 when the daemon is alive but unresponsive.
 
+### Log following
+
+`logs -f` behaves like a bounded `tail -F`: it waits when the selected file or log directory does not exist yet, follows appended bytes, restarts at byte zero after truncation or file replacement/rotation, and releases its watcher/timer on SIGINT or SIGTERM. `-n` accepts only canonical positive decimal integers such as `1` or `100`; zero, signs, whitespace, fractions, numeric prefixes and values above JavaScript's safe-integer limit are rejected.
+
 Sash does not blindly turn off an existing proxy. It stores a private ownership journal before takeover and restores only while managed OS values still match the original/Sash transition. If another application changes those values, Sash refuses to overwrite them. Windows and macOS include manual and automatic proxy state; Linux system-proxy automation currently requires GNOME `gsettings`.
 
 ### Web Dashboard

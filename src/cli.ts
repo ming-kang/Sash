@@ -14,6 +14,7 @@ import { runSubSet, runSubShow, runSubUnset, runSubUpdate } from "./commands/sub
 import { runUpdate } from "./commands/update.js";
 import { runUpgrade } from "./commands/upgrade.js";
 import { runWeb } from "./commands/web.js";
+import { parseLogLineCount } from "./log-follow.js";
 import { SETTABLE_KEYS } from "./settings.js";
 
 function packageVersion(): string {
@@ -163,11 +164,11 @@ program
   });
 
 function parseLines(value: string): number {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isInteger(n) || n < 1) {
-    throw new InvalidArgumentError("must be a positive integer");
+  try {
+    return parseLogLineCount(value);
+  } catch (err) {
+    throw new InvalidArgumentError(err instanceof Error ? err.message : String(err));
   }
-  return n;
 }
 
 async function main(): Promise<void> {

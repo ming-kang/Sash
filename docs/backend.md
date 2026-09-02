@@ -37,6 +37,7 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/settings-service.ts`: shared online/offline settings preparation, durable publication and runtime-transition orchestration.
 - `src/contracts.ts`: API contracts shared by the daemon client and WebUI.
 - `src/status.ts`: stable CLI status/proxy observations, explicit unknown values and complete/incomplete exit semantics.
+- `src/log-follow.ts`: bounded tail/follow cursors with creation, truncation, identity-rotation and cancellation handling.
 
 ---
 

@@ -210,7 +210,7 @@
 
 完成记录：新增 `src/status.ts` 统一 CLI status/proxy 观测，`status --json` 固定为 schemaVersion 1，并用 `complete`、`healthy`、`queryError` 与 nullable runtime/proxy/TUN 字段区分 stopped、unhealthy 和 unavailable。完整观测保持退出码 0，不完整观测设为 2，异常仍由 CLI 边界设为 1；文本模式不再把 status timeout 打印为成功。SystemProxyManager 与 daemon 契约增加 applied/state known 元数据，OS 查询失败不会伪装为 off。`proxy status` 分列 daemon、desired、daemon-applied、OS-observed；TUN 提权指引仅用于已确认健康运行但 inactive/unverified 的 Core。healthy、stopped、daemon unhealthy、Core unhealthy、status timeout、OS observation failure、JSON null、退出码和 proxy 状态测试通过；tracked/new-file Biome、typecheck、production build、隔离 CLI smoke 与 358 项测试（357 通过、1 项既有 Windows skip）通过。
 
-### 15. 实现可靠日志 follow — 待办
+### 15. 实现可靠日志 follow — 已完成
 
 目标：`-f` 真正等待未来日志，并正确处理 rotation 和参数错误。
 
@@ -220,6 +220,8 @@
 - `-n` 仅接受 `/^[1-9]\d*$/`，拒绝小数、前缀数字和溢出值。
 
 验收：延迟创建、append、truncate、rename rotation、取消和严格参数测试通过。
+
+完成记录：新增 `src/log-follow.ts` 的 bounded tail-F cursor，以 dev/ino/birthtime identity 与 size 区分 append、truncate、replacement/rename rotation；目录或文件尚未创建时由 directory watcher 加 polling fallback 持续等待，每次读取最多 64 KiB 且文件描述符立即关闭。`runLogs` 同时处理 SIGINT/SIGTERM，并在退出时移除 listener、watcher 和 timer；stdout backpressure 被等待。`-n` 改为 `/^[1-9]\d*$/` 与 safe-integer 校验。延迟目录/文件、append、truncate、rename rotation、停止后无输出、双 signal 清理和参数拒绝测试通过；tracked/new-file Biome、typecheck、production build、隔离 CLI 参数 smoke 与 362 项测试（361 通过、1 项既有 Windows skip）通过。
 
 ### 16. 对齐预发布状态与第三方 notices — 待办
 
