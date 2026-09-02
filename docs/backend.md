@@ -51,7 +51,7 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `state/settings.lock` prevents concurrent first-run secret generation and settings rewrites.
 - `state/system-proxy.json.lock` serializes proxy journal operations.
 
-Lock records are fully written and fsynced before an atomic hard-link publishes them. A live owner is never displaced. Dead owners can be reclaimed; corrupt records fail closed and require explicit repair.
+Lock records are fully written and fsynced before an atomic hard-link publishes them. A live owner is never displaced. Dead owners can be reclaimed; corrupt records fail closed and require explicit repair. Durable rename/remove operations retry Windows sharing violations without deleting a caller-owned source; an interrupted executable unlock probe is restored before Core consistency checks, while conflicting target/probe bytes are both preserved for explicit repair.
 
 Offline commands reload settings after acquiring `mutation.lock`. They refuse to write when a daemon lease, live orphan Core PID or corrupt Core PID record makes ownership uncertain.
 

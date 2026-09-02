@@ -131,7 +131,7 @@
 
 完成记录：新增严格、16 KiB、固定路径的 `state/core-update-transaction.json`，持久化 previous/target records 与 prepared/swapped/health-verified；运行中更新在外部 runtime 恢复前保留 rollback，停止中更新保持旧 metadata/`.bak` 到下次受管 start，成功时 commit、失败时回滚并尝试启动旧 Core。CoreSupervisor 的 expected version 改为启动前动态快照；prepared/partial swap/health metadata/cleanup、首装式 update、缺失 backup、schema/size/regular-file、runtime 成功与失败回滚均有确定性测试。tracked-file Biome、typecheck 与 331 项测试（330 通过、1 项既有 Windows skip）通过。
 
-### 9. 强化 Windows Core 文件恢复 — 待办
+### 9. 强化 Windows Core 文件恢复 — 已完成
 
 目标：Windows 瞬时文件锁或 `.unlock-probe` 中断不会破坏唯一可用 Core。
 
@@ -141,6 +141,8 @@
 - target 与 probe 同时存在时依据 journal；无法判断时 fail closed 并保留两者。
 
 验收：模拟连续 EBUSY、两个 rename 间崩溃、target/probe 冲突，均不丢失最后可用二进制。
+
+完成记录：rename/remove helper 对 Windows EPERM/EBUSY/EACCES 有界重试，rename 失败不再删除 caller-owned source；atomic-write temp 由调用方单独补偿，跨目录 rename fsync 两侧目录。Core 一致性检查前恢复唯一 `.unlock-probe`，相同重复文件安全删除，不同内容则原样保留并 fail closed；lock probe 不再让恢复错误被外层重试吞掉。fault injection 覆盖 transient/persistent rename、remove、probe-only/duplicate/conflict 和 consistency recovery；tracked-file Biome、typecheck 与 338 项测试（337 通过、1 项既有 Windows skip）通过。
 
 ### 10. 选择兼容的 amd64 资产 — 待办
 

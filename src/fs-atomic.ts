@@ -4,9 +4,70 @@ import path from "node:path";
 
 /**
  * Atomic file writes: write to a temp file in the same directory, fsync, then
- * rename over the target. Retries rename on Windows to ride out transient
- * sharing violations from antivirus/indexers.
+ * rename over the target. Windows sharing violations are retried without ever
+ * deleting the caller-owned rename source.
  */
+
+const WINDOWS_TRANSIENT_FILE_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+const DEFAULT_RETRY_DELAYS = [0, 50, 100, 200, 400] as const;
+
+export interface FileRetryOptions {
+  platform?: NodeJS.Platform;
+  delays?: readonly number[];
+  sleep?: (ms: number) => void;
+  rename?: (from: string, to: string) => void;
+  unlink?: (target: string) => void;
+}
+
+function shouldRetryFileError(error: unknown, platform: NodeJS.Platform): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return platform === "win32" && Boolean(code && WINDOWS_TRANSIENT_FILE_CODES.has(code));
+}
+
+/** Rename with bounded Windows retries. Failure always leaves source cleanup to the caller. */
+export function renameWithRetrySync(
+  from: string,
+  to: string,
+  options: FileRetryOptions = {},
+): void {
+  const platform = options.platform ?? process.platform;
+  const delays = options.delays?.length ? options.delays : DEFAULT_RETRY_DELAYS;
+  const sleep = options.sleep ?? sleepSync;
+  const rename = options.rename ?? fs.renameSync;
+  let lastError: unknown;
+  for (const delay of delays) {
+    if (delay > 0) sleep(delay);
+    try {
+      rename(from, to);
+      return;
+    } catch (err) {
+      lastError = err;
+      if (!shouldRetryFileError(err, platform)) break;
+    }
+  }
+  throw lastError;
+}
+
+/** Remove with bounded Windows retries; returns false only when already absent. */
+export function removeWithRetrySync(target: string, options: FileRetryOptions = {}): boolean {
+  const platform = options.platform ?? process.platform;
+  const delays = options.delays?.length ? options.delays : DEFAULT_RETRY_DELAYS;
+  const sleep = options.sleep ?? sleepSync;
+  const unlink = options.unlink ?? fs.unlinkSync;
+  let lastError: unknown;
+  for (const delay of delays) {
+    if (delay > 0) sleep(delay);
+    try {
+      unlink(target);
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+      lastError = err;
+      if (!shouldRetryFileError(err, platform)) break;
+    }
+  }
+  throw lastError;
+}
 
 export function atomicWriteFileSync(target: string, data: string | Buffer, mode = 0o600): void {
   const dir = path.dirname(target);
@@ -29,49 +90,33 @@ export function atomicWriteFileSync(target: string, data: string | Buffer, mode 
     throw err;
   }
   fs.closeSync(fd);
-  renameWithRetry(tmp, target);
+  try {
+    renameWithRetrySync(tmp, target);
+  } catch (err) {
+    // This temp file belongs to atomicWriteFileSync, unlike a caller-owned
+    // durableRename source, so explicit local compensation is safe.
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // Preserve the publication error; a uniquely named temp may remain.
+    }
+    throw err;
+  }
   fsyncParentDirectory(dir);
 }
 
 /** Remove a file and durably persist its directory entry on POSIX. */
 export function durableRemoveFileSync(target: string): void {
-  try {
-    fs.unlinkSync(target);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw err;
-  }
-  fsyncParentDirectory(path.dirname(target));
+  if (removeWithRetrySync(target)) fsyncParentDirectory(path.dirname(target));
 }
 
-/** Rename a file and durably persist the destination directory entry on POSIX. */
+/** Rename a file and durably persist both affected directory entries on POSIX. */
 export function durableRenameSync(from: string, to: string): void {
-  renameWithRetry(from, to);
-  fsyncParentDirectory(path.dirname(to));
-}
-
-function renameWithRetry(from: string, to: string): void {
-  const delays = [0, 50, 100, 200, 400];
-  let lastErr: unknown;
-  for (const delay of delays) {
-    if (delay > 0) sleepSync(delay);
-    try {
-      fs.renameSync(from, to);
-      return;
-    } catch (err) {
-      lastErr = err;
-      const code = (err as NodeJS.ErrnoException).code;
-      if (process.platform !== "win32" || !code || !["EPERM", "EBUSY", "EACCES"].includes(code)) {
-        break;
-      }
-    }
-  }
-  try {
-    fs.rmSync(from, { force: true });
-  } catch {
-    // best effort
-  }
-  throw lastErr;
+  renameWithRetrySync(from, to);
+  const sourceDir = path.dirname(from);
+  const destinationDir = path.dirname(to);
+  fsyncParentDirectory(destinationDir);
+  if (sourceDir !== destinationDir) fsyncParentDirectory(sourceDir);
 }
 
 function fsyncParentDirectory(dir: string): void {

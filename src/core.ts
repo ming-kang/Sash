@@ -20,7 +20,7 @@ import {
   resolveLatestTag,
 } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { buildSanitizedEnv } from "./process.js";
+import { buildSanitizedEnv, recoverBinaryUnlockProbe } from "./process.js";
 
 /**
  * Mihomo core acquisition: platform asset selection, download, decompression,
@@ -342,6 +342,7 @@ export function coreInstalled(layout: SashLayout = sashLayout()): boolean {
 
 /** Fail closed when binary and committed install metadata do not agree. */
 export function assertCoreInstallationConsistent(layout: SashLayout = sashLayout()): void {
+  recoverBinaryUnlockProbe(layout.coreExe);
   const binaryExists = pathEntryExists(layout.coreExe);
   const installRecordExists = pathEntryExists(layout.installFile);
   const binaryValid = isRegularFile(layout.coreExe);

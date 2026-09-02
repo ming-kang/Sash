@@ -1,7 +1,8 @@
 import { execFileSync, spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { atomicWriteFileSync } from "./fs-atomic.js";
+import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
 
 /**
  * Low-level process toolkit: liveness probes, fail-closed identity
@@ -424,25 +425,68 @@ export function clearPidRecord(pidFile: string): void {
   }
 }
 
-function recoverUnlockProbeBinary(target: string, probe: string): boolean {
+export function binaryUnlockProbePath(target: string): string {
+  return path.join(path.dirname(target), `.${path.basename(target)}.unlock-probe`);
+}
+
+function regularFileStat(file: string): fs.Stats | undefined {
   try {
-    if (fs.existsSync(probe) && !fs.existsSync(target)) {
-      fs.renameSync(probe, target);
-    } else if (fs.existsSync(probe) && fs.existsSync(target)) {
-      fs.rmSync(probe, { force: true });
-    }
-    return !fs.existsSync(probe);
-  } catch {
-    return false;
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile()) throw new Error(`Binary path is not a regular file: ${file}`);
+    return stat;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
   }
 }
 
-async function recoverUnlockProbeWithRetry(target: string, probe: string): Promise<boolean> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (recoverUnlockProbeBinary(target, probe)) return true;
-    await sleep(100);
+function fileDigestSync(file: string): string {
+  const hash = crypto.createHash("sha256");
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  const fd = fs.openSync(file, "r");
+  try {
+    for (;;) {
+      const bytes = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (bytes === 0) break;
+      hash.update(buffer.subarray(0, bytes));
+    }
+  } finally {
+    fs.closeSync(fd);
   }
-  return recoverUnlockProbeBinary(target, probe);
+  return hash.digest("hex");
+}
+
+/** Restore a binary stranded by an interrupted Windows unlock probe. */
+export function recoverBinaryUnlockProbe(target: string): void {
+  const probe = binaryUnlockProbePath(target);
+  const probeStat = regularFileStat(probe);
+  if (!probeStat) return;
+  const targetStat = regularFileStat(target);
+  if (!targetStat) {
+    durableRenameSync(probe, target);
+    return;
+  }
+  if (probeStat.size === targetStat.size && fileDigestSync(probe) === fileDigestSync(target)) {
+    durableRemoveFileSync(probe);
+    return;
+  }
+  throw new Error(
+    `Core binary and unlock probe both exist with different content; preserved ${target} and ${probe}`,
+  );
+}
+
+async function recoverUnlockProbeWithRetry(target: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      recoverBinaryUnlockProbe(target);
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt < 3) await sleep(100);
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -450,48 +494,38 @@ async function recoverUnlockProbeWithRetry(target: string, probe: string): Promi
  * On POSIX platforms, returns immediately.
  */
 export async function waitForBinaryUnlocked(target: string, timeoutMs = 30_000): Promise<void> {
-  if (process.platform !== "win32") {
-    return;
-  }
+  await recoverUnlockProbeWithRetry(target);
+  if (process.platform !== "win32" || !fs.existsSync(target)) return;
 
-  if (!fs.existsSync(target)) {
-    return;
-  }
-
-  const probe = path.join(path.dirname(target), `.${path.basename(target)}.unlock-probe`);
-
-  recoverUnlockProbeBinary(target, probe);
-
+  const probe = binaryUnlockProbePath(target);
   const deadline = Date.now() + timeoutMs;
   let delay = 150;
 
   while (Date.now() < deadline) {
-    recoverUnlockProbeBinary(target, probe);
     try {
-      fs.renameSync(target, probe);
-      try {
-        fs.renameSync(probe, target);
-        return;
-      } catch (secondErr) {
-        // Antivirus may grab the freshly renamed file; retry the recovery a
-        // few times before giving up so the binary is never stranded under
-        // the probe name.
-        const recovered = await recoverUnlockProbeWithRetry(target, probe);
-        if (!recovered) {
-          throw new Error(
-            `Failed to restore the binary after the lock probe; it may currently be named ${probe}: ${
-              (secondErr as Error).message
-            }`,
-          );
-        }
-      }
+      durableRenameSync(target, probe);
     } catch {
       await sleep(delay);
       delay = Math.min(1000, Math.floor(delay * 1.5));
+      continue;
+    }
+
+    try {
+      durableRenameSync(probe, target);
+      return;
+    } catch (secondError) {
+      try {
+        await recoverUnlockProbeWithRetry(target);
+        return;
+      } catch (recoveryError) {
+        throw new Error(
+          `Failed to restore the binary after the lock probe; preserved state near ${probe}: ${(secondError as Error).message}; recovery failed: ${(recoveryError as Error).message}`,
+        );
+      }
     }
   }
 
-  recoverUnlockProbeBinary(target, probe);
+  await recoverUnlockProbeWithRetry(target);
   throw new Error(
     `Binary is still locked after ${timeoutMs}ms: ${target}. Close programs using it and retry.`,
   );

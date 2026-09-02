@@ -285,6 +285,23 @@ describe("core", () => {
         /executable is missing.*sash update --force/,
       );
     });
+
+    it("recovers an interrupted unlock probe before checking installation consistency", () => {
+      writeInstallRecord(
+        { coreVersion: "v1.19.30", installedAt: "2025-01-01T00:00:00.000Z" },
+        layout,
+      );
+      fs.mkdirSync(layout.binDir, { recursive: true });
+      const probe = path.join(
+        path.dirname(layout.coreExe),
+        `.${path.basename(layout.coreExe)}.unlock-probe`,
+      );
+      fs.writeFileSync(probe, "binary");
+
+      assert.doesNotThrow(() => assertCoreInstallationConsistent(layout));
+      assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "binary");
+      assert.equal(fs.existsSync(probe), false);
+    });
   });
 
   describe("first-install transaction recovery", () => {

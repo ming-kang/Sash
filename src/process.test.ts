@@ -6,11 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
+  binaryUnlockProbePath,
   buildSanitizedEnv,
   clearPidRecord,
   isProcessAlive,
   killProcessGracefully,
   readPidRecord,
+  recoverBinaryUnlockProbe,
   TAIL_FILE_CHUNK_BYTES,
   tailFile,
   writePidRecord,
@@ -103,6 +105,42 @@ describe("process utilities", () => {
       assert.equal(sanitized.GH_TOKEN, undefined);
       assert.equal(sanitized.npm_config__auth, undefined);
       assert.equal(sanitized.NPM_CONFIG_AUTHTOKEN, undefined);
+    });
+  });
+
+  describe("binary unlock probe recovery", () => {
+    it("restores the only binary stranded under the probe name", () => {
+      const target = path.join(tmpDir, "core.exe");
+      const probe = binaryUnlockProbePath(target);
+      fs.writeFileSync(probe, "core-bytes");
+
+      recoverBinaryUnlockProbe(target);
+
+      assert.equal(fs.readFileSync(target, "utf8"), "core-bytes");
+      assert.equal(fs.existsSync(probe), false);
+    });
+
+    it("removes an identical duplicate probe", () => {
+      const target = path.join(tmpDir, "core.exe");
+      const probe = binaryUnlockProbePath(target);
+      fs.writeFileSync(target, "same-core");
+      fs.writeFileSync(probe, "same-core");
+
+      recoverBinaryUnlockProbe(target);
+
+      assert.equal(fs.readFileSync(target, "utf8"), "same-core");
+      assert.equal(fs.existsSync(probe), false);
+    });
+
+    it("preserves and rejects conflicting target and probe files", () => {
+      const target = path.join(tmpDir, "core.exe");
+      const probe = binaryUnlockProbePath(target);
+      fs.writeFileSync(target, "current-core");
+      fs.writeFileSync(probe, "different-core");
+
+      assert.throws(() => recoverBinaryUnlockProbe(target), /both exist with different content/);
+      assert.equal(fs.readFileSync(target, "utf8"), "current-core");
+      assert.equal(fs.readFileSync(probe, "utf8"), "different-core");
     });
   });
 

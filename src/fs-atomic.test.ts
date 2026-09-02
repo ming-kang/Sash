@@ -3,7 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
+import {
+  atomicWriteFileSync,
+  durableRemoveFileSync,
+  durableRenameSync,
+  removeWithRetrySync,
+  renameWithRetrySync,
+} from "./fs-atomic.js";
 
 describe("fs-atomic", () => {
   let tmpDir: string;
@@ -93,6 +99,52 @@ describe("fs-atomic", () => {
       assert.equal(fs.existsSync(source), false);
       assert.equal(fs.readFileSync(destination, "utf8"), "binary");
     });
+
+    it("retries transient Windows sharing violations without deleting the source", () => {
+      const source = path.join(tmpDir, "source.bin");
+      const destination = path.join(tmpDir, "destination.bin");
+      fs.writeFileSync(source, "binary");
+      let attempts = 0;
+
+      renameWithRetrySync(source, destination, {
+        platform: "win32",
+        delays: [0, 0, 0],
+        sleep: () => undefined,
+        rename: (from, to) => {
+          attempts += 1;
+          if (attempts < 3) {
+            throw Object.assign(new Error("busy"), { code: "EBUSY" });
+          }
+          fs.renameSync(from, to);
+        },
+      });
+
+      assert.equal(attempts, 3);
+      assert.equal(fs.existsSync(source), false);
+      assert.equal(fs.readFileSync(destination, "utf8"), "binary");
+    });
+
+    it("preserves the caller-owned source after persistent rename failure", () => {
+      const source = path.join(tmpDir, "source.bin");
+      const destination = path.join(tmpDir, "destination.bin");
+      fs.writeFileSync(source, "only-copy");
+
+      assert.throws(
+        () =>
+          renameWithRetrySync(source, destination, {
+            platform: "win32",
+            delays: [0, 0],
+            sleep: () => undefined,
+            rename: () => {
+              throw Object.assign(new Error("busy"), { code: "EACCES" });
+            },
+          }),
+        /busy/,
+      );
+
+      assert.equal(fs.readFileSync(source, "utf8"), "only-copy");
+      assert.equal(fs.existsSync(destination), false);
+    });
   });
 
   describe("durableRemoveFileSync", () => {
@@ -103,6 +155,27 @@ describe("fs-atomic", () => {
       durableRemoveFileSync(target);
       durableRemoveFileSync(target);
 
+      assert.equal(fs.existsSync(target), false);
+    });
+
+    it("retries transient Windows remove failures", () => {
+      const target = path.join(tmpDir, "remove.txt");
+      fs.writeFileSync(target, "data");
+      let attempts = 0;
+
+      const removed = removeWithRetrySync(target, {
+        platform: "win32",
+        delays: [0, 0],
+        sleep: () => undefined,
+        unlink: (file) => {
+          attempts += 1;
+          if (attempts === 1) throw Object.assign(new Error("busy"), { code: "EPERM" });
+          fs.unlinkSync(file);
+        },
+      });
+
+      assert.equal(removed, true);
+      assert.equal(attempts, 2);
       assert.equal(fs.existsSync(target), false);
     });
   });
