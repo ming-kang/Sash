@@ -51,11 +51,6 @@ export interface TrafficMessage {
   down: number;
 }
 
-export interface MemoryMessage {
-  inuse: number;
-  osalloc: number;
-}
-
 export interface LogMessage {
   type: "info" | "warning" | "error" | "debug";
   payload: string;

@@ -4,8 +4,6 @@ import { iconComponents, resolveIcon } from "./icons.js";
 
 const expectedNames = [
   "alert",
-  "arrow-down",
-  "arrow-up",
   "check-circle",
   "clipboard",
   "download",

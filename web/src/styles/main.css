@@ -22,41 +22,42 @@
   --border-accent: #8bcbe3;
   --text-primary: #17191c;
   --text-secondary: #4f5964;
-  --text-muted: #77818c;
+  --text-muted: #5f6a76;
   --text-inverse: #ffffff;
 
   /* Blue is reserved for selected modes and primary actions. */
-  --accent: #339fc9;
-  --accent-hover: #268bb3;
-  --accent-pressed: #207795;
+  /* All text-bearing colors keep >= 4.5:1 contrast with their backgrounds (WCAG AA). */
+  --accent: #1e7693;
+  --accent-hover: #1a6885;
+  --accent-pressed: #15566e;
   --accent-contrast: #ffffff;
   --accent-soft: #e8f5fa;
   --accent-ring: rgba(51, 159, 201, 0.24);
   --accent-shadow: rgba(51, 159, 201, 0.18);
 
   /* Green remains a semantic selected/online state, not a page wash. */
-  --selection: #27ad67;
+  --selection: #1c7a4a;
   --selection-soft: #e8f7ef;
   --selection-border: #8ed4ad;
-  --success: #168a50;
+  --success: #157f4c;
   --success-soft: #e8f7ef;
   --success-border: #9ed6b7;
   --warning: #9a650d;
   --warning-soft: #fff6dc;
   --warning-border: #e7cc86;
-  --danger: #d94a4a;
-  --danger-hover: #bd3838;
+  --danger: #c13a3a;
+  --danger-hover: #a83030;
   --danger-soft: #fceded;
   --danger-border: #e4a4a4;
-  --info: #277ba5;
+  --info: #1f6a8f;
   --info-soft: #eaf4f9;
   --info-border: #a8cedf;
 
-  --chart-down: #339fc9;
-  --chart-up: #766fc5;
-  --chart-1: #339fc9;
-  --chart-2: #27ad67;
-  --chart-3: #766fc5;
+  --chart-down: #1e7693;
+  --chart-up: #6558b8;
+  --chart-1: #1e7693;
+  --chart-2: #1c7a4a;
+  --chart-3: #6558b8;
   --chart-4: #c38a27;
   --chart-5: #cb5f8e;
   --chart-6: #557fbb;
@@ -78,10 +79,10 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  --switch-off: #c8c4c5;
+  --switch-off: #8a8690;
   --switch-knob: #ffffff;
-  --switch-knob-off: #d94a4a;
-  --switch-knob-on: #16a85a;
+  --switch-knob-off: #c13a3a;
+  --switch-knob-on: #157f4c;
   --scrollbar: #c7c7c9;
   --scrollbar-hover: #a7a7aa;
   --sidebar-w: 184px;
@@ -110,7 +111,7 @@ html[data-theme="dark"] {
   --accent: #3aa1cc;
   --accent-hover: #52b7de;
   --accent-pressed: #2d8db5;
-  --accent-contrast: #ffffff;
+  --accent-contrast: var(--text-inverse);
   --accent-soft: rgba(58, 161, 204, 0.16);
   --accent-ring: rgba(82, 183, 222, 0.3);
   --accent-shadow: rgba(58, 161, 204, 0.22);
@@ -133,10 +134,10 @@ html[data-theme="dark"] {
   --info-border: #386d82;
 
   --chart-down: #50b8df;
-  --chart-up: #9990ea;
+  --chart-up: #b0a7f2;
   --chart-1: #50b8df;
   --chart-2: #42d07e;
-  --chart-3: #9990ea;
+  --chart-3: #b0a7f2;
   --chart-4: #efbd62;
   --chart-5: #e781ac;
   --chart-6: #7aa1da;

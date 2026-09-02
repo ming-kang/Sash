@@ -243,6 +243,11 @@ function delayClass(name: string): string {
   cursor: wait;
   opacity: 0.68;
 }
+/* The card clips overflowing content, so the focus outline must be inset
+   instead of using the global positive offset. */
+.node-main:focus-visible {
+  outline-offset: -2px;
+}
 .node-card.static .node-main {
   cursor: default;
 }

@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="logs-view">
     <PageHeader :title="t('page.logs.title')" :desc="t('page.logs.desc')">
       <div class="segmented level-filter" role="group" :aria-label="t('page.logs.title')">
         <button
@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
@@ -112,6 +112,10 @@ watch(
   },
 );
 
+onMounted(() => {
+  void scrollToBottom();
+});
+
 onBeforeUnmount(() => {
   disposed = true;
   if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
@@ -119,10 +123,15 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.logs-view {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+}
 .log-pane {
-  height: calc(100dvh - 142px);
+  min-width: 0;
   min-height: 320px;
-  max-width: 100%;
+  flex: 1;
   overflow-y: auto;
   padding: 8px 10px;
   contain: layout paint;
@@ -194,6 +203,13 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
+@media (max-width: 899px) {
+  /* Exact-fit height: sidebar top bar + fixed bottom nav + container padding. */
+  .logs-view {
+    height: calc(100dvh - 58px - 62px - env(safe-area-inset-bottom, 0px) - 8px);
+  }
+}
+
 @media (max-width: 760px) {
   :deep(.page-head-actions) {
     min-width: 0;
@@ -209,7 +225,6 @@ onBeforeUnmount(() => {
     min-height: 36px;
   }
   .log-pane {
-    height: calc(100dvh - 238px);
     min-height: 280px;
     padding: 8px;
   }
@@ -242,7 +257,6 @@ onBeforeUnmount(() => {
     flex: 1 0 auto;
   }
   .log-pane {
-    height: calc(100dvh - 276px);
     min-height: 260px;
   }
   .log-time {

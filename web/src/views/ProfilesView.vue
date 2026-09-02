@@ -107,6 +107,7 @@
             <div
               class="usage-bar"
               role="progressbar"
+              :aria-label="t('profiles.usageLabel')"
               aria-valuemin="0"
               aria-valuemax="100"
               :aria-valuenow="usagePct(p)"

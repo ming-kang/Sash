@@ -83,13 +83,13 @@
               max="65535"
               class="input input-sm port-input"
               :aria-label="t('settings.mixedPortTitle')"
-              :disabled="savingPort"
+              :disabled="savingPort || !store.status"
             />
             <button
               v-if="portDirty"
               type="button"
               class="btn btn-secondary btn-sm"
-              :disabled="savingPort"
+              :disabled="savingPort || !store.status"
               @click="resetMixedPort"
             >
               {{ t('common.reset') }}
@@ -97,7 +97,7 @@
             <button
               type="button"
               class="btn btn-secondary btn-sm interrupt-save"
-              :disabled="savingPort || !portValid"
+              :disabled="savingPort || !portValid || !store.status"
               @click="saveMixedPort"
             >
               {{ savingPort ? t('common.loading') : t('common.save') }}
@@ -114,7 +114,7 @@
             <UiSwitch
               :model-value="store.status?.settings.allowLan ?? false"
               :label="t('settings.allowLanTitle')"
-              :disabled="store.operations.networkSetting"
+              :disabled="store.operations.networkSetting || !store.status"
               @update:model-value="toggleAllowLan"
             />
           </div>
@@ -137,7 +137,7 @@
             <UiSwitch
               :model-value="store.status?.settings.tun ?? false"
               :label="t('settings.tunTitle')"
-              :disabled="store.operations.networkSetting"
+              :disabled="store.operations.networkSetting || !store.status"
               @update:model-value="toggleTun"
             />
           </div>
@@ -207,11 +207,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { api } from "../api/index.js";
-import { confirmDialog } from "../components/confirm.js";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import UiCard from "../components/UiCard.vue";
 import UiSwitch from "../components/UiSwitch.vue";
+import { coreVersion, tunStatusBadge, useCoreRestart } from "../composables/core-runtime.js";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
 import {
   errorText,
@@ -231,7 +231,7 @@ const committedMixedPort = ref(store.status?.settings.mixedPort ?? 17890);
 const mixedPort = ref(committedMixedPort.value);
 
 const savingPort = ref(false);
-const restarting = ref(false);
+const { restarting, restartCore } = useCoreRestart();
 const reloading = ref(false);
 
 watch(
@@ -260,46 +260,6 @@ const portValid = computed(
     portDirty.value,
 );
 
-const coreVersion = computed(() => {
-  const version = store.status?.core.version;
-  return version ? (version.startsWith("v") ? version : `v${version}`) : "";
-});
-const tunStatusBadge = computed(() => {
-  switch (tunRuntime.value) {
-    case "active":
-      return {
-        text: t("settings.tunStateActive"),
-        title: t("settings.tunDesc"),
-        className: "badge-success",
-      };
-    case "inactive":
-      return {
-        text: t("settings.tunStateInactive"),
-        title: t("settings.tunInactiveDesc"),
-        className: "badge-warning",
-      };
-    case "unverified":
-      return {
-        text: t("settings.tunStateUnverified"),
-        title: t("settings.tunUnverifiedDesc"),
-        className: "badge-warning",
-      };
-    case "stopped":
-      return {
-        text: t("settings.tunStateStopped"),
-        title: t("settings.tunDesc"),
-        className: "badge-neutral",
-      };
-    case "unexpected-active":
-      return {
-        text: t("settings.tunStateUnexpected"),
-        title: t("settings.tunUnexpectedDesc"),
-        className: "badge-warning",
-      };
-    default:
-      return null;
-  }
-});
 const tunDescription = computed(() => {
   switch (tunRuntime.value) {
     case "inactive":
@@ -357,27 +317,6 @@ function toggleAllowLan(next: boolean): void {
 
 function toggleTun(next: boolean): void {
   void applyToggle("tun", next);
-}
-
-async function restartCore(): Promise<void> {
-  const ok = await confirmDialog({
-    title: t("settings.restartConfirmTitle"),
-    message: t("settings.restartConfirmMsg"),
-    confirmText: t("common.confirm"),
-    cancelText: t("common.cancel"),
-    danger: true,
-  });
-  if (!ok || restarting.value) return;
-  restarting.value = true;
-  try {
-    await api.restartCore();
-    await refreshRuntimeState();
-    toast.success(t("toast.coreRestarted"));
-  } catch (err) {
-    toast.error(t("toast.failed", { msg: errorText(err) }));
-  } finally {
-    restarting.value = false;
-  }
 }
 
 async function reloadConfig(): Promise<void> {

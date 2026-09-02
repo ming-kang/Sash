@@ -17,7 +17,7 @@
         </div>
       </Transition>
 
-      <div class="page-container">
+      <div class="page-container" :class="`page-${currentRoute}`">
         <OverviewView v-if="currentRoute === 'overview'" />
         <ProfilesView v-else-if="currentRoute === 'profiles'" />
         <LogsView v-else-if="currentRoute === 'logs'" />
@@ -168,6 +168,11 @@ onUnmounted(() => {
   .page-container {
     overflow: visible;
     padding: 0 16px calc(78px + env(safe-area-inset-bottom));
+  }
+  /* The logs view sizes itself exactly to the viewport; extra scroll room
+     would only produce a nested scrollbar. */
+  .page-container.page-logs {
+    padding-bottom: 8px;
   }
 }
 

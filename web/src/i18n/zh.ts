@@ -147,6 +147,7 @@ export const zh = {
     clickToUse: "点击切换到此配置",
     localFile: "本地文件",
     neverUpdated: "从未更新",
+    usageLabel: "订阅流量用量",
     statGroups: "策略组",
     emptyTitle: "暂无配置",
     emptyHint: "从 URL 下载订阅，或导入本地 YAML 文件",

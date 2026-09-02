@@ -95,7 +95,7 @@
               <UiSwitch
                 :model-value="store.status?.settings.allowLan ?? false"
                 :label="t('overview.lan')"
-                :disabled="store.operations.networkSetting"
+                :disabled="store.operations.networkSetting || !store.status"
                 @update:model-value="(value: boolean) => applyNetToggle('allow-lan', value)"
               />
             </div>
@@ -115,7 +115,7 @@
               <UiSwitch
                 :model-value="store.status?.settings.tun ?? false"
                 :label="t('overview.tun')"
-                :disabled="store.operations.networkSetting"
+                :disabled="store.operations.networkSetting || !store.status"
                 @update:model-value="(value: boolean) => applyNetToggle('tun', value)"
               />
             </div>
@@ -307,7 +307,7 @@ import PageHeader from "../components/PageHeader.vue";
 import ProxyGroupSection from "../components/ProxyGroupSection.vue";
 import TrafficChart from "../components/TrafficChart.vue";
 import UiSwitch from "../components/UiSwitch.vue";
-import { confirmDialog } from "../components/confirm.js";
+import { coreVersion, tunStatusBadge, useCoreRestart } from "../composables/core-runtime.js";
 import { locale, t } from "../i18n/index.js";
 import { navigate } from "../router.js";
 import {
@@ -317,26 +317,19 @@ import {
   isCoreRunning,
   isSysProxyOn,
   patchBooleanSetting,
-  refreshRuntimeState,
   selectGroupProxy,
   setOutboundMode,
   setSystemProxyEnabled,
   store,
   toast,
-  tunRuntime,
   updateProfile,
   updateProxyDelay,
 } from "../stores/index.js";
 import type { OutboundMode } from "../types/index.js";
 import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 
-const restarting = ref(false);
+const { restarting, restartCore } = useCoreRestart();
 const refreshingSub = ref(false);
-
-const coreVersion = computed(() => {
-  const version = store.status?.core.version;
-  return version ? (version.startsWith("v") ? version : `v${version}`) : "";
-});
 
 const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
 const activeProfile = computed(() => store.status?.activeProfile ?? null);
@@ -346,43 +339,6 @@ const totalNodes = computed(
       (proxy) => !(Array.isArray(proxy.all) && proxy.all.length > 0),
     ).length,
 );
-const tunStatusBadge = computed(() => {
-  switch (tunRuntime.value) {
-    case "active":
-      return {
-        text: t("settings.tunStateActive"),
-        title: t("settings.tunDesc"),
-        className: "badge-success",
-      };
-    case "inactive":
-      return {
-        text: t("settings.tunStateInactive"),
-        title: t("settings.tunInactiveDesc"),
-        className: "badge-warning",
-      };
-    case "unverified":
-      return {
-        text: t("settings.tunStateUnverified"),
-        title: t("settings.tunUnverifiedDesc"),
-        className: "badge-warning",
-      };
-    case "stopped":
-      return {
-        text: t("settings.tunStateStopped"),
-        title: t("settings.tunDesc"),
-        className: "badge-neutral",
-      };
-    case "unexpected-active":
-      return {
-        text: t("settings.tunStateUnexpected"),
-        title: t("settings.tunUnexpectedDesc"),
-        className: "badge-warning",
-      };
-    default:
-      return null;
-  }
-});
-
 const modes = computed(() => [
   { id: "global" as OutboundMode, label: t("overview.modeGlobal") },
   { id: "rule" as OutboundMode, label: t("overview.modeRule") },
@@ -490,27 +446,6 @@ async function applyNetToggle(key: "allow-lan" | "tun", next: boolean): Promise<
     toast.success(t("toast.settingSaved"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
-  }
-}
-
-async function restartCore(): Promise<void> {
-  const ok = await confirmDialog({
-    title: t("settings.restartConfirmTitle"),
-    message: t("settings.restartConfirmMsg"),
-    confirmText: t("common.confirm"),
-    cancelText: t("common.cancel"),
-    danger: true,
-  });
-  if (!ok) return;
-  restarting.value = true;
-  try {
-    await api.restartCore();
-    await refreshRuntimeState();
-    toast.success(t("toast.coreRestarted"));
-  } catch (err) {
-    toast.error(t("toast.failed", { msg: errorText(err) }));
-  } finally {
-    restarting.value = false;
   }
 }
 

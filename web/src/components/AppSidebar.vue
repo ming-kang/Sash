@@ -80,6 +80,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { coreVersion } from "../composables/core-runtime.js";
 import { locale, t } from "../i18n/index.js";
 import { currentRoute, navigate, type Route } from "../router.js";
 import { isCoreRunning, store } from "../stores/index.js";
@@ -96,10 +97,6 @@ const navItems: Array<{ route: Route; icon: string }> = [
   { route: "settings", icon: "settings" },
 ];
 
-const coreVersion = computed(() => {
-  const version = store.status?.core.version;
-  return version ? (version.startsWith("v") ? version : `v${version}`) : "";
-});
 const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
 const coreTooltip = computed(() => {
   const status = isCoreRunning.value ? t("app.coreRunning") : t("app.coreStopped");

@@ -149,6 +149,7 @@ export const en: Messages = {
     clickToUse: "Click to activate this profile",
     localFile: "local file",
     neverUpdated: "never updated",
+    usageLabel: "Subscription traffic usage",
     statGroups: "Proxy Groups",
     emptyTitle: "No profiles yet",
     emptyHint: "Download a subscription from a URL, or import a local YAML file",

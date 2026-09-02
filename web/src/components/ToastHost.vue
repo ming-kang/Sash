@@ -8,6 +8,7 @@
           </span>
           <span class="toast-text">{{ item.text }}</span>
           <button
+            type="button"
             class="toast-close"
             :aria-label="t('common.close')"
             @click="dismissToast(item.id)"

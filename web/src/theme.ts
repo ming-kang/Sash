@@ -20,7 +20,7 @@ function readTheme(): Theme {
 
 export const theme = ref<Theme>(readTheme());
 const systemTheme = ref<ResolvedTheme>(mediaQuery?.matches ? "dark" : "light");
-export const resolvedTheme = computed<ResolvedTheme>(() =>
+const resolvedTheme = computed<ResolvedTheme>(() =>
   theme.value === "system" ? systemTheme.value : theme.value,
 );
 

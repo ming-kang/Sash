@@ -16,6 +16,7 @@
           <div class="dialog-actions">
             <button
               ref="cancelButton"
+              type="button"
               class="btn btn-secondary btn-sm"
               @click="settleConfirm(false)"
             >
@@ -23,6 +24,7 @@
             </button>
             <button
               ref="confirmButton"
+              type="button"
               class="btn btn-sm"
               :class="confirmState.danger ? 'btn-danger' : 'btn-primary'"
               @click="settleConfirm(true)"
