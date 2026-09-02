@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Durable first-install Core publication journal with publishing/committed crash recovery.
 - Authenticated maintenance shutdown API returning an atomic Core-running snapshot for executable updates.
 - Durable system-proxy ownership journal that snapshots and conditionally restores prior manual/PAC state.
-- Windows/macOS/Linux and Node.js 20/22 CI matrix covering lint, tests, builds and package dry-runs.
+- Windows/macOS/Linux and Node.js 24 CI matrix covering lint, tests, builds and package dry-runs.
 
 ### Changed
 
@@ -48,7 +48,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Overview proxy groups share a reusable component; WebUI runtime refresh, profile mutations, mode/proxy intent and polling are centralized in store actions with per-domain generations.
 - Daemon status exposes a per-boot monotonic profile revision so scheduled profile publications trigger one coherent WebUI runtime refresh without adding heavy requests to every poll.
 - `npm test` now runs server TypeScript, `vue-tsc`, backend tests and WebUI tests. WebUI TypeScript is included in Biome checks.
-- Vite uses its Node API and a Node-20-compatible release line; unused archive/version dependencies were removed. Published backend source maps are disabled.
+- The minimum runtime is Node.js 24 across package metadata, the early CLI guard, documentation and CI. Vite continues to use its Node API; unused archive/version dependencies were removed, and published backend source maps are disabled.
 - Core/proxy transitions now pass through one serialized runtime lifecycle; proxy restoration precedes deliberate Core shutdown and readiness precedes proxy apply.
 - Offline mutations reload committed settings under lock and refuse uncertain daemon/orphan-Core ownership.
 - Core release mirrors are transport-only: official GitHub metadata selects the release and supplies the mandatory SHA-256 digest.

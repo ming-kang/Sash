@@ -10,8 +10,8 @@ The WebUI is a Vue 3 application built with Vite and bundled into `dist/ui/`. sa
 - `npm run typecheck:web` runs `vue-tsc`, including Vue templates.
 - `npm test` runs server type checking, WebUI type checking, backend tests and WebUI TypeScript tests.
 - Biome checks WebUI TypeScript and Vite configuration. Vue templates are type-checked by `vue-tsc` and compiled by Vite.
-- Vite 6 is used so repository builds support the full declared Node.js 20 baseline.
-- CI runs lint, server/WebUI type checks, all tests, production builds and package dry-runs on Windows, macOS and Linux with Node.js 20/22.
+- Vite 6 builds the bundled dashboard on the declared Node.js 24 baseline.
+- CI runs lint, server/WebUI type checks, all tests, production builds and package dry-runs on Windows, macOS and Linux with Node.js 24.
 
 ---
 

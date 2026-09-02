@@ -29,7 +29,7 @@
     "prepublishOnly": "npm run audit:prod && npm run lint && npm test && npm run build"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24.0.0"
   },
   "repository": {
     "type": "git",
@@ -63,7 +63,7 @@
     "@remixicon/vue": "^4.9.0",
     "@types/adm-zip": "^0.5.7",
     "@types/cross-spawn": "^6.0.6",
-    "@types/node": "^20.0.0",
+    "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^5.2.4",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",

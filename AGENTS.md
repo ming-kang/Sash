@@ -9,7 +9,7 @@
 
 ## Project Layout
 
-Sash is a strict TypeScript ESM CLI (Node.js >= 20). Entry point: `src/cli.ts`.
+Sash is a strict TypeScript ESM CLI (Node.js >= 24). Entry point: `src/cli.ts`.
 
 - `src/commands/` — one module per command group; thin wiring only, no business logic.
 - `src/` root modules — `paths.ts` (data dir layout), `settings.ts` (`sash.json`), `core.ts` (core download/install), `webui.ts` (dashboard asset path resolution), `mihomo-config.ts` (config.yaml generation), `process.ts` (daemon lifecycle, PID identity), `api.ts` (external-controller client), `http.ts` / `github.ts` (networking, mirrors), `fs-atomic.ts`.
@@ -20,7 +20,7 @@ Sash is a strict TypeScript ESM CLI (Node.js >= 20). Entry point: `src/cli.ts`.
 - Read files in full before wide-ranging changes. Do not rely on search snippets for broad changes.
 - ESM with NodeNext: relative imports always carry the `.js` suffix; type-only imports use `import type`.
 - No `any` unless absolutely necessary. Check node_modules for external API types; don't guess.
-- Keep the first import of `src/cli.ts` (`./node-version-guard.js`) above all others; it must run before any Node 20+ API is touched.
+- Keep the first import of `src/cli.ts` (`./node-version-guard.js`) above all others; it must run before any Node 24+ API is touched.
 - Inline single-line helpers that have only one call site.
 - Always ask before removing functionality or code that appears intentional.
 

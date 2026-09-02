@@ -17,7 +17,7 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 
 ## Requirements
 
-- Node.js **20 or newer**
+- Node.js **24 or newer**
 - Windows 10+, macOS, or Linux — x64 and arm64
 
 Automatic Linux system-proxy integration currently requires a GNOME desktop with `gsettings`; Core lifecycle and local endpoints do not have that desktop requirement.
