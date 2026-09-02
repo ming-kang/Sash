@@ -1,6 +1,10 @@
 import { commitManagedStateTransaction } from "./managed-state-transaction.js";
 import type { SashLayout } from "./paths.js";
-import type { PreparedActiveConfig, ProfileService } from "./profile-service.js";
+import {
+  type PreparedActiveConfig,
+  ProfileConflictError,
+  type ProfileService,
+} from "./profile-service.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { applyManagedKey, requiresCoreRestart, type SashSettings } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
@@ -52,10 +56,16 @@ export class SettingsService {
     }
 
     if (key === "system-proxy") return this.updateSystemProxy(previous, candidate);
-    const prepared = await this.options.profiles.prepareActiveConfig(candidate);
-    return this.options.commit("update settings", () =>
-      this.commitCoreSettings(previous, candidate, key, prepared),
-    );
+    for (let attempt = 0; ; attempt += 1) {
+      const prepared = await this.options.profiles.prepareActiveConfig(candidate);
+      try {
+        return await this.options.commit("update settings", () =>
+          this.commitCoreSettings(previous, candidate, key, prepared),
+        );
+      } catch (err) {
+        if (!(err instanceof ProfileConflictError) || attempt >= 1) throw err;
+      }
+    }
   }
 
   private async updateSystemProxy(

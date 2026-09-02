@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { ProfileService } from "./profile-service.js";
+import { ProfileConflictError, ProfileService } from "./profile-service.js";
 import {
   loadProfiles,
   NEVER_UPDATED,
@@ -28,6 +28,17 @@ function seedActiveRemote(layout: SashLayout, url: string): ProfileMeta {
   };
   saveProfiles({ activeId: profile.id, profiles: [profile] }, layout);
   return profile;
+}
+
+const YAML_A = "proxies:\n  - name: node-a\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+const YAML_B = "proxies:\n  - name: node-b\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve = (): void => undefined;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 function initialSettings(): SashSettings {
@@ -160,6 +171,96 @@ describe("SettingsService", () => {
     assert.notEqual(loadProfiles(layout).profiles[0]?.updatedAt, "1970-01-01T00:00:00.000Z");
     assert.equal(profileChanges, 1);
     assert.match(fs.readFileSync(layout.configFile, "utf8"), /allow-lan: true/);
+  });
+
+  it("re-prepares settings when the active profile content changes before commit", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    const seeded = seedActiveRemote(layout, "https://example.test/profile");
+    fs.mkdirSync(layout.profilesDir, { recursive: true });
+    fs.writeFileSync(profileFilePath(layout, seeded.id), YAML_A);
+
+    const settingsPrepareEntered = deferred();
+    const releaseSettingsPrepare = deferred();
+    let blockFirstSettingsPrepare = true;
+    let commitTail = Promise.resolve();
+    const commit = <T>(_purpose: string, action: () => T | Promise<T>): Promise<T> => {
+      const next = commitTail.then(action, action);
+      commitTail = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    };
+    const profiles = new ProfileService({
+      layout,
+      settings: () => committed,
+      fetchProfile: async () => ({
+        doc: { proxies: [{ name: "node-b", type: "direct" }] },
+        yamlText: YAML_B,
+      }),
+      validateConfig: async (generated) => {
+        if (!generated.yaml.includes("allow-lan: true") || !blockFirstSettingsPrepare) return;
+        blockFirstSettingsPrepare = false;
+        settingsPrepareEntered.resolve();
+        await releaseSettingsPrepare.promise;
+      },
+      commit,
+    });
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles,
+      commit,
+    });
+
+    const updatingSettings = service.update("allow-lan", "on");
+    await settingsPrepareEntered.promise;
+    await profiles.update(seeded.id);
+    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
+    releaseSettingsPrepare.resolve();
+
+    await updatingSettings;
+    assert.equal(committed.allowLan, true);
+    assert.equal(runtime.allowLan, true);
+    assert.match(fs.readFileSync(profileFilePath(layout, seeded.id), "utf8"), /node-b/);
+    const config = fs.readFileSync(layout.configFile, "utf8");
+    assert.match(config, /node-b/);
+    assert.match(config, /allow-lan: true/);
+  });
+
+  it("stops after one automatic profile-conflict retry", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    const profiles = new ProfileService({ layout, settings: () => committed });
+    let assertions = 0;
+    profiles.assertPreparedActiveCurrent = () => {
+      assertions += 1;
+      throw new ProfileConflictError("profile keeps changing");
+    };
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles,
+      commit: async (_purpose, action) => action(),
+    });
+
+    await assert.rejects(() => service.update("allow-lan", "on"), /profile keeps changing/);
+    assert.equal(assertions, 2);
+    assert.equal(committed.allowLan, false);
+    assert.equal(runtime.allowLan, false);
   });
 
   it("restores runtime settings when proxy-off publication fails", async () => {

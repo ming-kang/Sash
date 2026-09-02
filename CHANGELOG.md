@@ -60,6 +60,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Profile and settings publications now recheck exact stored-content SHA-256 snapshots under the commit boundary, retry one settings preparation conflict, and reject stale fetches/errors instead of overwriting newer profile content.
+- Profile/index reads now require bounded regular files, remote update intervals are bounded, and ID allocation avoids both metadata entries and orphan YAML files.
 - Daemon JSON endpoints now reject malformed or non-object bodies with 400, oversized bodies with 413, and aborted streams without leaking TypeErrors or leaving parsers pending.
 - Dashboard responses now deny framing through CSP and X-Frame-Options, preventing cross-origin UI redressing from driving authenticated local controls.
 - WebSocket proxy ownership now starts before the upstream handshake, so a client disconnect aborts the pending Core request and transport instead of leaving an idle upstream stream.

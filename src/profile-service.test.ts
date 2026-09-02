@@ -47,6 +47,14 @@ function activateSeed(layout: SashLayout, id: string): void {
   saveProfiles({ ...index, activeId: id }, layout);
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve = (): void => undefined;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function fetched(yamlText: string, name = "remote"): SubscriptionFetch {
   return {
     doc: { proxies: [{ name: yamlText === yamlA ? "node-a" : "node-b", type: "direct" }] },
@@ -313,6 +321,101 @@ describe("ProfileService", () => {
 
     await assert.rejects(adding, /Settings changed while preparing/);
     assert.deepEqual(service.list(), { activeId: null, profiles: [] });
+  });
+
+  it("rejects activation when the prepared local profile changes before commit", async () => {
+    const first = seedProfile(layout, { name: "first", url: "", yamlText: yamlA });
+    const second = seedProfile(layout, { name: "second", url: "", yamlText: yamlB });
+    activateSeed(layout, first.id);
+    const validationEntered = deferred();
+    const releaseValidation = deferred();
+    const service = new ProfileService({
+      layout,
+      settings: () => settings,
+      validateConfig: async (generated) => {
+        if (!generated.yaml.includes("node-b")) return;
+        validationEntered.resolve();
+        await releaseValidation.promise;
+      },
+    });
+
+    const activation = service.activate(second.id);
+    const rejected = assert.rejects(activation, /content changed/);
+    await validationEntered.promise;
+    fs.writeFileSync(profileFilePath(layout, second.id), yamlA);
+    releaseValidation.resolve();
+
+    await rejected;
+    assert.equal(loadProfiles(layout).activeId, first.id);
+  });
+
+  it("rejects an out-of-order update without overwriting newer profile content", async () => {
+    const seeded = seedProfile(layout, {
+      name: "remote",
+      url: "https://example.test/profile",
+      yamlText: yamlA,
+    });
+    activateSeed(layout, seeded.id);
+    const slowFetchEntered = deferred();
+    const releaseSlowFetch = deferred();
+    let commitTail = Promise.resolve();
+    const commit = <T>(_purpose: string, action: () => T | Promise<T>): Promise<T> => {
+      const next = commitTail.then(action, action);
+      commitTail = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    };
+    const slow = new ProfileService({
+      layout,
+      settings: () => settings,
+      commit,
+      fetchProfile: async () => {
+        slowFetchEntered.resolve();
+        await releaseSlowFetch.promise;
+        return { doc: { proxies: [{ name: "node-a", type: "direct" }] }, yamlText: yamlA };
+      },
+    });
+    const fast = new ProfileService({
+      layout,
+      settings: () => settings,
+      commit,
+      fetchProfile: async () => ({
+        doc: { proxies: [{ name: "node-b", type: "direct" }] },
+        yamlText: yamlB,
+      }),
+    });
+
+    const staleUpdate = slow.update(seeded.id);
+    const staleRejected = assert.rejects(staleUpdate, /profile changed|Profile changed/);
+    await slowFetchEntered.promise;
+    await fast.update(seeded.id);
+    releaseSlowFetch.resolve();
+
+    await staleRejected;
+    assert.match(fs.readFileSync(profileFilePath(layout, seeded.id), "utf8"), /node-b/);
+    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
+    assert.equal(loadProfiles(layout).profiles[0]?.lastError, undefined);
+  });
+
+  it("rejects a fetched missing-profile candidate when a file appears before commit", async () => {
+    const seeded = seedProfile(layout, {
+      name: "remote",
+      url: "https://example.test/profile",
+    });
+    activateSeed(layout, seeded.id);
+    const service = new ProfileService({
+      layout,
+      settings: () => settings,
+      fetchProfile: async () => fetched(yamlA),
+    });
+
+    const prepared = await service.prepareActiveConfig(settings);
+    fs.mkdirSync(layout.profilesDir, { recursive: true });
+    fs.writeFileSync(profileFilePath(layout, seeded.id), yamlB);
+
+    assert.throws(() => service.assertPreparedActiveCurrent(prepared), /content changed/);
   });
 
   it("fetches independent update-all profiles concurrently and commits safely", async () => {

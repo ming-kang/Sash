@@ -14,29 +14,18 @@ import {
 } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import {
+  allocateProfileId,
   DEFAULT_PROFILE_INTERVAL_HOURS,
   findProfileByUrl,
   loadProfiles,
   NEVER_UPDATED,
   type ProfileMeta,
   type ProfilesIndex,
-  profileFilePath,
   profileNameFromUrl,
 } from "./profiles.js";
 import type { SashSettings } from "./settings.js";
 
 export const IMPORTED_CONFIG_PROFILE_NAME = "Imported config";
-
-function nextProfileId(index: ProfilesIndex, layout: SashLayout): string {
-  let id = String(Date.now());
-  while (
-    index.profiles.some((profile) => profile.id === id) ||
-    fs.existsSync(profileFilePath(layout, id))
-  ) {
-    id = String(Number(id) + 1);
-  }
-  return id;
-}
 
 /** Migrate and permanently remove the legacy single-subscription settings key. */
 export async function migrateLegacyProfileSetting(
@@ -56,7 +45,7 @@ export async function migrateLegacyProfileSetting(
     if (!findProfileByUrl(index, url)) {
       const now = new Date().toISOString();
       const profile: ProfileMeta = {
-        id: nextProfileId(index, layout),
+        id: allocateProfileId(index, layout),
         name: profileNameFromUrl(url),
         url,
         intervalHours: DEFAULT_PROFILE_INTERVAL_HOURS,
@@ -149,7 +138,7 @@ export async function migrateUnmanagedConfig(
   if (!hasMeaningfulRoutingContent(doc)) return false;
 
   const now = new Date().toISOString();
-  const id = nextProfileId({ activeId: null, profiles: [] }, layout);
+  const id = allocateProfileId({ activeId: null, profiles: [] }, layout);
   const profile: ProfileMeta = {
     id,
     name: IMPORTED_CONFIG_PROFILE_NAME,

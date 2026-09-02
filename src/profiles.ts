@@ -1,8 +1,13 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import { isValidMihomoConfig, type SubscriptionUserinfo } from "./mihomo-config.js";
+import {
+  isValidMihomoConfig,
+  PROFILE_DOWNLOAD_SIZE_LIMIT,
+  type SubscriptionUserinfo,
+} from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
 /**
@@ -36,6 +41,8 @@ export interface ProfilesIndex {
 }
 
 export const DEFAULT_PROFILE_INTERVAL_HOURS = 24;
+export const MAX_PROFILE_INTERVAL_HOURS = 24 * 365;
+export const PROFILE_INDEX_SIZE_LIMIT = 2 * 1024 * 1024;
 
 /** updatedAt sentinel for profiles whose content has never been downloaded. */
 export const NEVER_UPDATED = new Date(0).toISOString();
@@ -65,8 +72,9 @@ function isProfileMeta(value: unknown): value is ProfileMeta {
     typeof p.name === "string" &&
     typeof p.url === "string" &&
     typeof p.intervalHours === "number" &&
-    Number.isFinite(p.intervalHours) &&
+    Number.isSafeInteger(p.intervalHours) &&
     p.intervalHours >= 0 &&
+    p.intervalHours <= MAX_PROFILE_INTERVAL_HOURS &&
     typeof p.createdAt === "string" &&
     Number.isFinite(new Date(p.createdAt).getTime()) &&
     typeof p.updatedAt === "string" &&
@@ -87,15 +95,27 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 export function loadProfiles(layout: SashLayout = sashLayout()): ProfilesIndex {
-  let text: string;
+  let stat: fs.Stats;
   try {
-    text = fs.readFileSync(layout.profilesIndexFile, "utf8");
+    stat = fs.lstatSync(layout.profilesIndexFile);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       return { activeId: null, profiles: [] };
     }
     throw err;
   }
+  if (!stat.isFile() || stat.size > PROFILE_INDEX_SIZE_LIMIT) {
+    throw new Error(
+      `Profiles index must be a regular file no larger than ${PROFILE_INDEX_SIZE_LIMIT} bytes: ${layout.profilesIndexFile}`,
+    );
+  }
+  const content = fs.readFileSync(layout.profilesIndexFile);
+  if (content.length > PROFILE_INDEX_SIZE_LIMIT) {
+    throw new Error(
+      `Profiles index must be a regular file no larger than ${PROFILE_INDEX_SIZE_LIMIT} bytes: ${layout.profilesIndexFile}`,
+    );
+  }
+  const text = content.toString("utf8");
 
   let raw: unknown;
   try {
@@ -145,23 +165,87 @@ export function findProfileByUrl(index: ProfilesIndex, url: string): ProfileMeta
   return index.profiles.find((p) => p.url !== "" && p.url === url) ?? null;
 }
 
-/** Read and validate a profile's stored document; undefined only when the file is absent. */
-export function readProfileDoc(
-  layout: SashLayout,
-  id: string,
-): Record<string, unknown> | undefined {
+function readProfileBytes(layout: SashLayout, id: string): Buffer | undefined {
   const file = profileFilePath(layout, id);
-  if (!fs.existsSync(file)) return undefined;
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(file);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
+  if (!stat.isFile() || stat.size > PROFILE_DOWNLOAD_SIZE_LIMIT) {
+    throw new Error(
+      `Profile ${id} must be a regular file no larger than ${PROFILE_DOWNLOAD_SIZE_LIMIT} bytes: ${file}`,
+    );
+  }
+  const content = fs.readFileSync(file);
+  if (content.length > PROFILE_DOWNLOAD_SIZE_LIMIT) {
+    throw new Error(
+      `Profile ${id} must be a regular file no larger than ${PROFILE_DOWNLOAD_SIZE_LIMIT} bytes: ${file}`,
+    );
+  }
+  return content;
+}
+
+export function profileContentDigest(content: string | Buffer): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+export interface ProfileSource {
+  doc: Record<string, unknown>;
+  yamlText: string;
+  digest: string;
+}
+
+/** Read, bound and validate a stored profile from one exact byte snapshot. */
+export function readProfileSource(layout: SashLayout, id: string): ProfileSource | undefined {
+  const content = readProfileBytes(layout, id);
+  if (!content) return undefined;
+  const yamlText = content.toString("utf8");
   let doc: unknown;
   try {
-    doc = YAML.parse(fs.readFileSync(file, "utf8"));
+    doc = YAML.parse(yamlText);
   } catch (err) {
     throw new Error(`Profile ${id} contains invalid YAML: ${(err as Error).message}`);
   }
   if (!isValidMihomoConfig(doc)) {
     throw new Error(`Profile ${id} is not a valid core configuration`);
   }
-  return doc;
+  return { doc, yamlText, digest: profileContentDigest(content) };
+}
+
+/** Digest raw stored bytes without requiring a currently valid YAML document. */
+export function readProfileDigest(layout: SashLayout, id: string): string | null {
+  const content = readProfileBytes(layout, id);
+  return content ? profileContentDigest(content) : null;
+}
+
+/** Read and validate a profile's stored document; undefined only when the file is absent. */
+export function readProfileDoc(
+  layout: SashLayout,
+  id: string,
+): Record<string, unknown> | undefined {
+  return readProfileSource(layout, id)?.doc;
+}
+
+/** Allocate a file id which is free in both metadata and the profiles directory. */
+export function allocateProfileId(
+  index: ProfilesIndex,
+  layout: SashLayout,
+  nowMs = Date.now(),
+): string {
+  let candidate = BigInt(nowMs);
+  for (;;) {
+    const id = candidate.toString();
+    if (
+      !index.profiles.some((profile) => profile.id === id) &&
+      !fs.existsSync(profileFilePath(layout, id))
+    ) {
+      return id;
+    }
+    candidate += 1n;
+  }
 }
 
 /** Host-derived display name fallback for subscriptions without a filename. */

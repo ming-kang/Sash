@@ -3,16 +3,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { PROFILE_DOWNLOAD_SIZE_LIMIT } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import {
+  allocateProfileId,
   findProfileByUrl,
   getActiveProfile,
   loadProfiles,
+  MAX_PROFILE_INTERVAL_HOURS,
+  PROFILE_INDEX_SIZE_LIMIT,
   type ProfileMeta,
   profileDueForUpdate,
   profileFilePath,
   profileNameFromUrl,
   readProfileDoc,
+  readProfileSource,
   saveProfiles,
   serializeProfiles,
 } from "./profiles.js";
@@ -63,10 +68,53 @@ describe("profiles store", () => {
     saveProfiles({ activeId: profile.id, profiles: [profile] }, layout);
     fs.writeFileSync(profileFilePath(layout, profile.id), VALID_YAML);
 
+    const source = readProfileSource(layout, profile.id);
+    assert.deepEqual(source?.doc.rules, ["MATCH,DIRECT"]);
+    assert.match(source?.digest ?? "", /^[a-f0-9]{64}$/);
     assert.deepEqual(readProfileDoc(layout, profile.id)?.rules, ["MATCH,DIRECT"]);
     fs.writeFileSync(profileFilePath(layout, profile.id), "just a string\n");
     assert.throws(() => readProfileDoc(layout, profile.id), /not a valid core configuration/);
     assert.equal(readProfileDoc(layout, "9999999999999"), undefined);
+  });
+
+  it("rejects non-regular and oversized profile state files", () => {
+    fs.mkdirSync(layout.profilesIndexFile, { recursive: true });
+    assert.throws(() => loadProfiles(layout), /regular file/);
+    fs.rmSync(layout.profilesIndexFile, { recursive: true });
+
+    fs.writeFileSync(layout.profilesIndexFile, "{}");
+    fs.truncateSync(layout.profilesIndexFile, PROFILE_INDEX_SIZE_LIMIT + 1);
+    assert.throws(() => loadProfiles(layout), /regular file/);
+    fs.rmSync(layout.profilesIndexFile);
+
+    const profilePath = profileFilePath(layout, "1");
+    fs.mkdirSync(profilePath, { recursive: true });
+    assert.throws(() => readProfileDoc(layout, "1"), /regular file/);
+    fs.rmSync(profilePath, { recursive: true });
+
+    fs.writeFileSync(profilePath, "");
+    fs.truncateSync(profilePath, PROFILE_DOWNLOAD_SIZE_LIMIT + 1);
+    assert.throws(() => readProfileDoc(layout, "1"), /regular file/);
+  });
+
+  it("allocates ids which are free in both metadata and the profiles directory", () => {
+    fs.mkdirSync(layout.profilesDir, { recursive: true });
+    fs.writeFileSync(profileFilePath(layout, "100"), VALID_YAML);
+    assert.equal(
+      allocateProfileId({ activeId: null, profiles: [meta("101")] }, layout, 100),
+      "102",
+    );
+  });
+
+  it("rejects unsafe persisted update intervals", () => {
+    fs.mkdirSync(layout.profilesDir, { recursive: true });
+    for (const intervalHours of [1.5, Number.MAX_SAFE_INTEGER, MAX_PROFILE_INTERVAL_HOURS + 1]) {
+      fs.writeFileSync(
+        layout.profilesIndexFile,
+        JSON.stringify({ activeId: null, profiles: [meta("1", { intervalHours })] }),
+      );
+      assert.throws(() => loadProfiles(layout), /invalid profile metadata/);
+    }
   });
 
   it("rejects non-numeric profile ids before constructing a path", () => {

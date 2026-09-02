@@ -26,7 +26,7 @@ import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { clearPidRecord } from "./process.js";
 import { migrateProfileState } from "./profile-migration.js";
-import { ProfileService } from "./profile-service.js";
+import { ProfileConflictError, ProfileService } from "./profile-service.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { loadSettings, publicSettings, type SashSettings, saveSettings } from "./settings.js";
 import { SettingsInputError, SettingsService } from "./settings-service.js";
@@ -359,6 +359,10 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         } catch (err) {
           if (err instanceof SettingsInputError) {
             sendError(res, 400, err.message);
+            return;
+          }
+          if (err instanceof ProfileConflictError) {
+            sendError(res, 409, err.message);
             return;
           }
           throw err;

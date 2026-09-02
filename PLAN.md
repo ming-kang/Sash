@@ -103,7 +103,7 @@
 
 完成记录：新增类型化 HttpError 与 object-only JSON parser；malformed/non-object 为 400、超限为 413，超限输入改为有界丢弃而非提前 reset，aborted/error/close 均结算 parser。设置/profile 路由移除未知值强转；lint 与 317 项测试（316 通过、1 项既有 Windows skip）通过。
 
-### 7. 拒绝过期 Profile preparation — 待办
+### 7. 拒绝过期 Profile preparation — 已完成
 
 目标：锁外准备的配置只能基于提交时仍然相同的 profile 内容。
 
@@ -114,6 +114,8 @@
 - 统一 profile ID 分配，同时检查 index 与磁盘文件。
 
 验收：设置/profile、双更新和缺失 profile 的确定性竞态均不能产生 metadata/config 分叉或旧响应覆盖。
+
+完成记录：stored profile 以单次有界读取同时解析并计算 SHA-256，settings、activate、reload、update、remove、existing add 与缺失内容物化在提交边界复核摘要和完整目标 metadata；stale update/error 被拒绝，settings 仅自动重试一次。profile/index 要求普通文件并限制为 8/2 MiB，interval 有界，统一 ID 分配检查 metadata 与孤儿文件。确定性测试覆盖 settings/profile 分叉、activation 编辑、双进程乱序更新、缺失文件出现、资源边界和冲突重试；lint 与 325 项测试（324 通过、1 项既有 Windows skip）通过。
 
 ### 8. 为 Core 更新建立持久化 journal — 待办
 
