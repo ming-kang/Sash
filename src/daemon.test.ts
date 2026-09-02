@@ -4,6 +4,7 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import type { Duplex } from "node:stream";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { request } from "undici";
 import { writeInstallRecord } from "./core.js";
@@ -1126,6 +1127,73 @@ describe("daemon server", () => {
       await startServer();
       const response = await rawWebSocketUpgrade("/core/api/logs");
       assert.match(response, /^HTTP\/1\.1 401 Unauthorized WebSocket request/);
+    });
+
+    it("closes the upstream when the client disconnects before the 101 response", async () => {
+      let resolveAccepted: (() => void) | undefined;
+      const accepted = new Promise<void>((resolve) => {
+        resolveAccepted = resolve;
+      });
+      let resolveUpstreamEnded: (() => void) | undefined;
+      let rejectUpstreamEnded: ((reason: Error) => void) | undefined;
+      const upstreamEnded = new Promise<void>((resolve, reject) => {
+        resolveUpstreamEnded = resolve;
+        rejectUpstreamEnded = reject;
+      });
+      let upstreamSocket: Duplex | undefined;
+      mockCoreServer = http.createServer();
+      mockCoreServer.on("upgrade", (_req, socket) => {
+        upstreamSocket = socket;
+        socket.once("end", () => resolveUpstreamEnded?.());
+        socket.once("close", () => resolveUpstreamEnded?.());
+        socket.on("readable", () => {
+          while (socket.read() !== null) {
+            // Consume until EOF so the peer close is observable.
+          }
+        });
+        resolveAccepted?.();
+      });
+      await new Promise<void>((resolve) => {
+        mockCoreServer?.listen(0, "127.0.0.1", () => resolve());
+      });
+      const address = mockCoreServer.address();
+      mockCorePort = typeof address === "object" && address ? address.port : 0;
+      settings.controller = `127.0.0.1:${mockCorePort}`;
+      await startServer();
+
+      const client = net.createConnection({ host: "127.0.0.1", port: boundPort });
+      client.on("error", () => undefined);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          client.once("connect", resolve);
+          client.once("error", reject);
+        });
+        client.write(
+          "GET /core/api/logs HTTP/1.1\r\n" +
+            `Host: 127.0.0.1:${boundPort}\r\n` +
+            "Connection: Upgrade\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Sec-WebSocket-Version: 13\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" +
+            `Authorization: Bearer ${settings.daemonSecret}\r\n\r\n`,
+        );
+        await accepted;
+        client.destroy();
+
+        const deadline = setTimeout(
+          () => rejectUpstreamEnded?.(new Error("upstream WebSocket did not receive EOF")),
+          1000,
+        );
+        try {
+          await upstreamEnded;
+        } finally {
+          clearTimeout(deadline);
+        }
+        assert.equal(upstreamSocket?.readableEnded || upstreamSocket?.destroyed, true);
+      } finally {
+        client.destroy();
+        upstreamSocket?.destroy();
+      }
     });
 
     it("completes WebSocket auth negotiation without forwarding private protocols", async () => {

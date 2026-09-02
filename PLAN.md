@@ -65,7 +65,7 @@
 
 完成记录：Core HTTP 路由使用单一显式分类器，GET/HEAD/OPTIONS 与 mutation 均在转发前鉴权；带远端 Origin 的浏览器 mutation 返回 403。mock Core 证明未认证 delay/fallback GET 没有建立上游请求；lint 与 311 项测试（310 通过、1 项既有 Windows skip）通过。
 
-### 4. 关闭废弃 WebSocket 上游 — 待办
+### 4. 关闭废弃 WebSocket 上游 — 已完成
 
 目标：客户端在上游 101 前断开时立即取消上游请求和 socket。
 
@@ -75,6 +75,8 @@
 - 上游 rejection、timeout、close 统一清理双方资源。
 
 验收：事件屏障控制的早断开测试确认上游 request/socket 被关闭，不依赖任意 sleep。
+
+完成记录：WebSocket proxy 在等待 101 前即取得上下游 request/transport 所有权，并读取暂停的 downstream socket 以观察 FIN；早断开会关闭 request、transport 和后到的上游 socket。事件屏障测试确认 mock Core 收到 EOF；lint 与 312 项测试（311 通过、1 项既有 Windows skip）通过。
 
 ### 5. 阻止 Dashboard framing — 待办
 

@@ -118,52 +118,101 @@ export function forwardWsToCore(
     timeout: 10_000,
   });
 
-  proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
-    const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 101} ${proxyRes.statusMessage ?? "Switching Protocols"}\r\n`;
-    const responseHeaders = { ...proxyRes.headers };
-    if (!responseHeaders["sec-websocket-protocol"]) {
-      const authProtocol = webSocketAuthResponseProtocol(req.headers["sec-websocket-protocol"]);
-      if (authProtocol) responseHeaders["sec-websocket-protocol"] = authProtocol;
-    }
-    const headerLines = Object.entries(responseHeaders)
-      .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
-      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
-      .join("\r\n");
-    socket.write(`${statusLine}${headerLines}\r\n\r\n`);
-
-    if (proxyHead.length > 0) socket.write(proxyHead);
-    if (head.length > 0) proxySocket.write(head);
-
-    const cleanup = () => {
-      proxySocket.destroy();
-      socket.destroy();
-    };
-
-    proxySocket.on("error", cleanup);
-    proxySocket.on("close", () => socket.destroy());
-    socket.on("error", cleanup);
-    socket.on("close", () => proxySocket.destroy());
-
-    proxySocket.pipe(socket);
-    socket.pipe(proxySocket);
+  let upstreamTransportSocket: Duplex | undefined;
+  let upstreamSocket: Duplex | undefined;
+  let cleaned = false;
+  const cleanup = (closeDownstream: boolean): void => {
+    if (cleaned) return;
+    cleaned = true;
+    proxyReq.destroy();
+    upstreamTransportSocket?.destroy();
+    upstreamSocket?.destroy();
+    if (closeDownstream && !socket.destroyed) socket.destroy();
+  };
+  proxyReq.once("socket", (transportSocket) => {
+    upstreamTransportSocket = transportSocket;
+    if (cleaned) transportSocket.destroy();
   });
 
-  // Upstream rejected upgrade (e.g. HTTP 401/404/500)
+  // Register downstream ownership before waiting for the upstream handshake.
+  // A browser can disappear while the Core is still deciding whether to send 101.
+  socket.once("error", () => cleanup(true));
+  socket.once("end", () => cleanup(true));
+  socket.once("close", () => cleanup(false));
+
+  // Node leaves an upgraded socket paused. Read it while awaiting the Core so
+  // a peer FIN is observable, retaining the small amount of data a client may
+  // have optimistically sent after its HTTP upgrade request.
+  const pendingClientChunks: Buffer[] = [];
+  let pendingClientBytes = 0;
+  const readPendingClientData = (): void => {
+    while (true) {
+      const chunk = socket.read() as Buffer | null;
+      if (chunk === null) return;
+      pendingClientBytes += chunk.length;
+      if (pendingClientBytes > 64 * 1024) {
+        cleanup(true);
+        return;
+      }
+      pendingClientChunks.push(chunk);
+    }
+  };
+  socket.on("readable", readPendingClientData);
+
+  proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
+    readPendingClientData();
+    socket.removeListener("readable", readPendingClientData);
+    upstreamSocket = proxySocket;
+    proxySocket.once("error", () => cleanup(true));
+    proxySocket.once("close", () => cleanup(true));
+
+    if (cleaned || socket.destroyed || !socket.writable) {
+      proxySocket.destroy();
+      return;
+    }
+
+    try {
+      const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 101} ${proxyRes.statusMessage ?? "Switching Protocols"}\r\n`;
+      const responseHeaders = { ...proxyRes.headers };
+      if (!responseHeaders["sec-websocket-protocol"]) {
+        const authProtocol = webSocketAuthResponseProtocol(req.headers["sec-websocket-protocol"]);
+        if (authProtocol) responseHeaders["sec-websocket-protocol"] = authProtocol;
+      }
+      const headerLines = Object.entries(responseHeaders)
+        .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
+        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+        .join("\r\n");
+      socket.write(`${statusLine}${headerLines}\r\n\r\n`);
+
+      if (proxyHead.length > 0) socket.write(proxyHead);
+      if (head.length > 0) proxySocket.write(head);
+      for (const chunk of pendingClientChunks) proxySocket.write(chunk);
+      proxySocket.pipe(socket);
+      socket.pipe(proxySocket);
+    } catch {
+      cleanup(true);
+    }
+  });
+
+  // Upstream rejected upgrade (e.g. HTTP 401/404/500).
   proxyReq.on("response", (proxyRes) => {
+    proxyRes.once("error", () => cleanup(true));
+    if (cleaned || socket.destroyed || !socket.writable) {
+      proxyRes.destroy();
+      cleanup(false);
+      return;
+    }
     const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 502} ${proxyRes.statusMessage ?? "Bad Gateway"}\r\n\r\n`;
-    socket.write(statusLine);
-    socket.destroy();
-    proxyRes.resume(); // drain response body
+    socket.end(statusLine);
+    proxyRes.resume();
   });
 
   proxyReq.on("timeout", () => {
-    proxyReq.destroy();
-    socket.destroy();
+    proxyReq.destroy(new Error("Core WebSocket upgrade timed out after 10000ms"));
   });
 
-  proxyReq.on("error", () => {
-    socket.destroy();
-  });
+  proxyReq.on("error", () => cleanup(true));
 
-  proxyReq.end();
+  if (socket.destroyed || !socket.writable) cleanup(false);
+  else proxyReq.end();
 }
