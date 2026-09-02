@@ -287,12 +287,18 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             : { ...runtimeCore, version: installedVersion };
         let actualProxy: SystemProxyState | undefined;
         let proxyApplied = false;
+        let proxyAppliedKnown = false;
+        let proxyStateKnown = false;
+        let proxyQueryError: string | undefined;
         try {
           const inspection = systemProxy.inspect(url.searchParams.get("fresh") === "1");
-          actualProxy = inspection.state;
           proxyApplied = inspection.applied;
-        } catch {
-          // ignore
+          proxyAppliedKnown = inspection.appliedKnown !== false;
+          proxyStateKnown = inspection.stateKnown !== false;
+          if (proxyStateKnown) actualProxy = inspection.state;
+          proxyQueryError = inspection.queryError;
+        } catch (err) {
+          proxyQueryError = err instanceof Error ? err.message : String(err);
         }
         const active = profiles.active();
         const status: DaemonStatus = {
@@ -309,6 +315,9 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             desired: committedSettings.systemProxy,
             applied: proxyApplied,
             actual: actualProxy,
+            appliedKnown: proxyAppliedKnown,
+            stateKnown: proxyStateKnown,
+            ...(proxyQueryError ? { queryError: proxyQueryError } : {}),
           },
           settings: publicSettings(committedSettings),
           activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
@@ -323,6 +332,9 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           desired: committedSettings.systemProxy,
           applied: inspection.applied,
           ...inspection.state,
+          appliedKnown: inspection.appliedKnown !== false,
+          stateKnown: inspection.stateKnown !== false,
+          ...(inspection.queryError ? { queryError: inspection.queryError } : {}),
         });
         return;
       }

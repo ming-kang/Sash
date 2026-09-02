@@ -62,6 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- CLI status now preserves unknown daemon/Core/proxy/TUN values as `null`, exposes a versioned JSON observation contract, uses exit code 2 for incomplete reads, avoids success output for unresponsive daemons and limits TUN privilege guidance to verified runtime states; proxy status separates desired, daemon-applied and OS-observed values.
 - WebUI now keeps daemon reachability, profile revisions and Core snapshot ownership independent: same-owner Core API failures preserve and mark stale data, new owners clear stale snapshots, stopped profile revisions still refresh, malformed stream frames are dropped and mixed-port drafts can be reverted/reset against committed settings.
 - Release downloads now enforce one absolute budget across mirrors, redirects, headers and streaming bodies; continuously dripping responses cannot keep updates alive indefinitely.
 - Core config reload now sends `force=true` in the upstream query contract instead of an ignored JSON field.

@@ -316,8 +316,11 @@ describe("daemon server", () => {
       const data = res.data as {
         daemon: { pid: number };
         settings: Record<string, unknown>;
+        systemProxy: { appliedKnown: boolean; stateKnown: boolean };
       };
       assert.equal(data.daemon.pid, process.pid);
+      assert.equal(data.systemProxy.appliedKnown, true);
+      assert.equal(data.systemProxy.stateKnown, true);
       assert.equal("secret" in data.settings, false);
       assert.equal("daemonSecret" in data.settings, false);
     });

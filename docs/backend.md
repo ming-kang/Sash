@@ -36,6 +36,7 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/settings.ts`: versioned runtime schema and immutable managed-key candidates for `sash.json`.
 - `src/settings-service.ts`: shared online/offline settings preparation, durable publication and runtime-transition orchestration.
 - `src/contracts.ts`: API contracts shared by the daemon client and WebUI.
+- `src/status.ts`: stable CLI status/proxy observations, explicit unknown values and complete/incomplete exit semantics.
 
 ---
 
@@ -83,7 +84,7 @@ Unexpected Core exit retries proxy restoration and records failures in daemon er
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
 | `/sash/health` | `GET` | Readiness, PID, start time and per-boot WebUI token. |
-| `/sash/status` | `GET` | Daemon/Core/proxy/public-settings snapshot; `core.tunActive` is the verified runtime TUN state when available. |
+| `/sash/status` | `GET` | Daemon/Core/proxy/public-settings snapshot; `core.tunActive` is the verified runtime TUN state when available, while proxy `appliedKnown`/`stateKnown` and `queryError` preserve OS observation uncertainty. |
 | `/sash/proxy` | `GET` | Desired, Sash-owned and observed OS proxy state. |
 | `/sash/proxy/enable` | `POST` | Persist and apply proxy ownership; requires a healthy Core. |
 | `/sash/proxy/disable` | `POST` | Persist off and restore the pre-Sash proxy snapshot. |

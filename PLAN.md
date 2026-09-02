@@ -196,7 +196,7 @@
 
 完成记录：WebUI 现将 daemon reachability、lastProfileRevision、Core owner 与完整 snapshot available/error 分开保存；Core 停止时 revision 变化仍刷新 profiles，同 owner 的 502 保留最后有效快照并显示 degraded，新 daemon/Core owner 在取新快照前清除旧数据。traffic/log WebSocket 帧经轻量运行时校验并绑定 generation，旧 socket 关闭不会清空替代流。mixed-port dirty 与 committed value 比较并提供 reset。stopped revision、同/异 owner 502、daemon 同 revision 重启、profile generation、malformed frame 和 settings revert/reset 测试通过；tracked-file Biome、typecheck、Vite production build 与 348 项隔离测试（347 通过、1 项既有 Windows skip）通过。
 
-### 14. 显式表示 CLI 未知状态 — 待办
+### 14. 显式表示 CLI 未知状态 — 已完成
 
 目标：自动化能够区分 stopped、unhealthy 和 unavailable。
 
@@ -207,6 +207,8 @@
 - TUN guidance 只在对应运行状态下输出。
 
 验收：healthy、stopped、unhealthy、status timeout 和 JSON 模式均有测试。
+
+完成记录：新增 `src/status.ts` 统一 CLI status/proxy 观测，`status --json` 固定为 schemaVersion 1，并用 `complete`、`healthy`、`queryError` 与 nullable runtime/proxy/TUN 字段区分 stopped、unhealthy 和 unavailable。完整观测保持退出码 0，不完整观测设为 2，异常仍由 CLI 边界设为 1；文本模式不再把 status timeout 打印为成功。SystemProxyManager 与 daemon 契约增加 applied/state known 元数据，OS 查询失败不会伪装为 off。`proxy status` 分列 daemon、desired、daemon-applied、OS-observed；TUN 提权指引仅用于已确认健康运行但 inactive/unverified 的 Core。healthy、stopped、daemon unhealthy、Core unhealthy、status timeout、OS observation failure、JSON null、退出码和 proxy 状态测试通过；tracked/new-file Biome、typecheck、production build、隔离 CLI smoke 与 358 项测试（357 通过、1 项既有 Windows skip）通过。
 
 ### 15. 实现可靠日志 follow — 待办
 

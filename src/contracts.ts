@@ -28,6 +28,14 @@ export interface MaintenanceShutdownResult {
   coreWasRunning: boolean;
 }
 
+export interface SystemProxyStatusResponse extends SystemProxyState {
+  desired: boolean;
+  applied: boolean;
+  appliedKnown?: boolean;
+  stateKnown?: boolean;
+  queryError?: string;
+}
+
 export interface DaemonStatus {
   daemon: {
     pid: number;
@@ -42,6 +50,9 @@ export interface DaemonStatus {
     desired: boolean;
     applied: boolean;
     actual?: SystemProxyState;
+    appliedKnown?: boolean;
+    stateKnown?: boolean;
+    queryError?: string;
   };
   settings: PublicSashSettings;
   activeProfile: { id: string; name: string; url: string } | null;

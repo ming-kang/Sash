@@ -15,6 +15,11 @@ import {
 export interface SystemProxyInspection {
   applied: boolean;
   state: SystemProxyState;
+  /** False when journal corruption prevents proving Sash ownership. */
+  appliedKnown?: boolean;
+  /** False when the backend could not observe the OS proxy state. */
+  stateKnown?: boolean;
+  queryError?: string;
 }
 
 export interface SystemProxyController {
@@ -276,17 +281,24 @@ export class SystemProxyManager implements SystemProxyController {
           journal?.phase === "applied" &&
           this.backend.equivalent(current, journal.target),
         state,
+        appliedKnown: !journalFailure,
+        stateKnown: true,
+        ...(journalFailure ? { queryError: errorMessage(journalFailure) } : {}),
       };
       this.inspectionCache = { expiresAt: Date.now() + 3000, inspection };
       return inspection;
     } catch (err) {
+      const queryError = [journalFailure, err].filter(Boolean).map(errorMessage).join("; ");
       const inspection = {
         applied: false,
         state: {
           supported: this.backend.supported ?? isSystemProxySupported(),
           enabled: false,
-          details: [journalFailure, err].filter(Boolean).map(errorMessage).join("; "),
+          details: queryError,
         },
+        appliedKnown: false,
+        stateKnown: false,
+        queryError,
       };
       this.inspectionCache = { expiresAt: Date.now() + 3000, inspection };
       return inspection;

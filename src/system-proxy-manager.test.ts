@@ -410,6 +410,9 @@ describe("SystemProxyManager", () => {
     assert.equal(backend.applyCalls.length, 0);
     const inspection = manager.inspect();
     assert.equal(inspection.applied, false);
+    assert.equal(inspection.appliedKnown, false);
+    assert.equal(inspection.stateKnown, true);
+    assert.match(inspection.queryError ?? "", /journal is invalid/);
     assert.equal(inspection.state.enabled, false);
     assert.match(inspection.state.details ?? "", /journal is invalid/);
     assert.equal(fs.readFileSync(layout.systemProxyStateFile, "utf8"), corrupt);

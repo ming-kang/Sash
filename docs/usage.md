@@ -27,7 +27,7 @@ sash status
 | `sash start` | Install missing components, ensure the background daemon is running, then reconcile/start the core. It is safe to repeat. |
 | `sash stop` | Restore the pre-Sash system proxy, stop the Core and shut down the daemon; exits with an error if safe shutdown cannot be verified. |
 | `sash restart` | Restart the managed core process. |
-| `sash status [--json]` | Show daemon/core state, active profile, endpoints and system proxy state. |
+| `sash status [--json]` | Show daemon/core state, active profile, endpoints and system proxy state; incomplete observations exit with code 2. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | View core or daemon logs; `-f` follows new output. |
 
 ### System Proxy Control
@@ -36,9 +36,72 @@ sash status
 | :--- | :--- |
 | `sash proxy on` | Route OS-level traffic through the configured mixed port. |
 | `sash proxy off` | Restore the proxy snapshot captured before Sash took ownership; also works while the daemon is stopped. |
-| `sash proxy status` | Show desired, daemon-applied and OS-reported proxy state. |
+| `sash proxy status` | Show desired, daemon-applied and OS-observed proxy state, with stopped and unhealthy daemon states distinguished. |
 
 Changing `mixed-port` while the system proxy is enabled restores the old binding before restart and takes a fresh snapshot before applying the new port.
+
+### Status JSON and exit codes
+
+`sash status --json` emits the versioned `schemaVersion: 1` contract below. Unobservable runtime values are `null`; they are never changed to `false` merely because a query timed out.
+
+```json
+{
+  "schemaVersion": 1,
+  "complete": true,
+  "healthy": true,
+  "queryError": null,
+  "daemon": {
+    "state": "healthy",
+    "running": true,
+    "healthy": true,
+    "pid": 1234,
+    "port": 19090
+  },
+  "core": {
+    "running": true,
+    "healthy": true,
+    "pid": 1235,
+    "version": "v1.19.30",
+    "installedVersion": "v1.19.30"
+  },
+  "systemProxy": {
+    "desired": false,
+    "daemonApplied": false,
+    "osObserved": {
+      "supported": true,
+      "enabled": false,
+      "server": null,
+      "details": null
+    }
+  },
+  "uiInstalled": true,
+  "endpoints": {
+    "mixedProxy": "127.0.0.1:17890",
+    "controller": "127.0.0.1:9090",
+    "daemonApi": "http://127.0.0.1:19090",
+    "dashboard": "http://127.0.0.1:19090/ui/"
+  },
+  "activeProfile": null,
+  "tun": {
+    "desired": false,
+    "active": false
+  },
+  "paths": {
+    "root": "<data directory>",
+    "config": "<data directory>/config.yaml"
+  }
+}
+```
+
+`healthy` is the observed daemon/Core controller health and is `null` when daemon runtime status cannot be queried. `complete` covers observability of all contract fields; `queryError` explains an incomplete result. Exit codes are stable:
+
+| Exit code | Meaning |
+| :--- | :--- |
+| `0` | The status is complete, including a known stopped state. |
+| `2` | Status output was produced, but daemon/Core/OS state could not be fully observed. |
+| `1` | The command itself failed, for example because local state is corrupt. |
+
+Text output follows the same distinction: an unresponsive daemon is reported as unavailable, never with a success marker. `sash proxy status` prints separate daemon, desired, daemon-applied and OS-observed lines and uses exit code 2 when the daemon is alive but unresponsive.
 
 Sash does not blindly turn off an existing proxy. It stores a private ownership journal before takeover and restores only while managed OS values still match the original/Sash transition. If another application changes those values, Sash refuses to overwrite them. Windows and macOS include manual and automatic proxy state; Linux system-proxy automation currently requires GNOME `gsettings`.
 
@@ -133,7 +196,7 @@ While that elevated daemon is running on macOS or Linux, use the same `sudo` and
 
 If TUN was already saved as on, omit `sash config set tun on`. Running `sash restart` alone against an existing unprivileged daemon only restarts its Core child and does not elevate `sashd`; stop the daemon and start the whole Sash runtime from the elevated shell instead.
 
-Sash distinguishes the desired setting from the Core's actual runtime state: `sash status` reports `on (active)`, `on (inactive)` or `on (unverified)`, and `sash status --json` retains `tun` as the desired boolean while adding `tunActive` (`true`, `false` or `null`).
+Sash distinguishes the desired setting from the Core's actual runtime state: `sash status` reports `on (active)`, `on (inactive)`, `on (unverified)` or `on (runtime unknown)`, and `sash status --json` reports `tun.desired` separately from `tun.active` (`true`, `false` or `null`). Privilege guidance is shown only after a responsive, healthy running Core explicitly reports inactive or unverified TUN state.
 
 When a running Core is switched from TUN off to on, Sash reads back `tun.enable` from the Core before committing the setting. If the Core remains inactive or cannot be verified, the settings/config transaction and prior runtime are restored. An inactive result includes the platform-appropriate full-daemon restart instructions above. A TUN setting saved while the Core is stopped can only be verified on the next start; startup leaves the ordinary proxy Core available and reports any inactive or unverified TUN state explicitly. If an elevated start still leaves TUN inactive, inspect the Core error log.
 

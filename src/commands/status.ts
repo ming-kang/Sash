@@ -1,131 +1,61 @@
-import { currentCoreVersion } from "../core.js";
-import { SashDaemonClient } from "../daemon-client.js";
-import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
-import { ProfileService } from "../profile-service.js";
-import { SystemProxyManager } from "../system-proxy-manager.js";
+import {
+  type CliRuntimeStatus,
+  collectRuntimeStatus,
+  formatObservedProxy,
+  formatTunObservation,
+  markIncompleteObservation,
+  runtimeStatusHeadline,
+  shouldShowTunGuidance,
+} from "../status.js";
 import { tunPrivilegeGuidance } from "../tun-guidance.js";
-import { uiInstalled } from "../webui.js";
 import { runtimeContext } from "./shared.js";
 
-export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
-  const ctx = runtimeContext();
-  const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  const installedCoreVersion = currentCoreVersion(ctx.layout);
-  const activeProfile = new ProfileService({
-    layout: ctx.layout,
-    settings: () => ctx.settings,
-  }).active();
+export type RuntimeStatusCollector = () => Promise<CliRuntimeStatus>;
+
+export async function runStatus(
+  opts: { json?: boolean } = {},
+  collect: RuntimeStatusCollector = () => collectRuntimeStatus(runtimeContext()),
+): Promise<void> {
+  const status = await collect();
 
   if (opts.json) {
-    let coreRunning = false;
-    let corePid: number | null = null;
-    let coreVersion: string | null = installedCoreVersion || null;
-    let proxyApplied = false;
-    let osProxy = false;
-    let tunActive: boolean | null = null;
-
-    if (daemonState.running && daemonState.healthy) {
-      try {
-        const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
-        const status = await client.status();
-        coreRunning = status.core.running;
-        corePid = status.core.pid ?? null;
-        if (status.core.version) coreVersion = status.core.version;
-        proxyApplied = status.systemProxy.applied;
-        osProxy = Boolean(status.systemProxy.actual?.enabled);
-        tunActive = status.core.tunActive ?? null;
-      } catch {
-        // ignore
-      }
-    } else {
-      const proxy = new SystemProxyManager({ layout: ctx.layout }).inspect();
-      proxyApplied = proxy.applied;
-      osProxy = proxy.state.enabled;
-    }
-
-    console.log(
-      JSON.stringify(
-        {
-          daemon: {
-            running: daemonState.running,
-            pid: daemonState.pid ?? null,
-            port: ctx.settings.daemonPort,
-          },
-          core: {
-            running: coreRunning,
-            pid: corePid,
-            version: coreVersion,
-          },
-          systemProxy: {
-            desired: ctx.settings.systemProxy,
-            applied: proxyApplied,
-            osEnabled: osProxy,
-          },
-          uiInstalled: uiInstalled(ctx.layout),
-          mixedPort: ctx.settings.mixedPort,
-          controller: ctx.settings.controller,
-          daemonApi: `http://127.0.0.1:${ctx.settings.daemonPort}`,
-          dashboard: `http://127.0.0.1:${ctx.settings.daemonPort}/ui/`,
-          activeProfile: activeProfile
-            ? { id: activeProfile.id, name: activeProfile.name, url: activeProfile.url }
-            : null,
-          tun: ctx.settings.tun,
-          tunActive,
-          root: ctx.layout.root,
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(JSON.stringify(status, null, 2));
+    markIncompleteObservation(status.complete);
     return;
   }
 
-  let coreRunning = false;
-  let tunActive: boolean | undefined;
-  if (!daemonState.running) {
-    log.info("sash is not running");
-  } else {
-    try {
-      const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
-      const status = await client.status();
-      coreRunning = status.core.running;
-      tunActive = status.core.tunActive;
-      const coreInfo = status.core.running
-        ? `core running (PID=${status.core.pid}${status.core.version ? `, ${status.core.version}` : ""})`
-        : "core stopped";
-      log.ok(`sashd running (PID=${daemonState.pid}), ${coreInfo}`);
-    } catch {
-      log.ok(`sashd running (PID=${daemonState.pid})`);
-    }
-  }
+  const headline = runtimeStatusHeadline(status);
+  log[headline.level](headline.text);
+  if (status.queryError) log.warn(`status incomplete: ${status.queryError}`);
 
-  log.kv("root", ctx.layout.root);
-  log.kv("config", ctx.layout.configFile);
-  log.kv("mixed port", `127.0.0.1:${ctx.settings.mixedPort}`);
-  log.kv("system proxy", ctx.settings.systemProxy ? "enabled" : "disabled");
-  log.kv("sash api", `http://127.0.0.1:${ctx.settings.daemonPort}`);
-  log.kv("dashboard", `http://127.0.0.1:${ctx.settings.daemonPort}/ui/`);
+  log.kv("root", status.paths.root);
+  log.kv("config", status.paths.config);
+  log.kv("mixed port", status.endpoints.mixedProxy);
+  log.kv("proxy desired", status.systemProxy.desired ? "on" : "off");
+  log.kv(
+    "daemon applied",
+    status.systemProxy.daemonApplied === null
+      ? status.daemon.state === "stopped"
+        ? "n/a (stopped)"
+        : "unknown"
+      : status.systemProxy.daemonApplied
+        ? "yes"
+        : "no",
+  );
+  log.kv("os proxy", formatObservedProxy(status.systemProxy.osObserved));
+  log.kv("sash api", status.endpoints.daemonApi);
+  log.kv("dashboard", status.endpoints.dashboard);
   log.kv(
     "active profile",
-    activeProfile ? `${activeProfile.name} (${activeProfile.url || "local file"})` : "(none)",
+    status.activeProfile
+      ? `${status.activeProfile.name} (${status.activeProfile.url || "local file"})`
+      : "(none)",
   );
-  log.kv(
-    "tun",
-    ctx.settings.tun
-      ? !coreRunning
-        ? "on (core stopped)"
-        : tunActive === true
-          ? "on (active)"
-          : tunActive === false
-            ? "on (inactive)"
-            : "on (unverified)"
-      : tunActive === true
-        ? "off (runtime active)"
-        : "off",
-  );
-  log.kv("core version", installedCoreVersion || "(not installed)");
-  if (ctx.settings.tun && (!coreRunning || tunActive !== true)) {
-    log.warn(tunPrivilegeGuidance("runtime-inactive", { root: ctx.layout.root }));
+  log.kv("tun", formatTunObservation(status));
+  log.kv("core version", status.core.installedVersion || "(not installed)");
+  if (shouldShowTunGuidance(status)) {
+    log.warn(tunPrivilegeGuidance("runtime-inactive", { root: status.paths.root }));
   }
+  markIncompleteObservation(status.complete);
 }

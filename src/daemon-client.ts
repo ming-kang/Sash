@@ -7,9 +7,9 @@ import type {
   ProfilesIndex,
   ProfilesUpdateAllResponse,
   ProfileUpdateResponse,
+  SystemProxyStatusResponse,
 } from "./contracts.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
-import type { SystemProxyState } from "./sysproxy.js";
 
 const DAEMON_SUCCESS_BODY_LIMIT = 1024 * 1024;
 
@@ -119,8 +119,8 @@ export class SashDaemonClient {
     });
   }
 
-  async getProxy(): Promise<SystemProxyState & { desired: boolean; applied: boolean }> {
-    return this.request<SystemProxyState & { desired: boolean; applied: boolean }>("/sash/proxy");
+  async getProxy(): Promise<SystemProxyStatusResponse> {
+    return this.request<SystemProxyStatusResponse>("/sash/proxy");
   }
 
   async getProfiles(): Promise<ProfilesIndex> {
