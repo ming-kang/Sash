@@ -9,21 +9,22 @@ describe("tunPrivilegeGuidance", () => {
       root: "C:\\Users\\Asterin\\Sash",
     });
 
-    assert.match(message, /sash stop/);
-    assert.match(message, /PowerShell as Administrator/);
     assert.match(message, /sash config set tun on/);
-    assert.match(message, /run "sash start"/);
+    assert.match(message, /PowerShell as Administrator/);
+    assert.match(message, /run "sash restart"/);
     assert.match(message, /If SASH_HOME was explicitly customized/);
     assert.doesNotMatch(message, /\$env:SASH_HOME/);
+    assert.doesNotMatch(message, /sash stop/);
   });
 
-  it("warns that restarting only the Core cannot elevate sashd", () => {
+  it("points at an elevated full restart when the runtime is inactive", () => {
     const message = tunPrivilegeGuidance("runtime-inactive", {
       platform: "win32",
       root: "C:\\Sash",
     });
 
-    assert.match(message, /sash restart.*alone does not elevate sashd/);
+    assert.match(message, /PowerShell as Administrator/);
+    assert.match(message, /run "sash restart"/);
     assert.doesNotMatch(message, /sash config set tun on/);
   });
 
@@ -36,7 +37,7 @@ describe("tunPrivilegeGuidance", () => {
     assert.match(message, /root privileges/);
     assert.ok(
       message.includes(
-        "sudo env SASH_HOME='/home/user'\\''s/Sash Data' \"$(command -v sash)\" start",
+        "sudo env SASH_HOME='/home/user'\\''s/Sash Data' \"$(command -v sash)\" restart",
       ),
     );
     assert.doesNotMatch(message, /PowerShell/);

@@ -67,7 +67,7 @@ program
 
 program
   .command("restart")
-  .description("restart the core process")
+  .description("restart the daemon and core")
   .action(withCliErrors(() => runRestart()));
 
 program

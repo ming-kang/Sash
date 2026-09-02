@@ -17,12 +17,16 @@ import {
   recoverCoreUpdateTransaction,
 } from "../core-update.js";
 import { SashDaemonClient } from "../daemon-client.js";
-import { type DaemonRunningInfo, ensureDaemon, evaluateDaemon } from "../daemon-lifecycle.js";
+import {
+  type DaemonMaintenanceDeps,
+  type DaemonMaintenanceSnapshot,
+  ensureDaemon,
+  type MaintenanceDaemonClient,
+  prepareDaemonMaintenance,
+} from "../daemon-lifecycle.js";
 import { MIHOMO_REPO, resolveLatestTag } from "../github.js";
 import { log } from "../log.js";
-import type { SashLayout } from "../paths.js";
 import { isProcessAlive, readPidRecord } from "../process.js";
-import type { SashSettings } from "../settings.js";
 import { withStateLock } from "../state-lock.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { disableLegacySystemProxyIfOwned } from "../sysproxy.js";
@@ -34,79 +38,23 @@ import {
   runtimeContext,
 } from "./shared.js";
 
-interface UpdateDaemonClient {
-  maintenanceShutdown(): Promise<{ ok: true; coreWasRunning: boolean }>;
-  status?(): Promise<{ core: { running: boolean } }>;
-  shutdown?(): Promise<void>;
+export type UpdateMaintenanceSnapshot = DaemonMaintenanceSnapshot;
+
+interface UpdateDaemonClient extends MaintenanceDaemonClient {
   startCore(): Promise<{ pid: number; version?: string }>;
 }
 
-export interface UpdateMaintenanceSnapshot {
-  daemonWasRunning: boolean;
-  legacyDaemon: boolean;
-  coreWasRunning: boolean;
-}
-
-export interface UpdateMaintenanceDeps {
-  evaluateDaemon?: (layout: SashLayout, settings: SashSettings) => Promise<DaemonRunningInfo>;
+export interface UpdateMaintenanceDeps extends Omit<DaemonMaintenanceDeps, "clientFactory"> {
   clientFactory?: (port: number, secret: string) => UpdateDaemonClient;
-  waitForDaemonExit?: (pid: number, timeoutMs: number) => Promise<void>;
   ensureDaemon?: typeof ensureDaemon;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForDaemonExit(pid: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline && isProcessAlive(pid)) await sleep(100);
-  if (isProcessAlive(pid)) {
-    throw new Error(`sashd PID ${pid} did not exit after maintenance shutdown`);
-  }
-}
-
 /** Stop sashd and obtain the Core-running state from its serialized shutdown boundary. */
-export async function prepareUpdateMaintenance(
+export function prepareUpdateMaintenance(
   ctx: RuntimeContext,
   deps: UpdateMaintenanceDeps = {},
 ): Promise<UpdateMaintenanceSnapshot> {
-  const daemonState = await (deps.evaluateDaemon ?? evaluateDaemon)(ctx.layout, ctx.settings);
-  if (daemonState.running && !daemonState.healthy) {
-    throw new Error("sashd is running but unresponsive; refusing a competing Core update");
-  }
-  if (!daemonState.running) {
-    return { daemonWasRunning: false, legacyDaemon: false, coreWasRunning: false };
-  }
-  if (!daemonState.pid) {
-    throw new Error("sashd is running without a verified PID; refusing the Core update");
-  }
-
-  const client = (deps.clientFactory ?? ((port, secret) => new SashDaemonClient(port, secret)))(
-    ctx.settings.daemonPort,
-    ctx.settings.daemonSecret,
-  );
-  if (daemonState.legacyOwnership) {
-    if (!client.status || !client.shutdown) {
-      throw new Error("Legacy sashd maintenance requires status and shutdown support");
-    }
-    log.warn("legacy sashd detected; using the pre-maintenance update compatibility path");
-    const coreWasRunning = (await client.status()).core.running;
-    await client.shutdown();
-    await (deps.waitForDaemonExit ?? waitForDaemonExit)(daemonState.pid, 20_000);
-    return { daemonWasRunning: true, legacyDaemon: true, coreWasRunning };
-  }
-
-  const snapshot = await client.maintenanceShutdown();
-  if (snapshot.ok !== true || typeof snapshot.coreWasRunning !== "boolean") {
-    throw new Error("sashd returned an invalid maintenance shutdown snapshot");
-  }
-  await (deps.waitForDaemonExit ?? waitForDaemonExit)(daemonState.pid, 20_000);
-  return {
-    daemonWasRunning: true,
-    legacyDaemon: false,
-    coreWasRunning: snapshot.coreWasRunning,
-  };
+  return prepareDaemonMaintenance(ctx.layout, ctx.settings, "Core update", deps);
 }
 
 /** `sash update` upgrades the managed Core binary with rollback. */

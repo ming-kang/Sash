@@ -317,6 +317,77 @@ export async function ensureDaemon(
   await spawnDaemon({ layout, settings });
 }
 
+export interface MaintenanceDaemonClient {
+  maintenanceShutdown(): Promise<{ ok: true; coreWasRunning: boolean }>;
+  status?(): Promise<{ core: { running: boolean } }>;
+  shutdown?(): Promise<void>;
+}
+
+export interface DaemonMaintenanceSnapshot {
+  daemonWasRunning: boolean;
+  legacyDaemon: boolean;
+  coreWasRunning: boolean;
+}
+
+export interface DaemonMaintenanceDeps {
+  evaluateDaemon?: (layout: SashLayout, settings: SashSettings) => Promise<DaemonRunningInfo>;
+  clientFactory?: (port: number, secret: string) => MaintenanceDaemonClient;
+  waitForDaemonExit?: (pid: number, timeoutMs: number) => Promise<void>;
+}
+
+async function waitForDaemonExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && isProcessAlive(pid)) await sleep(100);
+  if (isProcessAlive(pid)) {
+    throw new Error(`sashd PID ${pid} did not exit after maintenance shutdown`);
+  }
+}
+
+/**
+ * Stop sashd and obtain the Core-running state from its serialized shutdown
+ * boundary. The daemon closes its mutation gate before answering, so the
+ * caller takes runtime ownership without racing in-flight mutations.
+ */
+export async function prepareDaemonMaintenance(
+  layout: SashLayout,
+  settings: SashSettings,
+  purpose: string,
+  deps: DaemonMaintenanceDeps = {},
+): Promise<DaemonMaintenanceSnapshot> {
+  const daemonState = await (deps.evaluateDaemon ?? evaluateDaemon)(layout, settings);
+  if (daemonState.running && !daemonState.healthy) {
+    throw new Error(`sashd is running but unresponsive; refusing a competing ${purpose}`);
+  }
+  if (!daemonState.running) {
+    return { daemonWasRunning: false, legacyDaemon: false, coreWasRunning: false };
+  }
+  if (!daemonState.pid) {
+    throw new Error(`sashd is running without a verified PID; refusing the ${purpose}`);
+  }
+
+  const client = (deps.clientFactory ?? ((port, secret) => new SashDaemonClient(port, secret)))(
+    settings.daemonPort,
+    settings.daemonSecret,
+  );
+  if (daemonState.legacyOwnership) {
+    if (!client.status || !client.shutdown) {
+      throw new Error("Legacy sashd maintenance requires status and shutdown support");
+    }
+    log.warn("legacy sashd detected; using the pre-maintenance compatibility path");
+    const coreWasRunning = (await client.status()).core.running;
+    await client.shutdown();
+    await (deps.waitForDaemonExit ?? waitForDaemonExit)(daemonState.pid, 20_000);
+    return { daemonWasRunning: true, legacyDaemon: true, coreWasRunning };
+  }
+
+  const snapshot = await client.maintenanceShutdown();
+  if (snapshot.ok !== true || typeof snapshot.coreWasRunning !== "boolean") {
+    throw new Error("sashd returned an invalid maintenance shutdown snapshot");
+  }
+  await (deps.waitForDaemonExit ?? waitForDaemonExit)(daemonState.pid, 20_000);
+  return { daemonWasRunning: true, legacyDaemon: false, coreWasRunning: snapshot.coreWasRunning };
+}
+
 export async function stopDaemonFromCli(
   opts: { layout?: SashLayout; settings?: SashSettings; timeoutMs?: number } = {},
 ): Promise<boolean> {

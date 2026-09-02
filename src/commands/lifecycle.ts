@@ -1,6 +1,13 @@
 import type { CoreStartResult } from "../contracts.js";
 import { SashDaemonClient } from "../daemon-client.js";
-import { ensureDaemon, evaluateDaemon, stopDaemonFromCli } from "../daemon-lifecycle.js";
+import {
+  type DaemonMaintenanceDeps,
+  ensureDaemon,
+  evaluateDaemon,
+  prepareDaemonMaintenance,
+  spawnDaemon,
+  stopDaemonFromCli,
+} from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { withStateLock } from "../state-lock.js";
 import { CoreSupervisor } from "../supervisor.js";
@@ -76,22 +83,52 @@ export async function runStop(): Promise<void> {
   });
 }
 
-export async function runRestart(): Promise<void> {
+/**
+ * Restart the whole runtime: sashd exits through its serialized maintenance
+ * boundary (so Core/system-proxy cleanup completes first) and a fresh daemon
+ * process picks up the currently installed code before the Core starts again.
+ */
+export async function runRestart(deps: DaemonMaintenanceDeps = {}): Promise<void> {
   const ctx = runtimeContext();
   await withRuntimeOperation(ctx, "restart runtime", async () => {
-    const daemon = await evaluateDaemon(ctx.layout, ctx.settings);
-    if (daemon.running && !daemon.healthy) {
-      throw new Error("sashd is already starting or unresponsive; refusing a competing restart");
+    const maintenance = await prepareDaemonMaintenance(
+      ctx.layout,
+      ctx.settings,
+      "runtime restart",
+      deps,
+    );
+
+    if (maintenance.legacyDaemon) {
+      // Legacy daemons predate the maintenance boundary; reconcile any proxy
+      // or Core ownership they may have left behind before respawning.
+      await runOfflineMutation(
+        ctx,
+        "clean up legacy runtime",
+        async () => {
+          if (ctx.settings.systemProxy) {
+            await disableLegacySystemProxyIfOwned({ port: ctx.settings.mixedPort });
+          }
+          await new SystemProxyManager({ layout: ctx.layout }).release();
+          await new CoreSupervisor({
+            layout: ctx.layout,
+            settings: () => ctx.settings,
+          }).cleanStaleCore();
+        },
+        { allowOrphanCore: true },
+      );
     }
-    if (!daemon.running) {
+
+    if (!maintenance.daemonWasRunning) {
       await runOfflineMutation(ctx, "install Core before restart", () => ensureCore(ctx));
     }
 
-    await ensureDaemon({ layout: ctx.layout, settings: ctx.settings });
+    const { pid: daemonPid } = await spawnDaemon({ layout: ctx.layout, settings: ctx.settings });
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
-    const result = await client.restartCore();
+    const result = await client.startCore();
+    const verb = maintenance.daemonWasRunning ? "restarted" : "started";
+    log.ok(`sashd ${verb} (PID=${daemonPid})`);
     log.ok(
-      `core restarted (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`,
+      `core ${verb} (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`,
     );
     printEndpoints(ctx);
     reportTunState(ctx, result);

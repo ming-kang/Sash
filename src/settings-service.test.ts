@@ -318,7 +318,7 @@ describe("SettingsService", () => {
 
     await assert.rejects(
       () => service.update("tun", "on"),
-      /TUN did not become active.*sash stop.*sash config set tun on/s,
+      /TUN did not become active.*sash config set tun on.*sash restart/s,
     );
 
     assert.equal(restartCalls, 2);

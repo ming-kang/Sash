@@ -14,12 +14,12 @@ export function tunPrivilegeGuidance(
   options: TunPrivilegeGuidanceOptions,
 ): string {
   const platform = options.platform ?? process.platform;
+  // An elevated `sash restart` replaces sashd with an elevated instance, so
+  // the stop/start choreography is no longer needed.
   const prepare =
-    context === "activation-rolled-back"
-      ? 'Run "sash stop" and "sash config set tun on", then '
-      : 'Run "sash stop", then ';
+    context === "activation-rolled-back" ? 'Run "sash config set tun on" first. ' : "";
   if (platform === "win32") {
-    return `${prepare}open PowerShell as Administrator and run "sash start". If SASH_HOME was explicitly customized, set the same value in that shell first. "sash restart" alone does not elevate sashd. If Sash was already elevated, inspect the Core error log.`;
+    return `${prepare}Open PowerShell as Administrator and run "sash restart". If SASH_HOME was explicitly customized, set the same value in that shell first. If Sash was already elevated, inspect the Core error log.`;
   }
-  return `${prepare}start Sash with root privileges using the same data directory: sudo env SASH_HOME=${quotePosix(options.root)} "$(command -v sash)" start. "sash restart" alone does not elevate sashd. If Sash was already elevated, inspect the Core error log.`;
+  return `${prepare}Restart Sash with root privileges using the same data directory: sudo env SASH_HOME=${quotePosix(options.root)} "$(command -v sash)" restart. If Sash was already elevated, inspect the Core error log.`;
 }

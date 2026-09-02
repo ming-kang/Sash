@@ -663,7 +663,7 @@ describe("daemon server", () => {
       assert.equal(res.statusCode, 500);
       assert.match(
         (res.data as { error: string }).error,
-        /TUN did not become active.*sash stop.*sash config set tun on/s,
+        /TUN did not become active.*sash config set tun on.*sash restart/s,
       );
       assert.equal(restartCalls, 2);
       const raw = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as { tun: boolean };
