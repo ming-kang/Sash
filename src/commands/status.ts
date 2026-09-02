@@ -22,6 +22,7 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
     let coreVersion: string | null = installedCoreVersion || null;
     let proxyApplied = false;
     let osProxy = false;
+    let tunActive: boolean | null = null;
 
     if (daemonState.running && daemonState.healthy) {
       try {
@@ -32,6 +33,7 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
         if (status.core.version) coreVersion = status.core.version;
         proxyApplied = status.systemProxy.applied;
         osProxy = Boolean(status.systemProxy.actual?.enabled);
+        tunActive = status.core.tunActive ?? null;
       } catch {
         // ignore
       }
@@ -68,6 +70,7 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
             ? { id: activeProfile.id, name: activeProfile.name, url: activeProfile.url }
             : null,
           tun: ctx.settings.tun,
+          tunActive,
           root: ctx.layout.root,
         },
         null,
@@ -77,12 +80,16 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
     return;
   }
 
+  let coreRunning = false;
+  let tunActive: boolean | undefined;
   if (!daemonState.running) {
     log.info("sash is not running");
   } else {
     try {
       const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
       const status = await client.status();
+      coreRunning = status.core.running;
+      tunActive = status.core.tunActive;
       const coreInfo = status.core.running
         ? `core running (PID=${status.core.pid}${status.core.version ? `, ${status.core.version}` : ""})`
         : "core stopped";
@@ -102,6 +109,19 @@ export async function runStatus(opts: { json?: boolean } = {}): Promise<void> {
     "active profile",
     activeProfile ? `${activeProfile.name} (${activeProfile.url || "local file"})` : "(none)",
   );
-  log.kv("tun", ctx.settings.tun ? "on" : "off");
+  log.kv(
+    "tun",
+    ctx.settings.tun
+      ? !coreRunning
+        ? "on (core stopped)"
+        : tunActive === true
+          ? "on (active)"
+          : tunActive === false
+            ? "on (inactive)"
+            : "on (unverified)"
+      : tunActive === true
+        ? "off (runtime active)"
+        : "off",
+  );
   log.kv("core version", installedCoreVersion || "(not installed)");
 }

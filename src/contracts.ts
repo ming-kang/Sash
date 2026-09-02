@@ -19,6 +19,8 @@ export interface CoreStartResult {
   ok: boolean;
   pid: number;
   version?: string;
+  /** Actual Core runtime state; omitted when /configs cannot be verified. */
+  tunActive?: boolean;
 }
 
 export interface MaintenanceShutdownResult {

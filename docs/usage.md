@@ -112,7 +112,11 @@ sash config set tun on
 sash restart
 ```
 
-TUN mode normally requires Administrator/root privileges. Do not enable it in automated smoke tests.
+TUN mode normally requires Administrator/root privileges. Sash distinguishes the desired setting from the Core's actual runtime state: `sash status` reports `on (active)`, `on (inactive)` or `on (unverified)`, and `sash status --json` retains `tun` as the desired boolean while adding `tunActive` (`true`, `false` or `null`).
+
+When a running Core is switched from TUN off to on, Sash reads back `tun.enable` from the Core before committing the setting. If the Core remains inactive or cannot be verified, the settings/config transaction and prior runtime are restored. A TUN setting saved while the Core is stopped can only be verified on the next start; startup leaves the ordinary proxy Core available and reports any inactive or unverified TUN state explicitly.
+
+Do not enable TUN in automated smoke tests.
 
 ---
 

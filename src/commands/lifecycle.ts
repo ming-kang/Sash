@@ -1,3 +1,4 @@
+import type { CoreStartResult } from "../contracts.js";
 import { SashDaemonClient } from "../daemon-client.js";
 import { ensureDaemon, evaluateDaemon, stopDaemonFromCli } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
@@ -35,11 +36,7 @@ export async function runStart(): Promise<void> {
       `core started (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`,
     );
     printEndpoints(ctx);
-    if (ctx.settings.tun) {
-      log.warn(
-        "TUN is enabled: the core usually needs Administrator/root privileges to create the interface.",
-      );
-    }
+    reportTunState(ctx, result);
     if (ctx.settings.systemProxy) log.ok("system proxy enabled");
   });
 }
@@ -96,7 +93,21 @@ export async function runRestart(): Promise<void> {
       `core restarted (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`,
     );
     printEndpoints(ctx);
+    reportTunState(ctx, result);
   });
+}
+
+function reportTunState(ctx: RuntimeContext, result: CoreStartResult): void {
+  if (!ctx.settings.tun) return;
+  if (result.tunActive === true) {
+    log.ok("TUN active");
+  } else if (result.tunActive === false) {
+    log.warn(
+      "TUN was requested but is inactive; the core remains available without TUN. Administrator/root privileges are usually required.",
+    );
+  } else {
+    log.warn("TUN was requested, but its runtime state could not be verified.");
+  }
 }
 
 export function printEndpoints(ctx: RuntimeContext): void {

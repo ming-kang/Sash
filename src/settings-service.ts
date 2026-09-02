@@ -137,7 +137,15 @@ export class SettingsService {
           settings: candidate,
           reloadRuntime: false,
           applyRuntime: async () => {
-            if (restart) await this.requireLifecycle().restart();
+            if (!restart) return;
+            const result = await this.requireLifecycle().restart();
+            if (key === "tun" && candidate.tun && result.tunActive !== true) {
+              throw new Error(
+                result.tunActive === false
+                  ? "TUN did not become active; Administrator/root privileges are usually required"
+                  : "TUN activation could not be verified through the Core controller",
+              );
+            }
           },
         },
         undefined,

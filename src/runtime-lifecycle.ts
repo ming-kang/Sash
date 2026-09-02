@@ -118,7 +118,11 @@ export class RuntimeLifecycle {
         throw new Error(`Core process is running but unhealthy (PID=${status.pid})`);
       }
       await this.reconcileSystemProxyUnlocked();
-      return { pid: status.pid, ...(status.version ? { version: status.version } : {}) };
+      return {
+        pid: status.pid,
+        ...(status.version ? { version: status.version } : {}),
+        ...(status.tunActive !== undefined ? { tunActive: status.tunActive } : {}),
+      };
     }
 
     this.generation++;

@@ -186,6 +186,44 @@ describe("SettingsService", () => {
     assert.equal(loadSettings(layout).systemProxy, true);
   });
 
+  it("rolls back an online TUN enable when the Core remains inactive", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    let restartCalls = 0;
+    const profiles = new ProfileService({ layout, settings: () => committed });
+    const supervisor = {
+      isRunning: () => true,
+    } as unknown as CoreSupervisor;
+    const lifecycle = {
+      restart: async () => {
+        restartCalls++;
+        return { pid: 1234, tunActive: false };
+      },
+    } as unknown as RuntimeLifecycle;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles,
+      supervisor,
+      lifecycle,
+      commit: async (_purpose, action) => action(),
+    });
+
+    await assert.rejects(() => service.update("tun", "on"), /TUN did not become active/);
+
+    assert.equal(restartCalls, 2);
+    assert.equal(runtime.tun, false);
+    assert.equal(committed.tun, false);
+    assert.equal(loadSettings(layout).tun, false);
+    assert.doesNotMatch(fs.readFileSync(layout.configFile, "utf8"), /^tun:/m);
+  });
+
   it("disables system proxy even when the profile index is corrupt", async () => {
     let committed = saveSettings({ ...initialSettings(), systemProxy: true }, layout);
     let runtime = committed;

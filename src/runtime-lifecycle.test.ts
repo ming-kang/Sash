@@ -15,7 +15,7 @@ interface FakeRuntime {
   proxyApplied(): boolean;
 }
 
-function createRuntime(systemProxy = false): FakeRuntime {
+function createRuntime(systemProxy = false, tunActive?: boolean): FakeRuntime {
   const settings = { ...DEFAULT_SETTINGS, systemProxy };
   const events: string[] = [];
   let running = false;
@@ -34,13 +34,14 @@ function createRuntime(systemProxy = false): FakeRuntime {
       running,
       healthy: running,
       ...(running ? { pid } : {}),
+      ...(tunActive !== undefined ? { tunActive } : {}),
     }),
     start: async () => {
       events.push("core:start");
       running = true;
       pid++;
       generation++;
-      return { pid };
+      return { pid, ...(tunActive !== undefined ? { tunActive } : {}) };
     },
     stop: async () => {
       events.push("core:stop");
@@ -52,7 +53,7 @@ function createRuntime(systemProxy = false): FakeRuntime {
       running = true;
       pid++;
       generation++;
-      return { pid };
+      return { pid, ...(tunActive !== undefined ? { tunActive } : {}) };
     },
   } as unknown as CoreSupervisor;
 
@@ -203,13 +204,14 @@ describe("RuntimeLifecycle", () => {
     assert.equal(runtime.lifecycle.state().phase, "running");
   });
 
-  it("reconciles desired proxy state on an idempotent start", async () => {
-    const runtime = createRuntime(true);
+  it("reconciles desired proxy state and reports TUN on an idempotent start", async () => {
+    const runtime = createRuntime(true, false);
     await runtime.lifecycle.start();
     runtime.events.length = 0;
 
-    await runtime.lifecycle.start();
+    const result = await runtime.lifecycle.start();
 
+    assert.equal(result.tunActive, false);
     assert.deepEqual(runtime.events, [`proxy:apply:${DEFAULT_SETTINGS.mixedPort}`]);
   });
 

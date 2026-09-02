@@ -63,13 +63,14 @@ Invariants:
 
 1. A start prepares and Core-validates the exact active config before spawn.
 2. The Core must pass two readiness probes before it is considered healthy.
-3. Desired system proxy is applied only after readiness.
-4. A deliberate stop restores the previous OS proxy before stopping the Core.
-5. If proxy restoration cannot be proved, the healthy Core is left running.
-6. Late child-exit events and delayed cleanup callbacks cannot clear a replacement child.
-7. Controller status probes retain an owned-child generation snapshot and report stopped if that child exits or is replaced while the probe is pending.
-8. System-proxy application verifies the same healthy owned child before and after OS changes; lost ownership immediately triggers proxy release.
-9. Process ownership is revalidated before every graceful or force signal; failed verification or termination preserves PID ownership.
+3. After readiness, a bounded `/configs` probe records the actual `tun.enable` state; probe failure is represented as unknown instead of being mistaken for inactive.
+4. Desired system proxy is applied only after readiness.
+5. A deliberate stop restores the previous OS proxy before stopping the Core.
+6. If proxy restoration cannot be proved, the healthy Core is left running.
+7. Late child-exit events and delayed cleanup callbacks cannot clear a replacement child.
+8. Controller status probes retain an owned-child generation snapshot and report stopped if that child exits or is replaced while the probe is pending.
+9. System-proxy application verifies the same healthy owned child before and after OS changes; lost ownership immediately triggers proxy release.
+10. Process ownership is revalidated before every graceful or force signal; failed verification or termination preserves PID ownership.
 
 Unexpected Core exit retries proxy restoration and records failures in daemon error logs.
 
@@ -82,7 +83,7 @@ Unexpected Core exit retries proxy restoration and records failures in daemon er
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
 | `/sash/health` | `GET` | Readiness, PID, start time and per-boot WebUI token. |
-| `/sash/status` | `GET` | Daemon/Core/proxy/public-settings snapshot. |
+| `/sash/status` | `GET` | Daemon/Core/proxy/public-settings snapshot; `core.tunActive` is the verified runtime TUN state when available. |
 | `/sash/proxy` | `GET` | Desired, Sash-owned and observed OS proxy state. |
 | `/sash/proxy/enable` | `POST` | Persist and apply proxy ownership; requires a healthy Core. |
 | `/sash/proxy/disable` | `POST` | Persist off and restore the pre-Sash proxy snapshot. |
@@ -125,7 +126,7 @@ Requests are forwarded to the internal controller. `sashd` strips Sash credentia
 
 After managed-state recovery, daemon and offline initialization first migrate a nonblank legacy `subscriptionUrl` into an active meta-only profile. That URL has priority over any pre-profile `config.yaml`. Only when `profiles/index.json` does not exist may Sash import `config.yaml` once as the active local `Imported config` profile. A present empty index is an explicit opt-out. The candidate must be bounded, regular, valid core-format YAML and contain non-default routing content after managed operational keys are stripped: nonempty proxies/providers, or nonempty rules/groups that differ from the Sash DIRECT-only default. Exact generated defaults are not imported. Invalid candidates fail initialization without changing `config.yaml`; successful import journals the profile YAML and index under `mutation.lock` while leaving `config.yaml` byte-for-byte in place. Later `ProfileService` preparation re-renders and, when Core is installed, validates the canonical profile-derived candidate before runtime use.
 
-`SettingsService` snapshots committed settings, creates an immutable canonical candidate, then fetches/renders/Core-validates active profile configuration outside the mutation lock. Under the short commit boundary it rechecks settings/profile snapshots and journals settings plus generated config before publication. The daemon exposes only `committedSettings` to GET/status/auth handlers; Core spawn/restart can temporarily use `runtimeSettings` while a candidate transition is in progress. The committed in-memory snapshot changes only after the journaled transition succeeds; failure restores disk/config and the old runtime.
+`SettingsService` snapshots committed settings, creates an immutable canonical candidate, then fetches/renders/Core-validates active profile configuration outside the mutation lock. Under the short commit boundary it rechecks settings/profile snapshots and journals settings plus generated config before publication. The daemon exposes only `committedSettings` to GET/status/auth handlers; Core spawn/restart can temporarily use `runtimeSettings` while a candidate transition is in progress. The committed in-memory snapshot changes only after the journaled transition succeeds; failure restores disk/config and the old runtime. Online TUN enable is additionally committed only when the restarted Core reports `tun.enable: true`; inactive or unverified results use the same disk/config/runtime compensation path.
 
 Profile application follows:
 

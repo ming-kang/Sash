@@ -75,6 +75,22 @@ export function needsRecoveryRefresh(previous: SashStatus | null, next: SashStat
   return runtimeCoherenceKey(previous) !== nextKey;
 }
 
+export type TunRuntimeState =
+  | "off"
+  | "stopped"
+  | "active"
+  | "inactive"
+  | "unverified"
+  | "unexpected-active";
+
+export function tunRuntimeState(status: SashStatus | null): TunRuntimeState {
+  const desired = status?.settings.tun ?? false;
+  if (!isCoreHealthy(status)) return desired ? "stopped" : "off";
+  if (status?.core.tunActive === true) return desired ? "active" : "unexpected-active";
+  if (!desired) return "off";
+  return status?.core.tunActive === false ? "inactive" : "unverified";
+}
+
 export function systemProxyNeedsDisable(status: SashStatus | null): boolean {
   return Boolean(
     status?.systemProxy.desired ||

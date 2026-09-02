@@ -9,6 +9,7 @@ import {
   resolvedProxyDelay,
   runProfileMutationSequence,
   syncCommittedBooleanSetting,
+  tunRuntimeState,
 } from "./state-ownership.js";
 
 function status(
@@ -21,6 +22,8 @@ function status(
     desiredProxy?: boolean;
     appliedProxy?: boolean;
     actualProxy?: boolean;
+    desiredTun?: boolean;
+    tunActive?: boolean;
   } = {},
 ): SashStatus {
   return {
@@ -35,6 +38,7 @@ function status(
       healthy: overrides.healthy ?? true,
       pid: overrides.pid ?? 200,
       startedAt: "2026-01-01T00:00:01.000Z",
+      ...(overrides.tunActive !== undefined ? { tunActive: overrides.tunActive } : {}),
     },
     systemProxy: {
       desired: overrides.desiredProxy ?? false,
@@ -44,7 +48,7 @@ function status(
     settings: {
       mixedPort: 17890,
       controller: "127.0.0.1:9090",
-      tun: false,
+      tun: overrides.desiredTun ?? false,
       allowLan: false,
       daemonPort: 19090,
       systemProxy: false,
@@ -117,6 +121,18 @@ describe("frontend state ownership helpers", () => {
     assert.equal(needsRecoveryRefresh(current, status({ daemonStartedAt: "later" })), true);
     assert.equal(needsRecoveryRefresh(current, status({ pid: 201 })), true);
     assert.equal(needsRecoveryRefresh(current, status({ profileRevision: 1 })), true);
+  });
+
+  it("distinguishes desired TUN state from the actual Core runtime", () => {
+    assert.equal(tunRuntimeState(status()), "off");
+    assert.equal(tunRuntimeState(status({ desiredTun: true, tunActive: true })), "active");
+    assert.equal(tunRuntimeState(status({ desiredTun: true, tunActive: false })), "inactive");
+    assert.equal(tunRuntimeState(status({ desiredTun: true })), "unverified");
+    assert.equal(
+      tunRuntimeState(status({ desiredTun: true, running: false, healthy: false })),
+      "stopped",
+    );
+    assert.equal(tunRuntimeState(status({ tunActive: true })), "unexpected-active");
   });
 
   it("keeps a manual delay across normal proxy snapshot replacement", () => {

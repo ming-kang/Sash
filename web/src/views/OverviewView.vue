@@ -74,12 +74,22 @@
           </div>
           <div class="kv-row">
             <span class="kv-label">{{ t('overview.tun') }}</span>
-            <UiSwitch
-              :model-value="store.status?.settings.tun ?? false"
-              :label="t('overview.tun')"
-              :disabled="store.operations.networkSetting"
-              @update:model-value="(value: boolean) => applyNetToggle('tun', value)"
-            />
+            <div class="quick-toggle">
+              <span
+                v-if="tunStatusBadge"
+                class="badge"
+                :class="tunStatusBadge.className"
+                :title="tunStatusBadge.title"
+              >
+                {{ tunStatusBadge.text }}
+              </span>
+              <UiSwitch
+                :model-value="store.status?.settings.tun ?? false"
+                :label="t('overview.tun')"
+                :disabled="store.operations.networkSetting"
+                @update:model-value="(value: boolean) => applyNetToggle('tun', value)"
+              />
+            </div>
           </div>
           <div class="kv-row">
             <span class="kv-label">{{ t('overview.lan') }}</span>
@@ -302,6 +312,7 @@ import {
   setSystemProxyEnabled,
   store,
   toast,
+  tunRuntime,
   updateProfile,
   updateProxyDelay,
 } from "../stores/index.js";
@@ -321,6 +332,42 @@ const activeProfile = computed(() => store.status?.activeProfile ?? null);
 const totalNodes = computed(
   () => Object.values(store.proxies).filter((proxy) => !(Array.isArray(proxy.all) && proxy.all.length > 0)).length,
 );
+const tunStatusBadge = computed(() => {
+  switch (tunRuntime.value) {
+    case "active":
+      return {
+        text: t("settings.tunStateActive"),
+        title: t("settings.tunDesc"),
+        className: "badge-success",
+      };
+    case "inactive":
+      return {
+        text: t("settings.tunStateInactive"),
+        title: t("settings.tunInactiveDesc"),
+        className: "badge-warning",
+      };
+    case "unverified":
+      return {
+        text: t("settings.tunStateUnverified"),
+        title: t("settings.tunUnverifiedDesc"),
+        className: "badge-warning",
+      };
+    case "stopped":
+      return {
+        text: t("settings.tunStateStopped"),
+        title: t("settings.tunDesc"),
+        className: "badge-neutral",
+      };
+    case "unexpected-active":
+      return {
+        text: t("settings.tunStateUnexpected"),
+        title: t("settings.tunUnexpectedDesc"),
+        className: "badge-warning",
+      };
+    default:
+      return null;
+  }
+});
 
 const modes = computed(() => [
   { id: "rule" as OutboundMode, label: t("overview.modeRule") },
@@ -591,6 +638,11 @@ async function refreshActiveProfile(): Promise<void> {
   min-width: 0;
   padding: 7px 0;
   font-size: 13px;
+}
+.quick-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .kv-label {
   min-width: 0;

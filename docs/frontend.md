@@ -117,7 +117,7 @@ The controller secret is never available to browser code; sashd injects it serve
 
 ## 6. Interaction State
 
-- Settings keep a local dirty flag so background polling does not overwrite a port currently being edited. Successful `allow-lan` and TUN responses commit the returned settings snapshot directly before any follow-up refresh.
+- Settings keep a local dirty flag so background polling does not overwrite a port currently being edited. Successful `allow-lan` and TUN responses commit the returned settings snapshot directly before any follow-up refresh. TUN controls separately derive active, inactive, unverified, pending-start and desired/runtime-mismatch presentation from `settings.tun` plus `core.tunActive`; failed online activation never advances the committed switch.
 - Logs receive monotonic IDs before entering the capped 600-row buffer, providing stable Vue keys and an update sequence even when length remains constant.
 - The global confirm service settles a previous pending Promise before opening another dialog; Escape, route changes and component unmount cancel the active confirmation.
 - Runtime refresh failures keep prior useful data where possible and drive the global offline banner.

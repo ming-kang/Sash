@@ -50,7 +50,7 @@ describe("lifecycle commands", () => {
       }
       if (req.url === "/core/start") {
         startCalls++;
-        res.end(JSON.stringify({ ok: true, pid: 77, version: "v-test" }));
+        res.end(JSON.stringify({ ok: true, pid: 77, version: "v-test", tunActive: false }));
         return;
       }
       res.writeHead(404);
@@ -61,6 +61,7 @@ describe("lifecycle commands", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
       daemonPort: port,
+      tun: true,
       secret: "test-core-secret",
       daemonSecret: "test-daemon-secret",
     };
@@ -81,9 +82,17 @@ describe("lifecycle commands", () => {
 
     const daemon = await evaluateDaemon(layout, settings);
     assert.equal(daemon.healthy, true, JSON.stringify(daemon));
-    await runStart();
+    const warnings: string[] = [];
+    const previousWarn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+    try {
+      await runStart();
+    } finally {
+      console.warn = previousWarn;
+    }
 
     assert.equal(startCalls, 1);
+    assert.match(warnings.join("\n"), /TUN was requested but is inactive/);
   });
 
   it("rejects stop when daemon shutdown cannot be verified", async () => {

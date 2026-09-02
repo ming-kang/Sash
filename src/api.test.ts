@@ -50,6 +50,34 @@ describe("MihomoApi", () => {
     }
   });
 
+  it("reads the actual TUN runtime state and rejects malformed config responses", async () => {
+    let response: unknown = { tun: { enable: true } };
+    const server = http.createServer((req, res) => {
+      if (req.url === "/configs") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(response));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+
+    try {
+      const api = new MihomoApi(`127.0.0.1:${port}`, "");
+      assert.equal(await api.getTunActive(), true);
+      response = { tun: { enable: false } };
+      assert.equal(await api.getTunActive(), false);
+      response = { tun: { enable: "false" } };
+      await assert.rejects(api.getTunActive(), /missing boolean tun\.enable/);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("drains a successful reload response before resolving", async () => {
     const server = http.createServer((req, res) => {
       if (req.method === "PUT" && req.url === "/configs") {

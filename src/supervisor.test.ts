@@ -25,11 +25,16 @@ test("restart: stale exit event from the replaced core does not clobber the new 
   fs.writeFileSync(layout.coreExe, "fake-core");
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
 
-  // Stub external-controller: healthy /version for the startup health check.
+  // Stub external-controller: healthy version and actual TUN runtime state.
   const server = http.createServer((req, res) => {
     if (req.url === "/version") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ version: "v-test", meta: true }));
+      return;
+    }
+    if (req.url === "/configs") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ tun: { enable: true } }));
       return;
     }
     res.writeHead(404);
@@ -63,10 +68,14 @@ test("restart: stale exit event from the replaced core does not clobber the new 
     const first = await supervisor.start();
     const oldChild = children[0];
     assert.ok(oldChild);
-    assert.equal((await supervisor.status()).pid, first.pid);
+    assert.equal(first.tunActive, true);
+    const firstStatus = await supervisor.status();
+    assert.equal(firstStatus.pid, first.pid);
+    assert.equal(firstStatus.tunActive, true);
 
     const second = await supervisor.restart();
     assert.ok(second.pid);
+    assert.equal(second.tunActive, true);
     assert.notEqual(first.pid, second.pid);
 
     // Simulate the late-arriving exit event from the replaced process. On
@@ -80,6 +89,7 @@ test("restart: stale exit event from the replaced core does not clobber the new 
     assert.equal(state.running, true);
     assert.equal(state.pid, second.pid);
     assert.equal(state.healthy, true);
+    assert.equal(state.tunActive, true);
     assert.equal(exitCalls, 0);
 
     const record = readPidRecord(layout.pidFile);

@@ -115,9 +115,17 @@
         <div class="setting-row caution-row">
           <div class="setting-info">
             <span class="setting-name">{{ t('settings.tunTitle') }}</span>
-            <span class="setting-desc">{{ t('settings.tunDesc') }}</span>
+            <span class="setting-desc">{{ tunDescription }}</span>
           </div>
           <div class="setting-action">
+            <span
+              v-if="tunStatusBadge"
+              class="badge"
+              :class="tunStatusBadge.className"
+              :title="tunStatusBadge.title"
+            >
+              {{ tunStatusBadge.text }}
+            </span>
             <UiSwitch
               :model-value="store.status?.settings.tun ?? false"
               :label="t('settings.tunTitle')"
@@ -203,6 +211,7 @@ import {
   refreshRuntimeState,
   store,
   toast,
+  tunRuntime,
 } from "../stores/index.js";
 import { setTheme, theme, type Theme } from "../theme.js";
 
@@ -232,6 +241,54 @@ const portValid = computed(
 const coreVersion = computed(() => {
   const version = store.status?.core.version;
   return version ? (version.startsWith("v") ? version : `v${version}`) : "";
+});
+const tunStatusBadge = computed(() => {
+  switch (tunRuntime.value) {
+    case "active":
+      return {
+        text: t("settings.tunStateActive"),
+        title: t("settings.tunDesc"),
+        className: "badge-success",
+      };
+    case "inactive":
+      return {
+        text: t("settings.tunStateInactive"),
+        title: t("settings.tunInactiveDesc"),
+        className: "badge-warning",
+      };
+    case "unverified":
+      return {
+        text: t("settings.tunStateUnverified"),
+        title: t("settings.tunUnverifiedDesc"),
+        className: "badge-warning",
+      };
+    case "stopped":
+      return {
+        text: t("settings.tunStateStopped"),
+        title: t("settings.tunDesc"),
+        className: "badge-neutral",
+      };
+    case "unexpected-active":
+      return {
+        text: t("settings.tunStateUnexpected"),
+        title: t("settings.tunUnexpectedDesc"),
+        className: "badge-warning",
+      };
+    default:
+      return null;
+  }
+});
+const tunDescription = computed(() => {
+  switch (tunRuntime.value) {
+    case "inactive":
+      return t("settings.tunInactiveDesc");
+    case "unverified":
+      return t("settings.tunUnverifiedDesc");
+    case "unexpected-active":
+      return t("settings.tunUnexpectedDesc");
+    default:
+      return t("settings.tunDesc");
+  }
 });
 
 function switchTheme(next: Theme): void {

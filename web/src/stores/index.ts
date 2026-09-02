@@ -27,6 +27,7 @@ import {
   runtimeCoherenceKey,
   syncCommittedBooleanSetting,
   systemProxyNeedsDisable,
+  tunRuntimeState,
 } from "./state-ownership.js";
 
 export interface ToastItem {
@@ -112,6 +113,7 @@ export const store = reactive<StoreState>({
 export const isSysProxyOn = computed(() => systemProxyNeedsDisable(store.status));
 export const isCoreRunning = computed(() => store.status?.core.running ?? false);
 export const isCoreReady = computed(() => isCoreHealthy(store.status));
+export const tunRuntime = computed(() => tunRuntimeState(store.status));
 export const canToggleSystemProxy = computed(
   () =>
     !store.operations.systemProxy &&

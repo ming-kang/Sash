@@ -252,6 +252,33 @@ describe("daemon server", () => {
       assert.equal(data.core.version, "v1.2.3");
       assert.equal(data.systemProxy.desired, false);
     });
+
+    it("reports actual TUN state independently from the desired setting", async () => {
+      let running = true;
+      const supervisor = {
+        isRunning: () => running,
+        status: async (): Promise<CoreState> => ({
+          running,
+          healthy: running,
+          pid: 4321,
+          tunActive: true,
+        }),
+        stop: async () => {
+          running = false;
+        },
+        cleanStaleCore: async () => {},
+      } as unknown as CoreSupervisor;
+      await startServer({ supervisor });
+
+      const res = await apiRequest("/sash/status");
+      assert.equal(res.statusCode, 200);
+      const data = res.data as {
+        core: { tunActive?: boolean };
+        settings: { tun: boolean };
+      };
+      assert.equal(data.settings.tun, false);
+      assert.equal(data.core.tunActive, true);
+    });
   });
 
   describe("system proxy management", () => {
@@ -494,6 +521,35 @@ describe("daemon server", () => {
 
       const raw = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8"));
       assert.equal(raw.tun, true);
+    });
+
+    it("rejects and rolls back an online TUN enable that remains inactive", async () => {
+      let running = true;
+      let restartCalls = 0;
+      const supervisor = {
+        isRunning: () => running,
+        restart: async () => {
+          restartCalls++;
+          return { pid: 1234, tunActive: false };
+        },
+        stop: async () => {
+          running = false;
+        },
+        cleanStaleCore: async () => {},
+      } as unknown as CoreSupervisor;
+      await startServer({ supervisor });
+
+      const res = await apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { key: "tun", value: "on" },
+      });
+
+      assert.equal(res.statusCode, 500);
+      assert.match((res.data as { error: string }).error, /TUN did not become active/);
+      assert.equal(restartCalls, 2);
+      const raw = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as { tun: boolean };
+      assert.equal(raw.tun, false);
+      assert.doesNotMatch(fs.readFileSync(layout.configFile, "utf8"), /^tun:/m);
     });
 
     it("keeps GET settings on the committed snapshot while candidate validation is delayed", async () => {
