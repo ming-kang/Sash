@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { RuntimeLifecycle } from "./runtime-lifecycle.js";
+import { type CoreUpdateStartupController, RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import type { CoreState, CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy.js";
@@ -15,7 +15,11 @@ interface FakeRuntime {
   proxyApplied(): boolean;
 }
 
-function createRuntime(systemProxy = false, tunActive?: boolean): FakeRuntime {
+function createRuntime(
+  systemProxy = false,
+  tunActive?: boolean,
+  coreUpdate?: CoreUpdateStartupController,
+): FakeRuntime {
   const settings = { ...DEFAULT_SETTINGS, systemProxy };
   const events: string[] = [];
   let running = false;
@@ -85,7 +89,12 @@ function createRuntime(systemProxy = false, tunActive?: boolean): FakeRuntime {
   };
 
   return {
-    lifecycle: new RuntimeLifecycle({ supervisor, systemProxy: proxy, settings: () => settings }),
+    lifecycle: new RuntimeLifecycle({
+      supervisor,
+      systemProxy: proxy,
+      settings: () => settings,
+      coreUpdate,
+    }),
     events,
     setProxyFailure(error) {
       proxyFailure = error;
@@ -213,6 +222,73 @@ describe("RuntimeLifecycle", () => {
 
     assert.equal(result.tunActive, false);
     assert.deepEqual(runtime.events, [`proxy:apply:${DEFAULT_SETTINGS.mixedPort}`]);
+  });
+
+  it("finalizes a pending Core update immediately after a healthy managed start", async () => {
+    const events: string[] = [];
+    const runtime = createRuntime(false, undefined, {
+      pending: () => true,
+      completeAfterStart: () => {
+        events.push("update:complete");
+      },
+      rollbackAfterStartFailure: () => undefined,
+    });
+
+    await runtime.lifecycle.start();
+
+    assert.deepEqual(events, ["update:complete"]);
+  });
+
+  it("rolls back a failed pending update and restarts the previous Core", async () => {
+    let running = false;
+    let starts = 0;
+    let pending = true;
+    const events: string[] = [];
+    const supervisor = {
+      isRunning: () => running,
+      start: async () => {
+        starts += 1;
+        events.push(`core:start:${starts}`);
+        if (starts === 1) throw new Error("candidate unhealthy");
+        running = true;
+        return { pid: 1000 + starts, version: "v1" };
+      },
+      status: async (): Promise<CoreState> => ({
+        running,
+        healthy: running,
+        ...(running ? { pid: 1000 + starts } : {}),
+      }),
+      ownedCoreSnapshot: () => (running ? { pid: 1000 + starts, generation: starts } : undefined),
+      ownsCore: () => running,
+    } as unknown as CoreSupervisor;
+    const proxy: SystemProxyController = {
+      apply: async () => undefined,
+      release: async () => undefined,
+      recover: async () => undefined,
+      inspect: () => ({ applied: false, state: { supported: true, enabled: false } }),
+      isApplied: () => false,
+      getState: () => ({ supported: true, enabled: false }),
+    };
+    const lifecycle = new RuntimeLifecycle({
+      supervisor,
+      systemProxy: proxy,
+      settings: () => DEFAULT_SETTINGS,
+      coreUpdate: {
+        pending: () => pending,
+        completeAfterStart: () => undefined,
+        rollbackAfterStartFailure: () => {
+          events.push("update:rollback");
+          pending = false;
+          return { coreVersion: "v1" };
+        },
+      },
+    });
+
+    await assert.rejects(lifecycle.start(), /candidate unhealthy; Core update rolled back to v1/);
+
+    assert.deepEqual(events, ["core:start:1", "update:rollback", "core:start:2"]);
+    assert.equal(running, true);
+    assert.equal(lifecycle.state().phase, "running");
   });
 
   it("releases the proxy when Core exits while it is being applied", async () => {

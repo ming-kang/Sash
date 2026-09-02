@@ -7,7 +7,13 @@ import type { DaemonStatus } from "./contracts.js";
 import { assertCoreInstallationConsistent, currentCoreVersion } from "./core.js";
 import { validateCoreConfigText } from "./core-config-validation.js";
 import { recoverCoreInstallTransaction } from "./core-install-transaction.js";
-import { recoverInterruptedCoreUpdate } from "./core-update.js";
+import {
+  completePendingCoreUpdateAfterStart,
+  pendingCoreUpdateVersion,
+  readCoreUpdateTransaction,
+  recoverCoreUpdateTransaction,
+  rollbackCoreUpdateTransaction,
+} from "./core-update.js";
 import {
   isControlMutation,
   isControlRequestAuthorized,
@@ -102,7 +108,8 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     new CoreSupervisor({
       layout,
       settings: () => runtimeSettings,
-      expectedVersion: currentCoreVersion(layout) || undefined,
+      expectedVersion: () =>
+        pendingCoreUpdateVersion(layout) || currentCoreVersion(layout) || undefined,
       onExit: async () => {
         try {
           await lifecycle?.handleUnexpectedCoreExit();
@@ -117,6 +124,13 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     supervisor,
     systemProxy,
     settings: () => runtimeSettings,
+    coreUpdate: {
+      pending: () => readCoreUpdateTransaction(layout) !== undefined,
+      completeAfterStart: () => {
+        completePendingCoreUpdateAfterStart(layout);
+      },
+      rollbackAfterStartFailure: () => rollbackCoreUpdateTransaction(layout),
+    },
   });
 
   let closing = false;
@@ -653,7 +667,7 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
     // deliberately leaving an OS proxy pointed at a dead port.
     await instance.lifecycle.recoverStartup();
     await instance.supervisor.cleanStaleCore();
-    recoverInterruptedCoreUpdate(layout);
+    recoverCoreUpdateTransaction(layout);
     assertCoreInstallationConsistent(layout);
 
     const port = settings.daemonPort;

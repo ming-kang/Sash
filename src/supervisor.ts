@@ -38,7 +38,7 @@ export interface CoreSupervisorOptions {
   settings: () => SashSettings;
   spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   waitHealthyMs?: number;
-  expectedVersion?: string;
+  expectedVersion?: string | (() => string | undefined);
   isAliveFn?: typeof isProcessAlive;
   killFn?: typeof killProcessGracefully;
   classifyIdentityFn?: typeof classifyProcessIdentity;
@@ -73,7 +73,7 @@ export class CoreSupervisor {
   private readonly getSettings: () => SashSettings;
   private readonly spawnFn: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   private readonly waitHealthyMs: number;
-  private readonly expectedVersion?: string;
+  private readonly getExpectedVersion: () => string | undefined;
   private readonly isAlive: typeof isProcessAlive;
   private readonly kill: typeof killProcessGracefully;
   private readonly classifyIdentity: typeof classifyProcessIdentity;
@@ -86,7 +86,9 @@ export class CoreSupervisor {
     this.layout = opts.layout;
     this.getSettings = opts.settings;
     this.waitHealthyMs = opts.waitHealthyMs ?? 10_000;
-    this.expectedVersion = opts.expectedVersion;
+    const expectedVersion = opts.expectedVersion;
+    this.getExpectedVersion =
+      typeof expectedVersion === "function" ? expectedVersion : () => expectedVersion;
     this.isAlive = opts.isAliveFn ?? isProcessAlive;
     this.kill = opts.killFn ?? killProcessGracefully;
     this.classifyIdentity = opts.classifyIdentityFn ?? classifyProcessIdentity;
@@ -170,6 +172,7 @@ export class CoreSupervisor {
       throw new Error(`Core config not found at ${this.layout.configFile}`);
     }
 
+    const expectedVersion = this.getExpectedVersion();
     this.stopping = false;
     const settings = this.getSettings();
     const child = this.spawnFn(this.layout, settings);
@@ -258,9 +261,9 @@ export class CoreSupervisor {
 
       try {
         version = await api.version();
-        if (this.expectedVersion && !versionMatches(version, this.expectedVersion)) {
+        if (expectedVersion && !versionMatches(version, expectedVersion)) {
           throw new Error(
-            `Controller version ${version} does not match expected ${this.expectedVersion}`,
+            `Controller version ${version} does not match expected ${expectedVersion}`,
           );
         }
         healthyProbes++;

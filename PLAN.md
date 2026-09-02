@@ -117,7 +117,7 @@
 
 完成记录：stored profile 以单次有界读取同时解析并计算 SHA-256，settings、activate、reload、update、remove、existing add 与缺失内容物化在提交边界复核摘要和完整目标 metadata；stale update/error 被拒绝，settings 仅自动重试一次。profile/index 要求普通文件并限制为 8/2 MiB，interval 有界，统一 ID 分配检查 metadata 与孤儿文件。确定性测试覆盖 settings/profile 分叉、activation 编辑、双进程乱序更新、缺失文件出现、资源边界和冲突重试；lint 与 325 项测试（324 通过、1 项既有 Windows skip）通过。
 
-### 8. 为 Core 更新建立持久化 journal — 待办
+### 8. 为 Core 更新建立持久化 journal — 已完成
 
 目标：`.bak` 只在新 Core 通过托管健康检查并恢复原运行状态后删除。
 
@@ -128,6 +128,8 @@
 - 启动、update 和离线命令在一致性断言前恢复未完成 journal。
 
 验收：每个 phase 的故障注入、延迟验证成功/失败和自动回滚都有测试。
+
+完成记录：新增严格、16 KiB、固定路径的 `state/core-update-transaction.json`，持久化 previous/target records 与 prepared/swapped/health-verified；运行中更新在外部 runtime 恢复前保留 rollback，停止中更新保持旧 metadata/`.bak` 到下次受管 start，成功时 commit、失败时回滚并尝试启动旧 Core。CoreSupervisor 的 expected version 改为启动前动态快照；prepared/partial swap/health metadata/cleanup、首装式 update、缺失 backup、schema/size/regular-file、runtime 成功与失败回滚均有确定性测试。tracked-file Biome、typecheck 与 331 项测试（330 通过、1 项既有 Windows skip）通过。
 
 ### 9. 强化 Windows Core 文件恢复 — 待办
 

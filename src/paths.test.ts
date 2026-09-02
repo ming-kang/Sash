@@ -100,6 +100,10 @@ describe("paths", () => {
         layout.coreInstallTransactionFile,
         path.join(customRoot, "state", "core-install-transaction.json"),
       );
+      assert.equal(
+        layout.coreUpdateTransactionFile,
+        path.join(customRoot, "state", "core-update-transaction.json"),
+      );
       assert.equal(layout.logsDir, path.join(customRoot, "logs"));
       assert.equal(layout.coreLogFile, path.join(customRoot, "logs", "mihomo.log"));
       assert.equal(layout.coreErrLogFile, path.join(customRoot, "logs", "mihomo.err.log"));

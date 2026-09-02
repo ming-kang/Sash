@@ -11,10 +11,17 @@ export type RuntimePhase =
   | "restarting"
   | "failed";
 
+export interface CoreUpdateStartupController {
+  pending(): boolean;
+  completeAfterStart(): void;
+  rollbackAfterStartFailure(): { coreVersion: string } | null | undefined;
+}
+
 export interface RuntimeLifecycleOptions {
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
   settings: () => SashSettings;
+  coreUpdate?: CoreUpdateStartupController;
 }
 
 export interface RuntimeLifecycleState {
@@ -37,6 +44,7 @@ export class RuntimeLifecycle {
   private readonly supervisor: CoreSupervisor;
   private readonly systemProxy: SystemProxyController;
   private readonly getSettings: () => SashSettings;
+  private readonly coreUpdate?: CoreUpdateStartupController;
   private operationQueue: Promise<void> = Promise.resolve();
   private phase: RuntimePhase;
   private generation = 0;
@@ -45,6 +53,7 @@ export class RuntimeLifecycle {
     this.supervisor = options.supervisor;
     this.systemProxy = options.systemProxy;
     this.getSettings = options.settings;
+    this.coreUpdate = options.coreUpdate;
     this.phase = this.supervisor.isRunning() ? "running" : "stopped";
   }
 
@@ -117,6 +126,7 @@ export class RuntimeLifecycle {
       if (!status.healthy) {
         throw new Error(`Core process is running but unhealthy (PID=${status.pid})`);
       }
+      this.coreUpdate?.completeAfterStart();
       await this.reconcileSystemProxyUnlocked();
       return {
         pid: status.pid,
@@ -127,15 +137,49 @@ export class RuntimeLifecycle {
 
     this.generation++;
     this.phase = "starting";
+    let startAttempted = false;
     try {
       // A prior daemon may have crashed after taking over the OS proxy.
       await this.systemProxy.recover();
       await prepare?.();
+      startAttempted = true;
       const result = await this.supervisor.start();
+      this.coreUpdate?.completeAfterStart();
       this.phase = "running";
       await this.applyDesiredProxyUnlocked();
       return result;
     } catch (err) {
+      if (startAttempted && !this.supervisor.isRunning() && this.coreUpdate) {
+        let pending: boolean;
+        try {
+          pending = this.coreUpdate.pending();
+        } catch (inspectError) {
+          this.phase = "failed";
+          throw new Error(
+            `${(err as Error).message}; pending Core update inspection failed: ${(inspectError as Error).message}`,
+          );
+        }
+        if (pending) {
+          let previous: { coreVersion: string } | null | undefined;
+          try {
+            previous = this.coreUpdate.rollbackAfterStartFailure();
+            if (previous) {
+              await this.supervisor.start();
+              this.phase = "running";
+              await this.applyDesiredProxyUnlocked();
+            } else {
+              this.phase = "stopped";
+            }
+          } catch (rollbackError) {
+            this.phase = this.supervisor.isRunning() ? "running" : "failed";
+            throw new Error(
+              `${(err as Error).message}; Core update rollback failed: ${(rollbackError as Error).message}`,
+            );
+          }
+          const destination = previous ? ` to ${previous.coreVersion}` : "";
+          throw new Error(`${(err as Error).message}; Core update rolled back${destination}`);
+        }
+      }
       this.phase = this.supervisor.isRunning() ? "running" : "failed";
       throw err;
     }

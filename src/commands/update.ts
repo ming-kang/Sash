@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { MihomoApi } from "../api.js";
 import {
+  assertCoreInstallationConsistent,
   coreInstalled,
   currentCoreVersion,
   type StagedCore,
@@ -11,8 +12,9 @@ import { validateCoreConfigFile } from "../core-config-validation.js";
 import {
   type CoreUpdateRuntime,
   commitCoreUpdate,
-  finalizeCoreUpdateBackup,
-  recoverInterruptedCoreUpdate,
+  finalizeCoreUpdateTransaction,
+  readCoreUpdateTransaction,
+  recoverCoreUpdateTransaction,
 } from "../core-update.js";
 import { SashDaemonClient } from "../daemon-client.js";
 import { type DaemonRunningInfo, ensureDaemon, evaluateDaemon } from "../daemon-lifecycle.js";
@@ -124,6 +126,7 @@ export async function runUpdate(
         if (
           !coreInstalled(ctx.layout) ||
           fs.existsSync(ctx.layout.coreInstallTransactionFile) ||
+          fs.existsSync(ctx.layout.coreUpdateTransactionFile) ||
           fs.existsSync(`${ctx.layout.coreExe}.bak`)
         ) {
           return false;
@@ -168,6 +171,7 @@ async function commitStagedUpdate(
 ): Promise<void> {
   let updateError: Error | undefined;
   let resultVersion: string | undefined;
+  let pendingStartupValidation = false;
 
   try {
     const ownedCore = readPidRecord(ctx.layout.pidFile);
@@ -195,7 +199,8 @@ async function commitStagedUpdate(
           settings: () => ctx.settings,
         });
         await recoverySupervisor.cleanStaleCore();
-        recoverInterruptedCoreUpdate(ctx.layout);
+        recoverCoreUpdateTransaction(ctx.layout);
+        assertCoreInstallationConsistent(ctx.layout);
         await createProfileService(ctx).reloadActive(false);
         await validateCoreConfigFile(staged.exe, ctx.layout.configFile, ctx.layout);
 
@@ -224,7 +229,6 @@ async function commitStagedUpdate(
             layout: ctx.layout,
             staged,
             runtime,
-            retainBackup: true,
           });
         } finally {
           await activeVerifier?.stop();
@@ -233,6 +237,7 @@ async function commitStagedUpdate(
       { allowOrphanCore: true, migrateProfiles: true },
     );
     resultVersion = result.version;
+    pendingStartupValidation = result.pendingStartupValidation;
   } catch (err) {
     updateError = err as Error;
   }
@@ -264,10 +269,23 @@ async function commitStagedUpdate(
     throw new Error(`${updateError.message}${suffix}`);
   }
   if (restartError) {
+    const attemptedVersion = resultVersion ?? staged.version;
+    const restoredVersion = currentCoreVersion(ctx.layout);
+    if (!readCoreUpdateTransaction(ctx.layout) && restoredVersion !== attemptedVersion) {
+      throw new Error(
+        `Core ${attemptedVersion} failed during runtime restoration and was rolled back${restoredVersion ? ` to ${restoredVersion}` : ""}: ${restartError.message}`,
+      );
+    }
     throw new Error(
-      `Core ${resultVersion ?? staged.version} was installed and verified, but runtime restoration failed: ${restartError.message}. The previous binary remains in the rollback slot.`,
+      `Core ${attemptedVersion} was installed and verified, but runtime restoration failed: ${restartError.message}. The previous binary remains in the rollback slot.`,
     );
   }
-  finalizeCoreUpdateBackup(ctx.layout);
+  if (pendingStartupValidation) {
+    log.ok(
+      `core ${resultVersion ?? staged.version} staged; rollback is retained until the next successful \`sash start\``,
+    );
+    return;
+  }
+  finalizeCoreUpdateTransaction(ctx.layout);
   log.ok(`core updated to ${resultVersion ?? staged.version}`);
 }

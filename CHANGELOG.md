@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Versioned `sash.json` runtime schema with strict field validation and explicit v0 migration.
 - Atomic daemon/start/runtime/mutation/settings leases for single-instance and cross-process state ownership.
 - Durable first-install Core publication journal with publishing/committed crash recovery.
+- Durable Core update journal recording previous/target install records and prepared/swapped/health-verified phases, including deferred health validation for stopped runtimes.
 - Authenticated maintenance shutdown API returning an atomic Core-running snapshot for executable updates.
 - Durable system-proxy ownership journal that snapshots and conditionally restores prior manual/PAC state.
 - Windows/macOS/Linux and Node.js 24 CI matrix covering lint, tests, builds and package dry-runs.
@@ -82,7 +83,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Process termination now revalidates ownership before both graceful and force signals, and daemon shutdown verifies the current boot token in every ownership mode.
 - WebUI traffic/log WebSockets now complete browser subprotocol negotiation while keeping private authentication protocols away from the Core.
 - Release downloads now require the production host allowlist for both initial URLs and every redirect target.
-- Failed core updates restore both the previous binary and install record; inactive updates still validate the staged executable before deleting `.bak`.
+- Failed Core updates restore both the previous binary and install record; updates performed while Core is stopped retain `.bak` until the next managed start passes health/version checks, then commit or roll back deterministically.
 - Activating a missing/invalid local profile no longer silently keeps the previous config, and reload failures restore the previous active/config state.
 - Changing `mixed-port` while system proxy is enabled now disables the old binding during restart and applies the new port afterward.
 - Public daemon status/settings responses no longer expose controller or daemon secrets; unauthenticated mutation requests are rejected.

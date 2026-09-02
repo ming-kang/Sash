@@ -5,9 +5,16 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { readInstallRecord, writeInstallRecord } from "./core.js";
 import {
+  beginCoreUpdateTransaction,
   type CoreUpdateRuntime,
   commitCoreUpdate,
-  recoverInterruptedCoreUpdate,
+  completePendingCoreUpdateAfterStart,
+  finalizeCoreUpdateTransaction,
+  markCoreUpdateHealthVerified,
+  markCoreUpdateSwapped,
+  readCoreUpdateTransaction,
+  recoverCoreUpdateTransaction,
+  rollbackCoreUpdateTransaction,
 } from "./core-update.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
@@ -25,29 +32,63 @@ describe("core update transaction", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function staged(version: string, content = "new-core") {
+  function staged(version: string, content = `${version}-core`) {
     const exe = path.join(layout.binDir, `staged-${version}`);
     fs.writeFileSync(exe, content);
     return { version, exe };
   }
 
-  it("commits binary and install metadata together after validation", async () => {
-    fs.writeFileSync(layout.coreExe, "old-core");
-    writeInstallRecord({ coreVersion: "v1", installedAt: "2025-01-01T00:00:00.000Z" }, layout);
+  function verify(exe: string, expectedVersion: string): void {
+    if (fs.readFileSync(exe, "utf8") !== `${expectedVersion}-core`) {
+      throw new Error("version mismatch");
+    }
+  }
 
-    const result = await commitCoreUpdate({ layout, staged: staged("v2") });
+  function seed(version = "v1"): void {
+    fs.writeFileSync(layout.coreExe, `${version}-core`);
+    writeInstallRecord({ coreVersion: version, installedAt: "2025-01-01T00:00:00.000Z" }, layout);
+  }
 
-    assert.equal(result.version, "v2");
-    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "new-core");
-    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
+  it("defers a stopped Core health check and retains the previous record and binary", async () => {
+    seed();
+
+    const result = await commitCoreUpdate({
+      layout,
+      staged: staged("v2"),
+      verifyExecutable: verify,
+    });
+
+    assert.equal(result.pendingStartupValidation, true);
+    assert.equal(result.backupRemoved, false);
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
+    assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), "v1-core");
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
+    assert.deepEqual(readCoreUpdateTransaction(layout)?.phase, "swapped");
+
+    recoverCoreUpdateTransaction(layout, verify);
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
+    assert.equal(completePendingCoreUpdateAfterStart(layout, verify), "v2");
     assert.equal(readInstallRecord(layout)?.coreVersion, "v2");
+    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
   });
 
-  it("restores binary and metadata when the new runtime health check fails", async () => {
-    fs.writeFileSync(layout.coreExe, "old-core");
-    const previous = { coreVersion: "v1", installedAt: "2025-01-01T00:00:00.000Z" };
-    writeInstallRecord(previous, layout);
+  it("keeps a first update startable while runtime validation is pending", async () => {
+    const result = await commitCoreUpdate({
+      layout,
+      staged: staged("v1"),
+      verifyExecutable: verify,
+    });
 
+    assert.equal(result.pendingStartupValidation, true);
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
+    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
+    assert.equal(completePendingCoreUpdateAfterStart(layout, verify), "v1");
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+  });
+
+  it("retains a runtime-verified rollback slot until external restoration", async () => {
+    seed();
     let starts = 0;
     let stops = 0;
     const runtime: CoreUpdateRuntime = {
@@ -55,130 +96,153 @@ describe("core update transaction", () => {
       stop: async () => {
         stops += 1;
       },
-      startAndVerify: async () => {
+      startAndVerify: async (expectedVersion) => {
         starts += 1;
-        if (starts === 1) throw new Error("new core unhealthy");
+        assert.equal(expectedVersion, "v2");
       },
-    };
-
-    await assert.rejects(
-      () => commitCoreUpdate({ layout, staged: staged("v2"), runtime }),
-      /new core unhealthy/,
-    );
-
-    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "old-core");
-    assert.deepEqual(readInstallRecord(layout), previous);
-    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
-    assert.equal(starts, 2, "old core should be restarted after rollback");
-    assert.equal(stops, 2, "new runtime should be stopped before restoring the old binary");
-  });
-
-  it("recovers an interrupted backup before applying the next update", async () => {
-    fs.writeFileSync(`${layout.coreExe}.bak`, "recovered-old-core");
-    writeInstallRecord({ coreVersion: "v1", installedAt: "2025-01-01T00:00:00.000Z" }, layout);
-
-    await commitCoreUpdate({
-      layout,
-      staged: staged("v2"),
-      verifyExecutable: (exe, expected) => {
-        if (expected !== "v1" || fs.readFileSync(exe, "utf8") !== "recovered-old-core") {
-          throw new Error("mismatch");
-        }
-      },
-    });
-
-    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "new-core");
-    assert.equal(readInstallRecord(layout)?.coreVersion, "v2");
-  });
-
-  it("rolls back an uncommitted current binary when the backup matches metadata", async () => {
-    fs.writeFileSync(layout.coreExe, "v2-core");
-    fs.writeFileSync(`${layout.coreExe}.bak`, "v1-core");
-    writeInstallRecord({ coreVersion: "v1", installedAt: "2025-01-01T00:00:00.000Z" }, layout);
-    let recoveredBeforeStop = "";
-    const runtime: CoreUpdateRuntime = {
-      verifyRuntime: true,
-      stop: async () => {
-        recoveredBeforeStop ||= fs.readFileSync(layout.coreExe, "utf8");
-      },
-      startAndVerify: async () => {},
-    };
-
-    await commitCoreUpdate({
-      layout,
-      staged: staged("v3", "v3-core"),
-      runtime,
-      verifyExecutable: (exe, expected) => {
-        if (fs.readFileSync(exe, "utf8") !== `${expected}-core`) throw new Error("mismatch");
-      },
-    });
-
-    assert.equal(recoveredBeforeStop, "v1-core");
-    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v3-core");
-  });
-
-  it("finishes a committed interrupted update by discarding its stale backup", async () => {
-    fs.writeFileSync(layout.coreExe, "v2-core");
-    fs.writeFileSync(`${layout.coreExe}.bak`, "v1-core");
-    writeInstallRecord({ coreVersion: "v2", installedAt: "2025-01-01T00:00:00.000Z" }, layout);
-
-    await commitCoreUpdate({
-      layout,
-      staged: staged("v3", "v3-core"),
-      verifyExecutable: (exe, expected) => {
-        if (fs.readFileSync(exe, "utf8") !== `${expected}-core`) throw new Error("mismatch");
-      },
-    });
-
-    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v3-core");
-    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
-  });
-
-  it("retains a verified rollback slot until external runtime restoration succeeds", async () => {
-    fs.writeFileSync(layout.coreExe, "v1-core");
-    writeInstallRecord({ coreVersion: "v1", installedAt: "2025-01-01T00:00:00.000Z" }, layout);
-    const verify = (exe: string, expected: string) => {
-      if (fs.readFileSync(exe, "utf8") !== `${expected}-core`) throw new Error("mismatch");
     };
 
     const result = await commitCoreUpdate({
       layout,
-      staged: staged("v2", "v2-core"),
-      retainBackup: true,
+      staged: staged("v2"),
+      runtime,
       verifyExecutable: verify,
     });
 
+    assert.equal(result.pendingStartupValidation, false);
     assert.equal(result.backupRemoved, false);
-    assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), "v1-core");
-    recoverInterruptedCoreUpdate(layout, verify, true);
-    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
-    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
-  });
-
-  it("rejects a backup-only recovery when it does not match install metadata", () => {
-    fs.writeFileSync(`${layout.coreExe}.bak`, "corrupt-core");
-    writeInstallRecord({ coreVersion: "v1", installedAt: "2025-01-01T00:00:00.000Z" }, layout);
-
-    assert.throws(
-      () =>
-        recoverInterruptedCoreUpdate(layout, (exe, expected) => {
-          if (fs.readFileSync(exe, "utf8") !== `${expected}-core`) throw new Error("mismatch");
-        }),
-      /does not match committed version/,
-    );
-    assert.equal(fs.existsSync(layout.coreExe), false);
+    assert.equal(starts, 1);
+    assert.equal(stops, 1);
+    assert.equal(readCoreUpdateTransaction(layout)?.phase, "health-verified");
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v2");
     assert.equal(fs.existsSync(`${layout.coreExe}.bak`), true);
+
+    finalizeCoreUpdateTransaction(layout, verify);
+    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
   });
 
-  it("preserves candidate and backup when a running candidate cannot be stopped", async () => {
-    fs.writeFileSync(layout.coreExe, "old-core");
-    const previous = { coreVersion: "v1", installedAt: "2025-01-01T00:00:00.000Z" };
-    writeInstallRecord(previous, layout);
+  it("restores binary, metadata, and the old runtime when health verification fails", async () => {
+    seed();
+    let starts = 0;
     let stops = 0;
     const runtime: CoreUpdateRuntime = {
       verifyRuntime: true,
       stop: async () => {
-        stops++;
+        stops += 1;
+      },
+      startAndVerify: async (expectedVersion) => {
+        starts += 1;
+        if (expectedVersion === "v2") throw new Error("new core unhealthy");
+        assert.equal(expectedVersion, "v1");
+      },
+    };
+
+    await assert.rejects(
+      () =>
+        commitCoreUpdate({
+          layout,
+          staged: staged("v2"),
+          runtime,
+          verifyExecutable: verify,
+        }),
+      /new core unhealthy/,
+    );
+
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
+    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+    assert.equal(starts, 2);
+    assert.equal(stops, 2);
+  });
+
+  it("recovers prepared crashes before and during the binary swap", () => {
+    seed();
+    const previous = readInstallRecord(layout);
+    assert.ok(previous);
+
+    beginCoreUpdateTransaction(layout, "v2", previous, false);
+    recoverCoreUpdateTransaction(layout, verify);
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
+
+    const transaction = beginCoreUpdateTransaction(layout, "v2", previous, false);
+    fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
+    recoverCoreUpdateTransaction(layout, verify);
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
+    assert.equal(transaction.phase, "prepared");
+
+    beginCoreUpdateTransaction(layout, "v2", previous, false);
+    fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
+    fs.writeFileSync(layout.coreExe, "v2-core");
+    recoverCoreUpdateTransaction(layout, verify);
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
+  });
+
+  it("rolls back an interrupted in-command swapped phase", () => {
+    seed();
+    const previous = readInstallRecord(layout);
+    assert.ok(previous);
+    let transaction = beginCoreUpdateTransaction(layout, "v2", previous, false);
+    fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
+    fs.writeFileSync(layout.coreExe, "v2-core");
+    transaction = markCoreUpdateSwapped(transaction, layout);
+
+    recoverCoreUpdateTransaction(layout, verify);
+
+    assert.equal(transaction.phase, "swapped");
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+  });
+
+  it("finishes metadata publication after a health-verified crash", () => {
+    seed();
+    const previous = readInstallRecord(layout);
+    assert.ok(previous);
+    let transaction = beginCoreUpdateTransaction(layout, "v2", previous, false);
+    fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
+    fs.writeFileSync(layout.coreExe, "v2-core");
+    transaction = markCoreUpdateSwapped(transaction, layout);
+    markCoreUpdateHealthVerified(transaction, layout);
+
+    recoverCoreUpdateTransaction(layout, verify);
+
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v2");
+    assert.equal(readCoreUpdateTransaction(layout)?.phase, "health-verified");
+    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), true);
+    finalizeCoreUpdateTransaction(layout, verify);
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+  });
+
+  it("finishes a health-verified cleanup interrupted after backup removal", () => {
+    seed();
+    const previous = readInstallRecord(layout);
+    assert.ok(previous);
+    let transaction = beginCoreUpdateTransaction(layout, "v2", previous, false);
+    fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
+    fs.writeFileSync(layout.coreExe, "v2-core");
+    transaction = markCoreUpdateSwapped(transaction, layout);
+    markCoreUpdateHealthVerified(transaction, layout);
+    writeInstallRecord({ coreVersion: "v2", installedAt: transaction.createdAt }, layout);
+    fs.rmSync(`${layout.coreExe}.bak`);
+
+    finalizeCoreUpdateTransaction(layout, verify);
+
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v2");
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+  });
+
+  it("preserves the journal and both binaries when rollback ownership is unresolved", async () => {
+    seed();
+    let stops = 0;
+    const runtime: CoreUpdateRuntime = {
+      verifyRuntime: true,
+      stop: async () => {
+        stops += 1;
         if (stops > 1) throw new Error("candidate still running");
       },
       startAndVerify: async () => {
@@ -187,12 +251,82 @@ describe("core update transaction", () => {
     };
 
     await assert.rejects(
-      () => commitCoreUpdate({ layout, staged: staged("v2"), runtime }),
+      () =>
+        commitCoreUpdate({
+          layout,
+          staged: staged("v2"),
+          runtime,
+          verifyExecutable: verify,
+        }),
       /candidate unhealthy; rollback also failed: candidate still running/,
     );
 
-    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "new-core");
-    assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), "old-core");
-    assert.deepEqual(readInstallRecord(layout), previous);
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
+    assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), "v1-core");
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
+    assert.equal(readCoreUpdateTransaction(layout)?.phase, "swapped");
+  });
+
+  it("fails closed when a deferred rollback backup is missing", async () => {
+    seed();
+    await commitCoreUpdate({
+      layout,
+      staged: staged("v2"),
+      verifyExecutable: verify,
+    });
+    fs.rmSync(`${layout.coreExe}.bak`);
+
+    assert.throws(
+      () => recoverCoreUpdateTransaction(layout, verify),
+      /missing its rollback backup/,
+    );
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
+    assert.equal(readCoreUpdateTransaction(layout)?.phase, "swapped");
+  });
+
+  it("rolls a pending candidate back explicitly after a failed managed start", async () => {
+    seed();
+    await commitCoreUpdate({
+      layout,
+      staged: staged("v2"),
+      verifyExecutable: verify,
+    });
+
+    const previous = rollbackCoreUpdateTransaction(layout, verify);
+
+    assert.equal(previous?.coreVersion, "v1");
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+  });
+
+  it("rejects malformed, oversized, and non-regular journal files", () => {
+    fs.mkdirSync(layout.stateDir, { recursive: true });
+    fs.writeFileSync(layout.coreUpdateTransactionFile, "{ broken");
+    assert.throws(() => readCoreUpdateTransaction(layout), /not valid JSON/);
+
+    fs.writeFileSync(
+      layout.coreUpdateTransactionFile,
+      JSON.stringify({
+        version: 1,
+        phase: "prepared",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        previousRecord: null,
+        targetRecord: {
+          coreVersion: "v2",
+          installedAt: "2026-01-01T00:00:00.000Z",
+        },
+        deferredHealth: true,
+        extra: true,
+      }),
+    );
+    assert.throws(() => readCoreUpdateTransaction(layout), /invalid version.*shape/);
+
+    fs.writeFileSync(layout.coreUpdateTransactionFile, "x".repeat(16 * 1024 + 1));
+    assert.throws(() => readCoreUpdateTransaction(layout), /exceeds/);
+
+    fs.rmSync(layout.coreUpdateTransactionFile);
+    fs.mkdirSync(layout.coreUpdateTransactionFile);
+    assert.throws(() => readCoreUpdateTransaction(layout), /not a regular file/);
   });
 });

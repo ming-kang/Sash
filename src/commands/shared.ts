@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { assertCoreInstallationConsistent, coreInstalled, installCore } from "../core.js";
 import { validateCoreConfigText } from "../core-config-validation.js";
 import { recoverCoreInstallTransaction } from "../core-install-transaction.js";
-import { recoverInterruptedCoreUpdate } from "../core-update.js";
+import { recoverCoreUpdateTransaction } from "../core-update.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { recoverManagedStateTransaction } from "../managed-state-transaction.js";
@@ -64,7 +64,10 @@ export async function runOfflineMutation<T>(
       }
     }
     recoverCoreInstallTransaction(ctx.layout);
-    assertCoreInstallationConsistent(ctx.layout);
+    if (!options.allowOrphanCore) {
+      recoverCoreUpdateTransaction(ctx.layout);
+      assertCoreInstallationConsistent(ctx.layout);
+    }
     recoverManagedStateTransaction(ctx.layout);
     // Recovery may have restored sash.json from an interrupted transaction.
     ctx.settings = loadSettings(ctx.layout);
@@ -79,7 +82,7 @@ export async function runOfflineMutation<T>(
 
 export async function ensureCore(ctx: RuntimeContext): Promise<void> {
   recoverCoreInstallTransaction(ctx.layout);
-  recoverInterruptedCoreUpdate(ctx.layout);
+  recoverCoreUpdateTransaction(ctx.layout);
   assertCoreInstallationConsistent(ctx.layout);
   if (coreInstalled(ctx.layout)) return;
   log.info("mihomo core not installed; downloading latest release...");

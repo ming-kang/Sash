@@ -54,6 +54,7 @@ export interface SashLayout {
   managedStateTransactionFile: string;
   installFile: string;
   coreInstallTransactionFile: string;
+  coreUpdateTransactionFile: string;
   logsDir: string;
   coreLogFile: string;
   coreErrLogFile: string;
@@ -86,6 +87,7 @@ export function sashLayout(root: string = sashRoot()): SashLayout {
     managedStateTransactionFile: path.join(root, "state", "managed-state-transaction.json"),
     installFile: path.join(root, "state", "install.json"),
     coreInstallTransactionFile: path.join(root, "state", "core-install-transaction.json"),
+    coreUpdateTransactionFile: path.join(root, "state", "core-update-transaction.json"),
     logsDir: path.join(root, "logs"),
     coreLogFile: path.join(root, "logs", "mihomo.log"),
     coreErrLogFile: path.join(root, "logs", "mihomo.err.log"),
