@@ -12,7 +12,9 @@ describe("tunPrivilegeGuidance", () => {
     assert.match(message, /sash stop/);
     assert.match(message, /PowerShell as Administrator/);
     assert.match(message, /sash config set tun on/);
-    assert.match(message, /\$env:SASH_HOME = 'C:\\Users\\Asterin\\Sash'; sash start/);
+    assert.match(message, /run "sash start"/);
+    assert.match(message, /If SASH_HOME was explicitly customized/);
+    assert.doesNotMatch(message, /\$env:SASH_HOME/);
   });
 
   it("warns that restarting only the Core cannot elevate sashd", () => {

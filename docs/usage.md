@@ -112,19 +112,20 @@ TUN requires the whole Sash daemon to be started with elevated privileges. First
 ```sh
 sash stop
 sash config set tun on
-sash config show  # note the printed data root
 ```
 
-On Windows, open PowerShell as Administrator and use that same data root:
+On Windows, open PowerShell as Administrator:
 
 ```powershell
-$env:SASH_HOME = '<data root printed above>'
 sash start
 ```
 
-On macOS or Linux, start Sash as root while preserving the same data root and Sash executable:
+The default `%LOCALAPPDATA%\Sash` data root remains the same when the current Windows user elevates. Only copy an explicitly customized `SASH_HOME` into the Administrator shell.
+
+On macOS or Linux, `sudo` can change the default home directory. Read the current data root and pass it explicitly while starting Sash as root:
 
 ```sh
+sash config show  # note the printed data root
 sudo env SASH_HOME='<data root printed above>' "$(command -v sash)" start
 ```
 
