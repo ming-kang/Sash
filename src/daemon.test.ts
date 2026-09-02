@@ -815,6 +815,23 @@ describe("daemon server", () => {
       assert.match(text, /<html>ui<\/html>/);
     });
 
+    it("isolates dashboard documents, SPA fallbacks, and assets from framing", async () => {
+      fs.mkdirSync(layout.uiDir, { recursive: true });
+      fs.writeFileSync(path.join(layout.uiDir, "index.html"), "<html>ui</html>");
+      fs.writeFileSync(path.join(layout.uiDir, "app.js"), "export {};\n");
+      await startServer();
+
+      for (const pathname of ["/ui/", "/ui/profiles", "/ui/app.js"]) {
+        const res = await request(`http://127.0.0.1:${boundPort}${pathname}`);
+        await res.body.text();
+        assert.equal(res.statusCode, 200, pathname);
+        assert.equal(res.headers["content-security-policy"], "frame-ancestors 'none'", pathname);
+        assert.equal(res.headers["x-frame-options"], "DENY", pathname);
+        assert.equal(res.headers["x-content-type-options"], "nosniff", pathname);
+        assert.equal(res.headers["referrer-policy"], "no-referrer", pathname);
+      }
+    });
+
     it("supports HEAD for dashboard assets without streaming a body", async () => {
       fs.mkdirSync(layout.uiDir, { recursive: true });
       fs.writeFileSync(path.join(layout.uiDir, "index.html"), "<html>ui</html>");

@@ -78,7 +78,7 @@
 
 完成记录：WebSocket proxy 在等待 101 前即取得上下游 request/transport 所有权，并读取暂停的 downstream socket 以观察 FIN；早断开会关闭 request、transport 和后到的上游 socket。事件屏障测试确认 mock Core 收到 EOF；lint 与 312 项测试（311 通过、1 项既有 Windows skip）通过。
 
-### 5. 阻止 Dashboard framing — 待办
+### 5. 阻止 Dashboard framing — 已完成
 
 目标：阻止任意网页 iframe 嵌入本地 Dashboard 并点击劫持。
 
@@ -87,6 +87,8 @@
 - 增加 `X-Content-Type-Options: nosniff` 和 `Referrer-Policy: no-referrer`。
 
 验收：内置 UI、自定义 UI 和 SPA fallback 响应均包含 anti-frame headers。
+
+完成记录：静态 UI 的 HTML、SPA fallback、asset、HEAD 与错误响应统一附加 CSP `frame-ancestors 'none'`、X-Frame-Options、nosniff 和 no-referrer。测试覆盖自定义 UI 的文档/fallback/asset；lint 与 313 项测试（312 通过、1 项既有 Windows skip）通过。
 
 ### 6. 校验 daemon JSON 请求契约 — 待办
 

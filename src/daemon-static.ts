@@ -4,6 +4,13 @@ import path from "node:path";
 import type { SashLayout } from "./paths.js";
 import { resolveUiDir } from "./webui.js";
 
+const UI_SECURITY_HEADERS = {
+  "Content-Security-Policy": "frame-ancestors 'none'",
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+} as const;
+
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -44,7 +51,7 @@ export function serveStaticUi(
 
   // Prevent path traversal
   if (relative.split(/[\\/]/).includes("..")) {
-    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.writeHead(403, { ...UI_SECURITY_HEADERS, "Content-Type": "text/plain" });
     res.end("Forbidden");
     return true;
   }
@@ -70,7 +77,7 @@ export function serveStaticUi(
   if (targetFile && isFile(targetFile)) {
     const ext = path.extname(targetFile);
     const mime = MIME_TYPES[ext] ?? "application/octet-stream";
-    const headers: Record<string, string> = { "Content-Type": mime };
+    const headers: Record<string, string> = { ...UI_SECURITY_HEADERS, "Content-Type": mime };
     if (ext === ".html") {
       headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
       headers.Pragma = "no-cache";
@@ -88,7 +95,10 @@ export function serveStaticUi(
     });
     stream.once("error", () => {
       if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.writeHead(500, {
+          ...UI_SECURITY_HEADERS,
+          "Content-Type": "text/plain; charset=utf-8",
+        });
         res.end("Failed to read dashboard asset");
       } else {
         res.destroy();
