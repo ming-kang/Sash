@@ -43,7 +43,7 @@ export interface ConnectionItem {
 export interface ConnectionsResponse {
   downloadTotal: number;
   uploadTotal: number;
-  connections: ConnectionItem[];
+  connections: ConnectionItem[] | null;
 }
 
 export interface TrafficMessage {

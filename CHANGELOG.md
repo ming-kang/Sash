@@ -59,6 +59,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- WebUI normalizes an empty Core connection snapshot so Overview renders correctly with zero active connections.
 - Controller status and system-proxy transitions now detect Core exit/replacement across asynchronous probes and release a just-applied proxy binding when ownership is lost.
 - CLI stop now fails when daemon shutdown cannot be safely verified, and daemon-client shutdown errors are no longer discarded.
 - Settings updates use immutable candidates and one shared online/offline service; validation rejects blank/control-character secrets and listener-port collisions, while failed runtime transitions restore prior settings/config/runtime state.

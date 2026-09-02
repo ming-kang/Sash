@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { addLog, clearLogs, store } from "./index.js";
+import { addLog, clearLogs, normalizeConnections, store } from "./index.js";
 
 describe("web store logs", () => {
   afterEach(() => clearLogs());
@@ -14,5 +14,9 @@ describe("web store logs", () => {
     assert.equal(store.logs[0]?.payload, "line-5");
     assert.ok((store.logs.at(-1)?.id ?? 0) > (store.logs[0]?.id ?? 0));
     assert.equal(new Set(store.logs.map((log) => log.id)).size, 600);
+  });
+
+  it("normalizes an empty Core connection snapshot", () => {
+    assert.deepEqual(normalizeConnections(null), []);
   });
 });

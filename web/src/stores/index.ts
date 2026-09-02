@@ -7,6 +7,7 @@ import type {
 import { api } from "../api/index.js";
 import type {
   ConnectionItem,
+  ConnectionsResponse,
   LogMessage,
   OutboundMode,
   ProfileMeta,
@@ -117,6 +118,12 @@ export const canToggleSystemProxy = computed(
     canSetSystemProxyTarget(store.status, !systemProxyNeedsDisable(store.status)),
 );
 
+export function normalizeConnections(
+  connections: ConnectionsResponse["connections"],
+): ConnectionItem[] {
+  return connections ?? [];
+}
+
 export function setProfiles(res: ProfilesResponse): void {
   store.profiles = res.profiles;
   store.activeProfileId = res.activeId;
@@ -186,7 +193,7 @@ async function refreshFullRuntime(
   store.mode = configs.mode;
   setProxies(proxies.proxies);
   store.rules = rules.rules;
-  store.connections = connections.connections;
+  store.connections = normalizeConnections(connections.connections);
   store.connectionsUploadTotal = connections.uploadTotal;
   store.connectionsDownloadTotal = connections.downloadTotal;
   coherentRuntimeKey = runtimeCoherenceKey(status);
@@ -262,7 +269,7 @@ export async function refreshConnections(): Promise<void> {
   const runtimeRequest = requests.begin("runtime");
   const connections = await api.getConnections();
   if (!requests.isCurrent("runtime", runtimeRequest) || !isCoreHealthy(store.status)) return;
-  store.connections = connections.connections;
+  store.connections = normalizeConnections(connections.connections);
   store.connectionsUploadTotal = connections.uploadTotal;
   store.connectionsDownloadTotal = connections.downloadTotal;
 }
