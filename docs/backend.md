@@ -116,7 +116,7 @@ Every request in this namespace requires the persistent CLI bearer or per-boot W
 - WebSocket upgrades validate loopback Origin, authentication and route boundaries.
 - Public settings/status contracts omit controller and daemon secrets.
 - Controller and daemon clients use a direct dispatcher with normal TLS verification; proxy environment variables apply only to remote downloads.
-- Child environments remove GitHub/npm tokens and npm authentication variables.
+- Every managed runtime and OS/browser/package helper child removes GitHub/npm tokens, npm credential-file/auth variables and npm registry credentials. Fixed Windows/macOS system tools use trusted absolute paths; Linux desktop helpers are resolved only through absolute PATH entries.
 
 ---
 

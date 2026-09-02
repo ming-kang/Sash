@@ -9,10 +9,12 @@ import {
   binaryUnlockProbePath,
   buildSanitizedEnv,
   clearPidRecord,
+  findExecutableOnPath,
   isProcessAlive,
   killProcessGracefully,
   readPidRecord,
   recoverBinaryUnlockProbe,
+  runSanitizedCommand,
   TAIL_FILE_CHUNK_BYTES,
   tailFile,
   writePidRecord,
@@ -96,6 +98,8 @@ describe("process utilities", () => {
         GH_TOKEN: "ghp_secret2",
         npm_config__auth: "secret3",
         NPM_CONFIG_AUTHTOKEN: "secret4",
+        npm_config_userconfig: "/tmp/credentialed-npmrc",
+        NPM_CONFIG_PASSWORD: "secret5",
         SAFE_VAR: "keep",
       };
       const sanitized = buildSanitizedEnv(source);
@@ -105,6 +109,44 @@ describe("process utilities", () => {
       assert.equal(sanitized.GH_TOKEN, undefined);
       assert.equal(sanitized.npm_config__auth, undefined);
       assert.equal(sanitized.NPM_CONFIG_AUTHTOKEN, undefined);
+      assert.equal(sanitized.npm_config_userconfig, undefined);
+      assert.equal(sanitized.NPM_CONFIG_PASSWORD, undefined);
+    });
+
+    it("executes helper children with the sanitized environment", () => {
+      const output = runSanitizedCommand(
+        process.execPath,
+        [
+          "-e",
+          "process.stdout.write(JSON.stringify({ github: process.env.GITHUB_TOKEN, npm: process.env.NPM_TOKEN, userconfig: process.env.npm_config_userconfig, safe: process.env.SAFE_VAR }))",
+        ],
+        {
+          sourceEnv: {
+            ...process.env,
+            GITHUB_TOKEN: "github-secret",
+            NPM_TOKEN: "npm-secret",
+            npm_config_userconfig: "/tmp/private-npmrc",
+            SAFE_VAR: "visible",
+          },
+        },
+      );
+
+      assert.deepEqual(JSON.parse(output), { safe: "visible" });
+    });
+
+    it("resolves helpers only from absolute PATH entries", () => {
+      const executableName = process.platform === "win32" ? "sash-helper.exe" : "sash-helper";
+      const executable = path.join(tmpDir, executableName);
+      fs.writeFileSync(executable, "helper");
+      fs.chmodSync(executable, 0o755);
+
+      assert.equal(
+        findExecutableOnPath(executableName, {
+          PATH: `relative${path.delimiter}${tmpDir}`,
+        }),
+        executable,
+      );
+      assert.equal(findExecutableOnPath("missing-helper", { PATH: tmpDir }), undefined);
     });
   });
 

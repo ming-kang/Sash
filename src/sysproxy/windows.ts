@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { runSanitizedCommand, windowsSystemExecutable } from "../process.js";
 import { formatHostPort, normalizeEnableOptions, parseProxyString, runCmd } from "./common.js";
 import { windowsSnapshot } from "./snapshot.js";
 import type {
@@ -188,11 +188,11 @@ function refreshWindowsWinINet(): void {
     "}",
   ].join("\n");
   try {
-    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-      windowsHide: true,
-      timeout: 5000,
-      stdio: "ignore",
-    });
+    runSanitizedCommand(
+      windowsSystemExecutable("WindowsPowerShell/v1.0/powershell.exe"),
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { stdio: "ignore", timeoutMs: 5000 },
+    );
   } catch {
     // The registry values are authoritative even if the notification cannot run.
   }

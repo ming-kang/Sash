@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { runCmd } from "./sysproxy/common.js";
 import {
   createLegacyProxyCleanup,
   createSystemProxyBackend,
@@ -21,6 +22,27 @@ import {
 } from "./sysproxy.js";
 
 describe("sysproxy", () => {
+  describe("helper child environment", () => {
+    it("does not forward GitHub or npm credentials", () => {
+      const previousGithub = process.env.GITHUB_TOKEN;
+      const previousNpm = process.env.NPM_TOKEN;
+      try {
+        process.env.GITHUB_TOKEN = "github-secret";
+        process.env.NPM_TOKEN = "npm-secret";
+        const output = runCmd(process.execPath, [
+          "-e",
+          "process.stdout.write(JSON.stringify({ github: process.env.GITHUB_TOKEN, npm: process.env.NPM_TOKEN }))",
+        ]);
+        assert.deepEqual(JSON.parse(output), {});
+      } finally {
+        if (previousGithub === undefined) delete process.env.GITHUB_TOKEN;
+        else process.env.GITHUB_TOKEN = previousGithub;
+        if (previousNpm === undefined) delete process.env.NPM_TOKEN;
+        else process.env.NPM_TOKEN = previousNpm;
+      }
+    });
+  });
+
   describe("isSystemProxySupported", () => {
     it("reports true on win32 and darwin", () => {
       assert.equal(isSystemProxySupported("win32"), true);

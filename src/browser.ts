@@ -1,5 +1,5 @@
 import { type SpawnOptions, spawn } from "node:child_process";
-import { buildSanitizedEnv } from "./process.js";
+import { buildSanitizedEnv, findExecutableOnPath, windowsSystemExecutable } from "./process.js";
 
 export function buildBrowserSpawnOptions(sourceEnv: NodeJS.ProcessEnv = process.env): SpawnOptions {
   return {
@@ -14,10 +14,10 @@ export function buildBrowserSpawnOptions(sourceEnv: NodeJS.ProcessEnv = process.
 export function openInBrowser(url: string): void {
   const command =
     process.platform === "win32"
-      ? { cmd: "rundll32.exe", args: ["url.dll,FileProtocolHandler", url] }
+      ? { cmd: windowsSystemExecutable("rundll32.exe"), args: ["url.dll,FileProtocolHandler", url] }
       : process.platform === "darwin"
-        ? { cmd: "open", args: [url] }
-        : { cmd: "xdg-open", args: [url] };
+        ? { cmd: "/usr/bin/open", args: [url] }
+        : { cmd: findExecutableOnPath("xdg-open") ?? "xdg-open", args: [url] };
   try {
     const child = spawn(command.cmd, command.args, buildBrowserSpawnOptions());
     child.on("error", () => {

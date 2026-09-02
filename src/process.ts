@@ -79,16 +79,21 @@ function imageMatchesExpectedExe(imageOrComm: string, expectedExe: string): bool
 let cachedPowerShell: string | undefined;
 
 function runPowerShell(script: string, timeoutMs = 5000): string | undefined {
+  const windowsPowerShell = windowsSystemExecutable(
+    path.join("WindowsPowerShell", "v1.0", "powershell.exe"),
+  );
+  const pwsh = findExecutableOnPath("pwsh.exe");
+  const candidates = [windowsPowerShell, ...(pwsh ? [pwsh] : [])];
   const shells = cachedPowerShell
-    ? [cachedPowerShell, ...["powershell.exe", "pwsh.exe"].filter((s) => s !== cachedPowerShell)]
-    : ["powershell.exe", "pwsh.exe"];
+    ? [cachedPowerShell, ...candidates.filter((shell) => shell !== cachedPowerShell)]
+    : candidates;
   for (const shell of shells) {
     try {
-      const output = execFileSync(shell, ["-NoProfile", "-NonInteractive", "-Command", script], {
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: timeoutMs,
-      }).trim();
+      const output = runSanitizedCommand(
+        shell,
+        ["-NoProfile", "-NonInteractive", "-Command", script],
+        { timeoutMs },
+      ).trim();
       cachedPowerShell = shell;
       if (output) return output;
     } catch {
@@ -156,11 +161,11 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
       }
 
       try {
-        const out = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
-          encoding: "utf8",
-          windowsHide: true,
-          timeout: 3000,
-        }).trim();
+        const out = runSanitizedCommand(
+          windowsSystemExecutable("tasklist.exe"),
+          ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"],
+          { timeoutMs: 3000 },
+        ).trim();
         const image = parseTasklistImageName(out);
         if (!image) return "mismatch";
         return imageMatchesExpectedExe(image, expected) ? "unknown" : "mismatch";
@@ -171,9 +176,8 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
 
     if (process.platform === "darwin") {
       try {
-        const out = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "comm="], {
-          encoding: "utf8",
-          timeout: 3000,
+        const out = runSanitizedCommand("/bin/ps", ["-ww", "-p", String(pid), "-o", "comm="], {
+          timeoutMs: 3000,
         });
         return classifyDarwinComm(out, expected);
       } catch {
@@ -207,9 +211,8 @@ export function readProcessCommandLine(pid: number): string | undefined {
       return runPowerShell(script);
     }
     if (process.platform === "darwin") {
-      const out = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
-        encoding: "utf8",
-        timeout: 3000,
+      const out = runSanitizedCommand("/bin/ps", ["-ww", "-p", String(pid), "-o", "command="], {
+        timeoutMs: 3000,
       }).trim();
       return out || undefined;
     }
@@ -249,12 +252,69 @@ export function buildSanitizedEnv(sourceEnv: NodeJS.ProcessEnv = process.env): N
     const lower = key.toLowerCase();
     const isNpmAuthConfig =
       lower.startsWith("npm_config_") &&
-      (lower.includes("authtoken") || lower.includes("auth_token") || lower.endsWith("_auth"));
+      (lower.includes("authtoken") ||
+        lower.includes("auth_token") ||
+        lower.endsWith("_auth") ||
+        lower.includes("password") ||
+        lower.includes("username") ||
+        lower === "npm_config_userconfig" ||
+        lower === "npm_config_globalconfig");
     if (STRIPPED_ENV_KEYS.has(upper) || isNpmAuthConfig) {
       delete childEnv[key];
     }
   }
   return childEnv;
+}
+
+export interface SanitizedCommandOptions {
+  timeoutMs?: number;
+  stdio?: "ignore" | ["ignore", "pipe", "pipe"];
+  maxBuffer?: number;
+  sourceEnv?: NodeJS.ProcessEnv;
+}
+
+/** Synchronously execute a fixed helper without forwarding package/registry credentials. */
+export function runSanitizedCommand(
+  command: string,
+  args: string[],
+  options: SanitizedCommandOptions = {},
+): string {
+  const output = execFileSync(command, args, {
+    encoding: "utf8",
+    env: buildSanitizedEnv(options.sourceEnv),
+    maxBuffer: options.maxBuffer,
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    timeout: options.timeoutMs ?? 5000,
+    windowsHide: true,
+  });
+  return output ?? "";
+}
+
+/** Resolve a trusted executable bundled with Windows rather than consulting cwd/PATH. */
+export function windowsSystemExecutable(relativePath: string): string {
+  const root = process.env.SystemRoot?.trim() || process.env.WINDIR?.trim();
+  return root && path.isAbsolute(root)
+    ? path.join(root, "System32", relativePath)
+    : path.basename(relativePath);
+}
+
+/** Resolve a helper only through absolute PATH entries and require an executable regular file. */
+export function findExecutableOnPath(
+  command: string,
+  sourceEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  for (const directory of (sourceEnv.PATH ?? sourceEnv.Path ?? "").split(path.delimiter)) {
+    if (!directory || !path.isAbsolute(directory)) continue;
+    const candidate = path.join(directory, command);
+    try {
+      if (!fs.lstatSync(candidate).isFile()) continue;
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // Continue through the remaining trusted absolute PATH entries.
+    }
+  }
+  return undefined;
 }
 
 export const TAIL_FILE_CHUNK_BYTES = 64 * 1024;
@@ -307,7 +367,8 @@ export function tailFile(filePath: string, lineCount = 20): string {
 async function runTaskkill(pid: number, force: boolean): Promise<boolean> {
   const args = force ? ["/PID", String(pid), "/T", "/F"] : ["/PID", String(pid), "/T"];
   return new Promise<boolean>((resolve) => {
-    const killer = spawn("taskkill", args, {
+    const killer = spawn(windowsSystemExecutable("taskkill.exe"), args, {
+      env: buildSanitizedEnv(),
       windowsHide: true,
       stdio: "ignore",
     });

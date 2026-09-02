@@ -156,7 +156,7 @@
 
 完成记录：Windows/macOS/Linux amd64 候选统一改为 compatible、v1、plain-v3；release 资产选择提取为生产共用 selector，测试以包含全部变体的实际 metadata 集合确认 compatible 被选中，arm64 保持不变。tracked-file Biome、typecheck 与 339 项测试（338 通过、1 项既有 Windows skip）通过。
 
-### 11. 清洗全部 helper 子进程环境 — 待办
+### 11. 清洗全部 helper 子进程环境 — 已完成
 
 目标：所有由 Sash 启动的 helper 都看不到 token/npm 凭据。
 
@@ -165,6 +165,8 @@
 - Windows 系统命令优先使用可信绝对路径。
 
 验收：helper 测试进程看不到 `GITHUB_TOKEN`、`NPM_TOKEN` 和 npm auth 配置；现有跨平台解析测试通过。
+
+完成记录：新增统一同步 helper runner，默认 shell=false、scrubbed env、timeout/windowsHide/有界输出；PowerShell、tasklist/taskkill、ps、reg、networksetup 与 gsettings 全部迁移。Windows/macOS 固定工具使用系统绝对路径，Linux/POSIX helper 只从绝对 PATH 项解析；npm credential files、username/password 变量也被清除。真实 process/sysproxy helper 子进程确认看不到 GitHub/NPM token/userconfig；tracked-file Biome、typecheck 与 342 项测试（341 通过、1 项既有 Windows skip）通过。
 
 ### 12. 限制下载总时长 — 待办
 

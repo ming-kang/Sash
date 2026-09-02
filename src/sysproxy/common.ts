@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { findExecutableOnPath, runSanitizedCommand, windowsSystemExecutable } from "../process.js";
 import type { EnableOptions } from "./types.js";
 import { DEFAULT_BYPASS_LIST } from "./types.js";
 
@@ -68,21 +68,26 @@ export function compareStrings(a: string, b: string): number {
 export function isSystemProxySupported(platform: NodeJS.Platform = process.platform): boolean {
   if (platform === "win32" || platform === "darwin") return true;
   if (platform !== "linux") return false;
-  try {
-    execFileSync("which", ["gsettings"], { stdio: "ignore", windowsHide: true, timeout: 5000 });
-    return true;
-  } catch {
-    return false;
+  return findExecutableOnPath("gsettings") !== undefined;
+}
+
+function resolveSystemProxyCommand(command: string): string {
+  if (process.platform === "win32" && command.toLowerCase() === "reg.exe") {
+    return windowsSystemExecutable("reg.exe");
   }
+  if (process.platform === "darwin" && command === "networksetup") {
+    return "/usr/sbin/networksetup";
+  }
+  if (process.platform === "linux" && command === "gsettings") {
+    const resolved = findExecutableOnPath(command);
+    if (!resolved) throw new Error("gsettings is not available on this system");
+    return resolved;
+  }
+  return command;
 }
 
 export function runCmd(cmd: string, args: string[], timeoutMs = 5000): string {
-  return execFileSync(cmd, args, {
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: timeoutMs,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  return runSanitizedCommand(resolveSystemProxyCommand(cmd), args, { timeoutMs });
 }
 
 export function normalizeEnableOptions(opts: EnableOptions): {
