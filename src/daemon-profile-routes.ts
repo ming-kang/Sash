@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { parseJsonBody, sendError, sendJson } from "./daemon-http.js";
+import { HttpError, parseJsonObjectBody, sendError, sendJson } from "./daemon-http.js";
 import {
   ProfileConflictError,
   ProfileInputError,
@@ -16,6 +16,7 @@ export interface ProfileRouteContext {
 }
 
 function profileErrorStatus(err: unknown): number {
+  if (err instanceof HttpError) return err.statusCode;
   if (err instanceof ProfileNotFoundError) return 404;
   if (err instanceof ProfileInputError) return 400;
   if (err instanceof ProfileConflictError) return 409;
@@ -33,11 +34,7 @@ export async function handleProfileRoutes(ctx: ProfileRouteContext): Promise<boo
     }
 
     if (method === "POST" && pathname === "/sash/profiles") {
-      const body = (await parseJsonBody(req)) as {
-        url?: unknown;
-        name?: unknown;
-        activate?: unknown;
-      };
+      const body = await parseJsonObjectBody(req);
       const url = typeof body.url === "string" ? body.url.trim() : "";
       const name = typeof body.name === "string" ? body.name.trim() : undefined;
       const result = await profiles.addRemote(url, {
@@ -49,10 +46,7 @@ export async function handleProfileRoutes(ctx: ProfileRouteContext): Promise<boo
     }
 
     if (method === "POST" && pathname === "/sash/profiles/import") {
-      const body = (await parseJsonBody(req, 8 * 1024 * 1024)) as {
-        name?: unknown;
-        content?: unknown;
-      };
+      const body = await parseJsonObjectBody(req, 8 * 1024 * 1024);
       const name = typeof body.name === "string" ? body.name : "imported";
       const content = typeof body.content === "string" ? body.content : "";
       const result = await profiles.importLocal(name, content);
@@ -61,7 +55,7 @@ export async function handleProfileRoutes(ctx: ProfileRouteContext): Promise<boo
     }
 
     if (method === "PUT" && pathname === "/sash/profiles/active") {
-      const body = (await parseJsonBody(req)) as { id?: unknown };
+      const body = await parseJsonObjectBody(req);
       const id = body.id === null ? null : typeof body.id === "string" ? body.id : undefined;
       if (id === undefined) throw new ProfileInputError("Missing profile id string or null");
       const result = await profiles.activate(id);

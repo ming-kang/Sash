@@ -16,7 +16,7 @@ import {
   isLoopbackOriginHeader,
   isWebSocketRequestAuthorized,
 } from "./daemon-auth.js";
-import { parseJsonBody, sendError, sendJson } from "./daemon-http.js";
+import { HttpError, parseJsonObjectBody, sendError, sendJson } from "./daemon-http.js";
 import { handleProfileRoutes } from "./daemon-profile-routes.js";
 import { forwardHttpToCore, forwardWsToCore } from "./daemon-proxy.js";
 import { serveStaticUi } from "./daemon-static.js";
@@ -345,7 +345,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       }
 
       if (method === "PATCH" && (pathname === "/sash/settings" || pathname === "/settings")) {
-        const body = (await parseJsonBody(req)) as { key?: unknown; value?: unknown };
+        const body = await parseJsonObjectBody(req);
         const key = typeof body.key === "string" ? body.key : "";
         const value = typeof body.value === "string" ? body.value : undefined;
         if (!key) {
@@ -437,19 +437,23 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
 
       sendError(res, 404, `Not found: ${method} ${pathname}`);
     } catch (err) {
-      sendError(res, 500, (err as Error).message);
+      if (err instanceof HttpError) sendError(res, err.statusCode, err.message);
+      else sendError(res, 500, (err as Error).message);
     }
   };
 
   const server = http.createServer((req, res) => {
     void handleRequest(req, res).catch((err: unknown) => {
-      console.error("[sashd] unhandled HTTP request error:", err);
+      if (!(err instanceof HttpError)) {
+        console.error("[sashd] unhandled HTTP request error:", err);
+      }
       if (res.writableEnded || res.destroyed) return;
       if (res.headersSent) {
         res.destroy();
         return;
       }
-      sendError(res, 500, "Internal server error");
+      if (err instanceof HttpError) sendError(res, err.statusCode, err.message);
+      else sendError(res, 500, "Internal server error");
     });
   });
 

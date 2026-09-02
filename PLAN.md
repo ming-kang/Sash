@@ -90,7 +90,7 @@
 
 完成记录：静态 UI 的 HTML、SPA fallback、asset、HEAD 与错误响应统一附加 CSP `frame-ancestors 'none'`、X-Frame-Options、nosniff 和 no-referrer。测试覆盖自定义 UI 的文档/fallback/asset；lint 与 313 项测试（312 通过、1 项既有 Windows skip）通过。
 
-### 6. 校验 daemon JSON 请求契约 — 待办
+### 6. 校验 daemon JSON 请求契约 — 已完成
 
 目标：客户端输入错误使用明确 400/413，不泄露内部 TypeError。
 
@@ -100,6 +100,8 @@
 - oversized/aborted body 不得留下悬挂 Promise。
 
 验收：malformed、null、array、oversized、aborted body 的状态码和资源清理均有测试。
+
+完成记录：新增类型化 HttpError 与 object-only JSON parser；malformed/non-object 为 400、超限为 413，超限输入改为有界丢弃而非提前 reset，aborted/error/close 均结算 parser。设置/profile 路由移除未知值强转；lint 与 317 项测试（316 通过、1 项既有 Windows skip）通过。
 
 ### 7. 拒绝过期 Profile preparation — 待办
 

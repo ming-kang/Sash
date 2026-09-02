@@ -125,6 +125,7 @@ describe("daemon server", () => {
     opts: {
       method?: string;
       body?: unknown;
+      rawBody?: string;
       token?: string;
       webToken?: string;
       origin?: string;
@@ -141,7 +142,10 @@ describe("daemon server", () => {
       headers.Authorization = `Bearer ${settings.daemonSecret}`;
     }
     let bodyStr: string | undefined;
-    if (opts.body !== undefined) {
+    if (opts.rawBody !== undefined) {
+      headers["Content-Type"] = "application/json";
+      bodyStr = opts.rawBody;
+    } else if (opts.body !== undefined) {
       headers["Content-Type"] = "application/json";
       bodyStr = JSON.stringify(opts.body);
     }
@@ -256,6 +260,38 @@ describe("daemon server", () => {
       });
       assert.match(response, /^HTTP\/1\.1 400 /);
       assert.match(response, /Invalid request target/);
+
+      const health = await apiRequest("/sash/health", { token: "" });
+      assert.equal(health.statusCode, 200);
+    });
+  });
+
+  describe("JSON request contracts", () => {
+    it("returns 400 for malformed and non-object JSON without leaking TypeErrors", async () => {
+      await startServer();
+
+      for (const rawBody of ["{", "null", "[]", '"value"']) {
+        const response = await apiRequest("/sash/settings", {
+          method: "PATCH",
+          rawBody,
+        });
+        assert.equal(response.statusCode, 400, rawBody);
+        const message = (response.data as { error: string }).error;
+        assert.doesNotMatch(message, /TypeError|Cannot read/i, rawBody);
+      }
+
+      const health = await apiRequest("/sash/health", { token: "" });
+      assert.equal(health.statusCode, 200);
+    });
+
+    it("returns 413 for an oversized JSON object and keeps serving", async () => {
+      await startServer();
+      const response = await apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { key: "tun", padding: "x".repeat(1024 * 1024) },
+      });
+      assert.equal(response.statusCode, 413);
+      assert.match((response.data as { error: string }).error, /Request body too large/);
 
       const health = await apiRequest("/sash/health", { token: "" });
       assert.equal(health.statusCode, 200);
