@@ -244,24 +244,30 @@ async function closeAll(): Promise<void> {
   width: 240px;
 }
 .stat-chips {
-  display: flex;
+  display: grid;
+  max-width: 720px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  flex-wrap: wrap;
 }
 .chip {
-  display: inline-flex;
+  display: flex;
+  min-width: 0;
   align-items: baseline;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  box-shadow: none;
 }
 .chip-label {
-  font-size: 12px;
   color: var(--text-muted);
+  font-size: 11.5px;
 }
 .chip-value {
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 13.5px;
+  font-weight: 550;
 }
 .chip-value.down {
   color: var(--chart-down);
@@ -298,9 +304,9 @@ async function closeAll(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 9px 12px;
   border-top: 1px solid var(--border);
-  background: var(--bg-card);
+  background: var(--bg-panel);
 }
 .pagination-summary {
   color: var(--text-muted);
@@ -343,9 +349,9 @@ async function closeAll(): Promise<void> {
     position: relative;
     padding: 10px 12px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--bg-card);
-    box-shadow: var(--shadow-card);
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+    box-shadow: none;
   }
   .data-table td {
     display: grid;
@@ -406,11 +412,7 @@ async function closeAll(): Promise<void> {
     flex-basis: 100%;
   }
   .stat-chips {
-    display: grid;
     grid-template-columns: 1fr;
-  }
-  .chip {
-    justify-content: space-between;
   }
   .pagination-footer {
     align-items: stretch;

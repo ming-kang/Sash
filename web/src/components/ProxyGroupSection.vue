@@ -13,7 +13,7 @@
         :disabled="testing"
         @click="emit('test-group')"
       >
-        <Icon name="zap" :size="14" :class="{ spin: testing }" />
+        <Icon name="zap" :size="15" :class="{ spin: testing }" />
       </button>
     </div>
     <div class="pgroup-grid">
@@ -133,128 +133,106 @@ function delayClass(name: string): string {
 
 <style scoped>
 .pgroup {
-  margin-bottom: 18px;
+  margin-bottom: 32px;
 }
 .pgroup-head {
   display: flex;
+  min-height: 42px;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
-  margin-bottom: 9px;
+  margin-bottom: 7px;
 }
 .pgroup-name {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 13.5px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pgroup-type {
+  display: inline-flex;
+  width: 21px;
+  height: 21px;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  padding: 1px 6px;
-  border: 1px solid var(--border-accent);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
+  border-radius: var(--radius-xs);
+  background: var(--selection);
+  color: #ffffff;
   font-size: 10px;
-  font-weight: 700;
-  line-height: 1.5;
+  font-weight: 650;
 }
 .pgroup-now {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12px;
+  color: var(--text-primary);
+  font-size: 13.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pgroup-spacer {
   flex: 1;
 }
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
+.group-test {
   color: var(--text-secondary);
-  cursor: pointer;
 }
-.icon-btn:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--bg-hover);
+.group-test:hover:not(:disabled) {
   color: var(--accent);
 }
-.icon-btn:focus-visible,
-.node-main:focus-visible,
-.node-delay:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-ring);
-}
-.icon-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+
 .pgroup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 10px 16px;
 }
 .node-card {
   position: relative;
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 70px;
+  min-height: 82px;
   grid-template-columns: minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
   color: inherit;
   transition:
-    border-color 0.12s ease,
-    box-shadow 0.12s ease,
-    transform 0.12s ease;
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
 }
 .node-card::before {
   position: absolute;
-  top: 0;
-  right: 10px;
-  left: 10px;
-  height: 2px;
-  border-radius: 0 0 999px 999px;
-  background: transparent;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 5px;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  background: var(--border-strong);
   content: "";
+  transition: background var(--motion-fast) var(--ease-standard);
 }
 .node-card:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-card);
-  transform: translateY(-1px);
+  border-color: var(--border);
+  background: var(--bg-hover);
 }
 .node-card.selected {
-  border-color: var(--border-accent);
-  background: var(--bg-active);
-  box-shadow: 0 0 0 1px var(--accent-ring), var(--shadow-card);
+  border-color: var(--selection-border);
+  background: var(--selection-soft);
 }
 .node-card.selected::before {
-  background: var(--accent);
-  box-shadow: 0 2px 8px var(--accent-ring);
+  background: var(--selection);
 }
 .node-main {
   display: flex;
   min-width: 0;
-  min-height: 68px;
+  min-height: 80px;
   flex-direction: column;
   justify-content: center;
-  padding: 11px 6px 9px 12px;
+  padding: 12px 8px 11px 16px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -263,7 +241,7 @@ function delayClass(name: string): string {
 }
 .node-main:disabled {
   cursor: wait;
-  opacity: 0.7;
+  opacity: 0.68;
 }
 .node-card.static .node-main {
   cursor: default;
@@ -271,38 +249,38 @@ function delayClass(name: string): string {
 .node-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   min-width: 0;
 }
 .node-name {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 14.5px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .node-delay {
   display: inline-flex;
-  min-width: 58px;
-  min-height: 24px;
+  min-width: 66px;
+  min-height: 34px;
   align-items: center;
-  justify-content: center;
-  align-self: start;
-  margin: 10px 12px 0 0;
-  padding: 2px 8px;
-  border: 1px solid currentColor;
-  border-radius: 999px;
+  justify-content: flex-end;
+  align-self: center;
+  gap: 4px;
+  margin-right: 14px;
+  padding: 5px 0 5px 8px;
+  border: 0;
+  background: transparent;
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 650;
+  font-size: 11.5px;
+  font-weight: 500;
   line-height: 1;
   cursor: pointer;
 }
-.node-delay:hover {
-  background: var(--bg-hover);
+.node-delay:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .node-delay.testing {
   color: var(--accent);
@@ -312,32 +290,28 @@ function delayClass(name: string): string {
   opacity: 0.72;
 }
 .delay-spinner {
-  margin-right: 4px;
   animation: rotate 0.9s linear infinite;
 }
 .delay-good {
   color: var(--success);
-  background: var(--success-soft);
 }
 .delay-mid {
   color: var(--warning);
-  background: var(--warning-soft);
 }
 .delay-bad {
   color: var(--danger);
-  background: var(--danger-soft);
 }
 .delay-none {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 .node-sub {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  margin-top: 7px;
+  margin-top: 5px;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 .node-meta {
   min-width: 0;
@@ -347,48 +321,47 @@ function delayClass(name: string): string {
 }
 .node-badges {
   display: inline-flex;
-  gap: 4px;
   flex-shrink: 0;
+  gap: 4px;
   margin-left: auto;
 }
 .node-badge {
   display: inline-flex;
+  min-height: 17px;
   align-items: center;
-  height: 18px;
-  padding: 0 5px;
+  padding: 0 4px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--bg-inset);
-  font-size: 9px;
-  font-weight: 700;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  font-size: 8.5px;
+  font-weight: 600;
   line-height: 1;
 }
 .node-current {
-  border-color: var(--border-accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.udp-tag {
-  color: var(--text-secondary);
+  border-color: var(--selection-border);
+  color: var(--selection);
 }
 .spin {
   animation: rotate 0.9s linear infinite;
 }
 
 @media (max-width: 760px) {
-  .icon-btn,
+  .group-test,
   .node-delay {
     min-width: 40px;
     min-height: 40px;
   }
   .pgroup-grid {
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   }
 }
 
 @media (max-width: 480px) {
-  .pgroup-head {
-    gap: 6px;
+  .pgroup {
+    margin-bottom: 25px;
+  }
+  .pgroup-name {
+    font-size: 16px;
   }
   .pgroup-now {
     display: none;
@@ -398,7 +371,7 @@ function delayClass(name: string): string {
   }
   .node-card,
   .node-main {
-    min-height: 76px;
+    min-height: 78px;
   }
 }
 </style>

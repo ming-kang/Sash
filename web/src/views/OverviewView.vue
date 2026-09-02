@@ -3,7 +3,7 @@
     <PageHeader :title="t('page.overview.title')" :desc="t('page.overview.desc')">
       <button
         type="button"
-        class="btn btn-secondary btn-sm restart-btn"
+        class="btn btn-secondary btn-sm"
         :disabled="restarting"
         @click="restartCore"
       >
@@ -12,69 +12,98 @@
       </button>
     </PageHeader>
 
-    <section class="stat-grid" :aria-label="t('page.overview.title')">
-      <article class="card stat-card core-stat" :class="{ running: isCoreRunning }">
-        <span class="stat-label">{{ t('overview.coreTitle') }}</span>
-        <div class="stat-value stat-status">
-          <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-danger'" />
-          {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
-        </div>
-        <span class="stat-meta mono">{{ coreVersion || '-' }}</span>
-      </article>
-      <article class="card stat-card down-stat">
-        <span class="stat-label">{{ t('overview.download') }}</span>
-        <span class="stat-value mono">{{ formatSpeed(store.traffic.down) }}</span>
-        <span class="stat-meta">{{ t('common.live') }}</span>
-      </article>
-      <article class="card stat-card up-stat">
-        <span class="stat-label">{{ t('overview.upload') }}</span>
-        <span class="stat-value mono">{{ formatSpeed(store.traffic.up) }}</span>
-        <span class="stat-meta">{{ t('common.live') }}</span>
-      </article>
-      <article class="card stat-card connection-stat">
-        <span class="stat-label">{{ t('connections.active') }}</span>
-        <span class="stat-value mono">{{ store.connections.length }}</span>
-        <span class="stat-meta">{{ t('overview.status') }}</span>
-      </article>
-    </section>
-
-    <div class="ov-layout">
-      <aside class="ov-side">
-        <UiCard :title="t('overview.coreTitle')" class="side-card core-card">
-          <template #actions>
-            <span class="badge" :class="isCoreRunning ? 'badge-success' : 'badge-danger'">
+    <div class="overview-split">
+      <aside class="general-pane" :aria-label="t('overview.coreTitle')">
+        <div class="identity-row">
+          <span class="identity-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64">
+              <rect width="64" height="64" rx="14" fill="var(--general-title)" />
+              <path
+                d="M42 22.4c-1.4-3.8-5.1-5.9-9.8-5.9-5.7 0-10 3.4-10 8 0 10.5 20.8 5.7 20.8 15.7 0 5-4.6 8.2-10.7 8.2-5.3 0-9.8-2.7-11-6.8"
+                fill="none"
+                stroke="var(--bg-panel)"
+                stroke-width="5"
+                stroke-linecap="round"
+              />
+            </svg>
+          </span>
+          <div class="identity-copy">
+            <div class="identity-title-row">
+              <h2>Sash</h2>
+              <span v-if="coreVersion" class="identity-version mono">{{ coreVersion }}</span>
+            </div>
+            <span class="runtime-state" :class="isCoreRunning ? 'is-running' : 'is-stopped'">
+              <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-danger'" />
               {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
             </span>
-          </template>
-          <dl class="info-list">
-            <div class="info-item">
-              <dt>{{ t('overview.version') }}</dt>
-              <dd class="mono">{{ coreVersion || '-' }}</dd>
-            </div>
-            <div class="info-item">
-              <dt>{{ t('overview.uptime') }}</dt>
-              <dd class="mono">{{ uptime }}</dd>
-            </div>
-            <div v-if="store.status?.core.pid" class="info-item">
-              <dt>{{ t('overview.pid') }}</dt>
-              <dd class="mono">{{ store.status.core.pid }}</dd>
-            </div>
-          </dl>
-        </UiCard>
-
-        <UiCard :title="t('overview.quickTitle')" class="side-card quick-card">
-          <div class="kv-row">
-            <span class="kv-label">{{ t('overview.sysProxyTitle') }}</span>
-            <UiSwitch
-              :model-value="isSysProxyOn"
-              :label="t('overview.sysProxyTitle')"
-              :disabled="!canToggleSystemProxy"
-              @update:model-value="toggleSystemProxy"
-            />
           </div>
-          <div class="kv-row">
-            <span class="kv-label">{{ t('overview.tun') }}</span>
-            <div class="quick-toggle">
+        </div>
+
+        <section class="mode-control" :aria-label="t('overview.modeTitle')">
+          <div class="pane-section-heading">
+            <div>
+              <h3>{{ t('overview.modeTitle') }}</h3>
+              <p>{{ t('overview.modeDesc') }}</p>
+            </div>
+          </div>
+          <div class="mode-switcher" role="group" :aria-label="t('overview.modeTitle')">
+            <button
+              v-for="mode in modes"
+              :key="mode.id"
+              type="button"
+              class="mode-button"
+              :class="{ active: store.mode === mode.id }"
+              :aria-pressed="store.mode === mode.id"
+              :disabled="store.operations.mode || !isCoreReady"
+              @click="switchMode(mode.id)"
+            >
+              <span class="mode-code">{{ mode.id.toUpperCase() }}</span>
+              <span class="mode-name">{{ mode.label }}</span>
+            </button>
+          </div>
+        </section>
+
+        <div class="general-list">
+          <div class="general-row">
+            <div class="general-label">
+              <span>{{ t('overview.coreTitle') }}</span>
+              <small v-if="store.status?.core.pid" class="mono">PID {{ store.status.core.pid }}</small>
+            </div>
+            <div class="general-value mono">{{ coreVersion || '-' }}</div>
+          </div>
+
+          <div class="general-row">
+            <div class="general-label">{{ t('overview.uptime') }}</div>
+            <div class="general-value mono">{{ uptime }}</div>
+          </div>
+
+          <div class="general-row">
+            <div class="general-label">{{ t('overview.sysProxyTitle') }}</div>
+            <div class="general-value">
+              <UiSwitch
+                :model-value="isSysProxyOn"
+                :label="t('overview.sysProxyTitle')"
+                :disabled="!canToggleSystemProxy"
+                @update:model-value="toggleSystemProxy"
+              />
+            </div>
+          </div>
+
+          <div class="general-row">
+            <div class="general-label">{{ t('overview.lan') }}</div>
+            <div class="general-value">
+              <UiSwitch
+                :model-value="store.status?.settings.allowLan ?? false"
+                :label="t('overview.lan')"
+                :disabled="store.operations.networkSetting"
+                @update:model-value="(value: boolean) => applyNetToggle('allow-lan', value)"
+              />
+            </div>
+          </div>
+
+          <div class="general-row">
+            <div class="general-label">{{ t('overview.tun') }}</div>
+            <div class="general-value general-toggle-value">
               <span
                 v-if="tunStatusBadge"
                 class="badge"
@@ -91,121 +120,92 @@
               />
             </div>
           </div>
-          <div class="kv-row">
-            <span class="kv-label">{{ t('overview.lan') }}</span>
-            <UiSwitch
-              :model-value="store.status?.settings.allowLan ?? false"
-              :label="t('overview.lan')"
-              :disabled="store.operations.networkSetting"
-              @update:model-value="(value: boolean) => applyNetToggle('allow-lan', value)"
-            />
-          </div>
-          <div class="kv-row">
-            <span class="kv-label">{{ t('overview.mixedPort') }}</span>
-            <span class="mono kv-value">127.0.0.1:{{ store.status?.settings.mixedPort ?? 17890 }}</span>
-          </div>
-          <div class="kv-row">
-            <span class="kv-label">{{ t('overview.controller') }}</span>
-            <span class="mono kv-value">{{ store.status?.settings.controller || '-' }}</span>
-          </div>
-          <div class="kv-row">
-            <span class="kv-label">{{ t('overview.daemonPort') }}</span>
-            <span class="mono kv-value">{{ store.status?.settings.daemonPort ?? 19090 }}</span>
-          </div>
-        </UiCard>
 
-        <UiCard :title="t('overview.subTitle')" class="side-card profile-card">
-          <template #actions>
-            <button
-              v-if="activeProfile?.url"
-              type="button"
-              class="icon-btn profile-refresh"
-              :class="{ spin: refreshingSub }"
-              :title="t('profiles.update')"
-              :aria-label="t('profiles.update')"
-              :disabled="refreshingSub"
-              @click="refreshActiveProfile"
-            >
-              <Icon name="refresh" :size="14" />
-            </button>
-          </template>
-          <template v-if="activeProfile">
-            <div class="kv-row">
-              <span class="kv-label sub-host" :title="activeProfile.url || activeProfile.name">
+          <div class="general-row">
+            <div class="general-label">{{ t('overview.mixedPort') }}</div>
+            <div class="general-value mono">127.0.0.1:{{ store.status?.settings.mixedPort ?? 17890 }}</div>
+          </div>
+
+          <div class="general-row profile-row">
+            <div class="general-label">
+              <span>{{ t('overview.subTitle') }}</span>
+              <small v-if="activeProfile">{{ t('common.nodesCount', { n: totalNodes }) }}</small>
+            </div>
+            <div v-if="activeProfile" class="general-value profile-value">
+              <span class="profile-name" :title="activeProfile.url || activeProfile.name">
                 {{ activeProfile.name }}
               </span>
-              <span class="badge badge-accent">{{ t('common.nodesCount', { n: totalNodes }) }}</span>
+              <button
+                v-if="activeProfile.url"
+                type="button"
+                class="icon-btn"
+                :class="{ spin: refreshingSub }"
+                :title="t('profiles.update')"
+                :aria-label="t('profiles.update')"
+                :disabled="refreshingSub"
+                @click="refreshActiveProfile"
+              >
+                <Icon name="refresh" :size="14" />
+              </button>
             </div>
-            <div class="kv-row">
-              <span class="kv-label">{{ t('profiles.statGroups') }}</span>
-              <span class="kv-value">{{ store.proxyGroups.length }}</span>
-            </div>
-          </template>
-          <template v-else>
-            <p class="sub-empty">{{ t('overview.subEmpty') }}</p>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm btn-block"
-              @click="navigate('profiles')"
-            >
+            <button v-else type="button" class="btn btn-primary btn-sm" @click="navigate('profiles')">
               {{ t('overview.subSet') }}
             </button>
-          </template>
-        </UiCard>
-      </aside>
+          </div>
+        </div>
 
-      <section class="ov-main">
-        <UiCard :title="t('overview.trafficTitle')" class="traffic-card">
-          <template #actions>
-            <span class="badge badge-success ov-live-badge">
+        <section class="traffic-compact" :aria-label="t('overview.trafficTitle')">
+          <div class="pane-section-heading traffic-heading">
+            <div>
+              <h3>{{ t('overview.trafficTitle') }}</h3>
+              <p>
+                {{ t('connections.active') }}
+                <strong class="mono">{{ store.connections.length }}</strong>
+              </p>
+            </div>
+            <span class="live-state">
               <span class="dot dot-success" />
               {{ t('common.live') }}
             </span>
-          </template>
-          <div class="traffic-summary">
-            <div class="speed-box down-speed">
-              <span class="speed-label">{{ t('overview.download') }}</span>
-              <span class="speed-num mono">{{ formatSpeed(store.traffic.down) }}</span>
+          </div>
+          <div class="traffic-metrics">
+            <div class="traffic-metric">
+              <span>{{ t('overview.download') }}</span>
+              <strong class="mono down-value">{{ formatSpeed(store.traffic.down) }}</strong>
             </div>
-            <div class="speed-box up-speed">
-              <span class="speed-label">{{ t('overview.upload') }}</span>
-              <span class="speed-num mono">{{ formatSpeed(store.traffic.up) }}</span>
-            </div>
-            <div class="traffic-total">
-              <span>{{ t('overview.totalDown') }} <strong class="mono">{{ formatBytes(store.connectionsDownloadTotal) }}</strong></span>
-              <span>{{ t('overview.totalUp') }} <strong class="mono">{{ formatBytes(store.connectionsUploadTotal) }}</strong></span>
+            <div class="traffic-metric">
+              <span>{{ t('overview.upload') }}</span>
+              <strong class="mono up-value">{{ formatSpeed(store.traffic.up) }}</strong>
             </div>
           </div>
           <TrafficChart
             :down="store.traffic.historyDown"
             :up="store.traffic.historyUp"
-            :height="168"
+            :height="74"
             :label="t('overview.trafficTitle')"
           />
-        </UiCard>
-
-        <div class="ov-modebar">
-          <div class="mode-heading">
-            <span class="ov-modebar-label">{{ t('overview.modeTitle') }}</span>
-            <span class="mode-desc">{{ t('overview.modeDesc') }}</span>
+          <div class="traffic-totals">
+            <span>{{ t('overview.totalDown') }} <strong class="mono">{{ formatBytes(store.connectionsDownloadTotal) }}</strong></span>
+            <span>{{ t('overview.totalUp') }} <strong class="mono">{{ formatBytes(store.connectionsUploadTotal) }}</strong></span>
           </div>
-          <div class="segmented" role="group" :aria-label="t('overview.modeTitle')">
-            <button
-              v-for="mode in modes"
-              :key="mode.id"
-              type="button"
-              class="segmented-item"
-              :class="{ active: store.mode === mode.id }"
-              :aria-pressed="store.mode === mode.id"
-              :disabled="store.operations.mode || !isCoreReady"
-              @click="switchMode(mode.id)"
-            >
-              {{ mode.label }}
-            </button>
-          </div>
-        </div>
+        </section>
+      </aside>
 
-        <div v-if="!isCoreRunning" class="card empty-card">
+      <section class="proxy-pane" :aria-label="t('overview.modeTitle')">
+        <header class="proxy-pane-head">
+          <div>
+            <div class="proxy-title-row">
+              <span class="proxy-mode-code">{{ store.mode.toUpperCase() }}</span>
+              <h2>{{ activeModeLabel }}</h2>
+            </div>
+            <p>{{ activeModeDescription }}</p>
+          </div>
+          <span v-if="store.mode === 'rule'" class="group-count">
+            {{ store.proxyGroups.length }} {{ t('profiles.statGroups') }}
+          </span>
+        </header>
+
+        <div v-if="!isCoreRunning" class="empty-panel">
           <EmptyState
             icon="globe"
             :title="t('proxies.noGroups')"
@@ -215,7 +215,7 @@
 
         <template v-else-if="store.mode === 'rule'">
           <template v-if="selectorGroups.length > 0">
-            <div class="subhead">{{ t('proxies.manual') }}</div>
+            <div class="proxy-kind-heading">{{ t('proxies.manual') }}</div>
             <ProxyGroupSection
               v-for="group in selectorGroups"
               :key="group"
@@ -232,7 +232,7 @@
           </template>
 
           <template v-if="autoGroups.length > 0">
-            <div class="subhead">{{ t('proxies.auto') }}</div>
+            <div class="proxy-kind-heading">{{ t('proxies.auto') }}</div>
             <ProxyGroupSection
               v-for="group in autoGroups"
               :key="group"
@@ -248,7 +248,10 @@
             />
           </template>
 
-          <div v-if="selectorGroups.length === 0 && autoGroups.length === 0" class="card empty-card">
+          <div
+            v-if="selectorGroups.length === 0 && autoGroups.length === 0"
+            class="empty-panel"
+          >
             <EmptyState
               icon="globe"
               :title="t('proxies.noGroups')"
@@ -270,16 +273,25 @@
             @test-group="testGroup('GLOBAL')"
             @test-node="testSingle"
           />
+          <div v-else class="empty-panel">
+            <EmptyState
+              icon="globe"
+              :title="t('proxies.noGroups')"
+              :hint="t('proxies.noGroupsHint')"
+            />
+          </div>
         </template>
 
         <template v-else>
-          <section class="direct-section">
-            <div class="direct-card">
+          <article class="direct-node" aria-current="true">
+            <span class="direct-indicator" />
+            <div class="direct-copy">
               <strong>DIRECT</strong>
               <span>Direct</span>
             </div>
-            <p class="direct-hint">{{ t('proxies.directHint') }}</p>
-          </section>
+            <span class="direct-current">{{ t('proxies.currentTag') }}</span>
+          </article>
+          <p class="direct-hint">{{ t('proxies.directHint') }}</p>
         </template>
       </section>
     </div>
@@ -294,7 +306,6 @@ import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import ProxyGroupSection from "../components/ProxyGroupSection.vue";
 import TrafficChart from "../components/TrafficChart.vue";
-import UiCard from "../components/UiCard.vue";
 import UiSwitch from "../components/UiSwitch.vue";
 import { confirmDialog } from "../components/confirm.js";
 import { locale, t } from "../i18n/index.js";
@@ -330,7 +341,10 @@ const coreVersion = computed(() => {
 const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
 const activeProfile = computed(() => store.status?.activeProfile ?? null);
 const totalNodes = computed(
-  () => Object.values(store.proxies).filter((proxy) => !(Array.isArray(proxy.all) && proxy.all.length > 0)).length,
+  () =>
+    Object.values(store.proxies).filter(
+      (proxy) => !(Array.isArray(proxy.all) && proxy.all.length > 0),
+    ).length,
 );
 const tunStatusBadge = computed(() => {
   switch (tunRuntime.value) {
@@ -370,16 +384,28 @@ const tunStatusBadge = computed(() => {
 });
 
 const modes = computed(() => [
-  { id: "rule" as OutboundMode, label: t("overview.modeRule") },
   { id: "global" as OutboundMode, label: t("overview.modeGlobal") },
+  { id: "rule" as OutboundMode, label: t("overview.modeRule") },
   { id: "direct" as OutboundMode, label: t("overview.modeDirect") },
 ]);
+const activeModeLabel = computed(
+  () => modes.value.find((mode) => mode.id === store.mode)?.label ?? store.mode.toUpperCase(),
+);
+const activeModeDescription = computed(() => {
+  if (store.mode === "global") return t("overview.modeGlobalDesc");
+  if (store.mode === "direct") return t("overview.modeDirectDesc");
+  return t("overview.modeRuleDesc");
+});
 
 async function switchMode(mode: OutboundMode): Promise<void> {
   if (mode === store.mode) return;
   try {
     await setOutboundMode(mode);
-    toast.success(t("toast.modeOk", { mode: t(`overview.mode${mode[0]?.toUpperCase()}${mode.slice(1)}`) }));
+    toast.success(
+      t("toast.modeOk", {
+        mode: t(`overview.mode${mode[0]?.toUpperCase()}${mode.slice(1)}`),
+      }),
+    );
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   }
@@ -389,10 +415,14 @@ const testingGroups = ref(new Set<string>());
 const testingNodes = ref(new Set<string>());
 
 const selectorGroups = computed(() =>
-  store.proxyGroups.filter((group) => store.proxies[group]?.type === "Selector" && group !== "GLOBAL"),
+  store.proxyGroups.filter(
+    (group) => store.proxies[group]?.type === "Selector" && group !== "GLOBAL",
+  ),
 );
 const autoGroups = computed(() =>
-  store.proxyGroups.filter((group) => store.proxies[group]?.type !== "Selector" && group !== "GLOBAL"),
+  store.proxyGroups.filter(
+    (group) => store.proxies[group]?.type !== "Selector" && group !== "GLOBAL",
+  ),
 );
 const globalMembers = computed(() => store.proxies.GLOBAL?.all ?? []);
 
@@ -501,432 +531,456 @@ async function refreshActiveProfile(): Promise<void> {
 
 <style scoped>
 .overview {
+  --general-title: #2c3e50;
   min-width: 0;
 }
-.stat-grid {
+:global(html[data-theme="dark"]) .overview {
+  --general-title: #e5e2e8;
+}
+
+.overview-split {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.stat-card {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  min-width: 0;
-  min-height: 94px;
-  overflow: hidden;
-  padding: 14px 16px;
-}
-.stat-card::after {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 3px;
-  background: var(--border-strong);
-  content: "";
-}
-.core-stat.running::after {
-  background: var(--success);
-}
-.down-stat::after {
-  background: var(--chart-down);
-}
-.up-stat::after {
-  background: var(--chart-up);
-}
-.connection-stat::after {
-  background: var(--accent);
-}
-.stat-label {
-  grid-column: 1 / -1;
-  align-self: start;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.stat-value {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: clamp(17px, 1.65vw, 23px);
-  font-weight: 720;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.stat-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.stat-meta {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10.5px;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ov-layout {
-  display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(300px, 1fr) minmax(0, 2fr);
   align-items: start;
+  gap: clamp(18px, 2.2vw, 32px);
 }
-.ov-side {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.general-pane,
+.proxy-pane {
   min-width: 0;
 }
-.ov-main {
-  min-width: 0;
-}
-.side-card {
-  min-width: 0;
-}
-.core-card {
-  border-top: 2px solid var(--border-accent);
-}
-.quick-card {
-  border-top: 2px solid var(--accent);
-}
-.profile-card {
-  border-top: 2px solid var(--border-strong);
-}
-.info-list {
-  display: flex;
-  flex-direction: column;
-}
-.info-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 0;
-  font-size: 12.5px;
-}
-.info-item + .info-item,
-.kv-row + .kv-row {
-  border-top: 1px dashed var(--border);
-}
-.info-item dt {
-  color: var(--text-muted);
-}
-.info-item dd {
-  min-width: 0;
+.general-pane {
   overflow: hidden;
-  margin: 0;
-  color: var(--text-primary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.kv-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 0;
-  padding: 7px 0;
-  font-size: 13px;
-}
-.quick-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.kv-label {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.kv-value {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sub-host {
-  color: var(--text-primary);
-  font-weight: 650;
-}
-.sub-empty {
-  margin: 0 0 10px;
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-.btn-block {
-  width: 100%;
-  justify-content: center;
-}
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.icon-btn:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--bg-hover);
-  color: var(--accent);
-}
-.icon-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-ring);
-}
-.icon-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.traffic-card {
-  min-width: 0;
-  overflow: hidden;
-  border-color: var(--border-accent);
-  box-shadow: var(--shadow-card), 0 0 0 1px var(--accent-ring);
-}
-.ov-live-badge .dot {
-  width: 6px;
-  height: 6px;
-  box-shadow: none;
-}
-.traffic-summary {
-  display: grid;
-  grid-template-columns: minmax(120px, auto) minmax(120px, auto) minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.speed-box {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  min-width: 0;
-  padding: 7px 10px;
+  background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--bg-inset);
 }
-.speed-num {
+.identity-row {
+  display: flex;
+  min-height: 92px;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 17px;
+  border-bottom: 1px solid var(--border);
+}
+.identity-mark,
+.identity-mark svg {
+  display: block;
+  width: 51px;
+  height: 51px;
+  flex-shrink: 0;
+}
+.identity-copy {
+  min-width: 0;
+  flex: 1;
+}
+.identity-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.identity-title-row h2 {
+  color: var(--general-title);
+  font-size: 25px;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.identity-version {
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.down-speed .speed-num {
-  color: var(--chart-down);
-}
-.up-speed .speed-num {
-  color: var(--chart-up);
-}
-.speed-label {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  font-size: 10.5px;
-}
-.traffic-total {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 3px 12px;
-  color: var(--text-muted);
-  font-size: 10.5px;
-  text-align: right;
-}
-.traffic-total strong {
+.runtime-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
   color: var(--text-secondary);
+  font-size: 11px;
+}
+.runtime-state.is-running {
+  color: var(--success);
+}
+.runtime-state.is-stopped {
+  color: var(--danger);
+}
+
+.mode-control,
+.traffic-compact {
+  padding: 14px 16px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.pane-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+.pane-section-heading h3 {
+  color: var(--text-primary);
+  font-size: 13px;
   font-weight: 600;
 }
-.ov-modebar {
+.pane-section-heading p {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+.mode-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.mode-button {
   display: flex;
+  min-width: 0;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-fast) var(--ease-standard);
+}
+.mode-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.mode-button.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.mode-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+.mode-code {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.055em;
+}
+.mode-name {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.general-list {
+  background: color-mix(in srgb, var(--bg-app) 78%, var(--bg-panel));
+  border-bottom: 1px solid var(--border);
+}
+.general-row {
+  display: flex;
+  min-height: 47px;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  min-width: 0;
-  margin: 16px 0 10px;
-  padding: 9px 10px 9px 13px;
-  border: 1px solid var(--border-accent);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-md);
-  background: var(--accent-soft);
+  padding: 7px 15px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--motion-fast) var(--ease-standard);
 }
-.mode-heading {
+.general-row:last-child {
+  border-bottom: 0;
+}
+.general-row:hover {
+  background: var(--bg-hover);
+}
+.general-label {
   display: flex;
-  flex-direction: column;
   min-width: 0;
-}
-.ov-modebar-label {
+  flex-direction: column;
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12.5px;
 }
-.mode-desc {
-  overflow: hidden;
+.general-label small {
+  margin-top: 1px;
   color: var(--text-muted);
+  font-size: 9px;
+}
+.general-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--text-secondary);
   font-size: 10.5px;
+  text-align: right;
+}
+.general-toggle-value,
+.profile-value {
+  gap: 7px;
+}
+.profile-value {
+  max-width: 56%;
+}
+.profile-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.segmented {
-  flex-shrink: 0;
-  background: var(--bg-card);
+
+.traffic-compact {
+  border-bottom: 0;
 }
-.subhead {
-  margin: 17px 2px 8px;
-  color: var(--text-muted);
-  font-size: 10.5px;
-  font-weight: 750;
-  letter-spacing: 0.09em;
+.traffic-heading {
+  margin-bottom: 8px;
+}
+.live-state {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  color: var(--success);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
 }
-.empty-card {
-  overflow: hidden;
+.traffic-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 4px;
 }
-.direct-section {
-  max-width: 360px;
-}
-.direct-card {
+.traffic-metric {
   display: flex;
+  min-width: 0;
   flex-direction: column;
-  gap: 3px;
-  padding: 13px 15px;
-  border: 1px solid var(--border-accent);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  box-shadow: inset 3px 0 0 var(--accent);
-  font-size: 13px;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 9.5px;
 }
-.direct-card span {
+.traffic-metric strong {
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.down-value {
+  color: var(--chart-down);
+}
+.up-value {
+  color: var(--chart-up);
+}
+.traffic-totals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 3px 10px;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+.traffic-totals strong {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.proxy-pane {
+  padding-bottom: 24px;
+}
+.proxy-pane-head {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 15px;
+  padding: 8px 2px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.proxy-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.proxy-mode-code {
+  display: inline-flex;
+  min-width: 48px;
+  min-height: 25px;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+}
+.proxy-pane-head h2 {
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 500;
+}
+.proxy-pane-head p {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.group-count {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+.proxy-kind-heading {
+  margin: 21px 0 9px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.empty-panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.direct-node {
+  position: relative;
+  display: flex;
+  min-height: 82px;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 15px 13px 20px;
+  overflow: hidden;
+  background: var(--selection-soft);
+  border: 1px solid var(--selection-border);
+  border-radius: var(--radius-sm);
+}
+.direct-indicator {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 0;
+  width: 5px;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  background: var(--selection);
+}
+.direct-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.direct-copy strong {
+  color: var(--text-primary);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+.direct-copy span {
+  margin-top: 3px;
   color: var(--text-muted);
   font-size: 11px;
 }
+.direct-current {
+  color: var(--selection);
+  font-size: 10.5px;
+  font-weight: 600;
+}
 .direct-hint {
-  margin: 10px 2px 0;
+  margin-top: 10px;
   color: var(--text-muted);
-  font-size: 12.5px;
-}
-.spin {
-  animation: rotate 0.9s linear infinite;
+  font-size: 11.5px;
 }
 
-@media (max-width: 1200px) {
-  .stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .ov-layout {
-    grid-template-columns: 300px minmax(0, 1fr);
-  }
-  .traffic-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .traffic-total {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    text-align: left;
+@media (max-width: 1120px) {
+  .overview-split {
+    grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.7fr);
+    gap: 18px;
   }
 }
 
-@media (max-width: 760px) {
-  .ov-layout {
+@media (max-width: 820px) {
+  .overview-split {
     grid-template-columns: 1fr;
   }
-  .ov-side {
+  .general-pane {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .quick-card {
-    grid-row: span 2;
+  .identity-row,
+  .mode-control {
+    border-bottom: 1px solid var(--border);
   }
-  .restart-btn,
-  .btn-block,
-  .segmented-item,
-  .icon-btn {
-    min-height: 40px;
+  .mode-control {
+    border-left: 1px solid var(--border);
   }
-  .icon-btn {
-    min-width: 40px;
+  .general-list {
+    border-bottom: 0;
   }
-  .quick-card :deep(.switch) {
-    width: 44px;
-    min-height: 40px;
+  .traffic-compact {
+    border-left: 1px solid var(--border);
   }
-  .quick-card :deep(.knob) {
-    top: 10px;
+}
+
+@media (max-width: 580px) {
+  .general-pane {
+    display: block;
   }
-  .quick-card :deep(.switch.on .knob) {
-    transform: translateX(20px);
+  .mode-control,
+  .traffic-compact {
+    border-left: 0;
   }
-  .ov-modebar {
+  .traffic-compact {
+    border-top: 1px solid var(--border);
+  }
+  .proxy-pane-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .group-count {
+    align-self: flex-end;
+  }
+}
+
+@media (max-width: 420px) {
+  .mode-name {
+    display: none;
+  }
+  .mode-button {
+    min-height: 44px;
+  }
+  .general-row {
+    min-height: 52px;
+    gap: 10px;
+    padding-right: 11px;
+    padding-left: 11px;
+  }
+  .general-value {
+    max-width: 58%;
+  }
+  .profile-row {
     align-items: flex-start;
     flex-direction: column;
   }
-  .segmented {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .profile-row .general-value,
+  .profile-row > .btn {
     width: 100%;
+    max-width: none;
   }
-  .segmented-item {
-    padding-right: 8px;
-    padding-left: 8px;
-  }
-}
-
-@media (max-width: 480px) {
-  .stat-grid {
-    gap: 8px;
-  }
-  .stat-card {
-    min-height: 86px;
-    padding: 11px 12px;
-  }
-  .stat-value {
-    font-size: 16px;
-  }
-  .stat-meta {
-    display: none;
-  }
-  .ov-side {
-    display: flex;
-  }
-  .traffic-summary {
-    grid-template-columns: 1fr;
-  }
-  .traffic-total {
-    grid-column: auto;
-  }
-  .speed-box {
+  .profile-value {
     justify-content: space-between;
-  }
-  .traffic-card {
-    margin-right: 0;
-    margin-left: 0;
-  }
-  .mode-desc {
-    white-space: normal;
-  }
-  .kv-value {
-    max-width: 58%;
   }
 }
 </style>

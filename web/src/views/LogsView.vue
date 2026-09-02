@@ -120,14 +120,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .log-pane {
-  height: calc(100vh - 220px);
+  height: calc(100dvh - 142px);
   min-height: 320px;
   max-width: 100%;
   overflow-y: auto;
-  padding: 12px 14px;
+  padding: 8px 10px;
   contain: layout paint;
+  background: var(--bg-panel);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
   font-size: 12px;
-  background: var(--bg-card);
 }
 .log-pane:focus-visible {
   outline: none;
@@ -140,18 +142,21 @@ onBeforeUnmount(() => {
 }
 .log-line {
   display: flex;
+  min-width: 0;
   align-items: baseline;
   gap: 10px;
-  min-width: 0;
-  padding: 2.5px 2px;
-  border-radius: var(--radius-sm);
+  padding: 4px 5px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
   contain: layout paint style;
   content-visibility: auto;
-  contain-intrinsic-size: auto 24px;
-  line-height: 1.5;
+  contain-intrinsic-size: auto 25px;
+  line-height: 1.45;
+}
+.log-line:last-child {
+  border-bottom: 0;
 }
 .log-line:hover {
-  background: var(--bg-inset);
+  background: var(--bg-hover);
 }
 .log-time {
   color: var(--text-muted);
@@ -204,9 +209,9 @@ onBeforeUnmount(() => {
     min-height: 36px;
   }
   .log-pane {
-    height: calc(100dvh - 250px);
+    height: calc(100dvh - 238px);
     min-height: 280px;
-    padding: 10px 12px;
+    padding: 8px;
   }
   .log-line {
     display: grid;
@@ -237,7 +242,7 @@ onBeforeUnmount(() => {
     flex: 1 0 auto;
   }
   .log-pane {
-    height: calc(100dvh - 290px);
+    height: calc(100dvh - 276px);
     min-height: 260px;
   }
   .log-time {

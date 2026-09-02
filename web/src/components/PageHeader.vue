@@ -17,30 +17,34 @@ defineProps<{ title: string; desc?: string }>();
 <style scoped>
 .page-head {
   display: flex;
-  align-items: flex-start;
+  min-height: 76px;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 24px;
   margin-bottom: 22px;
+  padding: 14px 0 13px;
+  border-bottom: 1px solid var(--border);
 }
 .page-head-text {
   min-width: 0;
 }
 .page-title {
   color: var(--text-primary);
-  font-size: clamp(21px, 2vw, 26px);
-  font-weight: 750;
-  letter-spacing: -0.025em;
+  font-size: clamp(20px, 1.7vw, 24px);
+  font-weight: 500;
+  letter-spacing: -0.015em;
   line-height: 1.2;
 }
 .page-desc {
   max-width: 720px;
-  margin-top: 5px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 .page-head-actions {
   display: flex;
+  min-width: 0;
   align-items: center;
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -50,9 +54,12 @@ defineProps<{ title: string; desc?: string }>();
 
 @media (max-width: 640px) {
   .page-head {
+    min-height: 0;
+    align-items: flex-start;
     flex-direction: column;
-    gap: 12px;
-    margin-bottom: 18px;
+    gap: 11px;
+    margin-bottom: 16px;
+    padding: 18px 0 14px;
   }
   .page-head-actions {
     width: 100%;

@@ -45,17 +45,32 @@ function iconFor(kind: ToastItem["kind"]): string {
   pointer-events: none;
 }
 .toast {
-  pointer-events: auto;
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  color: var(--text-primary);
-  background: var(--bg-card);
+  padding: 10px 12px 10px 14px;
+  overflow: hidden;
+  pointer-events: auto;
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-pop);
-  padding: 10px 12px;
-  font-size: 13px;
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+.toast::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--info);
+  content: "";
+}
+.toast-success::before {
+  background: var(--success);
+}
+.toast-error::before {
+  background: var(--danger);
 }
 .toast-icon {
   display: flex;

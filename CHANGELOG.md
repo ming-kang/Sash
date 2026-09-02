@@ -30,7 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - WebUI functional iconography now uses tree-shaken Remix Icon line components behind the existing semantic icon API.
-- Built-in WebUI now uses a responsive, theme-aware data-console layout with desktop and mobile navigation, compact runtime cards, accessible controls, paginated data views and reduced background polling.
+- Built-in WebUI now uses a flat, neutral Light/Dark console with a wide text navigation sidebar, compact settings and data rows, accessible controls, responsive mobile navigation, and a two-column Overview workspace that keeps common controls beside its mode-driven proxy panel.
 - Repeated `sash start` requests now always enter the daemon lifecycle reconciler, so desired runtime and system-proxy state are refreshed even when a Core is already running.
 - Shutdown acknowledges success only after Core/proxy cleanup; listener closure follows the response, while failed cleanup keeps the daemon scheduler available for retry.
 - Log tailing and follow-mode growth reads use bounded 64 KiB chunks instead of whole-file or whole-delta allocations.
