@@ -11,6 +11,7 @@ import { recoverInterruptedCoreUpdate } from "./core-update.js";
 import {
   isControlMutation,
   isControlRequestAuthorized,
+  isCoreGatewayPath,
   isLoopbackHostHeader,
   isLoopbackOriginHeader,
   isWebSocketRequestAuthorized,
@@ -203,9 +204,15 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    // 5. State-changing control requests require a CLI bearer or WebUI boot token.
+    // 5. Mutations and every Core gateway request require a CLI bearer or
+    //    WebUI boot token. HTTP mutations with a browser Origin must also be
+    //    same-host loopback requests.
+    if (isControlMutation(method) && !isLoopbackOriginHeader(req.headers.origin)) {
+      sendError(res, 403, "Invalid Origin header");
+      return;
+    }
     if (
-      isControlMutation(method) &&
+      (isControlMutation(method) || isCoreGatewayPath(pathname)) &&
       !isControlRequestAuthorized(req, {
         daemonSecret: committedSettings.daemonSecret,
         bootToken: token,
@@ -243,14 +250,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       /* ==================================================================== */
       /* Fallback proxy for standard core endpoints                           */
       /* ==================================================================== */
-      if (
-        pathname === "/version" ||
-        matchesPathPrefix(pathname, "/proxies") ||
-        matchesPathPrefix(pathname, "/rules") ||
-        matchesPathPrefix(pathname, "/connections") ||
-        matchesPathPrefix(pathname, "/providers") ||
-        matchesPathPrefix(pathname, "/dns")
-      ) {
+      if (isCoreGatewayPath(pathname)) {
         forwardHttpToCore(
           req,
           res,

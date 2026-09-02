@@ -60,6 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- All HTTP requests entering the Core controller gateway now require daemon authentication, including GET/HEAD/OPTIONS, and browser mutations reject non-loopback Origins.
 - Malformed HTTP and WebSocket request targets are rejected inside explicit daemon error boundaries instead of terminating sashd through an unhandled rejection.
 - TUN state now reflects the Core's actual runtime `tun.enable`: online activation that remains inactive or unverified rolls settings/config/runtime back, while CLI and WebUI distinguish desired, active, inactive and unverified states and explain how to restart the whole Sash daemon with elevated privileges on each platform.
 - WebUI normalizes an empty Core connection snapshot so Overview renders correctly with zero active connections.

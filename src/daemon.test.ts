@@ -126,10 +126,12 @@ describe("daemon server", () => {
       body?: unknown;
       token?: string;
       webToken?: string;
+      origin?: string;
     } = {},
   ) {
     const method = opts.method ?? "GET";
     const headers: Record<string, string> = {};
+    if (opts.origin) headers.Origin = opts.origin;
     if (opts.webToken) {
       headers["X-Sash-Token"] = opts.webToken;
     } else if (opts.token !== undefined) {
@@ -294,6 +296,16 @@ describe("daemon server", () => {
         webToken: inst.token,
       });
       assert.equal(allowed.statusCode, 200);
+    });
+
+    it("rejects browser mutations from non-loopback Origins", async () => {
+      await startServer();
+      const denied = await apiRequest("/core/start", {
+        method: "POST",
+        origin: "https://attacker.example",
+      });
+      assert.equal(denied.statusCode, 403);
+      assert.deepEqual(denied.data, { error: "Invalid Origin header" });
     });
   });
 
@@ -1045,6 +1057,32 @@ describe("daemon server", () => {
   });
 
   describe("/core/api/* reverse proxy", () => {
+    it("rejects every unauthenticated Core GET before opening an upstream request", async () => {
+      let upstreamRequests = 0;
+      mockCoreServer = http.createServer((_req, res) => {
+        upstreamRequests++;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("{}");
+      });
+      await new Promise<void>((resolve) => {
+        mockCoreServer?.listen(0, "127.0.0.1", () => resolve());
+      });
+      const address = mockCoreServer.address();
+      mockCorePort = typeof address === "object" && address ? address.port : 0;
+      settings.controller = `127.0.0.1:${mockCorePort}`;
+      await startServer();
+
+      const delay = await apiRequest(
+        "/core/api/proxies/DIRECT/delay?url=http%3A%2F%2F192.168.1.1%2Faction",
+        { token: "" },
+      );
+      const fallback = await apiRequest("/version", { token: "" });
+
+      assert.equal(delay.statusCode, 401);
+      assert.equal(fallback.statusCode, 401);
+      assert.equal(upstreamRequests, 0);
+    });
+
     it("injects the core authorization and strips daemon control credentials", async () => {
       let receivedAuth: string | undefined;
       let receivedWebToken: string | undefined;

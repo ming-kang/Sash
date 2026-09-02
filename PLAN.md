@@ -51,7 +51,7 @@
 
 完成记录：HTTP listener 现在显式接住请求 Promise，HTTP 与 Upgrade URL 解析均在错误边界内；新增两项回归测试确认返回 400 后 daemon 继续服务。lint 与 308 项测试（307 通过、1 项既有 Windows skip）通过。
 
-### 3. 鉴权全部 Core 网关请求 — 待办
+### 3. 鉴权全部 Core 网关请求 — 已完成
 
 目标：不再用 HTTP 方法猜测 Core 请求是否敏感。
 
@@ -62,6 +62,8 @@
 - 继续剥离 daemon 凭据并仅在服务端注入 Core secret。
 
 验收：未认证 delay GET 返回 401 且 mock Core 没有收到请求；认证请求仍正常转发。
+
+完成记录：Core HTTP 路由使用单一显式分类器，GET/HEAD/OPTIONS 与 mutation 均在转发前鉴权；带远端 Origin 的浏览器 mutation 返回 403。mock Core 证明未认证 delay/fallback GET 没有建立上游请求；lint 与 311 项测试（310 通过、1 项既有 Windows skip）通过。
 
 ### 4. 关闭废弃 WebSocket 上游 — 待办
 

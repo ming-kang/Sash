@@ -105,15 +105,15 @@ Appending `?fresh=1` to status/proxy reads bypasses the short OS-state cache use
 
 ### `/core/api/*`
 
-Requests are forwarded to the internal controller. `sashd` strips Sash credentials and the browser Host header, then injects the internal controller bearer. Traffic/log streams use authenticated WebSocket upgrades.
+Every request in this namespace requires the persistent CLI bearer or per-boot WebUI token before an upstream connection is opened. `sashd` strips Sash credentials and the browser Host header, then injects the internal controller bearer. Traffic/log streams use authenticated WebSocket upgrades.
 
 ---
 
 ## 4. Control-Request Security
 
 - The daemon listener binds only to `127.0.0.1`, rejects non-loopback Host headers, and only accepts loopback Core controller addresses.
-- State-changing methods require the persistent CLI bearer or per-boot WebUI token.
-- WebSocket upgrades additionally validate loopback Origin and route boundaries.
+- State-changing methods and every HTTP Core-gateway route require the persistent CLI bearer or per-boot WebUI token. Browser mutations additionally require a loopback Origin when the header is present.
+- WebSocket upgrades validate loopback Origin, authentication and route boundaries.
 - Public settings/status contracts omit controller and daemon secrets.
 - Controller and daemon clients use a direct dispatcher with normal TLS verification; proxy environment variables apply only to remote downloads.
 - Child environments remove GitHub/npm tokens and npm authentication variables.
