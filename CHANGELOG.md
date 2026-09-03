@@ -81,6 +81,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- The in-app profile editor's content endpoints (`GET/PUT /sash/profiles/:id/content`) are now registered in the daemon routing table; previously the handler existed but the router returned 404 before the request reached it.
+
 - WebUI polish: redundant RULE/current badges removed from the proxy pane and profile/node cards (the selection stripe already marks them), the group latency-test icon spins a loader instead of the lightning bolt, the Rules table is centered with column dividers and scrolls instead of paginating, and scrollbars are thin overlays that fade in while scrolling and hide when idle (including Firefox via `scrollbar-color`).
 - Overview general pane: the identity header now carries version and PID, the mode buttons drop their heading, and system-proxy/LAN/TUN switches are a second row of mode-style toggle buttons (the TUN state text keeps its semantics); the port number input hides its native spinners, and the Overview restart button uses the same danger-outline warning style as Settings.
 - The dark-theme Overview title now uses its intended light color: the scoped `:global()` override was being miscompiled, so `--general-title` moved into the shared theme variable blocks.
