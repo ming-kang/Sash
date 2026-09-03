@@ -72,6 +72,8 @@ describe("daemon HTTP route matching", () => {
       ["PUT", "/sash/profiles/active"],
       ["POST", "/sash/profiles/update-all"],
       ["POST", "/sash/profiles/123/update"],
+      ["GET", "/sash/profiles/123/content"],
+      ["PUT", "/sash/profiles/123/content"],
       ["DELETE", "/sash/profiles/123"],
     ];
     for (const [method, raw] of cases) {

@@ -185,6 +185,36 @@ describe("daemon server", () => {
       assert.equal(missing.statusCode, 404);
     });
 
+    it("reads and writes profile content, rejecting invalid YAML on write", async () => {
+      await h.startServer({ fetchProfile: mockFetchProfile });
+      const created = (
+        await h.apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } })
+      ).data as { profile: { id: string } };
+      const id = created.profile.id;
+
+      const read = await h.apiRequest(`/sash/profiles/${id}/content`);
+      assert.equal(read.statusCode, 200);
+      const readData = read.data as { name: string; content: string };
+      assert.equal(readData.content, subYaml);
+
+      const invalid = await h.apiRequest(`/sash/profiles/${id}/content`, {
+        method: "PUT",
+        body: { content: "not: a clash config" },
+      });
+      assert.equal(invalid.statusCode, 400);
+
+      const nextYaml = subYaml.replace("node-a", "node-b");
+      const write = await h.apiRequest(`/sash/profiles/${id}/content`, {
+        method: "PUT",
+        body: { content: nextYaml },
+      });
+      assert.equal(write.statusCode, 200);
+      assert.equal(fs.readFileSync(`${h.layout.profilesDir}/${id}.yaml`, "utf8"), nextYaml);
+
+      const missing = await h.apiRequest("/sash/profiles/1234567890123/content");
+      assert.equal(missing.statusCode, 404);
+    });
+
     it("update-all reports per-profile failures and keeps the active one hot", async () => {
       await h.startServer({ fetchProfile: mockFetchProfile });
       await h.apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
