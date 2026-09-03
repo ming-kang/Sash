@@ -50,7 +50,7 @@ describe("SashDaemonClient mutation requests", () => {
   it("does not retry POST mutations by default", async () => {
     let requests = 0;
     const server = http.createServer((req, res) => {
-      if (req.method === "POST" && req.url === "/sash/proxy/enable") requests += 1;
+      if (req.method === "POST" && req.url === "/core/start") requests += 1;
       res.writeHead(503, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "temporarily unavailable" }));
     });
@@ -60,7 +60,7 @@ describe("SashDaemonClient mutation requests", () => {
 
     try {
       const client = new SashDaemonClient(port, "");
-      await assert.rejects(() => client.enableProxy(), /HTTP 503/);
+      await assert.rejects(() => client.startCore(), /HTTP 503/);
       assert.equal(requests, 1);
     } finally {
       server.closeAllConnections();
@@ -73,15 +73,7 @@ describe("SashDaemonClient mutation requests", () => {
       const body =
         req.url === "/sash/health"
           ? { ok: true, token: "", pid: 1234, startedAt: "2026-01-01T00:00:00.000Z" }
-          : req.url === "/sash/status"
-            ? {}
-            : {
-                desired: false,
-                applied: false,
-                supported: true,
-                enabled: false,
-                stateKnown: "yes",
-              };
+          : {};
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     });
@@ -93,7 +85,6 @@ describe("SashDaemonClient mutation requests", () => {
     try {
       await assert.rejects(() => client.health(), /token/);
       await assert.rejects(() => client.status(), /daemon/);
-      await assert.rejects(() => client.getProxy(), /stateKnown/);
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

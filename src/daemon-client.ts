@@ -3,14 +3,8 @@ import {
   type DaemonStatus,
   type HealthInfo,
   type MaintenanceShutdownResult,
-  type ProfileActionResponse,
-  type ProfilesIndex,
-  type ProfilesUpdateAllResponse,
-  type ProfileUpdateResponse,
   parseDaemonStatus,
   parseHealthInfo,
-  parseSystemProxyStatusResponse,
-  type SystemProxyStatusResponse,
 } from "./contracts.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 
@@ -102,83 +96,6 @@ export class SashDaemonClient {
 
   async startCore(): Promise<CoreStartResult> {
     return this.request<CoreStartResult>("/core/start", { method: "POST", deadlineMs: 15_000 });
-  }
-
-  async stopCore(): Promise<void> {
-    await this.request("/core/stop", { method: "POST", deadlineMs: 10_000 });
-  }
-
-  async restartCore(): Promise<CoreStartResult> {
-    return this.request<CoreStartResult>("/core/restart", { method: "POST", deadlineMs: 15_000 });
-  }
-
-  async enableProxy(): Promise<{ ok: boolean; systemProxy: boolean }> {
-    return this.request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/enable", {
-      method: "POST",
-    });
-  }
-
-  async disableProxy(): Promise<{ ok: boolean; systemProxy: boolean }> {
-    return this.request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/disable", {
-      method: "POST",
-    });
-  }
-
-  async getProxy(): Promise<SystemProxyStatusResponse> {
-    return parseSystemProxyStatusResponse(await this.request("/sash/proxy"));
-  }
-
-  async getProfiles(): Promise<ProfilesIndex> {
-    return this.request<ProfilesIndex>("/sash/profiles");
-  }
-
-  async addProfile(
-    url: string,
-    opts: { name?: string; activate?: boolean } = {},
-  ): Promise<ProfileActionResponse> {
-    return this.request("/sash/profiles", {
-      method: "POST",
-      body: { url, ...(opts.name ? { name: opts.name } : {}), activate: opts.activate === true },
-      deadlineMs: 35_000,
-    });
-  }
-
-  async updateProfile(id: string): Promise<ProfileUpdateResponse> {
-    return this.request(`/sash/profiles/${id}/update`, { method: "POST", deadlineMs: 35_000 });
-  }
-
-  async updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
-    return this.request("/sash/profiles/update-all", { method: "POST", deadlineMs: 120_000 });
-  }
-
-  async setActiveProfile(id: string | null): Promise<{ ok: boolean; proxyCount: number }> {
-    return this.request<{ ok: boolean; proxyCount: number }>("/sash/profiles/active", {
-      method: "PUT",
-      body: { id },
-      deadlineMs: 35_000,
-    });
-  }
-
-  async deleteProfile(id: string): Promise<{ ok: boolean }> {
-    return this.request(`/sash/profiles/${id}`, { method: "DELETE" });
-  }
-
-  async reloadConfig(): Promise<{ ok: boolean; proxyCount: number; source: string }> {
-    return this.request<{ ok: boolean; proxyCount: number; source: string }>(
-      "/core/config/reload",
-      {
-        method: "POST",
-        deadlineMs: 35_000,
-      },
-    );
-  }
-
-  async patchSetting(key: string, value?: string): Promise<{ ok: boolean }> {
-    return this.request<{ ok: boolean }>("/sash/settings", {
-      method: "PATCH",
-      body: { key, value },
-      deadlineMs: 15_000,
-    });
   }
 
   async maintenanceShutdown(): Promise<MaintenanceShutdownResult> {

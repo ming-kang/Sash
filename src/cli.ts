@@ -5,17 +5,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
-import { runConfigSet, runConfigShow } from "./commands/config-cmd.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
-import { runProxyOff, runProxyOn, runProxyStatus } from "./commands/proxy.js";
 import { runStatus } from "./commands/status.js";
-import { runSubSet, runSubShow, runSubUnset, runSubUpdate } from "./commands/sub.js";
 import { runUpdate } from "./commands/update.js";
 import { runUpgrade } from "./commands/upgrade.js";
 import { runWeb } from "./commands/web.js";
 import { parseLogLineCount } from "./log-follow.js";
-import { SETTABLE_KEYS } from "./settings.js";
 
 function packageVersion(): string {
   try {
@@ -44,8 +40,6 @@ program
     `
 Examples:
   $ sash start                 install components if needed and launch sash in the background
-  $ sash proxy on              enable system proxy (routes OS traffic through sash)
-  $ sash sub set <url>         download a subscription URL as the active profile
   $ sash web                   open the web dashboard
   $ sash status                show runtime state, endpoints, and system proxy status
   $ sash update                upgrade the core binary
@@ -75,20 +69,6 @@ program
   .description("show runtime state, versions, endpoints, and system proxy status")
   .option("--json", "output machine-readable JSON")
   .action(withCliErrors((opts: { json?: boolean }) => runStatus(opts)));
-
-const proxy = program.command("proxy").description("manage the OS system proxy");
-proxy
-  .command("on")
-  .description("route OS-level traffic through Sash's mixed port")
-  .action(withCliErrors(() => runProxyOn()));
-proxy
-  .command("off")
-  .description("disable the OS-level system proxy")
-  .action(withCliErrors(() => runProxyOff()));
-proxy
-  .command("status", { isDefault: true })
-  .description("show the current OS and desired system proxy state")
-  .action(withCliErrors(() => runProxyStatus()));
 
 program
   .command("logs")
@@ -127,34 +107,6 @@ program
   .description("open the web dashboard (installs/starts components as needed)")
   .option("--no-open", "print the URL without opening a browser")
   .action(withCliErrors((opts: { open: boolean }) => runWeb({ noOpen: !opts.open })));
-
-const sub = program.command("sub").description("manage subscription profiles");
-sub
-  .command("set <url>")
-  .description("download a subscription URL as a profile and activate it")
-  .action(withCliErrors((url: string) => runSubSet(url)));
-sub
-  .command("update")
-  .description("update the active profile from its URL and reload the running core")
-  .action(withCliErrors(() => runSubUpdate()));
-sub
-  .command("show")
-  .description("list profiles and the active selection")
-  .action(withCliErrors(() => runSubShow()));
-sub
-  .command("unset")
-  .description("deselect the active profile and revert to the default config")
-  .action(withCliErrors(() => runSubUnset()));
-
-const config = program.command("config").description("inspect and adjust Sash settings");
-config
-  .command("show", { isDefault: true })
-  .description("show paths and current settings")
-  .action(withCliErrors(() => runConfigShow()));
-config
-  .command("set <key> [value]")
-  .description(`set a managed key (${SETTABLE_KEYS.join(", ")})`)
-  .action(withCliErrors((key: string, value?: string) => runConfigSet(key, value)));
 
 program
   .command("version")

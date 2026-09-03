@@ -8,13 +8,11 @@ Sash is a lightweight command-line companion and web dashboard for managing a ru
 
 ```sh
 sash start
-sash sub set https://example.com/profile.yaml
-sash proxy on
-sash web
+sash web        # open the dashboard: download a subscription, pick nodes, toggle the system proxy
 sash status
 ```
 
-`sub set` downloads the profile, validates it, stores it locally and activates it. Additional profiles downloaded from the WebUI do not replace the active selection unless no profile is active.
+Profiles, the system proxy and all runtime settings are managed from the web dashboard; the CLI covers lifecycle, logs and upgrades.
 
 ---
 
@@ -29,16 +27,6 @@ sash status
 | `sash restart` | Restart the whole runtime: the daemon exits through its maintenance boundary and a fresh daemon starts the core. |
 | `sash status [--json]` | Show daemon/core state, active profile, endpoints and system proxy state; incomplete observations exit with code 2. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | View core or daemon logs; `-f` follows new output. |
-
-### System Proxy Control
-
-| Command | Description |
-| :--- | :--- |
-| `sash proxy on` | Route OS-level traffic through the configured mixed port. |
-| `sash proxy off` | Restore the proxy snapshot captured before Sash took ownership; also works while the daemon is stopped. |
-| `sash proxy status` | Show desired, daemon-applied and OS-observed proxy state, with stopped and unhealthy daemon states distinguished. |
-
-Changing `mixed-port` while the system proxy is enabled restores the old binding before restart and takes a fresh snapshot before applying the new port.
 
 ### Status JSON and exit codes
 
@@ -101,7 +89,7 @@ Changing `mixed-port` while the system proxy is enabled restores the old binding
 | `2` | Status output was produced, but daemon/Core/OS state could not be fully observed. |
 | `1` | The command itself failed, for example because local state is corrupt. |
 
-Text output follows the same distinction: an unresponsive daemon is reported as unavailable, never with a success marker. `sash proxy status` prints separate daemon, desired, daemon-applied and OS-observed lines and uses exit code 2 when the daemon is alive but unresponsive.
+Text output follows the same distinction: an unresponsive daemon is reported as unavailable, never with a success marker. `sash status` prints separate daemon, desired, daemon-applied and OS-observed proxy lines and uses exit code 2 when the daemon is alive but unresponsive.
 
 ### Log following
 
@@ -118,21 +106,11 @@ Sash does not blindly turn off an existing proxy. It stores a private ownership 
 
 ### Profiles
 
-| Command | Description |
-| :--- | :--- |
-| `sash sub set <url>` | Download or update a remote profile and make it active. |
-| `sash sub update` | Refresh the active remote profile and reload it when the core is running. |
-| `sash sub show` | List all stored profiles and mark the active selection. |
-| `sash sub unset` | Deselect the active profile and use the DIRECT-only default; stored profiles remain on disk. |
+Profiles are managed from the WebUI Profiles page: download from a subscription URL, import a local YAML file, update one or all profiles, rename, edit content, switch the active profile and delete. Remote profiles use the update interval advertised by the provider, defaulting to 24 hours. The daemon checks for due updates every 15 minutes.
 
-The WebUI Profiles page additionally supports local YAML import, per-profile update/delete, switching the active profile and Update All. Remote profiles use the update interval advertised by the provider, defaulting to 24 hours. The daemon checks for due updates every 15 minutes.
+### Settings
 
-### Configuration Management
-
-| Command | Description |
-| :--- | :--- |
-| `sash config show` | Inspect paths, active profile and managed settings. |
-| `sash config set <key> [value]` | Set `mixed-port`, `controller`, `secret`, `tun`, `allow-lan` or `system-proxy`. |
+Runtime settings (`mixed-port`, `tun`, `allow-lan`, `system-proxy`) are managed from the WebUI Settings page. The `controller` and `secret` keys are edited directly in `sash.json` (see the Configuration Reference below); changes require `sash restart` to take effect.
 
 ### Maintenance & Upgrades
 
@@ -168,17 +146,17 @@ Installed core version metadata lives in `state/install.json`, not in `sash.json
 
 Malformed, future-version or unknown-field `sash.json` documents and malformed `profiles/index.json` files are rejected without being overwritten. Secrets cannot be blank or contain control characters, the controller must remain loopback-only, and the mixed, controller and daemon ports must all differ. Repair or move a damaged file explicitly instead of relying on silent defaults.
 
-Settings changes are prepared as an all-or-nothing candidate: active configuration is validated before settings/config publication, and a failed restart restores the previous candidate where possible. Turning the system proxy off persists the desired off state before OS cleanup; if cleanup fails, retry `sash proxy off` after resolving the OS error.
+Settings changes are prepared as an all-or-nothing candidate: active configuration is validated before settings/config publication, and a failed restart restores the previous candidate where possible. Turning the system proxy off persists the desired off state before OS cleanup; if cleanup fails, toggle the system proxy off again from the WebUI after resolving the OS error.
 
 ---
 
 ## 4. TUN Mode
 
-TUN requires the whole Sash daemon to run with elevated privileges. Stop the current daemon and save the setting while Sash is offline:
+TUN requires the whole Sash daemon to run with elevated privileges. Stop the current daemon and save the setting while Sash is offline — toggle it in the WebUI Settings page before stopping, or set `"tun": true` in `sash.json` directly:
 
 ```sh
 sash stop
-sash config set tun on
+# ensure TUN is on (WebUI Settings page, or edit sash.json)
 ```
 
 On Windows, open PowerShell as Administrator:
@@ -192,13 +170,13 @@ The default `%LOCALAPPDATA%\Sash` data root remains the same when the current Wi
 On macOS or Linux, `sudo` can change the default home directory. Read the current data root and pass it explicitly while starting Sash as root:
 
 ```sh
-sash config show  # note the printed data root
+sash status  # note the printed data root
 sudo env SASH_HOME='<data root printed above>' "$(command -v sash)" start
 ```
 
 While that elevated daemon is running on macOS or Linux, use the same `sudo` and `SASH_HOME` prefix for later lifecycle commands such as `status` or `stop`, so they target the same runtime and can read its protected state.
 
-If TUN was already saved as on, omit `sash config set tun on`. Because a full `sash restart` replaces the daemon itself, running it from the elevated shell is equivalent to `sash stop` + `sash start` here; restarting only the Core from the dashboard does not elevate `sashd`.
+If TUN was already saved as on, just start Sash elevated. Because a full `sash restart` replaces the daemon itself, running it from the elevated shell is equivalent to `sash stop` + `sash start` here; restarting only the Core from the dashboard does not elevate `sashd`.
 
 Sash distinguishes the desired setting from the Core's actual runtime state: `sash status` reports `on (active)`, `on (inactive)`, `on (unverified)` or `on (runtime unknown)`, and `sash status --json` reports `tun.desired` separately from `tun.active` (`true`, `false` or `null`). Privilege guidance is shown only after a responsive, healthy running Core explicitly reports inactive or unverified TUN state.
 
@@ -240,7 +218,7 @@ State files are written with mode `0o600` on POSIX where applicable. `SASH_HOME`
 
 - **System proxy recovery is blocked:** another application changed managed values or the ownership journal is corrupt. Keep the Core running, inspect `state/system-proxy.json` and the current OS proxy, then repair explicitly; Sash will not overwrite an unrecognized state.
 - **Daemon/Core ownership is corrupt:** inspect `state/*.lock` and PID records. Sash intentionally fails closed instead of deleting uncertain ownership records.
-- **Profile update failed:** inspect the profile card's error or run `sash sub update`; generated candidates are checked by the installed Core before commit, and the last valid running config remains active on validation/reload failure.
+- **Profile update failed:** inspect the profile card's error or use its update button; generated candidates are checked by the installed Core before commit, and the last valid running config remains active on validation/reload failure.
 - **Corrupt settings/profile index:** repair the JSON file or move it aside; Sash intentionally does not overwrite corrupt state.
 - **Daemon errors:** `sash logs --daemon --errors`.
 - **Core errors:** `sash logs --errors`. Log tails and follow-mode reads use bounded chunks, so large logs do not require one whole-file allocation.

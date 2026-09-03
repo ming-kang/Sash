@@ -1,4 +1,4 @@
-import type { DaemonStatus, SystemProxyStatusResponse } from "./contracts.js";
+import type { DaemonStatus } from "./contracts.js";
 import { currentCoreVersion } from "./core.js";
 import { SashDaemonClient } from "./daemon-client.js";
 import {
@@ -70,15 +70,6 @@ export interface CliRuntimeStatus {
   };
 }
 
-export interface CliProxyStatus {
-  complete: boolean;
-  queryError: string | null;
-  daemon: CliDaemonObservation;
-  desired: boolean;
-  daemonApplied: boolean | null;
-  osObserved: CliObservedSystemProxy;
-}
-
 export interface StatusObservationContext {
   layout: SashLayout;
   settings: SashSettings;
@@ -90,10 +81,6 @@ export interface StatusObservationDependencies {
     context: StatusObservationContext,
     daemon: DaemonHealthyInfo,
   ) => Promise<DaemonStatus>;
-  queryDaemonProxy?: (
-    context: StatusObservationContext,
-    daemon: DaemonHealthyInfo,
-  ) => Promise<SystemProxyStatusResponse>;
   inspectSystemProxy?: (context: StatusObservationContext) => Promise<SystemProxyInspection>;
   installedCoreVersion?: (context: StatusObservationContext) => string;
   activeProfile?: (
@@ -232,17 +219,6 @@ async function queryStatus(
   return new SashDaemonClient(daemon.port, context.settings.daemonSecret).status();
 }
 
-async function queryProxy(
-  context: StatusObservationContext,
-  dependencies: StatusObservationDependencies,
-  daemon: DaemonHealthyInfo,
-): Promise<SystemProxyStatusResponse> {
-  if (dependencies.queryDaemonProxy) {
-    return dependencies.queryDaemonProxy(context, daemon);
-  }
-  return new SashDaemonClient(daemon.port, context.settings.daemonSecret).getProxy();
-}
-
 function addObservationErrors(errors: string[], observation: ResolvedSystemProxyObservation): void {
   for (const error of observation.errors) addError(errors, error);
 }
@@ -368,55 +344,6 @@ export async function collectRuntimeStatus(
       root: context.layout.root,
       config: context.layout.configFile,
     },
-  };
-}
-
-export async function collectProxyStatus(
-  context: StatusObservationContext,
-  dependencies: StatusObservationDependencies = {},
-): Promise<CliProxyStatus> {
-  const errors: string[] = [];
-  const daemonState = await evaluate(context, dependencies);
-  let daemon = daemonObservation(daemonState);
-  let desired = context.settings.systemProxy;
-  let proxySource: SystemProxyObservationSource | undefined;
-
-  if (daemonState.kind === "healthy") {
-    try {
-      const proxy = await queryProxy(context, dependencies, daemonState);
-      daemon = daemonObservation(daemonState, "healthy");
-      desired = proxy.desired;
-      proxySource = {
-        applied: proxy.applied,
-        appliedKnown: proxy.appliedKnown,
-        state: proxy,
-        stateKnown: proxy.stateKnown,
-        ...(proxy.queryError ? { queryError: proxy.queryError } : {}),
-      };
-    } catch (err) {
-      daemon = daemonObservation(daemonState, "unhealthy");
-      addError(errors, `Daemon proxy query failed: ${errorText(err)}`);
-    }
-  } else if (daemonState.running) {
-    addError(errors, "sashd control API is unavailable");
-  }
-
-  const proxyObservation = await observeSystemProxy(
-    context,
-    dependencies,
-    proxySource,
-    daemonState.running ? null : false,
-  );
-  addObservationErrors(errors, proxyObservation);
-  const daemonPort = daemon.port || context.settings.daemonPort;
-
-  return {
-    complete: errors.length === 0,
-    queryError: errors.length > 0 ? errors.join("; ") : null,
-    daemon: { ...daemon, port: daemonPort },
-    desired,
-    daemonApplied: proxyObservation.daemonApplied,
-    osObserved: proxyObservation.osObserved,
   };
 }
 

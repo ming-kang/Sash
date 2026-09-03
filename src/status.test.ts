@@ -3,13 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { withCliErrors } from "./cli-errors.js";
-import { runProxyStatus } from "./commands/proxy.js";
 import { runStatus } from "./commands/status.js";
 import type { DaemonStatus } from "./contracts.js";
 import { sashLayout } from "./paths.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import {
-  collectProxyStatus,
   collectRuntimeStatus,
   formatTunObservation,
   markIncompleteObservation,
@@ -86,15 +84,6 @@ function dependencies(
         version: "v1.2.3",
         tunActive: false,
       }),
-    queryDaemonProxy: async () => ({
-      desired: true,
-      applied: true,
-      supported: true,
-      enabled: true,
-      server: "127.0.0.1:17890",
-      appliedKnown: true,
-      stateKnown: true,
-    }),
     inspectSystemProxy: async () => ({
       applied: true,
       state: { supported: true, enabled: true, server: "127.0.0.1:17890" },
@@ -434,76 +423,5 @@ describe("CLI runtime status observations", () => {
       output.errors.some((line) => line.includes("settings are corrupt")),
       true,
     );
-  });
-});
-
-describe("CLI proxy status observations", () => {
-  let previousExitCode: number | string | null | undefined;
-
-  beforeEach(() => {
-    previousExitCode = process.exitCode;
-    process.exitCode = undefined;
-  });
-
-  afterEach(() => {
-    process.exitCode = previousExitCode;
-  });
-
-  it("separates desired, daemon-applied and OS-observed values", async () => {
-    const status = await collectProxyStatus(context, dependencies());
-
-    assert.equal(status.complete, true);
-    assert.equal(status.daemon.state, "healthy");
-    assert.equal(status.desired, true);
-    assert.equal(status.daemonApplied, true);
-    assert.equal(status.osObserved.enabled, true);
-  });
-
-  it("distinguishes stopped and unhealthy daemon states", async () => {
-    const stopped = await collectProxyStatus(
-      context,
-      dependencies({
-        evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
-        inspectSystemProxy: async () => ({
-          applied: false,
-          state: { supported: true, enabled: false },
-          appliedKnown: true,
-          stateKnown: true,
-        }),
-      }),
-    );
-    assert.equal(stopped.complete, true);
-    assert.equal(stopped.daemon.state, "stopped");
-    assert.equal(stopped.daemonApplied, false);
-
-    const unhealthy = await collectProxyStatus(
-      context,
-      dependencies({
-        evaluateDaemon: async () => ({
-          kind: "unhealthy",
-          running: true,
-          healthy: false,
-          pid: 101,
-        }),
-      }),
-    );
-    assert.equal(unhealthy.complete, false);
-    assert.equal(unhealthy.daemon.state, "unhealthy");
-    assert.equal(unhealthy.daemonApplied, null);
-
-    const output = await captureConsole(() => runProxyStatus(async () => unhealthy));
-    assert.equal(
-      output.logs.some((line) => line.includes("daemon state") && line.includes("unhealthy")),
-      true,
-    );
-    assert.equal(
-      output.logs.some((line) => line.includes("daemon-applied") && line.includes("unknown")),
-      true,
-    );
-    assert.equal(
-      output.logs.some((line) => line.includes("os-observed") && line.includes("on")),
-      true,
-    );
-    assert.equal(process.exitCode, 2);
   });
 });

@@ -10,7 +10,7 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 - **Zero-download web dashboard** — built-in modern Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
 - **Reversible system proxy ownership** — snapshots and conditionally restores prior Windows, macOS, or GNOME proxy/PAC state after stop or crash
 - **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
-- **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles (`sash sub`)
+- **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles from the dashboard
 - **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)
 - **TUN mode** — device-level traffic takeover (requires starting the whole Sash runtime with elevated privileges)
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
@@ -41,9 +41,7 @@ sash --help
 
 ```sh
 sash start                 # downloads core if needed, launches sashd and core
-sash proxy on              # take ownership of OS proxy state
-sash sub set <url>         # download and activate a remote profile
-sash web                   # open the web dashboard
+sash web                   # open the web dashboard (profiles, nodes, system proxy, settings)
 sash status                # runtime state, endpoints, and proxy status
 sash stop                  # restores prior proxy state, stops core and sashd
 ```

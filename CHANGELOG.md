@@ -81,6 +81,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Daemon HTTP and WebSocket routing now share one origin-form request-target parser and explicit route table. Known method mismatches return `405` with `Allow`, dashboard redirects preserve root queries, and WebSocket streams are explicitly GET-only.
 - npm packages now include `docs/`, lint is part of `prepublishOnly`, and package self-upgrade requires the daemon to be stopped so runtime/schema versions cannot overlap.
 
+### Changed
+
+- The CLI is trimmed to lifecycle and diagnostics: `start`, `stop`, `restart`, `status`, `logs`, `web`, `update`, `upgrade` and `version`. Profile management, the system-proxy toggle and runtime settings moved to the web dashboard exclusively; the `sub`, `proxy` and `config` command groups were removed along with the offline-mutation paths that only served them. The `controller` and `secret` keys are now edited directly in `sash.json`.
+
 ### Fixed
 
 - The in-app profile editor's content endpoints (`GET/PUT /sash/profiles/:id/content`) are now registered in the daemon routing table; previously the handler existed but the router returned 404 before the request reached it.
