@@ -147,29 +147,30 @@ function navItemClasses(index: number): Record<string, boolean> {
   border-bottom: 1px solid var(--border);
 }
 .traffic-row {
-  display: grid;
-  width: 122px;
-  grid-template-columns: 14px 58px 42px;
+  display: flex;
+  width: 100%;
   align-items: baseline;
-  column-gap: 4px;
+  justify-content: center;
+  gap: 8px;
   color: var(--text-primary);
-  font-size: 10.5px;
+  font-size: 14px;
   line-height: 1;
 }
 .traffic-arrow {
-  text-align: center;
-  font-size: 12px;
+  font-size: 16px;
 }
 .traffic-number {
+  min-width: 44px;
   overflow: hidden;
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .traffic-unit {
+  min-width: 30px;
   overflow: hidden;
-  text-align: left;
   white-space: nowrap;
+  color: var(--text-secondary);
 }
 .side-nav {
   display: flex;
@@ -191,7 +192,7 @@ function navItemClasses(index: number): Record<string, boolean> {
   background: var(--bg-sidebar);
   color: var(--menu-text);
   cursor: pointer;
-  font-size: 15px;
+  font-size: 18px;
   text-align: center;
   transition:
     background var(--motion-normal) var(--ease-standard),
@@ -234,7 +235,7 @@ function navItemClasses(index: number): Record<string, boolean> {
   width: 128px;
   margin-bottom: 14px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   text-align: center;
@@ -248,7 +249,7 @@ function navItemClasses(index: number): Record<string, boolean> {
   justify-content: center;
   gap: 7px;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 14px;
 }
 .core-label {
   overflow: hidden;
@@ -293,7 +294,7 @@ function navItemClasses(index: number): Record<string, boolean> {
     padding: 4px 1px;
     border-radius: 5px;
     background: transparent;
-    font-size: 9px;
+    font-size: 12px;
   }
   .side-nav-item.active {
     background: var(--bg-active);
@@ -302,7 +303,7 @@ function navItemClasses(index: number): Record<string, boolean> {
     display: flex;
   }
   .nav-label {
-    font-size: 9px;
+    font-size: 12px;
   }
 }
 </style>

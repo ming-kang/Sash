@@ -1,10 +1,17 @@
 /* Sash Web design system */
+@font-face {
+  font-family: "Maple Mono NF CN";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/MapleMono-NF-CN-Regular.woff2") format("woff2");
+}
+
 :root {
   color-scheme: light;
-  --font-sans:
-    "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui,
+  --font-sans: "Maple Mono NF CN", "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui,
     sans-serif;
-  --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-mono: "Maple Mono NF CN", "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
   /* CFW-inspired neutral surfaces */
   --bg-app: #ffffff;
@@ -27,21 +34,22 @@
 
   --border: #dedede;
   --border-strong: #c6c6c6;
-  --border-accent: #8bcbe3;
+  --border-accent: #b6bdf8;
   --text-primary: #17191c;
   --text-secondary: #4f5964;
   --text-muted: #5f6a76;
   --text-inverse: #ffffff;
+  --general-title: #2c3e50;
 
-  /* Blue is reserved for selected modes and primary actions. */
+  /* Indigo-violet is reserved for selected modes and primary actions. */
   /* All text-bearing colors keep >= 4.5:1 contrast with their backgrounds (WCAG AA). */
-  --accent: #1e7693;
-  --accent-hover: #1a6885;
-  --accent-pressed: #15566e;
+  --accent: #5558dd;
+  --accent-hover: #4649c9;
+  --accent-pressed: #3a3cb2;
   --accent-contrast: #ffffff;
-  --accent-soft: #e8f5fa;
-  --accent-ring: rgba(51, 159, 201, 0.24);
-  --accent-shadow: rgba(51, 159, 201, 0.18);
+  --accent-soft: #eeeefc;
+  --accent-ring: rgba(99, 102, 241, 0.26);
+  --accent-shadow: rgba(99, 102, 241, 0.2);
 
   /* Green remains a semantic selected/online state, not a page wash. */
   --selection: #1c7a4a;
@@ -61,9 +69,9 @@
   --info-soft: #eaf4f9;
   --info-border: #a8cedf;
 
-  --chart-down: #1e7693;
-  --chart-up: #6558b8;
-  --chart-1: #1e7693;
+  --chart-down: #5558dd;
+  --chart-up: #b96a24;
+  --chart-1: #5558dd;
   --chart-2: #1c7a4a;
   --chart-3: #6558b8;
   --chart-4: #c38a27;
@@ -121,24 +129,25 @@ html[data-theme="dark"] {
   --menu-text: #d0ccd3;
   --brand-mark: #e5e2e8;
   --mode-button-bg: #464451;
-  --mode-button-active-bg: #3aa1cc;
+  --mode-button-active-bg: #8f91f3;
   --mode-button-active-text: #191722;
 
   --border: #55515e;
   --border-strong: #6a6572;
-  --border-accent: #327f9d;
+  --border-accent: #5558b8;
   --text-primary: #f3f1f4;
+  --general-title: #e5e2e8;
   --text-secondary: #cdc9d0;
   --text-muted: #aaa6b0;
   --text-inverse: #191722;
 
-  --accent: #3aa1cc;
-  --accent-hover: #52b7de;
-  --accent-pressed: #2d8db5;
+  --accent: #8f91f3;
+  --accent-hover: #a8abf7;
+  --accent-pressed: #7578e8;
   --accent-contrast: var(--text-inverse);
-  --accent-soft: rgba(58, 161, 204, 0.16);
-  --accent-ring: rgba(82, 183, 222, 0.3);
-  --accent-shadow: rgba(58, 161, 204, 0.22);
+  --accent-soft: rgba(143, 145, 243, 0.16);
+  --accent-ring: rgba(168, 171, 247, 0.32);
+  --accent-shadow: rgba(143, 145, 243, 0.22);
 
   --selection: #33c963;
   --selection-soft: rgba(51, 201, 99, 0.12);
@@ -157,9 +166,9 @@ html[data-theme="dark"] {
   --info-soft: rgba(105, 196, 233, 0.12);
   --info-border: #386d82;
 
-  --chart-down: #50b8df;
-  --chart-up: #b0a7f2;
-  --chart-1: #50b8df;
+  --chart-down: #a8abf7;
+  --chart-up: #e0a15c;
+  --chart-1: #8f91f3;
   --chart-2: #42d07e;
   --chart-3: #b0a7f2;
   --chart-4: #efbd62;
@@ -217,7 +226,7 @@ body {
   background: var(--bg-app);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 400;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -229,23 +238,39 @@ body {
   color: var(--text-primary);
 }
 
+* {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+/* Firefox has no scrollbar pseudo-elements; reveal via the scroll-driven class. */
+.is-scrolling {
+  scrollbar-color: var(--scrollbar) transparent;
+}
 ::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+/* Thumb stays hidden until the area is scrolled or its scrollbar is dragged. */
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar);
-  background-clip: content-box;
-  border: 4px solid transparent;
+  background: transparent;
   border-radius: var(--radius-full);
+  transition: background var(--motion-normal) var(--ease-standard);
 }
-::-webkit-scrollbar-thumb:hover {
+.is-scrolling::-webkit-scrollbar-thumb,
+.is-scrolling ::-webkit-scrollbar-thumb,
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar);
+}
+.is-scrolling::-webkit-scrollbar-thumb:hover,
+.is-scrolling ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-hover);
-  background-clip: content-box;
-  border: 4px solid transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 button,
@@ -287,7 +312,7 @@ textarea:disabled {
   padding: 1px 6px;
   border: 1px solid transparent;
   border-radius: var(--radius-xs);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
   line-height: 1.35;
@@ -335,7 +360,7 @@ textarea:disabled {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.2;
   user-select: none;
@@ -395,13 +420,13 @@ textarea:disabled {
 .btn-sm {
   min-height: 29px;
   padding: 5px 10px;
-  font-size: 12px;
+  font-size: 16px;
 }
 .btn-xs {
   min-height: 25px;
   padding: 3px 8px;
   border-radius: var(--radius-xs);
-  font-size: 11px;
+  font-size: 14px;
 }
 .btn .spin,
 .spin {
@@ -454,7 +479,7 @@ textarea:disabled {
   background: var(--bg-inset);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 600;
   white-space: nowrap;
   transition:
@@ -486,7 +511,7 @@ textarea:disabled {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 16px;
   transition:
     background var(--motion-fast) var(--ease-standard),
     border-color var(--motion-fast) var(--ease-standard),
@@ -511,7 +536,7 @@ textarea:disabled {
 .input-sm {
   min-height: 29px;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 16px;
 }
 select.input {
   cursor: pointer;
@@ -544,7 +569,7 @@ select.input {
   background: transparent;
   border: 0;
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 16px;
 }
 .search-box input:focus-visible {
   outline: none;
@@ -562,7 +587,7 @@ select.input {
   width: 100%;
   border-collapse: collapse;
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 16px;
   text-align: left;
 }
 .data-table th {
@@ -570,7 +595,7 @@ select.input {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -596,7 +621,7 @@ html[data-theme="dark"] .data-table tbody tr {
 }
 .cell-mono {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 14px;
 }
 .cell-truncate {
   max-width: 260px;
@@ -615,7 +640,7 @@ html[data-theme="dark"] .data-table tbody tr {
 .pagination-summary {
   margin-right: 4px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 16px;
 }
 
 /* Utilities */

@@ -36,14 +36,14 @@ defineProps<{ title?: string; desc?: string }>();
 }
 .ui-card-title {
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 400;
   line-height: 1.4;
 }
 .ui-card-desc {
   margin-top: 1px;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 14px;
   line-height: 1.35;
 }
 .ui-card-actions {

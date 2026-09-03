@@ -37,13 +37,13 @@ defineProps<{ icon: string; title: string; hint?: string }>();
 }
 .empty-title {
   color: var(--text-secondary);
-  font-size: 13.5px;
+  font-size: 16px;
   font-weight: 500;
 }
 .empty-hint {
   max-width: 360px;
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: 14px;
   line-height: 1.55;
 }
 </style>

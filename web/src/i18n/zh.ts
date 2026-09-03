@@ -154,7 +154,6 @@ export const zh = {
     updateAll: "全部更新",
     import: "导入",
     paste: "从剪贴板粘贴",
-    active: "使用中",
     update: "更新",
     edit: "编辑",
     delete: "删除",

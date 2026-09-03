@@ -13,11 +13,11 @@ function cr(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 const cases = [
-  ["accent vs white", "#1e7693", "#ffffff", 4.5],
-  ["accent-hover vs white", "#1a6885", "#ffffff", 4.5],
-  ["accent-pressed vs white", "#15566e", "#ffffff", 4.5],
-  ["accent text on accent-soft", "#1e7693", "#e8f5fa", 4.5],
-  ["accent text on panel", "#1e7693", "#f1f1f1", 4.5],
+  ["accent vs white", "#5558dd", "#ffffff", 4.5],
+  ["accent-hover vs white", "#4649c9", "#ffffff", 4.5],
+  ["accent-pressed vs white", "#3a3cb2", "#ffffff", 4.5],
+  ["accent text on accent-soft", "#5558dd", "#eeeefc", 4.5],
+  ["accent text on panel", "#5558dd", "#f1f1f1", 4.5],
   ["selection vs white", "#1c7a4a", "#ffffff", 4.5],
   ["selection vs selection-soft", "#1c7a4a", "#e8f7ef", 4.5],
   ["selection vs panel", "#1c7a4a", "#f1f1f1", 4.5],
@@ -32,17 +32,17 @@ const cases = [
   ["danger vs panel", "#c13a3a", "#f1f1f1", 4.5],
   ["danger vs danger-soft", "#c13a3a", "#fceded", 4.5],
   ["danger-hover vs white text", "#a83030", "#ffffff", 4.5],
-  ["chart-down vs white", "#1e7693", "#ffffff", 4.5],
+  ["chart-down vs white", "#5558dd", "#ffffff", 4.5],
   ["chart-up vs white", "#6558b8", "#ffffff", 4.5],
   ["warning vs white", "#9a650d", "#ffffff", 4.5],
   ["warning vs warning-soft", "#9a650d", "#fff6dc", 4.5],
   ["switch-off vs white (3:1)", "#8a8690", "#ffffff", 3.0],
   ["switch-off vs panel (3:1)", "#8a8690", "#f1f1f1", 3.0],
-  ["dark accent vs inverse text", "#3aa1cc", "#191722", 4.5],
-  ["dark accent-hover vs inverse", "#52b7de", "#191722", 4.5],
-  ["dark accent-pressed vs inverse", "#2d8db5", "#191722", 4.5],
-  ["dark chart-up vs elevated", "#b0a7f2", "#403e4b", 4.5],
-  ["dark chart-down vs elevated", "#50b8df", "#403e4b", 4.5],
+  ["dark accent vs inverse text", "#8f91f3", "#191722", 4.5],
+  ["dark accent-hover vs inverse", "#a8abf7", "#191722", 4.5],
+  ["dark accent-pressed vs inverse", "#7578e8", "#191722", 4.5],
+  ["dark chart-up vs elevated", "#e0a15c", "#403e4b", 4.5],
+  ["dark chart-down vs elevated", "#a8abf7", "#403e4b", 4.5],
 ];
 let fail = 0;
 for (const [name, fg, bg, req] of cases) {

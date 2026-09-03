@@ -365,7 +365,7 @@ async function reloadConfig(): Promise<void> {
   min-height: 27px;
   border: 0;
   border-radius: 0;
-  font-size: 10.5px;
+  font-size: 14px;
 }
 .preference-control .segmented-item:first-child {
   border-radius: 5px 0 0 5px;
@@ -408,13 +408,13 @@ async function reloadConfig(): Promise<void> {
 }
 .setting-name {
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 400;
 }
 .setting-desc {
   max-width: 630px;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 14px;
   line-height: 1.35;
 }
 .setting-action {
@@ -465,13 +465,13 @@ async function reloadConfig(): Promise<void> {
 .info-item dt {
   flex-shrink: 0;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 16px;
 }
 .info-item dd {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -493,7 +493,7 @@ async function reloadConfig(): Promise<void> {
   }
   .preference-control .segmented-item {
     min-height: 40px;
-    font-size: 11px;
+    font-size: 14px;
   }
   .setting-row {
     min-height: 0;

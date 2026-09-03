@@ -156,7 +156,6 @@ export const en: Messages = {
     updateAll: "Update All",
     import: "Import",
     paste: "Paste from clipboard",
-    active: "Active",
     update: "Update",
     edit: "Edit",
     delete: "Delete",

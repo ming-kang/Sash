@@ -277,15 +277,11 @@ async function refreshActiveProfile(): Promise<void> {
 
 <style scoped>
 .general-pane {
-  --general-title: #2c3e50;
   min-width: 0;
   overflow: hidden;
   background: var(--bg-panel);
   border: 0;
   border-radius: 5px;
-}
-:global(html[data-theme="dark"]) .general-pane {
-  --general-title: #e5e2e8;
 }
 .identity-row {
   display: flex;
@@ -318,7 +314,7 @@ async function refreshActiveProfile(): Promise<void> {
 }
 .identity-title-row h2 {
   color: var(--general-title);
-  font-size: 25px;
+  font-size: 26px;
   font-weight: 400;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -326,7 +322,7 @@ async function refreshActiveProfile(): Promise<void> {
 .identity-version {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -336,7 +332,7 @@ async function refreshActiveProfile(): Promise<void> {
   gap: 7px;
   margin-top: 9px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 14px;
 }
 .runtime-state.is-running {
   color: var(--success);
@@ -358,13 +354,13 @@ async function refreshActiveProfile(): Promise<void> {
 }
 .pane-section-heading h3 {
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
 }
 .pane-section-heading p {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 14px;
 }
 .mode-switcher {
   display: grid;
@@ -404,14 +400,14 @@ async function refreshActiveProfile(): Promise<void> {
   opacity: 0.46;
 }
 .mode-code {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.055em;
 }
 .mode-name {
   overflow: hidden;
   max-width: 100%;
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -440,12 +436,12 @@ async function refreshActiveProfile(): Promise<void> {
   min-width: 0;
   flex-direction: column;
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 16px;
 }
 .general-label small {
   margin-top: 1px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 .general-value {
   display: flex;
@@ -453,7 +449,7 @@ async function refreshActiveProfile(): Promise<void> {
   align-items: center;
   justify-content: flex-end;
   color: var(--text-secondary);
-  font-size: 10.5px;
+  font-size: 14px;
   text-align: right;
 }
 .general-toggle-value,
@@ -503,7 +499,7 @@ async function refreshActiveProfile(): Promise<void> {
   flex-shrink: 0;
   gap: 6px;
   color: var(--success);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -523,11 +519,11 @@ async function refreshActiveProfile(): Promise<void> {
   background: var(--bg-elevated);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 .traffic-metric strong {
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -545,7 +541,7 @@ async function refreshActiveProfile(): Promise<void> {
   gap: 3px 10px;
   margin-top: 5px;
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 .traffic-totals strong {
   color: var(--text-secondary);

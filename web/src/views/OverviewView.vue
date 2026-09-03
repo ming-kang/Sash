@@ -41,6 +41,27 @@ const { restarting, restartCore } = useCoreRestart();
   gap: clamp(18px, 2vw, 26px);
 }
 
+@media (min-width: 821px) {
+  .overview {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+  .overview-split {
+    min-height: 0;
+    flex: 1;
+    align-items: stretch;
+  }
+  .overview-split > * {
+    max-height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+
 @media (max-width: 1120px) {
   .overview-split {
     grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.7fr);

@@ -170,13 +170,13 @@ onUnmounted(() => {
 }
 .dialog-title {
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 550;
 }
 .dialog-msg {
   margin-top: 9px;
   color: var(--text-secondary);
-  font-size: 12.5px;
+  font-size: 16px;
   line-height: 1.6;
 }
 .dialog-actions {

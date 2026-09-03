@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- WebUI typography now embeds a bundled WOFF2 font (declared via `@font-face` with system fallbacks) and uses a coarser 12/14/16/18/20/24/26px size scale for readability.
+- WebUI accent color is now an indigo-violet scale (light `#5558dd`, dark `#8f91f3`) replacing the previous teal; the traffic chart's upload series is warm orange to stay distinguishable, and `scripts/contrast-check.mjs` tracks the new palette.
+- Proxy node cards are fixed-width (240px) and wrap instead of stretching, and the desktop Overview page scrolls its general and proxy panes independently.
 - WebUI now uses a classic compact desktop-console shell with a 25px title strip, 170px live-traffic sidebar, recessed active navigation, dense profile/proxy rows, stream-style logs, tagged connection rows and grouped settings. The intentional combined General + Proxies Overview workspace and responsive bottom navigation are preserved.
 - `sash restart` now restarts the whole runtime: the daemon exits through its serialized maintenance shutdown boundary and a freshly spawned daemon (running the installed code) starts the Core. Core-only restarts remain available from the dashboard. The daemon/Core maintenance-shutdown orchestration is shared between restart and Core updates.
 - TUN privilege guidance now points at an elevated full `sash restart` instead of a stop/start sequence, since an elevated restart replaces the unprivileged daemon.
@@ -78,6 +81,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- WebUI polish: redundant RULE/current badges removed from the proxy pane and profile/node cards (the selection stripe already marks them), the group latency-test icon spins a loader instead of the lightning bolt, the Rules table is centered with column dividers and scrolls instead of paginating, and scrollbars are thin overlays that fade in while scrolling and hide when idle (including Firefox via `scrollbar-color`).
+- The dark-theme Overview title now uses its intended light color: the scoped `:global()` override was being miscompiled, so `--general-title` moved into the shared theme variable blocks.
 - WebUI polish: the off-state switch knob is neutral instead of red (state is now carried by the track color), Connections page pause/close buttons and connection tags use theme variables that adapt to the dark theme, the Logs page subtitle is localized, and small screens keep profile-card actions and the theme/language selectors in compact horizontal rows.
 - Successful daemon health, status and proxy responses are now runtime-validated before CLI or WebUI state changes; malformed `200` payloads fail closed, and a failed WebUI initialization clears any stale per-boot session token.
 - Slow Windows, macOS and GNOME proxy commands no longer block the daemon event loop. Health requests remain responsive while asynchronous status/proxy inspection is pending, and platform writes preserve their safety order.

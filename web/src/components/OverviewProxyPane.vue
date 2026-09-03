@@ -3,7 +3,6 @@
     <header class="proxy-pane-head">
       <div>
         <div class="proxy-title-row">
-          <span class="proxy-mode-code">{{ store.mode.toUpperCase() }}</span>
           <h2>{{ activeModeLabel }}</h2>
         </div>
         <p>{{ activeModeDescription }}</p>
@@ -64,7 +63,6 @@
           :busy="Boolean(store.operations.proxySelections[group])"
           :collapsed="collapsedGroups.has(group)"
           :hide-timeout="hideTimeoutGroups.has(group)"
-          show-current-tag
           @test-group="testGroup(group)"
           @test-node="testSingle"
           @toggle-collapse="toggleCollapse(group)"
@@ -221,34 +219,20 @@ async function selectNode(group: string, name: string): Promise<void> {
   align-items: center;
   gap: 10px;
 }
-.proxy-mode-code {
-  display: inline-flex;
-  min-width: 48px;
-  min-height: 25px;
-  align-items: center;
-  justify-content: center;
-  padding: 3px 7px;
-  border-radius: var(--radius-xs);
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.05em;
-}
 .proxy-pane-head h2 {
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 500;
 }
 .proxy-pane-head p {
   margin-top: 5px;
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: 14px;
 }
 .group-count {
   flex-shrink: 0;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 14px;
 }
 .proxy-filter {
   min-width: 140px;
@@ -259,7 +243,7 @@ async function selectNode(group: string, name: string): Promise<void> {
 .proxy-kind-heading {
   margin: 15px 0 7px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -298,23 +282,23 @@ async function selectNode(group: string, name: string): Promise<void> {
 }
 .direct-copy strong {
   color: var(--text-primary);
-  font-size: 14.5px;
+  font-size: 16px;
   font-weight: 500;
 }
 .direct-copy span {
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 14px;
 }
 .direct-current {
   color: var(--selection);
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 600;
 }
 .direct-hint {
   margin-top: 10px;
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: 14px;
 }
 
 @media (max-width: 580px) {

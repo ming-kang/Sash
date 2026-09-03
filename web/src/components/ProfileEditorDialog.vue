@@ -182,7 +182,7 @@ onUnmounted(() => {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 13.5px;
+  font-size: 16px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -192,7 +192,7 @@ onUnmounted(() => {
   flex: 1;
   overflow: hidden;
   color: var(--warning);
-  font-size: 11px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -205,7 +205,7 @@ onUnmounted(() => {
 .editor-error {
   padding: 18px 20px;
   color: var(--danger);
-  font-size: 12.5px;
+  font-size: 16px;
 }
 .editor-host {
   position: relative;
@@ -218,11 +218,11 @@ onUnmounted(() => {
   top: 12px;
   left: 16px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 16px;
 }
 .editor-host :deep(.cm-editor) {
   height: 100%;
-  font-size: 12.5px;
+  font-size: 16px;
 }
 .editor-host :deep(.cm-editor .cm-scroller) {
   font-family: var(--font-mono);

@@ -90,9 +90,6 @@
         >
           <div class="profile-name-row">
             <span class="profile-name" :title="p.name">{{ p.name }}</span>
-            <span v-if="p.id === store.activeProfileId" class="active-label">
-              {{ t('profiles.active') }}
-            </span>
           </div>
           <div class="profile-source">
             {{ sourceLabel(p) }} · {{ updatedLabel(p) }}
@@ -369,7 +366,7 @@ async function pasteFromClipboard(): Promise<void> {
   min-height: 46px;
   padding-right: 42px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 16px;
 }
 .dl-paste {
   position: absolute;
@@ -462,24 +459,16 @@ async function pasteFromClipboard(): Promise<void> {
 .profile-name {
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 14.5px;
+  font-size: 16px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.active-label {
-  flex-shrink: 0;
-  color: var(--selection);
-  font-size: 10px;
-  font-weight: 650;
-}
 .profile-source {
   margin-top: 4px;
-  overflow: hidden;
   color: var(--text-muted);
-  font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 14px;
+  overflow-wrap: anywhere;
 }
 .profile-usage {
   margin-top: 7px;
@@ -489,7 +478,7 @@ async function pasteFromClipboard(): Promise<void> {
   justify-content: space-between;
   gap: 10px;
   color: var(--text-secondary);
-  font-size: 10.5px;
+  font-size: 14px;
 }
 .usage-expire {
   color: var(--text-muted);
@@ -517,7 +506,7 @@ async function pasteFromClipboard(): Promise<void> {
   min-width: 0;
   margin-top: 10px;
   color: var(--danger);
-  font-size: 11px;
+  font-size: 14px;
 }
 .profile-error-text {
   overflow: hidden;

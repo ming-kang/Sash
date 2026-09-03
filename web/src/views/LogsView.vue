@@ -161,7 +161,7 @@ onBeforeUnmount(() => {
   min-width: 128px;
 }
 .logs-heading h1 {
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 500;
   line-height: 1.2;
 }
@@ -169,7 +169,7 @@ onBeforeUnmount(() => {
   display: block;
   margin-top: 3px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 16px;
 }
 .logs-search {
   min-width: 0;
@@ -200,7 +200,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   contain: layout paint;
   background: var(--bg-app);
-  font-size: 12px;
+  font-size: 16px;
 }
 .log-pane:focus-visible {
   outline: none;
@@ -208,7 +208,7 @@ onBeforeUnmount(() => {
 }
 .log-empty {
   padding: 14px 20px;
-  font-size: 12.5px;
+  font-size: 16px;
 }
 .log-line {
   display: grid;
@@ -231,13 +231,13 @@ onBeforeUnmount(() => {
 }
 .log-time {
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: 14px;
 }
 .log-payload {
   min-width: 0;
   overflow-wrap: anywhere;
   font-family: var(--font-sans);
-  font-size: 11.5px;
+  font-size: 14px;
 }
 .lv-info {
   color: var(--success);

@@ -23,7 +23,7 @@
         :disabled="testing"
         @click.stop="emit('test-group')"
       >
-        <Icon name="zap" :size="15" :class="{ spin: testing }" />
+        <Icon :name="testing ? 'loader' : 'zap'" :size="15" :class="{ spin: testing }" />
       </button>
       <button
         type="button"
@@ -59,12 +59,6 @@
             </span>
             <span class="node-badges">
               <span v-if="hasUdp(member)" class="node-badge udp-tag">UDP</span>
-              <span
-                v-if="(showCurrentTag || selectable) && current === member"
-                class="node-badge node-current"
-              >
-                {{ t('proxies.currentTag') }}
-              </span>
             </span>
           </div>
         </component>
@@ -98,7 +92,6 @@ const props = defineProps<{
   testing: boolean;
   testingNodes?: ReadonlySet<string>;
   busy?: boolean;
-  showCurrentTag?: boolean;
   collapsed?: boolean;
   hideTimeout?: boolean;
 }>();
@@ -180,7 +173,7 @@ function delayClass(name: string): string {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -195,14 +188,14 @@ function delayClass(name: string): string {
   border-radius: var(--radius-xs);
   background: var(--selection);
   color: #ffffff;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 .pgroup-now {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -228,7 +221,7 @@ function delayClass(name: string): string {
 
 .pgroup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, 240px);
   gap: 8px 12px;
 }
 .node-card {
@@ -303,7 +296,7 @@ function delayClass(name: string): string {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -321,7 +314,7 @@ function delayClass(name: string): string {
   border: 0;
   background: transparent;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
@@ -359,7 +352,7 @@ function delayClass(name: string): string {
   min-width: 0;
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .node-meta {
   min-width: 0;
@@ -381,13 +374,9 @@ function delayClass(name: string): string {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xs);
   color: var(--text-muted);
-  font-size: 8.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
-}
-.node-current {
-  border-color: var(--selection-border);
-  color: var(--selection);
 }
 .spin {
   animation: rotate 0.9s linear infinite;
@@ -400,7 +389,7 @@ function delayClass(name: string): string {
     min-height: 40px;
   }
   .pgroup-grid {
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   }
 }
 
@@ -409,7 +398,7 @@ function delayClass(name: string): string {
     margin-bottom: 25px;
   }
   .pgroup-name {
-    font-size: 16px;
+    font-size: 20px;
   }
   .pgroup-now {
     display: none;

@@ -15,6 +15,7 @@ const expectedNames = [
   "info",
   "layers",
   "list-filter",
+  "loader",
   "monitor",
   "moon",
   "pause",

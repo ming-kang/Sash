@@ -58,7 +58,7 @@ function iconFor(kind: ToastItem["kind"]): string {
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-pop);
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 16px;
 }
 .toast::before {
   position: absolute;

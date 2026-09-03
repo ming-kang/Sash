@@ -39,7 +39,7 @@ defineProps<{ title: string; desc?: string }>();
   max-width: 720px;
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .page-head-actions {

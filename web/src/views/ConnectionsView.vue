@@ -313,7 +313,7 @@ async function closeAll(): Promise<void> {
   border-bottom: 1px solid var(--border);
 }
 .connections-toolbar h1 {
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 500;
 }
 .connection-search {
@@ -321,7 +321,7 @@ async function closeAll(): Promise<void> {
 }
 .connection-totals {
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 16px;
   white-space: nowrap;
 }
 .connections-control {
@@ -351,7 +351,7 @@ async function closeAll(): Promise<void> {
   background: var(--bg-inset);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   transition:
@@ -413,7 +413,7 @@ async function closeAll(): Promise<void> {
 .connection-host {
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -433,7 +433,7 @@ async function closeAll(): Promise<void> {
   overflow: hidden;
   border-radius: 3px;
   color: #ffffff;
-  font-size: 9.5px;
+  font-size: 12px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -487,7 +487,7 @@ async function closeAll(): Promise<void> {
 }
 .pagination-summary {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 14px;
 }
 .pagination-actions {
   display: flex;

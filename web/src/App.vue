@@ -66,6 +66,25 @@ let stopPolling: (() => void) | null = null;
 let unsubTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
 
+/** Marks scrolled elements with .is-scrolling so overlay scrollbars fade in while
+ *  scrolling and hide again after a short idle delay. */
+const scrollIdleTimers = new WeakMap<Element, number>();
+
+function handleScrollCapture(event: Event): void {
+  const target = event.target instanceof Document ? document.documentElement : event.target;
+  if (!(target instanceof HTMLElement)) return;
+  target.classList.add("is-scrolling");
+  const previous = scrollIdleTimers.get(target);
+  if (previous !== undefined) window.clearTimeout(previous);
+  scrollIdleTimers.set(
+    target,
+    window.setTimeout(() => {
+      target.classList.remove("is-scrolling");
+      scrollIdleTimers.delete(target);
+    }, 700),
+  );
+}
+
 function stopStreams(): void {
   unsubTraffic?.();
   unsubLogs?.();
@@ -94,11 +113,13 @@ watch(
 
 onMounted(() => {
   stopPolling = startRuntimePolling();
+  window.addEventListener("scroll", handleScrollCapture, { capture: true, passive: true });
 });
 
 onUnmounted(() => {
   stopPolling?.();
   stopStreams();
+  window.removeEventListener("scroll", handleScrollCapture, { capture: true });
 });
 </script>
 
@@ -141,7 +162,7 @@ onUnmounted(() => {
   background: var(--danger-soft);
   border-bottom: 1px solid var(--danger-border);
   color: var(--danger);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   text-align: center;
 }
@@ -162,6 +183,13 @@ onUnmounted(() => {
 .page-container.page-overview {
   padding-right: 34px;
   padding-left: 34px;
+}
+@media (min-width: 821px) {
+  .page-container.page-overview {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 }
 .page-container.page-profiles {
   padding: 0;

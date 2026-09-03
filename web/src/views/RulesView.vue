@@ -24,7 +24,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in pagedRules" :key="entry.key">
+          <tr v-for="entry in filteredRules" :key="entry.key">
             <td class="cell-mono text-muted idx" :data-label="t('rules.colIndex')">
               {{ entry.originalIndex + 1 }}
             </td>
@@ -45,49 +45,19 @@
         </tbody>
       </table>
       <EmptyState v-if="filteredRules.length === 0" icon="list-filter" :title="t('rules.empty')" />
-      <footer v-else class="pagination-footer">
-        <span class="pagination-summary">
-          {{
-            t('common.pageSummary', {
-              page: currentPage,
-              total: totalPages,
-            })
-          }}
-        </span>
-        <div class="pagination-actions">
-          <button
-            class="btn btn-secondary btn-sm"
-            :aria-label="t('common.previous')"
-            :disabled="currentPage === 1"
-            @click="currentPage--"
-          >
-            {{ t('common.previous') }}
-          </button>
-          <button
-            class="btn btn-secondary btn-sm"
-            :aria-label="t('common.next')"
-            :disabled="currentPage === totalPages"
-            @click="currentPage++"
-          >
-            {{ t('common.next') }}
-          </button>
-        </div>
-      </footer>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
 import { store } from "../stores/index.js";
 
-const PAGE_SIZE = 120;
 const searchQuery = ref("");
-const currentPage = ref(1);
 
 const indexedRules = computed(() =>
   store.rules.map((rule, originalIndex) => ({
@@ -102,21 +72,6 @@ const filteredRules = computed(() => {
   if (!query) return indexedRules.value;
   return indexedRules.value.filter(({ searchKey }) => searchKey.includes(query));
 });
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredRules.value.length / PAGE_SIZE)));
-const pageStart = computed(() => (currentPage.value - 1) * PAGE_SIZE);
-const pageEnd = computed(() => Math.min(pageStart.value + PAGE_SIZE, filteredRules.value.length));
-const pagedRules = computed(() => filteredRules.value.slice(pageStart.value, pageEnd.value));
-
-watch(searchQuery, () => {
-  currentPage.value = 1;
-});
-watch(
-  totalPages,
-  (pages) => {
-    currentPage.value = Math.min(currentPage.value, pages);
-  },
-  { immediate: true },
-);
 </script>
 
 <style scoped>
@@ -132,26 +87,17 @@ watch(
 .data-table td {
   padding-top: 7px;
   padding-bottom: 7px;
+  text-align: center;
+}
+.data-table th:not(:last-child),
+.data-table td:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+.data-table .cell-truncate {
+  text-align: center;
 }
 .idx {
   width: 56px;
-}
-.pagination-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel);
-}
-.pagination-summary {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-.pagination-actions {
-  display: flex;
-  gap: 8px;
 }
 
 @media (max-width: 760px) {
@@ -197,6 +143,7 @@ watch(
     max-width: none;
     padding: 4px 0;
     border: 0;
+    text-align: left;
     white-space: normal;
     overflow-wrap: anywhere;
   }
@@ -204,19 +151,13 @@ watch(
     content: attr(data-label);
     color: var(--text-muted);
     font-family: var(--font-sans);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
   .data-table .idx {
     width: 100%;
-  }
-  .pagination-footer {
-    margin-top: 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-card);
   }
 }
 
@@ -231,14 +172,6 @@ watch(
   .rule-search {
     width: 100%;
     flex-basis: 100%;
-  }
-  .pagination-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .pagination-actions .btn {
-    flex: 1;
-    min-height: 40px;
   }
 }
 </style>
