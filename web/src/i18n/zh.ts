@@ -180,6 +180,9 @@ export const zh = {
   settings: {
     appearanceTitle: "外观",
     appearanceDesc: "跟随系统或选择控制台主题",
+    editFile: "编辑设置文件",
+    fileTitle: "sash.json",
+    fileHint: "daemonPort 与 daemonSecret 需停止服务后手动修改",
     themeTitle: "主题",
     langTitle: "界面语言",
     langDesc: "切换控制台显示语言",

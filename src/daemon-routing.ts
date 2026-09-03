@@ -47,6 +47,8 @@ export type FixedHttpRouteKind =
   | "proxyDisable"
   | "profiles"
   | "settingsRead"
+  | "settingsFileRead"
+  | "settingsFileWrite"
   | "settingsUpdate"
   | "shutdown"
   | "maintenanceShutdown"
@@ -82,6 +84,8 @@ const FIXED_HTTP_ROUTES: readonly FixedRouteDefinition[] = [
     paths: ["/sash/proxy/disable", "/proxy/disable"],
   },
   { kind: "settingsRead", methods: ["GET"], paths: ["/sash/settings"] },
+  { kind: "settingsFileRead", methods: ["GET"], paths: ["/sash/settings/file"] },
+  { kind: "settingsFileWrite", methods: ["PUT"], paths: ["/sash/settings/file"] },
   {
     kind: "settingsUpdate",
     methods: ["PATCH"],

@@ -10,6 +10,7 @@ import {
   applyManagedKey,
   requiresCoreRestart,
   type SashSettings,
+  type SettableKey,
   sameSettings,
 } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
@@ -222,5 +223,25 @@ export class SettingsService {
     if (!sameSettings(this.options.getCommitted(), previous)) {
       throw new Error("Settings changed while preparing configuration");
     }
+  }
+
+  /**
+   * Apply a whole edited settings file (from the WebUI JSON editor) by
+   * diffing every managed key against the committed settings and routing each
+   * change through the per-key update path. Restart-requiring keys run before
+   * system-proxy so the proxy is reconciled against the final core state.
+   */
+  async applyFileSettings(next: SashSettings): Promise<void> {
+    const current = this.options.getCommitted();
+    const changes: Array<[SettableKey, string]> = [];
+    if (next.mixedPort !== current.mixedPort) changes.push(["mixed-port", String(next.mixedPort)]);
+    if (next.controller !== current.controller) changes.push(["controller", next.controller]);
+    if (next.secret !== current.secret) changes.push(["secret", next.secret]);
+    if (next.tun !== current.tun) changes.push(["tun", next.tun ? "on" : "off"]);
+    if (next.allowLan !== current.allowLan)
+      changes.push(["allow-lan", next.allowLan ? "on" : "off"]);
+    if (next.systemProxy !== current.systemProxy)
+      changes.push(["system-proxy", next.systemProxy ? "on" : "off"]);
+    for (const [key, value] of changes) await this.update(key, value);
   }
 }

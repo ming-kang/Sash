@@ -182,6 +182,9 @@ export const en: Messages = {
   settings: {
     appearanceTitle: "Appearance",
     appearanceDesc: "Follow the system or choose a console theme",
+    editFile: "Edit settings file",
+    fileTitle: "sash.json",
+    fileHint: "daemonPort and daemonSecret require editing while Sash is stopped",
     themeTitle: "Theme",
     langTitle: "Language",
     langDesc: "Display language of the console",

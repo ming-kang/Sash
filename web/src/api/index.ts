@@ -196,6 +196,12 @@ export const api = {
       method: "PATCH",
       body: { key, value },
     }),
+  getSettingsFile: () => request<{ ok: boolean; content: string }>("/sash/settings/file"),
+  saveSettingsFile: (content: string) =>
+    request<{ ok: boolean; settings: SashStatus["settings"] }>("/sash/settings/file", {
+      method: "PUT",
+      body: { content },
+    }),
   restartCore: () => request<{ ok: boolean; pid: number }>("/core/restart", { method: "POST" }),
   reloadCoreConfig: () =>
     request<{ ok: boolean; proxyCount: number }>("/core/config/reload", { method: "POST" }),

@@ -1,6 +1,17 @@
 <template>
   <div>
-    <PageHeader :title="t('page.settings.title')" :desc="t('page.settings.desc')" />
+    <PageHeader :title="t('page.settings.title')" :desc="t('page.settings.desc')">
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm"
+        @click="fileEditorOpen = true"
+      >
+        <Icon name="code" :size="14" />
+        {{ t('settings.editFile') }}
+      </button>
+    </PageHeader>
+
+    <SettingsFileDialog v-if="fileEditorOpen" @close="fileEditorOpen = false" />
 
     <div class="settings-grid">
       <!-- Interface -->
@@ -215,6 +226,7 @@ import { computed, ref, watch } from "vue";
 import { api } from "../api/index.js";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
+import SettingsFileDialog from "../components/SettingsFileDialog.vue";
 import UiCard from "../components/UiCard.vue";
 import UiSwitch from "../components/UiSwitch.vue";
 import { coreVersion, tunStatusBadge, useCoreRestart } from "../composables/core-runtime.js";
@@ -232,6 +244,8 @@ import {
   reconcileCommittedDraft,
 } from "../stores/state-ownership.js";
 import { setTheme, theme, type Theme } from "../theme.js";
+
+const fileEditorOpen = ref(false);
 
 const committedMixedPort = ref(store.status?.settings.mixedPort ?? 17890);
 const mixedPort = ref(committedMixedPort.value);

@@ -430,6 +430,23 @@ export function saveSettings(
   }
 }
 
+/**
+ * Parse raw sash.json text for the settings file editor. Strict: every field
+ * must be present (the editor always starts from a complete canonical file),
+ * unknown fields are rejected, and nothing is written.
+ */
+export function parseSettingsText(text: string, file = "sash.json"): SashSettings {
+  let document: unknown;
+  try {
+    document = JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `Settings file is invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return parseSettings(document, file, false).settings;
+}
+
 /** Keys accepted by `sash config set` and the sashd PATCH /settings route. */
 const SETTABLE_KEY_METADATA = {
   tun: { requiresCoreRestart: true },

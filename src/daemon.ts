@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
@@ -40,7 +41,13 @@ import {
 } from "./profile-service.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { reconcileOrphanedRuntime } from "./runtime-recovery.js";
-import { loadSettings, publicSettings, type SashSettings, saveSettings } from "./settings.js";
+import {
+  loadSettings,
+  parseSettingsText,
+  publicSettings,
+  type SashSettings,
+  saveSettings,
+} from "./settings.js";
 import { SettingsInputError, SettingsService } from "./settings-service.js";
 import { acquireStateLock, StateMutationQueue } from "./state-lock.js";
 import { type CoreState, CoreSupervisor } from "./supervisor.js";
@@ -294,12 +301,15 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
 
     // Mutations and every matched Core gateway request require a CLI bearer or
     // WebUI boot token. The route match and upstream target share one parser.
+    // The settings file read is also authenticated: it contains both secrets.
     if (isControlMutation(method) && !isLoopbackOriginHeader(req.headers.origin)) {
       sendError(res, 403, "Invalid Origin header");
       return;
     }
     if (
-      (isControlMutation(method) || route.kind === "coreGateway") &&
+      (isControlMutation(method) ||
+        route.kind === "coreGateway" ||
+        route.kind === "settingsFileRead") &&
       !isControlRequestAuthorized(req, {
         daemonSecret: committedSettings.daemonSecret,
         bootToken: token,
@@ -419,6 +429,54 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         case "settingsRead":
           sendJson(res, 200, { ok: true, settings: publicSettings(committedSettings) });
           return;
+        case "settingsFileRead": {
+          let content: string;
+          try {
+            content = fs.readFileSync(layout.settingsFile, "utf8");
+          } catch {
+            sendError(res, 404, "Settings file does not exist yet");
+            return;
+          }
+          sendJson(res, 200, { ok: true, content });
+          return;
+        }
+        case "settingsFileWrite": {
+          const body = await parseJsonObjectBody(req, 256 * 1024);
+          const content = typeof body.content === "string" ? body.content : "";
+          let parsed: SashSettings;
+          try {
+            parsed = parseSettingsText(content, layout.settingsFile);
+          } catch (err) {
+            sendError(res, 400, (err as Error).message);
+            return;
+          }
+          if (
+            parsed.daemonPort !== committedSettings.daemonPort ||
+            parsed.daemonSecret !== committedSettings.daemonSecret
+          ) {
+            sendError(
+              res,
+              400,
+              "daemonPort and daemonSecret cannot be changed online; stop Sash and edit sash.json directly",
+            );
+            return;
+          }
+          try {
+            await settingsService.applyFileSettings(parsed);
+          } catch (err) {
+            if (err instanceof SettingsInputError) {
+              sendError(res, 400, err.message);
+              return;
+            }
+            if (err instanceof ProfileConflictError) {
+              sendError(res, 409, err.message);
+              return;
+            }
+            throw err;
+          }
+          sendJson(res, 200, { ok: true, settings: publicSettings(committedSettings) });
+          return;
+        }
         case "settingsUpdate": {
           const body = await parseJsonObjectBody(req);
           const key = typeof body.key === "string" ? body.key : "";

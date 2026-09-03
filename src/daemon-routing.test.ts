@@ -48,6 +48,8 @@ describe("daemon HTTP route matching", () => {
       ["POST", "/sash/proxy/disable", "proxyDisable"],
       ["POST", "/proxy/disable", "proxyDisable"],
       ["GET", "/sash/settings", "settingsRead"],
+      ["GET", "/sash/settings/file", "settingsFileRead"],
+      ["PUT", "/sash/settings/file", "settingsFileWrite"],
       ["PATCH", "/sash/settings", "settingsUpdate"],
       ["PATCH", "/settings", "settingsUpdate"],
       ["POST", "/sash/maintenance/shutdown", "maintenanceShutdown"],

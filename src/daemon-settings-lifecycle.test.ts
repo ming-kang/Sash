@@ -116,6 +116,50 @@ describe("daemon server", () => {
     });
   });
 
+  describe("PUT /sash/settings/file", () => {
+    it("round-trips the settings file and applies managed key changes", async () => {
+      await h.startServer();
+
+      const read = await h.apiRequest("/sash/settings/file");
+      assert.equal(read.statusCode, 200);
+      const original = (read.data as { content: string }).content;
+      assert.match(original, /"mixedPort"/);
+
+      // Unauthenticated reads are rejected: the file contains both secrets.
+      const anonymous = await h.apiRequest("/sash/settings/file", { token: "" });
+      assert.equal(anonymous.statusCode, 401);
+
+      const edited = JSON.parse(original) as Record<string, unknown>;
+      edited.tun = true;
+      const write = await h.apiRequest("/sash/settings/file", {
+        method: "PUT",
+        body: { content: JSON.stringify(edited, null, 2) },
+      });
+      assert.equal(write.statusCode, 200);
+      const raw = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8"));
+      assert.equal(raw.tun, true);
+
+      const invalid = await h.apiRequest("/sash/settings/file", {
+        method: "PUT",
+        body: { content: "{ not json" },
+      });
+      assert.equal(invalid.statusCode, 400);
+
+      const unknownField = await h.apiRequest("/sash/settings/file", {
+        method: "PUT",
+        body: { content: JSON.stringify({ ...edited, bogus: 1 }) },
+      });
+      assert.equal(unknownField.statusCode, 400);
+
+      const daemonPortChange = await h.apiRequest("/sash/settings/file", {
+        method: "PUT",
+        body: { content: JSON.stringify({ ...edited, daemonPort: 29999 }) },
+      });
+      assert.equal(daemonPortChange.statusCode, 400);
+      assert.match((daemonPortChange.data as { error: string }).error, /cannot be changed online/);
+    });
+  });
+
   describe("PATCH /sash/settings", () => {
     it("applies managed keys and writes settings file", async () => {
       await h.startServer();
