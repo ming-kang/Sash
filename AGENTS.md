@@ -53,6 +53,11 @@ Do not weaken these without explicit user approval:
 - Do not start the core with TUN enabled in tests or smoke tests.
 - `npm pack --dry-run` after build changes to verify the published file set.
 
+## UI Verification
+
+- Playwright (`playwright` devDependency) is the screenshot tool for WebUI work; `scripts/ui-shot.mjs` covers common routes and viewports.
+- Check both Chromium and Firefox for layout changes. Chromium-only verification misses Firefox-specific rendering differences (flex metrics, form controls, fonts). If a Firefox instance is not automatable, ask the user to eyeball the page instead of declaring Chromium-only results done.
+
 ## Dependency and Install Security
 
 - Treat dependency and lockfile changes as reviewed code. Investigate what a new dependency does before adding it.
