@@ -92,6 +92,7 @@ export const en: Messages = {
     daemonPort: "Daemon Port",
     lan: "LAN Access",
     tun: "TUN Mode",
+    switchesTitle: "Network switches",
   },
   proxies: {
     testAll: "Test latency",

@@ -3,7 +3,7 @@
     <PageHeader :title="t('page.overview.title')" :desc="t('page.overview.desc')">
       <button
         type="button"
-        class="btn btn-secondary btn-sm"
+        class="btn btn-danger-outline btn-sm"
         :disabled="restarting"
         @click="restartCore"
       >
@@ -51,14 +51,13 @@ const { restarting, restartCore } = useCoreRestart();
   .overview-split {
     min-height: 0;
     flex: 1;
-    align-items: stretch;
+    align-items: start;
   }
   .overview-split > * {
     max-height: 100%;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-gutter: stable;
   }
 }
 

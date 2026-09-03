@@ -427,6 +427,13 @@ async function reloadConfig(): Promise<void> {
   width: 96px;
   font-family: var(--font-mono);
   text-align: right;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.port-input::-webkit-outer-spin-button,
+.port-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
 }
 .interrupt-save {
   color: var(--warning);

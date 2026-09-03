@@ -90,6 +90,7 @@ export const zh = {
     daemonPort: "守护进程端口",
     lan: "局域网访问",
     tun: "TUN 模式",
+    switchesTitle: "网络开关",
   },
   proxies: {
     testAll: "测试延迟",

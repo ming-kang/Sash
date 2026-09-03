@@ -5,24 +5,16 @@
         <img :src="'./assets/branding/sash-cat.png'" alt="" />
       </span>
       <div class="identity-copy">
-        <div class="identity-title-row">
-          <h2>Sash</h2>
-          <span v-if="coreVersion" class="identity-version mono">{{ coreVersion }}</span>
-        </div>
-        <span class="runtime-state" :class="isCoreRunning ? 'is-running' : 'is-stopped'">
-          <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-danger'" />
-          {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
+        <h2>Sash</h2>
+        <span class="identity-meta mono">
+          <template v-if="coreVersion">{{ coreVersion }}</template>
+          <template v-if="coreVersion && store.status?.core.pid"> · </template>
+          <template v-if="store.status?.core.pid">PID {{ store.status.core.pid }}</template>
         </span>
       </div>
     </div>
 
     <section class="mode-control" :aria-label="t('overview.modeTitle')">
-      <div class="pane-section-heading">
-        <div>
-          <h3>{{ t('overview.modeTitle') }}</h3>
-          <p>{{ t('overview.modeDesc') }}</p>
-        </div>
-      </div>
       <div class="mode-switcher" role="group" :aria-label="t('overview.modeTitle')">
         <button
           v-for="mode in modes"
@@ -38,64 +30,49 @@
           <span class="mode-name">{{ mode.label }}</span>
         </button>
       </div>
+      <div class="mode-switcher toggle-switcher" role="group" :aria-label="t('overview.switchesTitle')">
+        <button
+          type="button"
+          class="mode-button toggle-button"
+          :class="{ active: isSysProxyOn }"
+          :aria-pressed="isSysProxyOn"
+          :disabled="!canToggleSystemProxy"
+          @click="toggleSystemProxy(!isSysProxyOn)"
+        >
+          <span class="toggle-name">{{ t('overview.sysProxyTitle') }}</span>
+          <span class="toggle-state">{{ isSysProxyOn ? t('common.on') : t('common.off') }}</span>
+        </button>
+        <button
+          type="button"
+          class="mode-button toggle-button"
+          :class="{ active: allowLanOn }"
+          :aria-pressed="allowLanOn"
+          :disabled="store.operations.networkSetting || !store.status"
+          @click="applyNetToggle('allow-lan', !allowLanOn)"
+        >
+          <span class="toggle-name">{{ t('overview.lan') }}</span>
+          <span class="toggle-state">{{ allowLanOn ? t('common.on') : t('common.off') }}</span>
+        </button>
+        <button
+          type="button"
+          class="mode-button toggle-button"
+          :class="{ active: tunOn }"
+          :aria-pressed="tunOn"
+          :disabled="store.operations.networkSetting || !store.status"
+          @click="applyNetToggle('tun', !tunOn)"
+        >
+          <span class="toggle-name">{{ t('overview.tun') }}</span>
+          <span class="toggle-state" :class="tunStateClass" :title="tunStatusBadge?.title">
+            {{ tunOn ? (tunStatusBadge?.text ?? t('common.on')) : t('common.off') }}
+          </span>
+        </button>
+      </div>
     </section>
 
     <div class="general-list">
       <div class="general-row">
-        <div class="general-label">
-          <span>{{ t('overview.coreTitle') }}</span>
-          <small v-if="store.status?.core.pid" class="mono">PID {{ store.status.core.pid }}</small>
-        </div>
-        <div class="general-value mono">{{ coreVersion || '-' }}</div>
-      </div>
-
-      <div class="general-row">
         <div class="general-label">{{ t('overview.uptime') }}</div>
         <div class="general-value mono">{{ uptime }}</div>
-      </div>
-
-      <div class="general-row">
-        <div class="general-label">{{ t('overview.sysProxyTitle') }}</div>
-        <div class="general-value">
-          <UiSwitch
-            :model-value="isSysProxyOn"
-            :label="t('overview.sysProxyTitle')"
-            :disabled="!canToggleSystemProxy"
-            @update:model-value="toggleSystemProxy"
-          />
-        </div>
-      </div>
-
-      <div class="general-row">
-        <div class="general-label">{{ t('overview.lan') }}</div>
-        <div class="general-value">
-          <UiSwitch
-            :model-value="store.status?.settings.allowLan ?? false"
-            :label="t('overview.lan')"
-            :disabled="store.operations.networkSetting || !store.status"
-            @update:model-value="(value: boolean) => applyNetToggle('allow-lan', value)"
-          />
-        </div>
-      </div>
-
-      <div class="general-row">
-        <div class="general-label">{{ t('overview.tun') }}</div>
-        <div class="general-value general-toggle-value">
-          <span
-            v-if="tunStatusBadge"
-            class="badge"
-            :class="tunStatusBadge.className"
-            :title="tunStatusBadge.title"
-          >
-            {{ tunStatusBadge.text }}
-          </span>
-          <UiSwitch
-            :model-value="store.status?.settings.tun ?? false"
-            :label="t('overview.tun')"
-            :disabled="store.operations.networkSetting || !store.status"
-            @update:model-value="(value: boolean) => applyNetToggle('tun', value)"
-          />
-        </div>
       </div>
 
       <div class="general-row">
@@ -198,7 +175,6 @@ import {
   canToggleSystemProxy,
   errorText,
   isCoreReady,
-  isCoreRunning,
   isSysProxyOn,
   patchBooleanSetting,
   setOutboundMode,
@@ -211,11 +187,18 @@ import type { OutboundMode } from "../types/index.js";
 import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 import Icon from "./Icon.vue";
 import TrafficChart from "./TrafficChart.vue";
-import UiSwitch from "./UiSwitch.vue";
 
 const refreshingSub = ref(false);
 const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
 const activeProfile = computed(() => store.status?.activeProfile ?? null);
+const allowLanOn = computed(() => store.status?.settings.allowLan ?? false);
+const tunOn = computed(() => store.status?.settings.tun ?? false);
+const tunStateClass = computed(() => {
+  const name = tunStatusBadge.value?.className;
+  if (name === "badge-success") return "state-ok";
+  if (name === "badge-warning" || name === "badge-danger") return "state-warn";
+  return undefined;
+});
 const totalNodes = computed(
   () =>
     Object.values(store.proxies).filter(
@@ -304,41 +287,25 @@ async function refreshActiveProfile(): Promise<void> {
   object-fit: contain;
 }
 .identity-copy {
+  display: flex;
   min-width: 0;
   flex: 1;
+  flex-direction: column;
+  gap: 3px;
 }
-.identity-title-row {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-}
-.identity-title-row h2 {
+.identity-copy h2 {
   color: var(--general-title);
   font-size: 26px;
   font-weight: 400;
   letter-spacing: -0.03em;
   line-height: 1;
 }
-.identity-version {
+.identity-meta {
   overflow: hidden;
   color: var(--text-muted);
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.runtime-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 9px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-.runtime-state.is-running {
-  color: var(--success);
-}
-.runtime-state.is-stopped {
-  color: var(--danger);
 }
 .mode-control,
 .traffic-compact {
@@ -410,6 +377,32 @@ async function refreshActiveProfile(): Promise<void> {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.toggle-switcher {
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+}
+.toggle-name {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toggle-state {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.toggle-button.active .toggle-state {
+  color: inherit;
+}
+.toggle-button:not(.active) .toggle-state.state-ok {
+  color: var(--success);
+}
+.toggle-button:not(.active) .toggle-state.state-warn {
+  color: var(--warning);
 }
 .general-list {
   background: var(--bg-app);
