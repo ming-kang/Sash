@@ -39,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- WebUI page headers are unified: every page now uses the shared `PageHeader` component — an 80px bar matching the sidebar traffic panel whose bottom rule spans the full content width via a `--page-gutter` CSS variable. The Logs and Connections pages migrated from their bespoke toolbars; page-specific controls (search, filters, buttons) go through the component's actions slot. The mixed-port input no longer right-aligns its value.
 - WebUI typography now embeds a bundled WOFF2 font (declared via `@font-face` with system fallbacks) and uses a coarser 12/14/16/18/20/24/26px size scale for readability.
 - WebUI accent color is now an indigo-violet scale (light `#5558dd`, dark `#8f91f3`) replacing the previous teal; the traffic chart's upload series is warm orange to stay distinguishable, and `scripts/contrast-check.mjs` tracks the new palette.
 - Proxy node cards are fixed-width (240px) and wrap instead of stretching, and the desktop Overview page scrolls its general and proxy panes independently.

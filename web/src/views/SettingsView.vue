@@ -440,7 +440,6 @@ async function reloadConfig(): Promise<void> {
 .port-input {
   width: 96px;
   font-family: var(--font-mono);
-  text-align: right;
   appearance: textfield;
   -moz-appearance: textfield;
 }

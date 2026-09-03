@@ -1,11 +1,6 @@
 <template>
   <div class="logs-view">
-    <header class="logs-toolbar">
-      <div class="logs-heading">
-        <h1>{{ t('page.logs.title') }}</h1>
-        <span>{{ modeLabel }}</span>
-      </div>
-
+    <PageHeader :title="t('page.logs.title')" :desc="modeLabel">
       <div class="search-box logs-search">
         <Icon name="search" :size="13" />
         <input
@@ -38,7 +33,7 @@
       >
         {{ paused ? t('logs.resume') : t('logs.pause') }}
       </button>
-    </header>
+    </PageHeader>
 
     <div
       ref="paneRef"
@@ -65,6 +60,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import Icon from "../components/Icon.vue";
+import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
 import { clearLogs, store } from "../stores/index.js";
 
@@ -148,34 +144,14 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex-direction: column;
 }
-.logs-toolbar {
-  display: grid;
-  min-height: 52px;
-  grid-template-columns: max-content minmax(220px, 1fr) 100px auto auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.logs-heading {
-  min-width: 128px;
-}
-.logs-heading h1 {
-  font-size: 24px;
-  font-weight: 500;
-  line-height: 1.2;
-}
-.logs-heading span {
-  display: block;
-  margin-top: 3px;
-  color: var(--text-primary);
-  font-size: 16px;
-}
 .logs-search {
   min-width: 0;
+  flex: 1;
 }
 .level-select {
+  width: 100px;
   min-height: 34px;
+  flex-shrink: 0;
 }
 .log-clear {
   min-width: 70px;
@@ -259,39 +235,12 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) {
-  .logs-toolbar {
-    grid-template-columns: 1fr auto auto;
-    padding: 10px 6px;
-  }
-  .logs-heading {
-    min-width: 0;
-  }
-  .logs-search {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-  .level-select {
-    min-width: 90px;
-  }
   .log-line {
     padding-left: 8px;
   }
 }
 
 @media (max-width: 480px) {
-  .logs-toolbar {
-    grid-template-columns: 1fr 1fr;
-  }
-  .logs-heading {
-    grid-column: 1 / -1;
-  }
-  .level-select {
-    grid-column: 1 / -1;
-  }
-  .log-clear,
-  .log-pause {
-    width: 100%;
-  }
   .log-line {
     grid-template-columns: 14px minmax(0, 1fr);
   }

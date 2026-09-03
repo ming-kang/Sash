@@ -15,14 +15,17 @@ defineProps<{ title: string; desc?: string }>();
 </script>
 
 <style scoped>
+/* Canonical top bar for every page. Height matches the sidebar traffic panel
+ * (80px) so the two border-bottoms line up; the negative margin breaks out of
+ * .page-container's horizontal padding so the rule spans the full width. */
 .page-head {
   display: flex;
-  min-height: 70px;
+  min-height: 80px;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 16px;
-  padding: 12px 0 11px;
+  gap: 12px 24px;
+  margin: 0 calc(-1 * var(--page-gutter, 30px)) 16px;
+  padding: 8px var(--header-pad, max(var(--page-gutter, 30px), 20px));
   border-bottom: 1px solid var(--border);
 }
 .page-head-text {
@@ -46,20 +49,19 @@ defineProps<{ title: string; desc?: string }>();
   display: flex;
   min-width: 0;
   align-items: center;
-  flex-shrink: 0;
+  flex: 1;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 899px) {
   .page-head {
     min-height: 0;
     align-items: flex-start;
     flex-direction: column;
     gap: 11px;
-    margin-bottom: 16px;
-    padding: 18px 0 14px;
+    padding: 16px var(--page-gutter, 16px) 14px;
   }
   .page-head-actions {
     width: 100%;

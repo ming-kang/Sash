@@ -1,7 +1,6 @@
 <template>
   <div class="connections-view">
-    <header class="connections-toolbar">
-      <h1>{{ t('page.connections.title') }}</h1>
+    <PageHeader :title="t('page.connections.title')">
       <div class="search-box connection-search">
         <Icon name="search" :size="13" />
         <input
@@ -17,7 +16,7 @@
           down: formatBytes(store.connectionsDownloadTotal),
         }) }}
       </div>
-    </header>
+    </PageHeader>
 
     <div class="connections-control">
       <div class="sort-labels" role="toolbar" :aria-label="t('connections.colAction')">
@@ -161,6 +160,7 @@ import { api } from "../api/index.js";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
+import PageHeader from "../components/PageHeader.vue";
 import { locale, t } from "../i18n/index.js";
 import { errorText, store, toast } from "../stores/index.js";
 import type { ConnectionItem } from "../types/index.js";
@@ -303,21 +303,9 @@ async function closeAll(): Promise<void> {
 .connections-view {
   min-height: 100%;
 }
-.connections-toolbar {
-  display: grid;
-  min-height: 52px;
-  grid-template-columns: max-content minmax(220px, 1fr) max-content;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.connections-toolbar h1 {
-  font-size: 24px;
-  font-weight: 500;
-}
 .connection-search {
   min-width: 0;
+  flex: 1;
 }
 .connection-totals {
   color: var(--text-primary);
@@ -495,18 +483,6 @@ async function closeAll(): Promise<void> {
 }
 
 @media (max-width: 760px) {
-  .connections-toolbar {
-    grid-template-columns: 1fr auto;
-    padding: 10px 6px;
-  }
-  .connection-search {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-  .connection-totals {
-    grid-column: 1 / -1;
-    grid-row: 3;
-  }
   .connections-control {
     flex-direction: column;
     align-items: stretch;

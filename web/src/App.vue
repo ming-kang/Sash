@@ -173,16 +173,16 @@ onUnmounted(() => {
   color: var(--warning);
 }
 .page-container {
+  --page-gutter: 30px;
   width: 100%;
   min-height: 0;
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 0 30px 44px;
+  padding: 0 var(--page-gutter) 44px;
 }
 .page-container.page-overview {
-  padding-right: 34px;
-  padding-left: 34px;
+  --page-gutter: 34px;
 }
 @media (min-width: 821px) {
   .page-container.page-overview {
@@ -192,6 +192,7 @@ onUnmounted(() => {
   }
 }
 .page-container.page-profiles {
+  --page-gutter: 0px;
   padding: 0;
 }
 .page-container.has-runtime-banner {
@@ -199,6 +200,7 @@ onUnmounted(() => {
 }
 .page-container.page-logs,
 .page-container.page-connections {
+  --page-gutter: 0px;
   padding-right: 0;
   padding-bottom: 0;
   padding-left: 0;
@@ -230,8 +232,9 @@ onUnmounted(() => {
   .page-container.page-profiles,
   .page-container.page-logs,
   .page-container.page-connections {
+    --page-gutter: 16px;
     overflow: visible;
-    padding: 0 16px calc(78px + env(safe-area-inset-bottom));
+    padding: 0 var(--page-gutter) calc(78px + env(safe-area-inset-bottom));
   }
   .page-container.page-logs {
     padding-bottom: 8px;
@@ -247,8 +250,9 @@ onUnmounted(() => {
   .page-container.page-profiles,
   .page-container.page-logs,
   .page-container.page-connections {
-    padding-right: 12px;
-    padding-left: 12px;
+    --page-gutter: 12px;
+    padding-right: var(--page-gutter);
+    padding-left: var(--page-gutter);
   }
 }
 </style>
