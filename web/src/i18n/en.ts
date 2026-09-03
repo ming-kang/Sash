@@ -147,6 +147,7 @@ export const en: Messages = {
     resume: "Resume scroll",
     listening: "Listening for core log stream…",
     empty: "No logs at this level",
+    modeLabel: "Outbound mode: {mode}",
   },
   profiles: {
     downloadPlaceholder: "Download from a URL",

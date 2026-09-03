@@ -601,12 +601,9 @@ async function pasteFromClipboard(): Promise<void> {
     flex-direction: column;
     gap: 2px;
   }
-  .profile-actions {
-    flex-direction: column;
-  }
   .profile-actions .icon-btn {
-    width: 42px;
-    height: 42px;
+    width: 38px;
+    height: 38px;
   }
 }
 </style>

@@ -145,6 +145,7 @@ export const zh = {
     resume: "恢复滚动",
     listening: "正在监听核心日志流…",
     empty: "当前级别暂无日志",
+    modeLabel: "出站模式：{mode}",
   },
   profiles: {
     downloadPlaceholder: "输入订阅链接，从 URL 下载",

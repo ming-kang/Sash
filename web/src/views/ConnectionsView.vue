@@ -75,7 +75,7 @@
         </button>
         <button
           type="button"
-          class="btn btn-sm close-all"
+          class="btn btn-sm btn-danger"
           :disabled="activeConnections.length === 0"
           @click="closeAll"
         >
@@ -379,24 +379,18 @@ async function closeAll(): Promise<void> {
   gap: 8px;
 }
 .btn-pause {
-  background: #3b88df;
+  background: var(--pause-bg);
   color: #ffffff;
 }
 .btn-pause:hover:not(:disabled) {
-  background: #2b77cc;
+  background: var(--pause-bg-hover);
 }
 .btn-pause.btn-paused {
   background: var(--selection);
 }
 .btn-pause.btn-paused:hover:not(:disabled) {
-  background: #157f4c;
-}
-.close-all {
-  background: #ef6468;
-  color: #ffffff;
-}
-.close-all:hover:not(:disabled) {
-  background: #dc565b;
+  background: var(--selection);
+  filter: brightness(0.92);
 }
 .connection-list {
   min-height: 180px;
@@ -445,22 +439,22 @@ async function closeAll(): Promise<void> {
   white-space: nowrap;
 }
 .tag-network {
-  background: #ce7838;
+  background: var(--tag-network);
 }
 .tag-process {
-  background: #bd8b32;
+  background: var(--tag-process);
 }
 .tag-chain {
-  background: #389d69;
+  background: var(--tag-chain);
 }
 .tag-rule {
-  background: #69a95b;
+  background: var(--tag-rule);
 }
 .tag-time {
-  background: #3b88df;
+  background: var(--tag-time);
 }
 .tag-traffic {
-  background: #4d14b8;
+  background: var(--tag-traffic);
 }
 .connection-close {
   position: absolute;

@@ -3,7 +3,7 @@
     <header class="logs-toolbar">
       <div class="logs-heading">
         <h1>{{ t('page.logs.title') }}</h1>
-        <span>mode: {{ store.mode }}</span>
+        <span>{{ modeLabel }}</span>
       </div>
 
       <div class="search-box logs-search">
@@ -69,6 +69,14 @@ import { t } from "../i18n/index.js";
 import { clearLogs, store } from "../stores/index.js";
 
 const levels = ["all", "info", "warning", "error", "debug"];
+const modeLabel = computed(() => {
+  const modeNames: Record<string, string> = {
+    rule: t("overview.modeRule"),
+    global: t("overview.modeGlobal"),
+    direct: t("overview.modeDirect"),
+  };
+  return t("logs.modeLabel", { mode: modeNames[store.mode] ?? store.mode });
+});
 const selectedLevel = ref("all");
 const searchQuery = ref("");
 const paused = ref(false);

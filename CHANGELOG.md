@@ -78,6 +78,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- WebUI polish: the off-state switch knob is neutral instead of red (state is now carried by the track color), Connections page pause/close buttons and connection tags use theme variables that adapt to the dark theme, the Logs page subtitle is localized, and small screens keep profile-card actions and the theme/language selectors in compact horizontal rows.
 - Successful daemon health, status and proxy responses are now runtime-validated before CLI or WebUI state changes; malformed `200` payloads fail closed, and a failed WebUI initialization clears any stale per-boot session token.
 - Slow Windows, macOS and GNOME proxy commands no longer block the daemon event loop. Health requests remain responsive while asynchronous status/proxy inspection is pending, and platform writes preserve their safety order.
 - State-lock acquisition now treats disappearance between `lstat` and record read as a retryable missing observation instead of false corruption, with one shared decision path for synchronous and asynchronous callers.

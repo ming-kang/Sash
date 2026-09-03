@@ -489,10 +489,11 @@ async function reloadConfig(): Promise<void> {
     gap: 12px;
   }
   .preference-control {
-    grid-template-columns: 1fr;
+    width: 100%;
   }
   .preference-control .segmented-item {
-    min-height: 44px;
+    min-height: 40px;
+    font-size: 11px;
   }
   .setting-row {
     min-height: 0;

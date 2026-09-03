@@ -69,6 +69,14 @@
   --chart-4: #c38a27;
   --chart-5: #cb5f8e;
   --chart-6: #557fbb;
+  --tag-network: #ce7838;
+  --tag-process: #bd8b32;
+  --tag-chain: #389d69;
+  --tag-rule: #69a95b;
+  --tag-time: #3b88df;
+  --tag-traffic: #4d14b8;
+  --pause-bg: #3b88df;
+  --pause-bg-hover: #2b77cc;
   --log-debug: #7a7a02;
 
   --radius-xs: 3px;
@@ -89,9 +97,8 @@
   --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   --switch-off: #8a8690;
+  --switch-on: #157f4c;
   --switch-knob: #ffffff;
-  --switch-knob-off: #c13a3a;
-  --switch-knob-on: #157f4c;
   --scrollbar: #c7c7c9;
   --scrollbar-hover: #a7a7aa;
   --sidebar-w: 170px;
@@ -158,6 +165,14 @@ html[data-theme="dark"] {
   --chart-4: #efbd62;
   --chart-5: #e781ac;
   --chart-6: #7aa1da;
+  --tag-network: #c97a3c;
+  --tag-process: #b08a35;
+  --tag-chain: #3ba26e;
+  --tag-rule: #62a854;
+  --tag-time: #4a8fe0;
+  --tag-traffic: #7a5cd0;
+  --pause-bg: #4a8fe0;
+  --pause-bg-hover: #3b7ed0;
   --log-debug: #d8d84b;
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -166,9 +181,8 @@ html[data-theme="dark"] {
   --shadow-nav: 0 -1px 0 rgba(0, 0, 0, 0.32);
   --shadow-switch: 0 1px 4px rgba(0, 0, 0, 0.45);
   --switch-off: #c1bdc0;
+  --switch-on: #15ae59;
   --switch-knob: #ffffff;
-  --switch-knob-off: #dc4c4c;
-  --switch-knob-on: #15ae59;
   --scrollbar: #5e5b69;
   --scrollbar-hover: #777381;
 }

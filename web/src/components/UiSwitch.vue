@@ -38,6 +38,12 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
 .switch:hover:not(:disabled) {
   background: color-mix(in srgb, var(--switch-off) 84%, var(--text-primary));
 }
+.switch.on {
+  background: var(--switch-on);
+}
+.switch.on:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--switch-on) 84%, #000000);
+}
 .switch:disabled {
   cursor: not-allowed;
   opacity: 0.48;
@@ -49,14 +55,13 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
   width: 14px;
   height: 14px;
   border-radius: var(--radius-full);
-  background: var(--switch-knob-off);
+  background: var(--switch-knob);
   box-shadow: var(--shadow-switch);
   transition:
     background var(--motion-normal) var(--ease-standard),
     transform var(--motion-normal) var(--ease-spring);
 }
 .switch.on .knob {
-  background: var(--switch-knob-on);
   transform: translateX(14px);
 }
 </style>
