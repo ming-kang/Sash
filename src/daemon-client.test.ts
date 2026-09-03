@@ -67,4 +67,36 @@ describe("SashDaemonClient mutation requests", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+
+  it("rejects malformed success responses from trusted daemon endpoints", async () => {
+    const server = http.createServer((req, res) => {
+      const body =
+        req.url === "/sash/health"
+          ? { ok: true, token: "", pid: 1234, startedAt: "2026-01-01T00:00:00.000Z" }
+          : req.url === "/sash/status"
+            ? {}
+            : {
+                desired: false,
+                applied: false,
+                supported: true,
+                enabled: false,
+                stateKnown: "yes",
+              };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const client = new SashDaemonClient(port, "daemon-secret");
+
+    try {
+      await assert.rejects(() => client.health(), /token/);
+      await assert.rejects(() => client.status(), /daemon/);
+      await assert.rejects(() => client.getProxy(), /stateKnown/);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });

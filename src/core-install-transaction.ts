@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
+import { atomicWriteFileSync, durableRemoveFileSync, pathEntryExists } from "./fs-atomic.js";
+import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import type { SashLayout } from "./paths.js";
 
 const TRANSACTION_VERSION = 1;
@@ -16,28 +17,6 @@ export interface CoreInstallTransaction {
   installRecordExisted: false;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
-  );
-}
-
-function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
-  const actual = Object.keys(value).sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
-}
-
-function isCanonicalTimestamp(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    Number.isFinite(Date.parse(value)) &&
-    new Date(value).toISOString() === value
-  );
-}
-
 function isCanonicalReleaseTag(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 }
@@ -45,7 +24,7 @@ function isCanonicalReleaseTag(value: unknown): value is string {
 function parseTransaction(value: unknown): CoreInstallTransaction | undefined {
   if (!isPlainObject(value)) return undefined;
   if (
-    !hasExactKeys(value, [
+    !hasExactOwnKeys(value, [
       "binaryExisted",
       "createdAt",
       "installRecordExisted",
@@ -55,7 +34,7 @@ function parseTransaction(value: unknown): CoreInstallTransaction | undefined {
     ]) ||
     value.version !== TRANSACTION_VERSION ||
     (value.phase !== "publishing" && value.phase !== "committed") ||
-    !isCanonicalTimestamp(value.createdAt) ||
+    !isCanonicalIsoTimestamp(value.createdAt) ||
     !isCanonicalReleaseTag(value.targetVersion) ||
     value.binaryExisted !== false ||
     value.installRecordExisted !== false
@@ -110,16 +89,6 @@ function readTransaction(layout: SashLayout): CoreInstallTransaction | undefined
   return transaction;
 }
 
-function pathEntryExists(file: string): boolean {
-  try {
-    fs.lstatSync(file);
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw err;
-  }
-}
-
 function writeTransaction(transaction: CoreInstallTransaction, layout: SashLayout): void {
   atomicWriteFileSync(
     layout.coreInstallTransactionFile,
@@ -139,7 +108,7 @@ export function beginCoreInstallTransaction(
   if (!isCanonicalReleaseTag(targetVersion)) {
     throw new Error(`Invalid Core release tag: ${targetVersion}`);
   }
-  if (!isCanonicalTimestamp(createdAt)) {
+  if (!isCanonicalIsoTimestamp(createdAt)) {
     throw new Error(`Invalid Core install timestamp: ${createdAt}`);
   }
   if (readTransaction(layout)) {

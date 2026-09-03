@@ -240,7 +240,7 @@ describe("SettingsService", () => {
     let runtime = committed;
     const profiles = new ProfileService({ layout, settings: () => committed });
     let assertions = 0;
-    profiles.assertPreparedActiveCurrent = () => {
+    profiles.withPreparedActivePublication = async <T>(): Promise<T> => {
       assertions += 1;
       throw new ProfileConflictError("profile keeps changing");
     };
@@ -260,6 +260,134 @@ describe("SettingsService", () => {
     await assert.rejects(() => service.update("allow-lan", "on"), /profile keeps changing/);
     assert.equal(assertions, 2);
     assert.equal(committed.allowLan, false);
+    assert.equal(runtime.allowLan, false);
+  });
+
+  it("allows a valid settings candidate to repair a config rejected under old settings", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    let validations = 0;
+    const profiles = new ProfileService({
+      layout,
+      settings: () => committed,
+      validateConfig: (generated) => {
+        validations += 1;
+        if (!generated.yaml.includes("allow-lan: true")) {
+          throw new Error("old config rejected");
+        }
+      },
+    });
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles,
+      commit: async (_purpose, action) => action(),
+    });
+
+    await service.update("allow-lan", "on");
+
+    assert.equal(validations, 2);
+    assert.equal(committed.allowLan, true);
+    assert.equal(runtime.allowLan, true);
+    assert.equal(loadSettings(layout).allowLan, true);
+  });
+
+  it("uses the operation's original settings snapshot for rollback", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    const previous = committed;
+    let runtime = committed;
+    const validationEntered = deferred();
+    const releaseValidation = deferred();
+    let validations = 0;
+    const profiles = new ProfileService({
+      layout,
+      settings: () => committed,
+      validateConfig: async () => {
+        validations += 1;
+        if (validations !== 1) return;
+        validationEntered.resolve();
+        await releaseValidation.promise;
+      },
+    });
+    const supervisor = { isRunning: () => true } as unknown as CoreSupervisor;
+    const lifecycle = {
+      restart: async () => {
+        throw new Error("restart failed");
+      },
+    } as unknown as RuntimeLifecycle;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles,
+      supervisor,
+      lifecycle,
+      commit: async (_purpose, action) => action(),
+    });
+
+    const updating = service.update("allow-lan", "on");
+    committed = saveSettings({ ...previous, mixedPort: 18888 }, layout);
+    await validationEntered.promise;
+    committed = saveSettings(previous, layout);
+    releaseValidation.resolve();
+
+    await assert.rejects(updating, (error: Error) => {
+      assert.match(error.message, /restart failed/);
+      assert.doesNotMatch(error.message, /config rollback failed/);
+      return true;
+    });
+    assert.equal(validations, 2);
+    assert.equal(runtime.mixedPort, previous.mixedPort);
+    assert.equal(committed.mixedPort, previous.mixedPort);
+  });
+
+  it("does not retry when the commit boundary replaces a profile conflict", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    const profiles = new ProfileService({ layout, settings: () => committed });
+    let profileChecks = 0;
+    profiles.withPreparedActivePublication = async <T>(): Promise<T> => {
+      profileChecks += 1;
+      throw new ProfileConflictError("profile moved");
+    };
+    let boundaryCalls = 0;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles,
+      commit: async (_purpose, action) => {
+        boundaryCalls += 1;
+        try {
+          return await action();
+        } catch (error) {
+          throw new Error(`${(error as Error).message}; state lock release failed`);
+        }
+      },
+    });
+
+    await assert.rejects(
+      () => service.update("allow-lan", "on"),
+      /profile moved; state lock release failed/,
+    );
+    assert.equal(boundaryCalls, 1);
+    assert.equal(profileChecks, 1);
     assert.equal(runtime.allowLan, false);
   });
 
@@ -285,6 +413,53 @@ describe("SettingsService", () => {
     assert.equal(runtime.systemProxy, true);
     assert.equal(committed.systemProxy, true);
     assert.equal(loadSettings(layout).systemProxy, true);
+  });
+
+  it("does not materialize fetched profile content when settings publication rolls back", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    const seeded = seedActiveRemote(layout, "https://example.test/profile");
+    const beforeProfile = loadProfiles(layout).profiles[0];
+    let restartCalls = 0;
+    const profiles = new ProfileService({
+      layout,
+      settings: () => committed,
+      fetchProfile: async () => ({
+        doc: { proxies: [{ name: "node-a", type: "direct" }], rules: ["MATCH,DIRECT"] },
+        yamlText: YAML_A,
+      }),
+    });
+    const supervisor = { isRunning: () => true } as unknown as CoreSupervisor;
+    const lifecycle = {
+      restart: async () => {
+        restartCalls += 1;
+        if (restartCalls === 1) throw new Error("restart failed");
+        return { pid: 1234 };
+      },
+    } as unknown as RuntimeLifecycle;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles,
+      supervisor,
+      lifecycle,
+      commit: async (_purpose, action) => action(),
+    });
+
+    await assert.rejects(() => service.update("allow-lan", "on"), /restart failed/);
+
+    assert.equal(restartCalls, 2);
+    assert.equal(fs.existsSync(profileFilePath(layout, seeded.id)), false);
+    assert.deepEqual(loadProfiles(layout).profiles[0], beforeProfile);
+    assert.equal(committed.allowLan, false);
+    assert.equal(runtime.allowLan, false);
+    assert.doesNotMatch(fs.readFileSync(layout.configFile, "utf8"), /allow-lan: true/);
   });
 
   it("rolls back an online TUN enable when the Core remains inactive", async () => {

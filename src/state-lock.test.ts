@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   acquireStateLock,
   acquireStateLockSync,
+  readStateLockRecord,
   type StateLockRecord,
   StateMutationQueue,
   withStateLock,
@@ -32,6 +33,101 @@ describe("state locks", () => {
     fs.mkdirSync(path.dirname(lockFile), { recursive: true });
     fs.writeFileSync(lockFile, `${JSON.stringify(record)}\n`, { mode: 0o600 });
   }
+
+  it("accepts extra fields and non-canonical acquiredAt values", () => {
+    const stored = {
+      version: 1,
+      pid: process.pid,
+      token: "existing-token",
+      purpose: "existing owner",
+      acquiredAt: "not-a-canonical-timestamp",
+      futureField: true,
+    };
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    fs.writeFileSync(lockFile, `${JSON.stringify(stored)}\n`);
+
+    assert.deepEqual(readStateLockRecord(lockFile), {
+      version: 1,
+      pid: process.pid,
+      token: "existing-token",
+      purpose: "existing owner",
+      acquiredAt: "not-a-canonical-timestamp",
+    });
+  });
+
+  it("waits asynchronously without blocking the owner release", async () => {
+    const owner = acquireStateLockSync(lockFile, { purpose: "sync owner" });
+    const pending = acquireStateLock(lockFile, {
+      purpose: "async owner",
+      timeoutMs: 500,
+      pollMs: 10,
+    });
+
+    await new Promise<void>((resolve) => {
+      setImmediate(() => {
+        owner.release();
+        resolve();
+      });
+    });
+    const lease = await pending;
+    try {
+      assert.equal(lease.record.purpose, "async owner");
+    } finally {
+      lease.release();
+    }
+  });
+
+  it("retries when a lock disappears between inspection and reading", async () => {
+    const owner = acquireStateLockSync(lockFile, { purpose: "racing owner" });
+    const originalReadFileSync = fs.readFileSync;
+    let raced = false;
+    fs.readFileSync = ((
+      file: string | Buffer | URL | number,
+      options: BufferEncoding,
+    ): string | Buffer => {
+      if (file === lockFile && !raced) {
+        raced = true;
+        fs.unlinkSync(lockFile);
+        throw Object.assign(new Error("lock disappeared"), { code: "ENOENT" });
+      }
+      return originalReadFileSync(file, options);
+    }) as typeof fs.readFileSync;
+
+    try {
+      const replacement = await acquireStateLock(lockFile, {
+        purpose: "racing replacement",
+        timeoutMs: 0,
+      });
+      fs.readFileSync = originalReadFileSync;
+      try {
+        assert.equal(replacement.record.purpose, "racing replacement");
+      } finally {
+        replacement.release();
+      }
+    } finally {
+      fs.readFileSync = originalReadFileSync;
+      owner.release();
+    }
+  });
+
+  it("reclaims a dead owner through the asynchronous API", async () => {
+    const deadOwner: StateLockRecord = {
+      version: 1,
+      pid: 2_147_483_647,
+      token: "dead-async-owner-token",
+      purpose: "dead async owner",
+      acquiredAt: "2026-01-01T00:00:00.000Z",
+    };
+    writeLock(deadOwner);
+
+    const lease = await acquireStateLock(lockFile, { purpose: "async replacement", timeoutMs: 0 });
+    try {
+      assert.notEqual(lease.record.token, deadOwner.token);
+      assert.equal(lease.record.purpose, "async replacement");
+    } finally {
+      lease.release();
+    }
+  });
 
   it("enforces mutual exclusion and reports the live owner", async () => {
     const first = acquireStateLockSync(lockFile, { purpose: "first owner" });

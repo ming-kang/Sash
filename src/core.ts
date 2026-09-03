@@ -6,12 +6,19 @@ import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import AdmZip from "adm-zip";
 import {
+  currentCoreVersion,
+  readInstallRecord,
+  validateCoreReleaseTag,
+  writeInstallRecord,
+} from "./core-install-record.js";
+import {
   beginCoreInstallTransaction,
   clearCoreInstallTransaction,
   markCoreInstallTransactionCommitted,
   recoverCoreInstallTransaction,
 } from "./core-install-transaction.js";
-import { atomicWriteFileSync, durableRenameSync } from "./fs-atomic.js";
+import { containsCoreVersionToken } from "./core-version.js";
+import { durableRenameSync, pathEntryExists } from "./fs-atomic.js";
 import {
   downloadReleaseAsset,
   listReleaseAssets,
@@ -67,6 +74,20 @@ export function mihomoAssetCandidates(
 
 const EXTRACT_SIZE_LIMIT = 512 * 1024 * 1024;
 
+function createCoreExtractionLimiter(): Transform {
+  let bytes = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      bytes += chunk.length;
+      if (bytes > EXTRACT_SIZE_LIMIT) {
+        callback(new Error("Extracted binary exceeds 512MB safety limit"));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+}
+
 /** Extract the binary from a downloaded .zip (windows) or .gz (single file). */
 export async function extractCoreArchive(
   archivePath: string,
@@ -98,41 +119,24 @@ export async function extractCoreArchive(
         throw new Error(`Unsupported ZIP compression method: ${header.method}`);
       }
       const compressed = entry.getCompressedData();
-      let bytes = 0;
-      const limiter = new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          bytes += chunk.length;
-          if (bytes > EXTRACT_SIZE_LIMIT) {
-            callback(new Error("Extracted binary exceeds 512MB safety limit"));
-            return;
-          }
-          callback(null, chunk);
-        },
-      });
       const output = fs.createWriteStream(extracted, { mode: 0o755 });
       if (header.method === 0) {
-        await pipeline(Readable.from([compressed]), limiter, output);
+        await pipeline(Readable.from([compressed]), createCoreExtractionLimiter(), output);
       } else {
-        await pipeline(Readable.from([compressed]), zlib.createInflateRaw(), limiter, output);
+        await pipeline(
+          Readable.from([compressed]),
+          zlib.createInflateRaw(),
+          createCoreExtractionLimiter(),
+          output,
+        );
       }
     } else if (assetName.endsWith(".gz")) {
       // Stream decompression with a hard size cap instead of buffering the
       // whole archive in memory.
-      let bytes = 0;
-      const limiter = new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          bytes += chunk.length;
-          if (bytes > EXTRACT_SIZE_LIMIT) {
-            callback(new Error("Extracted binary exceeds 512MB safety limit"));
-            return;
-          }
-          callback(null, chunk);
-        },
-      });
       await pipeline(
         fs.createReadStream(archivePath),
         zlib.createGunzip(),
-        limiter,
+        createCoreExtractionLimiter(),
         fs.createWriteStream(extracted, { mode: 0o755 }),
       );
     } else {
@@ -145,60 +149,8 @@ export async function extractCoreArchive(
   }
 }
 
-export interface InstallRecord {
-  coreVersion: string;
-  installedAt: string;
-}
-
-const INSTALL_RECORD_SIZE_LIMIT = 16 * 1024;
-
-export function readInstallRecord(layout: SashLayout = sashLayout()): InstallRecord | undefined {
-  try {
-    const stat = fs.lstatSync(layout.installFile);
-    if (!stat.isFile() || stat.size > INSTALL_RECORD_SIZE_LIMIT) return undefined;
-    const value = JSON.parse(fs.readFileSync(layout.installFile, "utf8")) as unknown;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-    const record = value as Record<string, unknown>;
-    if (Object.keys(record).some((key) => key !== "coreVersion" && key !== "installedAt")) {
-      return undefined;
-    }
-    if (typeof record.coreVersion !== "string" || typeof record.installedAt !== "string") {
-      return undefined;
-    }
-    const coreVersion = validateCoreReleaseTag(record.coreVersion);
-    const installedAt = record.installedAt;
-    if (
-      !Number.isFinite(Date.parse(installedAt)) ||
-      new Date(installedAt).toISOString() !== installedAt
-    ) {
-      return undefined;
-    }
-    return { coreVersion, installedAt };
-  } catch {
-    return undefined;
-  }
-}
-
-export function writeInstallRecord(record: InstallRecord, layout: SashLayout = sashLayout()): void {
-  const coreVersion = validateCoreReleaseTag(record.coreVersion);
-  if (
-    !Number.isFinite(Date.parse(record.installedAt)) ||
-    new Date(record.installedAt).toISOString() !== record.installedAt
-  ) {
-    throw new Error(`Invalid Core install timestamp: ${record.installedAt}`);
-  }
-  atomicWriteFileSync(
-    layout.installFile,
-    `${JSON.stringify({ coreVersion, installedAt: record.installedAt }, null, 2)}\n`,
-  );
-}
-
-/** Best-effort current core version, read from the install record ("" when absent). */
-export function currentCoreVersion(layout: SashLayout = sashLayout()): string {
-  const record = readInstallRecord(layout);
-  if (record?.coreVersion) return record.coreVersion;
-  return "";
-}
+export type { InstallRecord } from "./core-install-record.js";
+export { currentCoreVersion, readInstallRecord, validateCoreReleaseTag, writeInstallRecord };
 
 export interface CoreInstallOptions {
   layout?: SashLayout;
@@ -212,20 +164,7 @@ export interface StagedCore {
   exe: string;
 }
 
-export function validateCoreReleaseTag(tag: string): string {
-  const normalized = tag.trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(normalized)) {
-    throw new Error(`Invalid Core release tag: ${tag}`);
-  }
-  return normalized;
-}
-
 /** Execute a staged binary before it is allowed to replace the installed core. */
-function versionOutputMatches(output: string, expected: string): boolean {
-  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^A-Za-z0-9._-])${escaped}($|[^A-Za-z0-9._-])`).test(output);
-}
-
 export function verifyCoreExecutable(
   exe: string,
   timeoutMs = 5000,
@@ -238,7 +177,7 @@ export function verifyCoreExecutable(
       timeout: timeoutMs,
       windowsHide: true,
     });
-    if (expectedVersion && !versionOutputMatches(output, expectedVersion)) {
+    if (expectedVersion && !containsCoreVersionToken(output, expectedVersion)) {
       throw new Error(
         `version output does not contain expected release ${expectedVersion}: ${output.trim()}`,
       );
@@ -315,16 +254,6 @@ export async function installCore(
     throw err;
   } finally {
     fs.rmSync(staged.exe, { force: true });
-  }
-}
-
-function pathEntryExists(file: string): boolean {
-  try {
-    fs.lstatSync(file);
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw err;
   }
 }
 

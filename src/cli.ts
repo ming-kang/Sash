@@ -113,7 +113,7 @@ program
   .command("update")
   .description("upgrade the core binary")
   .option("--version <tag>", "install a specific core version, e.g. v1.19.30")
-  .option("--force", "reinstall even if already on the target version")
+  .option("--force", "reinstall the target version and repair inconsistent Core state")
   .action(withCliErrors((opts: { version?: string; force?: boolean }) => runUpdate(opts)));
 
 program

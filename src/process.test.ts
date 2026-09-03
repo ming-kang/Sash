@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import {
   binaryUnlockProbePath,
   buildSanitizedEnv,
@@ -13,8 +13,10 @@ import {
   readPidRecord,
   recoverBinaryUnlockProbe,
   runSanitizedCommand,
+  runSanitizedCommandAsync,
   TAIL_FILE_CHUNK_BYTES,
   tailFile,
+  withPrivateAppendLogFds,
   writePidRecord,
 } from "./process.js";
 
@@ -26,6 +28,7 @@ describe("process utilities", () => {
   });
 
   afterEach(() => {
+    mock.restoreAll();
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {
@@ -120,6 +123,72 @@ describe("process utilities", () => {
       assert.deepEqual(JSON.parse(output), { safe: "visible" });
     });
 
+    it("executes async helper children with the same sanitized environment", async () => {
+      const output = await runSanitizedCommandAsync(
+        process.execPath,
+        [
+          "-e",
+          "process.stdout.write(JSON.stringify({ github: process.env.GITHUB_TOKEN, npm: process.env.NPM_TOKEN, userconfig: process.env.npm_config_userconfig, safe: process.env.SAFE_VAR }))",
+        ],
+        {
+          sourceEnv: {
+            ...process.env,
+            GITHUB_TOKEN: "github-secret",
+            NPM_TOKEN: "npm-secret",
+            npm_config_userconfig: "/tmp/private-npmrc",
+            SAFE_VAR: "visible",
+          },
+        },
+      );
+
+      assert.deepEqual(JSON.parse(output), { safe: "visible" });
+      assert.equal(
+        await runSanitizedCommandAsync(
+          process.execPath,
+          ["-e", "process.stdout.write('discarded')"],
+          { stdio: "ignore" },
+        ),
+        "",
+      );
+    });
+
+    it("does not block the event loop while an async helper is running", async () => {
+      let eventLoopAdvanced = false;
+      const pending = runSanitizedCommandAsync(process.execPath, [
+        "-e",
+        "setTimeout(() => process.stdout.write('done'), 50)",
+      ]);
+      await new Promise<void>((resolve) => {
+        setImmediate(() => {
+          eventLoopAdvanced = true;
+          resolve();
+        });
+      });
+
+      assert.equal(eventLoopAdvanced, true);
+      assert.equal(await pending, "done");
+    });
+
+    it("rejects non-zero exits, timeouts, and maxBuffer overflow", async () => {
+      await assert.rejects(() =>
+        runSanitizedCommandAsync(process.execPath, ["-e", "process.exit(7)"]),
+      );
+      await assert.rejects(() =>
+        runSanitizedCommandAsync(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], {
+          timeoutMs: 20,
+        }),
+      );
+      await assert.rejects(() =>
+        runSanitizedCommandAsync(
+          process.execPath,
+          ["-e", "process.stdout.write('x'.repeat(1024))"],
+          {
+            maxBuffer: 16,
+          },
+        ),
+      );
+    });
+
     it("resolves helpers only from absolute PATH entries", () => {
       const executableName = process.platform === "win32" ? "sash-helper.exe" : "sash-helper";
       const executable = path.join(tmpDir, executableName);
@@ -196,6 +265,127 @@ describe("process utilities", () => {
       const pidFile = path.join(tmpDir, "corrupt.pid");
       fs.writeFileSync(pidFile, "not json");
       assert.equal(readPidRecord(pidFile), undefined);
+    });
+  });
+
+  describe("private append log descriptors", () => {
+    it("appends without truncating and restricts POSIX permissions", () => {
+      const stdout = path.join(tmpDir, "stdout.log");
+      const stderr = path.join(tmpDir, "stderr.log");
+      fs.writeFileSync(stdout, "old stdout\n");
+      fs.writeFileSync(stderr, "old stderr\n");
+      if (process.platform !== "win32") {
+        fs.chmodSync(stdout, 0o666);
+        fs.chmodSync(stderr, 0o666);
+      }
+
+      const descriptors = withPrivateAppendLogFds(stdout, stderr, ({ stdoutFd, stderrFd }) => {
+        fs.writeSync(stdoutFd, "new stdout\n");
+        fs.writeSync(stderrFd, "new stderr\n");
+        return [stdoutFd, stderrFd] as const;
+      });
+
+      assert.equal(fs.readFileSync(stdout, "utf8"), "old stdout\nnew stdout\n");
+      assert.equal(fs.readFileSync(stderr, "utf8"), "old stderr\nnew stderr\n");
+      for (const fd of descriptors) {
+        assert.throws(
+          () => fs.fstatSync(fd),
+          (err: unknown) => (err as NodeJS.ErrnoException).code === "EBADF",
+        );
+      }
+      if (process.platform !== "win32") {
+        assert.equal(fs.statSync(stdout).mode & 0o777, 0o600);
+        assert.equal(fs.statSync(stderr).mode & 0o777, 0o600);
+      }
+    });
+
+    it("rejects directories and symlinks as log paths", () => {
+      const directory = path.join(tmpDir, "directory.log");
+      const stderr = path.join(tmpDir, "stderr.log");
+      fs.mkdirSync(directory);
+      assert.throws(
+        () => withPrivateAppendLogFds(directory, stderr, () => undefined),
+        /non-regular log file/,
+      );
+
+      const target = path.join(tmpDir, "target.log");
+      const link = path.join(tmpDir, "linked.log");
+      fs.writeFileSync(target, "do not append here");
+      try {
+        fs.symlinkSync(target, link, "file");
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "EPERM" || code === "EACCES") return;
+        throw err;
+      }
+      assert.throws(
+        () => withPrivateAppendLogFds(link, stderr, () => undefined),
+        /non-regular log file/,
+      );
+      assert.equal(fs.readFileSync(target, "utf8"), "do not append here");
+    });
+
+    it("closes stdout when opening stderr fails", () => {
+      const stdout = path.join(tmpDir, "stdout.log");
+      const stderr = path.join(tmpDir, "stderr.log");
+      fs.writeFileSync(stdout, "");
+      fs.writeFileSync(stderr, "");
+      const originalOpenSync = fs.openSync as unknown as (...args: unknown[]) => number;
+      let calls = 0;
+      let stdoutFd: number | undefined;
+      mock.method(fs, "openSync", (...args: unknown[]): number => {
+        calls++;
+        if (calls === 1) {
+          stdoutFd = originalOpenSync(...args);
+          return stdoutFd;
+        }
+        throw Object.assign(new Error("synthetic stderr open failure"), { code: "EACCES" });
+      });
+
+      assert.throws(
+        () => withPrivateAppendLogFds(stdout, stderr, () => undefined),
+        /synthetic stderr open failure/,
+      );
+      assert.equal(calls, 2);
+      assert.notEqual(stdoutFd, undefined);
+      assert.throws(
+        () => fs.fstatSync(stdoutFd as number),
+        (err: unknown) => (err as NodeJS.ErrnoException).code === "EBADF",
+      );
+    });
+
+    it("closes both descriptors without masking a callback failure", () => {
+      const stdout = path.join(tmpDir, "stdout.log");
+      const stderr = path.join(tmpDir, "stderr.log");
+      const originalCloseSync = fs.closeSync;
+      const closed: number[] = [];
+      let descriptors: readonly [number, number] | undefined;
+      let first = true;
+      mock.method(fs, "closeSync", (fd: number): void => {
+        closed.push(fd);
+        originalCloseSync(fd);
+        if (first) {
+          first = false;
+          throw new Error("synthetic first close failure");
+        }
+      });
+
+      assert.throws(
+        () =>
+          withPrivateAppendLogFds(stdout, stderr, ({ stdoutFd, stderrFd }) => {
+            descriptors = [stdoutFd, stderrFd];
+            throw new Error("callback failed");
+          }),
+        /callback failed/,
+      );
+      assert.ok(descriptors);
+      assert.deepEqual(closed, [...descriptors]);
+      for (const fd of descriptors) {
+        assert.throws(
+          () => fs.fstatSync(fd),
+          (err: unknown) => (err as NodeJS.ErrnoException).code === "EBADF",
+        );
+      }
     });
   });
 

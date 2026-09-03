@@ -50,6 +50,8 @@ function status(
       desired: overrides.desiredProxy ?? false,
       applied: overrides.appliedProxy ?? false,
       actual: { supported: true, enabled: overrides.actualProxy ?? false },
+      appliedKnown: true,
+      stateKnown: true,
     },
     settings: {
       mixedPort: 17890,

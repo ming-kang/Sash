@@ -79,7 +79,7 @@ export class RuntimeLifecycle {
 
   recoverStartup(): Promise<void> {
     return this.enqueue(async () => {
-      await this.systemProxy.recover();
+      await this.systemProxy.release();
       this.phase = this.supervisor.isRunning() ? "running" : "stopped";
     });
   }
@@ -140,7 +140,7 @@ export class RuntimeLifecycle {
     let startAttempted = false;
     try {
       // A prior daemon may have crashed after taking over the OS proxy.
-      await this.systemProxy.recover();
+      await this.systemProxy.release();
       await prepare?.();
       startAttempted = true;
       const result = await this.supervisor.start();

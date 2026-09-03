@@ -1,4 +1,4 @@
-import { runSanitizedCommand, windowsSystemExecutable } from "../process.js";
+import { windowsSystemExecutable } from "../process.js";
 import { formatHostPort, normalizeEnableOptions, parseProxyString, runCmd } from "./common.js";
 import { windowsSnapshot } from "./snapshot.js";
 import type {
@@ -144,33 +144,12 @@ export function parseWindowsRegistryProxyValues(output: string): WindowsRegistry
   return values;
 }
 
-function parseLegacyWindowsRegistryProxyValues(output: string): WindowsRegistryProxyValues {
-  const values = emptyWindowsRegistryProxyValues();
-  const seen = new Set<string>();
-  for (const line of output.split(/\n/)) {
-    parseManagedWindowsRegistryValue(line, values, seen);
-  }
-  return values;
-}
+type CommandRunner = typeof runCmd;
 
-/**
- * Legacy display parser retained for existing callers. It intentionally accepts
- * incomplete and headerless output; ownership capture uses the strict parser above.
- */
-export function parseWindowsRegQuery(output: string): { enabled: boolean; server?: string } {
-  try {
-    const values = parseLegacyWindowsRegistryProxyValues(output);
-    const enabled = values.proxyEnable === 1;
-    return values.proxyServer === null || values.proxyServer.length === 0
-      ? { enabled }
-      : { enabled, server: values.proxyServer };
-  } catch {
-    return { enabled: false };
-  }
-}
-
-export function captureWindowsSnapshot(): WindowsSystemProxySnapshot {
-  const values = parseWindowsRegistryProxyValues(runCmd("reg.exe", ["query", WIN_REG_PATH]));
+export async function captureWindowsSnapshot(
+  run: CommandRunner = runCmd,
+): Promise<WindowsSystemProxySnapshot> {
+  const values = parseWindowsRegistryProxyValues(await run("reg.exe", ["query", WIN_REG_PATH]));
   return {
     version: SYSTEM_PROXY_SNAPSHOT_VERSION,
     platform: "win32",
@@ -182,7 +161,7 @@ export function captureWindowsSnapshot(): WindowsSystemProxySnapshot {
   };
 }
 
-function refreshWindowsWinINet(): void {
+async function refreshWindowsWinINet(run: CommandRunner): Promise<void> {
   const script = [
     '$signature = @"',
     '[DllImport("wininet.dll", SetLastError = true)]',
@@ -195,11 +174,12 @@ function refreshWindowsWinINet(): void {
     "}",
   ].join("\n");
   try {
-    runSanitizedCommand(
-      windowsSystemExecutable("WindowsPowerShell/v1.0/powershell.exe"),
-      ["-NoProfile", "-NonInteractive", "-Command", script],
-      { stdio: "ignore", timeoutMs: 5000 },
-    );
+    await run(windowsSystemExecutable("WindowsPowerShell/v1.0/powershell.exe"), [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      script,
+    ]);
   } catch {
     // The registry values are authoritative even if the notification cannot run.
   }
@@ -223,30 +203,34 @@ function windowsSnapshotValue(
   }
 }
 
-function deleteWindowsValue(name: WindowsValueName): void {
+async function deleteWindowsValue(name: WindowsValueName, run: CommandRunner): Promise<void> {
   try {
-    runCmd("reg.exe", ["delete", WIN_REG_PATH, "/v", name, "/f"]);
+    await run("reg.exe", ["delete", WIN_REG_PATH, "/v", name, "/f"]);
   } catch (err) {
     // A failed delete is harmless only when a fresh, strictly parsed snapshot
     // proves the value is already absent. Do not infer absence from stderr.
-    const current = captureWindowsSnapshot();
+    const current = await captureWindowsSnapshot(run);
     if (windowsSnapshotValue(current, name) !== null) throw err;
   }
 }
 
-function applyWindowsValue(
+async function applyWindowsValue(
   name: WindowsValueName,
   type: "REG_DWORD" | "REG_SZ",
   value: number | string | null,
-): void {
+  run: CommandRunner,
+): Promise<void> {
   if (value === null) {
-    deleteWindowsValue(name);
+    await deleteWindowsValue(name, run);
     return;
   }
-  runCmd("reg.exe", ["add", WIN_REG_PATH, "/v", name, "/t", type, "/d", String(value), "/f"]);
+  await run("reg.exe", ["add", WIN_REG_PATH, "/v", name, "/t", type, "/d", String(value), "/f"]);
 }
 
-export function applyWindowsSnapshot(value: unknown): void {
+export async function applyWindowsSnapshot(
+  value: unknown,
+  run: CommandRunner = runCmd,
+): Promise<void> {
   const snapshot = windowsSnapshot(value);
   try {
     // Disable/restore PAC metadata before enabling the manual proxy. Keep
@@ -254,12 +238,12 @@ export function applyWindowsSnapshot(value: unknown): void {
     // AutoDetect is intentionally not written: Windows owns the legacy flat
     // value and rewrites it from DefaultConnectionSettings on every WinINet
     // refresh, so it can neither be applied nor verified reliably.
-    applyWindowsValue("AutoConfigURL", "REG_SZ", snapshot.autoConfigUrl);
-    applyWindowsValue("ProxyServer", "REG_SZ", snapshot.proxyServer);
-    applyWindowsValue("ProxyOverride", "REG_SZ", snapshot.proxyOverride);
-    applyWindowsValue("ProxyEnable", "REG_DWORD", snapshot.proxyEnable);
+    await applyWindowsValue("AutoConfigURL", "REG_SZ", snapshot.autoConfigUrl, run);
+    await applyWindowsValue("ProxyServer", "REG_SZ", snapshot.proxyServer, run);
+    await applyWindowsValue("ProxyOverride", "REG_SZ", snapshot.proxyOverride, run);
+    await applyWindowsValue("ProxyEnable", "REG_DWORD", snapshot.proxyEnable, run);
   } finally {
-    refreshWindowsWinINet();
+    await refreshWindowsWinINet(run);
   }
 }
 

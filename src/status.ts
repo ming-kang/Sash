@@ -84,7 +84,7 @@ export interface StatusObservationDependencies {
   evaluateDaemon?: (context: StatusObservationContext) => Promise<DaemonRunningInfo>;
   queryDaemonStatus?: (context: StatusObservationContext) => Promise<DaemonStatus>;
   queryDaemonProxy?: (context: StatusObservationContext) => Promise<SystemProxyStatusResponse>;
-  inspectSystemProxy?: (context: StatusObservationContext) => SystemProxyInspection;
+  inspectSystemProxy?: (context: StatusObservationContext) => Promise<SystemProxyInspection>;
   installedCoreVersion?: (context: StatusObservationContext) => string;
   activeProfile?: (
     context: StatusObservationContext,
@@ -122,26 +122,25 @@ function daemonObservation(
   state: DaemonRunningInfo,
   daemonState?: CliDaemonState,
 ): CliDaemonObservation {
-  const resolvedState =
-    daemonState ?? (!state.running ? "stopped" : state.healthy ? "healthy" : "unhealthy");
+  const resolvedState = daemonState ?? state.kind;
   return {
     state: resolvedState,
     running: state.running,
     healthy: resolvedState === "healthy",
     pid: typeof state.pid === "number" ? state.pid : null,
-    port: state.port ?? 0,
+    port: state.kind === "stopped" ? 0 : (state.port ?? 0),
   };
 }
 
-function inspectSystemProxy(
+async function inspectSystemProxy(
   context: StatusObservationContext,
   dependencies: StatusObservationDependencies,
   errors: string[],
-): SystemProxyInspection | undefined {
+): Promise<SystemProxyInspection | undefined> {
   try {
     return dependencies.inspectSystemProxy
-      ? dependencies.inspectSystemProxy(context)
-      : new SystemProxyManager({ layout: context.layout }).inspect();
+      ? await dependencies.inspectSystemProxy(context)
+      : await new SystemProxyManager({ layout: context.layout }).inspect();
   } catch (err) {
     addError(errors, `OS proxy query failed: ${errorText(err)}`);
     return undefined;
@@ -208,19 +207,13 @@ export async function collectRuntimeStatus(
       const status = await queryStatus(context, dependencies);
       queriedDaemon = true;
       daemon = daemonObservation(daemonState, "healthy");
-      desiredProxy =
-        typeof status.systemProxy.desired === "boolean"
-          ? status.systemProxy.desired
-          : context.settings.systemProxy;
-      daemonApplied =
-        status.systemProxy.appliedKnown === false || typeof status.systemProxy.applied !== "boolean"
-          ? null
-          : status.systemProxy.applied;
+      desiredProxy = status.systemProxy.desired;
+      daemonApplied = status.systemProxy.appliedKnown ? status.systemProxy.applied : null;
       if (daemonApplied === null) addError(errors, "Daemon-applied proxy state is unavailable");
       if (status.systemProxy.queryError) {
         addError(errors, `System proxy query failed: ${status.systemProxy.queryError}`);
       }
-      if (status.systemProxy.stateKnown !== false && status.systemProxy.actual) {
+      if (status.systemProxy.stateKnown && status.systemProxy.actual) {
         osObserved = observedSystemProxy(status.systemProxy.actual);
       }
 
@@ -254,11 +247,11 @@ export async function collectRuntimeStatus(
   }
 
   if (!osObserved) {
-    const inspection = inspectSystemProxy(context, dependencies, errors);
+    const inspection = await inspectSystemProxy(context, dependencies, errors);
     if (inspection?.queryError) {
       addError(errors, `System proxy query failed: ${inspection.queryError}`);
     }
-    if (inspection?.stateKnown !== false && inspection) {
+    if (inspection?.stateKnown) {
       osObserved = observedSystemProxy(inspection.state);
     }
   }
@@ -331,10 +324,9 @@ export async function collectProxyStatus(
     try {
       const proxy = await queryProxy(context, dependencies);
       daemon = daemonObservation(daemonState, "healthy");
-      desired = typeof proxy.desired === "boolean" ? proxy.desired : desired;
-      daemonApplied =
-        proxy.appliedKnown === false || typeof proxy.applied !== "boolean" ? null : proxy.applied;
-      if (proxy.stateKnown !== false) osObserved = observedSystemProxy(proxy);
+      desired = proxy.desired;
+      daemonApplied = proxy.appliedKnown ? proxy.applied : null;
+      if (proxy.stateKnown) osObserved = observedSystemProxy(proxy);
       if (daemonApplied === null) addError(errors, "Daemon-applied proxy state is unavailable");
       if (proxy.queryError) addError(errors, `System proxy query failed: ${proxy.queryError}`);
     } catch (err) {
@@ -346,11 +338,11 @@ export async function collectProxyStatus(
   }
 
   if (!osObserved) {
-    const inspection = inspectSystemProxy(context, dependencies, errors);
+    const inspection = await inspectSystemProxy(context, dependencies, errors);
     if (inspection?.queryError) {
       addError(errors, `System proxy query failed: ${inspection.queryError}`);
     }
-    if (inspection?.stateKnown !== false && inspection) {
+    if (inspection?.stateKnown) {
       osObserved = observedSystemProxy(inspection.state);
     }
   }

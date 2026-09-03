@@ -1,22 +1,17 @@
-import { findExecutableOnPath, runSanitizedCommand, windowsSystemExecutable } from "../process.js";
+import { errorMessage } from "../error-utils.js";
+import { isPlainObject } from "../json-shape.js";
+import {
+  findExecutableOnPath,
+  runSanitizedCommandAsync,
+  windowsSystemExecutable,
+} from "../process.js";
 import type { EnableOptions } from "./types.js";
 import { DEFAULT_BYPASS_LIST } from "./types.js";
 
 const MAX_PROXY_STRING_LENGTH = 4096;
 const MAX_SERVICE_NAME_LENGTH = 512;
 
-export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
-  );
-}
+export { errorMessage, isPlainObject };
 
 export function parseProxyString(value: unknown, label: string, allowEmpty = true): string {
   if (typeof value !== "string") {
@@ -86,8 +81,8 @@ function resolveSystemProxyCommand(command: string): string {
   return command;
 }
 
-export function runCmd(cmd: string, args: string[], timeoutMs = 5000): string {
-  return runSanitizedCommand(resolveSystemProxyCommand(cmd), args, { timeoutMs });
+export function runCmd(cmd: string, args: string[], timeoutMs = 5000): Promise<string> {
+  return runSanitizedCommandAsync(resolveSystemProxyCommand(cmd), args, { timeoutMs });
 }
 
 export function normalizeEnableOptions(opts: EnableOptions): {

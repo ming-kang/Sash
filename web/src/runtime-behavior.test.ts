@@ -17,6 +17,8 @@ function healthyStatus(): SashStatus {
       desired: false,
       applied: false,
       actual: { supported: true, enabled: false },
+      appliedKnown: true,
+      stateKnown: true,
     },
     settings: {
       mixedPort: 17890,

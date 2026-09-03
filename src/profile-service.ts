@@ -29,7 +29,7 @@ import {
   readProfileDigest,
   readProfileSource,
 } from "./profiles.js";
-import type { SashSettings } from "./settings.js";
+import { type SashSettings, sameSettings } from "./settings.js";
 
 export class ProfileInputError extends Error {}
 export class ProfileNotFoundError extends Error {}
@@ -73,19 +73,66 @@ export interface ProfileUpdateAllResult {
   proxyCount?: number;
 }
 
-/** Candidate active configuration prepared without entering the commit boundary. */
-export interface PreparedActiveConfig {
+declare const preparedActiveConfigBrand: unique symbol;
+export type PreparedActiveConfig = Readonly<{ [preparedActiveConfigBrand]: never }>;
+
+declare const preparedActiveReloadBrand: unique symbol;
+export type PreparedActiveReload = Readonly<{ [preparedActiveReloadBrand]: never }>;
+
+export interface PreparedActivePublication {
+  readonly config: GeneratedConfig;
+  readonly rollback: PreparedActiveReload;
+  readonly index?: ProfilesIndex;
+  readonly profile?: Readonly<{ id: string; yamlText: string }>;
+}
+
+export interface PreparedActiveReloadPublication {
+  readonly config: GeneratedConfig;
+  readonly index: ProfilesIndex;
+  readonly profile?: Readonly<{ id: string; yamlText: string }>;
+}
+
+export interface CommitPreparedActiveReloadOptions {
+  reloadRuntime?: boolean;
+  boundary?: "acquire" | "already-held";
+}
+
+export interface ReloadActiveOptions {
+  reloadRuntime?: boolean;
+}
+
+type PreparedConfigResult = { readonly generated: GeneratedConfig } | { readonly error: unknown };
+
+interface PreparedActiveConfigState {
   generated: GeneratedConfig;
+  rollbackConfig: PreparedConfigResult;
+  rollbackSettings: SashSettings;
   activeId: string | null;
   sourceDigest: string | null;
   active?: Pick<ProfileMeta, "id" | "url">;
   fetched?: SubscriptionFetch;
 }
 
-interface ProfileUpdateSnapshot {
+type PreparedActiveReloadState = PreparedConfigResult & {
+  settings: SashSettings;
+  activeId: string | null;
+  sourceDigest: string | null;
+  active?: ProfileMeta;
+  fetched?: SubscriptionFetch;
+};
+
+interface ProfileSnapshot {
   profile: ProfileMeta;
   activeId: string | null;
   contentDigest: string | null;
+}
+
+interface ActiveProfileSource {
+  activeId: string | null;
+  active: ProfileMeta | null;
+  sourceDigest: string | null;
+  doc: Record<string, unknown> | null;
+  fetched?: SubscriptionFetch;
 }
 
 async function mapConcurrent<T, R>(
@@ -109,6 +156,19 @@ async function mapConcurrent<T, R>(
 
 function sameProfileState(before: ProfilesIndex, current: ProfilesIndex): boolean {
   return isDeepStrictEqual(before, current);
+}
+
+function opaqueToken<T extends object>(): T {
+  return Object.freeze({}) as T;
+}
+
+function replaceProfileMeta(index: ProfilesIndex, replacement: ProfileMeta): ProfilesIndex {
+  return {
+    ...index,
+    profiles: index.profiles.map((profile) =>
+      profile.id === replacement.id ? replacement : profile,
+    ),
+  };
 }
 
 function currentProfile(
@@ -154,6 +214,14 @@ export class ProfileService {
   private readonly onChange?: () => void;
   private readonly files: ManagedStateFileOperations;
   private readonly fetches = new Map<string, Promise<SubscriptionFetch>>();
+  private readonly preparedActiveConfigs = new WeakMap<
+    PreparedActiveConfig,
+    PreparedActiveConfigState
+  >();
+  private readonly preparedActiveReloads = new WeakMap<
+    PreparedActiveReload,
+    PreparedActiveReloadState
+  >();
   private commitTail: Promise<void> = Promise.resolve();
 
   constructor(opts: ProfileServiceOptions) {
@@ -200,7 +268,7 @@ export class ProfileService {
   }
 
   private assertSettingsUnchanged(snapshot: SashSettings): void {
-    if (JSON.stringify(this.getSettings()) !== JSON.stringify(snapshot)) {
+    if (!sameSettings(this.getSettings(), snapshot)) {
       throw new ProfileConflictError("Settings changed while preparing profile configuration");
     }
   }
@@ -215,73 +283,229 @@ export class ProfileService {
     }
   }
 
-  private updateSnapshot(profile: ProfileMeta, activeId: string | null): ProfileUpdateSnapshot {
-    return {
-      profile,
-      activeId,
-      contentDigest: readProfileDigest(this.layout, profile.id),
-    };
+  private updateSnapshot(
+    profile: ProfileMeta,
+    activeId: string | null,
+    contentDigest = readProfileDigest(this.layout, profile.id),
+  ): ProfileSnapshot {
+    return { profile, activeId, contentDigest };
   }
 
-  /** Render and Core-validate an active candidate outside the mutation lock. */
-  async prepareActiveConfig(settings: SashSettings): Promise<PreparedActiveConfig> {
-    const index = this.list();
+  private recheckProfileSnapshot(
+    index: ProfilesIndex,
+    snapshot: ProfileSnapshot,
+    contentMessage = "Profile content changed while preparing configuration",
+  ): ProfileMeta {
+    const profile = currentProfile(index, snapshot.profile, snapshot.activeId);
+    this.assertProfileContentCurrent(profile.id, snapshot.contentDigest, contentMessage);
+    return profile;
+  }
+
+  private async resolveActiveSource(index: ProfilesIndex): Promise<ActiveProfileSource> {
     const active = getActiveProfile(index);
-    const stored = active ? readProfileSource(this.layout, active.id) : undefined;
-    const fetched =
-      active && stored === undefined && active.url ? await this.fetch(active.url) : undefined;
-    if (active && stored === undefined && !fetched) {
+    if (!active) {
+      return {
+        activeId: index.activeId,
+        active: null,
+        sourceDigest: null,
+        doc: null,
+      };
+    }
+
+    const stored = readProfileSource(this.layout, active.id);
+    const fetched = stored === undefined && active.url ? await this.fetch(active.url) : undefined;
+    if (stored === undefined && !fetched) {
       throw new ProfileInputError(`Local profile file is missing: ${active.id}`);
     }
     return {
-      generated: await this.prepare(fetched?.doc ?? stored?.doc ?? null, settings),
       activeId: index.activeId,
+      active,
       sourceDigest: stored?.digest ?? null,
-      ...(active ? { active: { id: active.id, url: active.url } } : {}),
+      doc: fetched?.doc ?? stored?.doc ?? null,
       ...(fetched ? { fetched } : {}),
     };
   }
 
-  /** Recheck the active source after an out-of-lock settings preparation. */
-  assertPreparedActiveCurrent(prepared: PreparedActiveConfig): void {
+  private takePreparedActiveConfig(prepared: PreparedActiveConfig): PreparedActiveConfigState {
+    const state = this.preparedActiveConfigs.get(prepared);
+    if (!state) {
+      throw new TypeError("Prepared active configuration is invalid or already consumed");
+    }
+    this.preparedActiveConfigs.delete(prepared);
+    return state;
+  }
+
+  private takePreparedActiveReload(prepared: PreparedActiveReload): PreparedActiveReloadState {
+    const state = this.preparedActiveReloads.get(prepared);
+    if (!state) {
+      throw new TypeError("Prepared active reload is invalid or already consumed");
+    }
+    this.preparedActiveReloads.delete(prepared);
+    return state;
+  }
+
+  private preparedActiveReload(state: PreparedActiveReloadState): PreparedActiveReload {
+    const prepared = opaqueToken<PreparedActiveReload>();
+    this.preparedActiveReloads.set(prepared, state);
+    return prepared;
+  }
+
+  /** Render and Core-validate a settings candidate outside the mutation lock. */
+  async prepareActiveConfig(
+    settings: SashSettings,
+    rollbackSettings: SashSettings = this.settingsSnapshot(),
+  ): Promise<PreparedActiveConfig> {
+    const rollbackSnapshot = { ...rollbackSettings };
+    const source = await this.resolveActiveSource(this.list());
+    const generated = await this.prepare(source.doc, settings);
+    let rollbackConfig: PreparedConfigResult;
+    if (sameSettings(settings, rollbackSnapshot)) {
+      rollbackConfig = { generated };
+    } else {
+      try {
+        rollbackConfig = { generated: await this.prepare(source.doc, rollbackSnapshot) };
+      } catch (error) {
+        // A valid candidate must be able to repair an invalid current config.
+        // Preserve the old preparation failure and surface it only if rollback
+        // is actually required after the durable candidate transaction fails.
+        rollbackConfig = { error };
+      }
+    }
+    const prepared = opaqueToken<PreparedActiveConfig>();
+    this.preparedActiveConfigs.set(prepared, {
+      generated,
+      rollbackConfig,
+      rollbackSettings: rollbackSnapshot,
+      activeId: source.activeId,
+      sourceDigest: source.sourceDigest,
+      ...(source.active ? { active: { id: source.active.id, url: source.active.url } } : {}),
+      ...(source.fetched ? { fetched: source.fetched } : {}),
+    });
+    return prepared;
+  }
+
+  /** Recheck and lend one fixed-role settings publication inside the caller-owned boundary. */
+  async withPreparedActivePublication<T>(
+    prepared: PreparedActiveConfig,
+    callback: (publication: PreparedActivePublication) => T | Promise<T>,
+  ): Promise<T> {
+    const state = this.takePreparedActiveConfig(prepared);
+    this.assertSettingsUnchanged(state.rollbackSettings);
     const index = this.list();
-    if (index.activeId !== prepared.activeId) {
+    if (index.activeId !== state.activeId) {
       throw new ProfileConflictError("Active profile changed while preparing configuration");
     }
-    if (prepared.active) {
-      const active = getActiveProfile(index);
-      if (!active || active.id !== prepared.active.id || active.url !== prepared.active.url) {
+
+    let active: ProfileMeta | null = null;
+    if (state.active) {
+      active = getActiveProfile(index);
+      if (!active || active.id !== state.active.id || active.url !== state.active.url) {
         throw new ProfileConflictError("Active profile changed while preparing configuration");
       }
-      this.assertProfileContentCurrent(active.id, prepared.sourceDigest);
+      this.assertProfileContentCurrent(active.id, state.sourceDigest);
     }
+
+    const rollback = this.preparedActiveReload({
+      ...state.rollbackConfig,
+      settings: state.rollbackSettings,
+      activeId: index.activeId,
+      sourceDigest: state.sourceDigest,
+      ...(active ? { active } : {}),
+      // The candidate transaction owns fetched profile publication. If that
+      // transaction fails, rollback restores only the old generated config.
+    });
+    const publication: PreparedActivePublication =
+      active && state.fetched
+        ? {
+            config: state.generated,
+            rollback,
+            index: replaceProfileMeta(index, withFetchedContent(active, state.fetched)),
+            profile: { id: active.id, yamlText: state.fetched.yamlText },
+          }
+        : { config: state.generated, rollback };
+
+    const result = await callback(publication);
+    if (publication.profile) this.notifyChange();
+    return result;
   }
 
-  /** Materialize a fetched missing-profile candidate after the commit recheck. */
-  preparedActivePublication(prepared: PreparedActiveConfig): {
-    index?: ProfilesIndex;
-    profile?: { id: string; yamlText: string };
-  } {
-    if (!prepared.active || !prepared.fetched) return {};
+  /** Prepare the strict current-settings reload path without owning the mutation boundary. */
+  async prepareActiveReload(): Promise<PreparedActiveReload> {
+    const source = await this.resolveActiveSource(this.list());
+    const settings = this.settingsSnapshot();
+    return this.preparedActiveReload({
+      generated: await this.prepare(source.doc, settings),
+      settings,
+      activeId: source.activeId,
+      sourceDigest: source.sourceDigest,
+      ...(source.active ? { active: source.active } : {}),
+      ...(source.fetched ? { fetched: source.fetched } : {}),
+    });
+  }
+
+  /**
+   * Recheck and lend one strict active-profile publication inside a caller-owned
+   * mutation boundary. The one-shot capability is consumed before the callback.
+   */
+  async withPreparedActiveReloadPublication<T>(
+    prepared: PreparedActiveReload,
+    callback: (publication: PreparedActiveReloadPublication) => T | Promise<T>,
+  ): Promise<T> {
+    const state = this.takePreparedActiveReload(prepared);
+    if ("error" in state) throw state.error;
+    this.assertSettingsUnchanged(state.settings);
     const index = this.list();
-    const active = getActiveProfile(index);
-    if (!active || active.id !== prepared.active.id || active.url !== prepared.active.url) {
+    if (index.activeId !== state.activeId) {
       throw new ProfileConflictError("Active profile changed while preparing configuration");
     }
-    this.assertProfileContentCurrent(active.id, prepared.sourceDigest);
-    const updated = withFetchedContent(active, prepared.fetched);
-    return {
-      index: {
-        ...index,
-        profiles: index.profiles.map((profile) => (profile.id === updated.id ? updated : profile)),
-      },
-      profile: { id: updated.id, yamlText: prepared.fetched.yamlText },
-    };
+
+    let publication: PreparedActiveReloadPublication;
+    if (!state.active) {
+      publication = { config: state.generated, index };
+    } else {
+      const profile = this.recheckProfileSnapshot(
+        index,
+        this.updateSnapshot(state.active, state.activeId, state.sourceDigest),
+      );
+      const updated = state.fetched ? withFetchedContent(profile, state.fetched) : profile;
+      publication = {
+        config: state.generated,
+        index: replaceProfileMeta(index, updated),
+        ...(state.fetched ? { profile: { id: profile.id, yamlText: state.fetched.yamlText } } : {}),
+      };
+    }
+
+    const result = await callback(publication);
+    this.notifyChange();
+    return result;
   }
 
-  /** Notify observers when SettingsService published fetched profile content. */
-  notifyPreparedActivePublished(prepared: PreparedActiveConfig): void {
-    if (prepared.fetched) this.notifyChange();
+  /** Commit an already-prepared strict reload, optionally inside a caller-owned boundary. */
+  async commitPreparedActiveReload(
+    prepared: PreparedActiveReload,
+    options: CommitPreparedActiveReloadOptions = {},
+  ): Promise<GeneratedConfig> {
+    const reloadRuntime = options.reloadRuntime ?? true;
+    const boundary = options.boundary ?? "acquire";
+    if (boundary !== "acquire" && boundary !== "already-held") {
+      throw new TypeError(`Unknown profile commit boundary: ${String(boundary)}`);
+    }
+
+    const action = () =>
+      this.withPreparedActiveReloadPublication(prepared, async (publication) => {
+        await this.publishTransaction(publication.index, {
+          ...(publication.profile ? { profile: publication.profile } : {}),
+          config: publication.config,
+          reloadRuntime,
+        });
+        return publication.config;
+      });
+
+    return boundary === "acquire" ? this.commit("reload active profile", action) : action();
+  }
+
+  async reloadActive(options: ReloadActiveOptions = {}): Promise<GeneratedConfig> {
+    return this.commitPreparedActiveReload(await this.prepareActiveReload(), options);
   }
 
   private notifyChange(): void {
@@ -309,7 +533,7 @@ export class ProfileService {
     return generated;
   }
 
-  private async publish(
+  private async publishTransaction(
     index: ProfilesIndex,
     opts: {
       profile?: { id: string; yamlText: string | null };
@@ -323,6 +547,17 @@ export class ProfileService {
       this.reloadConfig,
       this.files,
     );
+  }
+
+  private async publish(
+    index: ProfilesIndex,
+    opts: {
+      profile?: { id: string; yamlText: string | null };
+      config?: GeneratedConfig;
+      reloadRuntime?: boolean;
+    } = {},
+  ): Promise<void> {
+    await this.publishTransaction(index, opts);
     this.notifyChange();
   }
 
@@ -482,7 +717,7 @@ export class ProfileService {
   }
 
   private async commitFetched(
-    snapshot: ProfileUpdateSnapshot,
+    snapshot: ProfileSnapshot,
     fetched: SubscriptionFetch,
   ): Promise<ProfileUpdateResult> {
     const settings = this.settingsSnapshot();
@@ -512,7 +747,7 @@ export class ProfileService {
     });
   }
 
-  private async recordError(snapshot: ProfileUpdateSnapshot, error: string): Promise<void> {
+  private async recordError(snapshot: ProfileSnapshot, error: string): Promise<void> {
     await this.commit("record profile update error", async () => {
       const index = this.list();
       let current: ProfileMeta;
@@ -549,10 +784,10 @@ export class ProfileService {
     }
   }
 
-  private async updateProfiles(profiles: ProfileUpdateSnapshot[]): Promise<ProfileUpdateAllResult> {
+  private async updateProfiles(profiles: ProfileSnapshot[]): Promise<ProfileUpdateAllResult> {
     type FetchResult =
-      | { snapshot: ProfileUpdateSnapshot; fetched: SubscriptionFetch }
-      | { snapshot: ProfileUpdateSnapshot; error: string };
+      | { snapshot: ProfileSnapshot; fetched: SubscriptionFetch }
+      | { snapshot: ProfileSnapshot; error: string };
     const fetched = await mapConcurrent(profiles, 4, async (snapshot): Promise<FetchResult> => {
       try {
         return { snapshot, fetched: await this.fetch(snapshot.profile.url) };
@@ -636,47 +871,5 @@ export class ProfileService {
       );
       return { wasActive, ...(prepared ? { proxyCount: prepared.proxyCount } : {}) };
     });
-  }
-
-  /** `commit` is false only for callers which already own the mutation boundary. */
-  async reloadActive(reloadRuntime = true, commit = true): Promise<GeneratedConfig> {
-    const before = this.list();
-    const active = getActiveProfile(before);
-    const stored = active ? readProfileSource(this.layout, active.id) : undefined;
-    const fetched =
-      active && stored === undefined && active.url ? await this.fetch(active.url) : undefined;
-    if (active && stored === undefined && !fetched) {
-      throw new ProfileInputError(`Local profile file is missing: ${active.id}`);
-    }
-    const sourceDigest = stored?.digest ?? null;
-    const settings = this.settingsSnapshot();
-    const generated = await this.prepare(fetched?.doc ?? stored?.doc ?? null, settings);
-    const action = async (): Promise<GeneratedConfig> => {
-      this.assertSettingsUnchanged(settings);
-      const index = this.list();
-      if (index.activeId !== before.activeId) {
-        throw new ProfileConflictError("Active profile changed while preparing configuration");
-      }
-      if (!active) {
-        await this.publish(index, { config: generated, reloadRuntime });
-        return generated;
-      }
-      const profile = currentProfile(index, active, before.activeId);
-      this.assertProfileContentCurrent(profile.id, sourceDigest);
-      const updated = fetched ? withFetchedContent(profile, fetched) : profile;
-      await this.publish(
-        {
-          ...index,
-          profiles: index.profiles.map((item) => (item.id === profile.id ? updated : item)),
-        },
-        {
-          ...(fetched ? { profile: { id: profile.id, yamlText: fetched.yamlText } } : {}),
-          config: generated,
-          reloadRuntime,
-        },
-      );
-      return generated;
-    };
-    return commit ? this.commit("reload active profile", action) : action();
   }
 }

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { atomicWriteFileSync } from "./fs-atomic.js";
+import { isPlainObject } from "./json-shape.js";
 import {
   isValidMihomoConfig,
   PROFILE_DOWNLOAD_SIZE_LIMIT,
@@ -82,15 +83,6 @@ function isProfileMeta(value: unknown): value is ProfileMeta {
     (p.subInfo === undefined || isSubscriptionUserinfo(p.subInfo)) &&
     (p.homePage === undefined || typeof p.homePage === "string") &&
     (p.lastError === undefined || typeof p.lastError === "string")
-  );
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
   );
 }
 

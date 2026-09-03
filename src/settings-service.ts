@@ -1,12 +1,17 @@
 import { commitManagedStateTransaction } from "./managed-state-transaction.js";
 import type { SashLayout } from "./paths.js";
 import {
-  type PreparedActiveConfig,
+  type PreparedActivePublication,
   ProfileConflictError,
   type ProfileService,
 } from "./profile-service.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
-import { applyManagedKey, requiresCoreRestart, type SashSettings } from "./settings.js";
+import {
+  applyManagedKey,
+  requiresCoreRestart,
+  type SashSettings,
+  sameSettings,
+} from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 import { tunPrivilegeGuidance } from "./tun-guidance.js";
 
@@ -28,10 +33,6 @@ export interface SettingsServiceOptions {
   /** Offline proxy-off release; online uses RuntimeLifecycle instead. */
   releaseSystemProxy?: () => Promise<void>;
   commit: SettingsCommitBoundary;
-}
-
-function sameSettings(a: SashSettings, b: SashSettings): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /**
@@ -57,13 +58,29 @@ export class SettingsService {
 
     if (key === "system-proxy") return this.updateSystemProxy(previous, candidate);
     for (let attempt = 0; ; attempt += 1) {
-      const prepared = await this.options.profiles.prepareActiveConfig(candidate);
+      const prepared = await this.options.profiles.prepareActiveConfig(candidate, previous);
+      let retryableProfileConflict: ProfileConflictError | undefined;
+      let callbackEntered = false;
       try {
-        return await this.options.commit("update settings", () =>
-          this.commitCoreSettings(previous, candidate, key, prepared),
-        );
+        return await this.options.commit("update settings", async () => {
+          this.assertCurrent(previous);
+          try {
+            return await this.options.profiles.withPreparedActivePublication(
+              prepared,
+              async (publication) => {
+                callbackEntered = true;
+                return this.commitCoreSettings(previous, candidate, key, publication);
+              },
+            );
+          } catch (err) {
+            if (err instanceof ProfileConflictError && !callbackEntered) {
+              retryableProfileConflict = err;
+            }
+            throw err;
+          }
+        });
       } catch (err) {
-        if (!(err instanceof ProfileConflictError) || attempt >= 1) throw err;
+        if (err !== retryableProfileConflict || attempt >= 1) throw err;
       }
     }
   }
@@ -131,11 +148,8 @@ export class SettingsService {
     previous: SashSettings,
     candidate: SashSettings,
     key: string,
-    prepared: PreparedActiveConfig,
+    publication: PreparedActivePublication,
   ): Promise<SashSettings> {
-    this.assertCurrent(previous);
-    this.options.profiles.assertPreparedActiveCurrent(prepared);
-    const publication = this.options.profiles.preparedActivePublication(prepared);
     const wasRunning = this.options.supervisor?.isRunning() ?? false;
     const restart = wasRunning && requiresCoreRestart(key);
     this.options.setRuntime(candidate);
@@ -143,8 +157,16 @@ export class SettingsService {
       await commitManagedStateTransaction(
         this.options.layout,
         {
-          ...publication,
-          config: prepared.generated,
+          ...(publication.index ? { index: publication.index } : {}),
+          ...(publication.profile
+            ? {
+                profile: {
+                  id: publication.profile.id,
+                  yamlText: publication.profile.yamlText,
+                },
+              }
+            : {}),
+          config: publication.config,
           settings: candidate,
           reloadRuntime: false,
           applyRuntime: async () => {
@@ -161,16 +183,18 @@ export class SettingsService {
         },
         undefined,
       );
-      this.options.profiles.notifyPreparedActivePublished(prepared);
       this.options.setCommitted(candidate);
       return candidate;
     } catch (err) {
       this.options.setRuntime(previous);
       const rollbackErrors: string[] = [];
       try {
-        // Rebuild the old config even when no prior config file existed; the
-        // old Core cannot be restarted safely without a configuration.
-        await this.options.profiles.reloadActive(false, false);
+        // The rollback config was rendered and validated before entering this
+        // boundary, including when no prior config file existed.
+        await this.options.profiles.commitPreparedActiveReload(publication.rollback, {
+          reloadRuntime: false,
+          boundary: "already-held",
+        });
       } catch (rollback) {
         rollbackErrors.push(`config rollback failed: ${(rollback as Error).message}`);
       }

@@ -68,12 +68,14 @@ describe("daemon server", () => {
       release: async () => {
         applied = false;
       },
-      recover: async () => {
-        applied = false;
-      },
-      inspect: () => ({ applied, state: state() }),
-      isApplied: () => applied,
-      getState: state,
+      inspect: async () => ({
+        applied,
+        state: state(),
+        appliedKnown: true,
+        stateKnown: true,
+      }),
+      isApplied: async () => applied,
+      getState: async () => state(),
     };
   }
 
@@ -165,7 +167,10 @@ describe("daemon server", () => {
     return { statusCode: res.statusCode, data: json };
   }
 
-  async function rawHttpRequest(target: string): Promise<string> {
+  async function rawHttpRequest(
+    target: string,
+    opts: { method?: string; headers?: Record<string, string> } = {},
+  ): Promise<string> {
     return new Promise((resolve, reject) => {
       const socket = net.createConnection({ host: "127.0.0.1", port: boundPort });
       let response = "";
@@ -185,9 +190,13 @@ describe("daemon server", () => {
         reject(new Error("Raw HTTP request timed out"));
       }, 3000);
       socket.on("connect", () => {
-        socket.write(
-          `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${boundPort}\r\nConnection: close\r\n\r\n`,
-        );
+        const requestHeaders = {
+          Host: `127.0.0.1:${boundPort}`,
+          Connection: "close",
+          ...opts.headers,
+        };
+        const lines = Object.entries(requestHeaders).map(([key, value]) => `${key}: ${value}`);
+        socket.write(`${opts.method ?? "GET"} ${target} HTTP/1.1\r\n${lines.join("\r\n")}\r\n\r\n`);
       });
       socket.on("data", (chunk) => {
         response += chunk.toString("utf8");
@@ -206,6 +215,7 @@ describe("daemon server", () => {
   async function rawWebSocketUpgrade(
     pathname: string,
     headers: Record<string, string> = {},
+    method = "GET",
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const socket = net.createConnection({ host: "127.0.0.1", port: boundPort });
@@ -224,7 +234,7 @@ describe("daemon server", () => {
           ...headers,
         };
         const lines = Object.entries(requestHeaders).map(([key, value]) => `${key}: ${value}`);
-        socket.write(`GET ${pathname} HTTP/1.1\r\n${lines.join("\r\n")}\r\n\r\n`);
+        socket.write(`${method} ${pathname} HTTP/1.1\r\n${lines.join("\r\n")}\r\n\r\n`);
       });
       socket.on("data", (chunk) => {
         response += chunk.toString("utf8");
@@ -240,29 +250,64 @@ describe("daemon server", () => {
     });
   }
 
-  describe("request error boundary", () => {
-    it("returns 400 for an invalid request target and keeps serving", async () => {
+  describe("request target and method boundary", () => {
+    it("rejects unsupported HTTP request-target forms and keeps serving", async () => {
       await startServer();
 
-      const response = await rawHttpRequest("http://");
-      assert.match(response, /^HTTP\/1\.1 400 /);
-      assert.match(response, /Invalid request target/);
+      for (const target of [
+        "http://",
+        `http://127.0.0.1:${boundPort}/sash/health`,
+        `//127.0.0.1:${boundPort}/sash/health`,
+        "?fresh=1",
+        "*",
+      ]) {
+        const response = await rawHttpRequest(target);
+        assert.match(response, /^HTTP\/1\.1 400 /, target);
+      }
 
       const health = await apiRequest("/sash/health", { token: "" });
       assert.equal(health.statusCode, 200);
     });
 
-    it("returns 400 for an invalid WebSocket target and keeps serving", async () => {
+    it("rejects unsupported WebSocket targets and non-GET upgrades", async () => {
       await startServer();
+      const authorization = { Authorization: `Bearer ${settings.daemonSecret}` };
 
-      const response = await rawWebSocketUpgrade("http://", {
-        Authorization: `Bearer ${settings.daemonSecret}`,
-      });
-      assert.match(response, /^HTTP\/1\.1 400 /);
-      assert.match(response, /Invalid request target/);
+      for (const target of [
+        "http://",
+        `http://127.0.0.1:${boundPort}/core/api/logs`,
+        `//127.0.0.1:${boundPort}/core/api/logs`,
+      ]) {
+        const response = await rawWebSocketUpgrade(target, authorization);
+        assert.match(response, /^HTTP\/1\.1 400 /, target);
+        assert.match(response, /Invalid request target/, target);
+      }
+
+      const wrongMethod = await rawWebSocketUpgrade("/core/api/logs", authorization, "POST");
+      assert.match(wrongMethod, /^HTTP\/1\.1 405 Method Not Allowed/);
+      assert.match(wrongMethod, /\r\nAllow: GET\r\n/i);
 
       const health = await apiRequest("/sash/health", { token: "" });
       assert.equal(health.statusCode, 200);
+    });
+
+    it("preserves root queries and reports method mismatches with Allow", async () => {
+      await startServer();
+
+      const redirect = await rawHttpRequest("/?tab=proxies");
+      assert.match(redirect, /^HTTP\/1\.1 302 /);
+      assert.match(redirect, /\r\nLocation: \/ui\/\?tab=proxies\r\n/i);
+
+      const rootPost = await rawHttpRequest("/", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${settings.daemonSecret}` },
+      });
+      assert.match(rootPost, /^HTTP\/1\.1 405 Method Not Allowed/);
+      assert.match(rootPost, /\r\nAllow: GET, HEAD\r\n/i);
+
+      const coreStartGet = await rawHttpRequest("/core/start");
+      assert.match(coreStartGet, /^HTTP\/1\.1 405 Method Not Allowed/);
+      assert.match(coreStartGet, /\r\nAllow: POST\r\n/i);
     });
   });
 
@@ -349,6 +394,111 @@ describe("daemon server", () => {
     });
   });
 
+  describe("core lifecycle preparation", () => {
+    it("re-prepares once when the active source changes before restart", async () => {
+      const yamlA = "proxies:\n  - name: node-a\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+      const yamlB = "proxies:\n  - name: node-b\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+      const profile: ProfileMeta = {
+        id: "1",
+        name: "local",
+        url: "",
+        intervalHours: 0,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const profileFile = path.join(layout.profilesDir, `${profile.id}.yaml`);
+      fs.mkdirSync(layout.profilesDir, { recursive: true });
+      fs.writeFileSync(profileFile, yamlA);
+      saveProfiles({ activeId: profile.id, profiles: [profile] }, layout);
+
+      let validationEnteredResolve: (() => void) | undefined;
+      const validationEntered = new Promise<void>((resolve) => {
+        validationEnteredResolve = resolve;
+      });
+      let releaseValidation: (() => void) | undefined;
+      const validationBlocked = new Promise<void>((resolve) => {
+        releaseValidation = resolve;
+      });
+      let validations = 0;
+      let restarts = 0;
+      const supervisor = {
+        isRunning: () => true,
+        ownedCoreSnapshot: () => ({ pid: 1234, generation: 1 }),
+        ownsCore: () => true,
+        status: async (): Promise<CoreState> => ({ running: true, healthy: true, pid: 1234 }),
+        start: async () => ({ pid: 1234 }),
+        stop: async () => {},
+        restart: async () => {
+          restarts += 1;
+          return { pid: 1234 };
+        },
+        cleanStaleCore: async () => {},
+      } as unknown as CoreSupervisor;
+      await startServer({
+        supervisor,
+        validateConfig: async () => {
+          validations += 1;
+          if (validations !== 1) return;
+          validationEnteredResolve?.();
+          await validationBlocked;
+        },
+      });
+
+      const restarting = apiRequest("/core/restart", { method: "POST" });
+      await validationEntered;
+      fs.writeFileSync(profileFile, yamlB);
+      releaseValidation?.();
+
+      const response = await restarting;
+      assert.equal(response.statusCode, 200);
+      assert.equal(validations, 2);
+      assert.equal(restarts, 1);
+      assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
+    });
+
+    it("returns 409 after the bounded restart preparation retry is exhausted", async () => {
+      const yamlA = "proxies:\n  - name: node-a\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+      const yamlB = "proxies:\n  - name: node-b\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+      const profile: ProfileMeta = {
+        id: "1",
+        name: "local",
+        url: "",
+        intervalHours: 0,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const profileFile = path.join(layout.profilesDir, `${profile.id}.yaml`);
+      fs.mkdirSync(layout.profilesDir, { recursive: true });
+      fs.writeFileSync(profileFile, yamlA);
+      saveProfiles({ activeId: profile.id, profiles: [profile] }, layout);
+
+      let validations = 0;
+      let restarts = 0;
+      const supervisor = {
+        isRunning: () => true,
+        restart: async () => {
+          restarts += 1;
+          return { pid: 1234 };
+        },
+        stop: async () => {},
+      } as unknown as CoreSupervisor;
+      await startServer({
+        supervisor,
+        validateConfig: () => {
+          validations += 1;
+          fs.writeFileSync(profileFile, validations === 1 ? yamlB : yamlA);
+        },
+      });
+
+      const response = await apiRequest("/core/restart", { method: "POST" });
+
+      assert.equal(response.statusCode, 409);
+      assert.match((response.data as { error: string }).error, /content changed/);
+      assert.equal(validations, 2);
+      assert.equal(restarts, 0);
+    });
+  });
+
   describe("GET /sash/status", () => {
     it("returns daemon, core, system proxy, and canonical installed version", async () => {
       writeInstallRecord(
@@ -367,6 +517,44 @@ describe("daemon server", () => {
       assert.equal(data.core.running, false);
       assert.equal(data.core.version, "v1.2.3");
       assert.equal(data.systemProxy.desired, false);
+    });
+
+    it("keeps health responsive while async proxy inspection is pending", async () => {
+      let inspectFresh: boolean | undefined;
+      let inspectEnteredResolve: (() => void) | undefined;
+      const inspectEntered = new Promise<void>((resolve) => {
+        inspectEnteredResolve = resolve;
+      });
+      let releaseInspect: (() => void) | undefined;
+      const inspectBlocked = new Promise<void>((resolve) => {
+        releaseInspect = resolve;
+      });
+      const systemProxy: SystemProxyController = {
+        apply: async () => {},
+        release: async () => {},
+        inspect: async (fresh) => {
+          inspectFresh = fresh;
+          inspectEnteredResolve?.();
+          await inspectBlocked;
+          return {
+            applied: false,
+            state: { supported: true, enabled: false },
+            appliedKnown: true,
+            stateKnown: true,
+          };
+        },
+        isApplied: async () => false,
+        getState: async () => ({ supported: true, enabled: false }),
+      };
+      await startServer({ systemProxy });
+
+      const status = apiRequest("/sash/status?fresh=1");
+      await inspectEntered;
+      const health = await apiRequest("/sash/health");
+      assert.equal(health.statusCode, 200);
+      releaseInspect?.();
+      assert.equal((await status).statusCode, 200);
+      assert.equal(inspectFresh, true);
     });
 
     it("reports actual TUN state independently from the desired setting", async () => {
@@ -412,17 +600,14 @@ describe("daemon server", () => {
           disabledCalls++;
           applied = false;
         },
-        recover: async () => {
-          if (!applied) return;
-          disabledCalls++;
-          applied = false;
-        },
-        inspect: () => ({
+        inspect: async () => ({
           applied,
+          appliedKnown: true,
+          stateKnown: true,
           state: { supported: true, enabled: applied, server: "127.0.0.1:7890" },
         }),
-        isApplied: () => applied,
-        getState: () => ({
+        isApplied: async () => applied,
+        getState: async () => ({
           supported: true,
           enabled: applied,
           server: "127.0.0.1:7890",
@@ -488,10 +673,14 @@ describe("daemon server", () => {
         release: async () => {
           if (++releases === 1) throw new Error("release failed");
         },
-        recover: async () => {},
-        inspect: () => ({ applied: true, state: { supported: true, enabled: true } }),
-        isApplied: () => true,
-        getState: () => ({ supported: true, enabled: true }),
+        inspect: async () => ({
+          appliedKnown: true,
+          stateKnown: true,
+          applied: true,
+          state: { supported: true, enabled: true },
+        }),
+        isApplied: async () => true,
+        getState: async () => ({ supported: true, enabled: true }),
       };
       await startServer({
         systemProxy,
@@ -536,10 +725,14 @@ describe("daemon server", () => {
         release: async () => {
           if (++releases === 1) throw new Error("restore failed");
         },
-        recover: async () => {},
-        inspect: () => ({ applied: false, state: { supported: true, enabled: false } }),
-        isApplied: () => false,
-        getState: () => ({ supported: true, enabled: false }),
+        inspect: async () => ({
+          appliedKnown: true,
+          stateKnown: true,
+          applied: false,
+          state: { supported: true, enabled: false },
+        }),
+        isApplied: async () => false,
+        getState: async () => ({ supported: true, enabled: false }),
       };
       const inst = await startServer({ systemProxy, scheduler });
 
@@ -608,13 +801,14 @@ describe("daemon server", () => {
           releases++;
           if (releases === 1) throw new Error("transient restore failure");
         },
-        recover: async () => {},
-        inspect: () => ({
+        inspect: async () => ({
           applied: false,
           state: { supported: true, enabled: false },
+          appliedKnown: true,
+          stateKnown: true,
         }),
-        isApplied: () => false,
-        getState: () => ({ supported: true, enabled: false }),
+        isApplied: async () => false,
+        getState: async () => ({ supported: true, enabled: false }),
       };
       const inst = await startServer({ systemProxy });
 
@@ -750,17 +944,14 @@ describe("daemon server", () => {
           disabled += 1;
           applied = false;
         },
-        recover: async () => {
-          if (!applied) return;
-          disabled += 1;
-          applied = false;
-        },
-        inspect: () => ({
+        inspect: async () => ({
           applied,
+          appliedKnown: true,
+          stateKnown: true,
           state: { supported: true, enabled: applied },
         }),
-        isApplied: () => applied,
-        getState: () => ({ supported: true, enabled: applied }),
+        isApplied: async () => applied,
+        getState: async () => ({ supported: true, enabled: applied }),
       };
       await startServer({ supervisor, systemProxy });
       await apiRequest("/sash/proxy/enable", { method: "POST" });
@@ -1179,6 +1370,35 @@ describe("daemon server", () => {
       assert.equal(invalidPrefix.statusCode, 404);
     });
 
+    it("forwards one canonical parsed target without duplicating its query", async () => {
+      const receivedPaths: string[] = [];
+      mockCoreServer = http.createServer((req, res) => {
+        receivedPaths.push(req.url ?? "");
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("{}");
+      });
+      await new Promise<void>((resolve) => {
+        mockCoreServer?.listen(0, "127.0.0.1", () => resolve());
+      });
+      const address = mockCoreServer.address();
+      mockCorePort = typeof address === "object" && address ? address.port : 0;
+      settings.controller = `127.0.0.1:${mockCorePort}`;
+      await startServer();
+
+      for (const pathname of [
+        "/core/api?x=1",
+        "/core/api///?x=2",
+        "/core/api/proxies/a%2Fb?x=%2F",
+      ]) {
+        assert.equal((await apiRequest(pathname)).statusCode, 200, pathname);
+      }
+      assert.deepEqual(receivedPaths, ["/?x=1", "/?x=2", "/proxies/a%2Fb?x=%2F"]);
+
+      const encodedDot = await apiRequest("/core/api/%2e%2e/version");
+      assert.equal(encodedDot.statusCode, 404);
+      assert.equal(receivedPaths.length, 3);
+    });
+
     it("rejects unauthenticated WebSocket upgrades", async () => {
       await startServer();
       const response = await rawWebSocketUpgrade("/core/api/logs");
@@ -1252,11 +1472,13 @@ describe("daemon server", () => {
       }
     });
 
-    it("completes WebSocket auth negotiation without forwarding private protocols", async () => {
+    it("completes WebSocket auth negotiation with the canonical Core target", async () => {
       let receivedProtocols: string | undefined;
+      let receivedPath: string | undefined;
       mockCoreServer = http.createServer();
       mockCoreServer.on("upgrade", (req, socket) => {
         receivedProtocols = req.headers["sec-websocket-protocol"];
+        receivedPath = req.url;
         socket.end(
           "HTTP/1.1 101 Switching Protocols\r\n" +
             "Connection: Upgrade\r\n" +
@@ -1272,7 +1494,7 @@ describe("daemon server", () => {
       settings.controller = `127.0.0.1:${mockCorePort}`;
 
       const inst = await startServer();
-      const response = await rawWebSocketUpgrade("/core/api/logs", {
+      const response = await rawWebSocketUpgrade("/core/api/logs?level=info", {
         Origin: `http://127.0.0.1:${boundPort}`,
         "Sec-WebSocket-Protocol": `sash, sash-token.${inst.token}`,
       });
@@ -1280,6 +1502,7 @@ describe("daemon server", () => {
       assert.match(response, /^HTTP\/1\.1 101 Switching Protocols/);
       assert.match(response, /\r\nsec-websocket-protocol: sash\r\n/i);
       assert.equal(receivedProtocols, undefined);
+      assert.equal(receivedPath, "/logs?level=info");
     });
   });
 });

@@ -41,6 +41,8 @@ function statusResponse(
     systemProxy: {
       desired: true,
       applied: true,
+      appliedKnown: true,
+      stateKnown: true,
       ...(options.proxyActual
         ? {
             actual: {
@@ -67,7 +69,13 @@ function dependencies(
   overrides: StatusObservationDependencies = {},
 ): StatusObservationDependencies {
   return {
-    evaluateDaemon: async () => ({ running: true, healthy: true, pid: 101, port: 19090 }),
+    evaluateDaemon: async () => ({
+      kind: "healthy",
+      running: true,
+      healthy: true,
+      pid: 101,
+      port: 19090,
+    }),
     queryDaemonStatus: async () =>
       statusResponse({
         running: true,
@@ -83,10 +91,14 @@ function dependencies(
       supported: true,
       enabled: true,
       server: "127.0.0.1:17890",
+      appliedKnown: true,
+      stateKnown: true,
     }),
-    inspectSystemProxy: () => ({
+    inspectSystemProxy: async () => ({
       applied: true,
       state: { supported: true, enabled: true, server: "127.0.0.1:17890" },
+      appliedKnown: true,
+      stateKnown: true,
     }),
     installedCoreVersion: () => "v1.2.3",
     activeProfile: () => null,
@@ -178,14 +190,16 @@ describe("CLI runtime status observations", () => {
     const status = await collectRuntimeStatus(
       context,
       dependencies({
-        evaluateDaemon: async () => ({ running: false }),
+        evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
         queryDaemonStatus: async () => {
           queried = true;
           throw new Error("must not query");
         },
-        inspectSystemProxy: () => ({
+        inspectSystemProxy: async () => ({
           applied: false,
           state: { supported: true, enabled: false },
+          appliedKnown: true,
+          stateKnown: true,
         }),
       }),
     );
@@ -206,7 +220,12 @@ describe("CLI runtime status observations", () => {
     const status = await collectRuntimeStatus(
       context,
       dependencies({
-        evaluateDaemon: async () => ({ running: true, healthy: false, pid: 101 }),
+        evaluateDaemon: async () => ({
+          kind: "unhealthy",
+          running: true,
+          healthy: false,
+          pid: 101,
+        }),
       }),
     );
 
@@ -230,8 +249,8 @@ describe("CLI runtime status observations", () => {
     const status = await collectRuntimeStatus(
       context,
       dependencies({
-        evaluateDaemon: async () => ({ running: false }),
-        inspectSystemProxy: () => ({
+        evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
+        inspectSystemProxy: async () => ({
           applied: false,
           appliedKnown: false,
           stateKnown: false,
@@ -364,10 +383,12 @@ describe("CLI proxy status observations", () => {
     const stopped = await collectProxyStatus(
       context,
       dependencies({
-        evaluateDaemon: async () => ({ running: false }),
-        inspectSystemProxy: () => ({
+        evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
+        inspectSystemProxy: async () => ({
           applied: false,
           state: { supported: true, enabled: false },
+          appliedKnown: true,
+          stateKnown: true,
         }),
       }),
     );
@@ -378,7 +399,12 @@ describe("CLI proxy status observations", () => {
     const unhealthy = await collectProxyStatus(
       context,
       dependencies({
-        evaluateDaemon: async () => ({ running: true, healthy: false, pid: 101 }),
+        evaluateDaemon: async () => ({
+          kind: "unhealthy",
+          running: true,
+          healthy: false,
+          pid: 101,
+        }),
       }),
     );
     assert.equal(unhealthy.complete, false);

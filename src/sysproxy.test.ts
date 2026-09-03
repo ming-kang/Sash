@@ -10,26 +10,24 @@ import {
   isSystemProxySnapshot,
   isSystemProxySupported,
   parseDarwinAutoProxySetting,
-  parseDarwinGetWebProxy,
   parseDarwinProxySetting,
   parseDarwinServices,
   parseGSettingsPort,
   parseGSettingsString,
   parseSystemProxySnapshot,
   parseWindowsRegistryProxyValues,
-  parseWindowsRegQuery,
   SYSTEM_PROXY_SNAPSHOT_VERSION,
 } from "./sysproxy.js";
 
 describe("sysproxy", () => {
   describe("helper child environment", () => {
-    it("does not forward GitHub or npm credentials", () => {
+    it("does not forward GitHub or npm credentials", async () => {
       const previousGithub = process.env.GITHUB_TOKEN;
       const previousNpm = process.env.NPM_TOKEN;
       try {
         process.env.GITHUB_TOKEN = "github-secret";
         process.env.NPM_TOKEN = "npm-secret";
-        const output = runCmd(process.execPath, [
+        const output = await runCmd(process.execPath, [
           "-e",
           "process.stdout.write(JSON.stringify({ github: process.env.GITHUB_TOKEN, npm: process.env.NPM_TOKEN }))",
         ]);
@@ -61,39 +59,6 @@ describe("sysproxy", () => {
       assert.ok(formatted.includes("localhost"));
       assert.ok(formatted.includes("<local>"));
       assert.ok(formatted.includes("127.*"));
-    });
-
-    it("parses enabled proxy output from reg query", () => {
-      const sample = `
-HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
-    ProxyEnable    REG_DWORD    0x1
-    ProxyServer    REG_SZ    127.0.0.1:7890
-    ProxyOverride    REG_SZ    <local>;localhost
-`;
-      const parsed = parseWindowsRegQuery(sample);
-      assert.equal(parsed.enabled, true);
-      assert.equal(parsed.server, "127.0.0.1:7890");
-    });
-
-    it("parses disabled proxy output with decimal DWORD", () => {
-      const sample = `
-HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
-    ProxyEnable    REG_DWORD    0
-    ProxyServer    REG_SZ    127.0.0.1:7890
-`;
-      const parsed = parseWindowsRegQuery(sample);
-      assert.equal(parsed.enabled, false);
-      assert.equal(parsed.server, "127.0.0.1:7890");
-    });
-
-    it("handles output where proxy keys are missing", () => {
-      const sample = `
-HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
-    MigrateProxy    REG_DWORD    0x1
-`;
-      const parsed = parseWindowsRegQuery(sample);
-      assert.equal(parsed.enabled, false);
-      assert.equal(parsed.server, undefined);
     });
 
     it("preserves spaces in REG_SZ values and distinguishes missing values", () => {
@@ -161,13 +126,6 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
           /Invalid Windows registry output/,
         );
       }
-
-      assert.deepEqual(
-        parseWindowsRegQuery(
-          "    ProxyEnable    REG_DWORD    0x1\n    ProxyServer    REG_SZ    proxy.example.test:7890\n",
-        ),
-        { enabled: true, server: "proxy.example.test:7890" },
-      );
     });
   });
 
@@ -181,29 +139,6 @@ Thunderbolt Bridge
 `;
       const services = parseDarwinServices(sample);
       assert.deepEqual(services, ["Wi-Fi", "Thunderbolt Bridge"]);
-    });
-
-    it("parses enabled getwebproxy output", () => {
-      const sample = `
-Enabled: Yes
-Server: 127.0.0.1
-Port: 7890
-Authenticated Proxy Enabled: 0
-`;
-      const parsed = parseDarwinGetWebProxy(sample);
-      assert.equal(parsed.enabled, true);
-      assert.equal(parsed.server, "127.0.0.1:7890");
-    });
-
-    it("parses disabled getwebproxy output", () => {
-      const sample = `
-Enabled: No
-Server:
-Port: 0
-`;
-      const parsed = parseDarwinGetWebProxy(sample);
-      assert.equal(parsed.enabled, false);
-      assert.equal(parsed.server, undefined);
     });
 
     it("parses authenticated proxy state for snapshots", () => {
@@ -244,7 +179,6 @@ Authenticated Proxy Enabled: 0
         port: 0,
         authenticated: false,
       });
-      assert.deepEqual(parseDarwinGetWebProxy(manual), { enabled: true });
       assert.deepEqual(parseDarwinAutoProxySetting("URL:\nEnabled: No\n"), {
         enabled: false,
         url: "",

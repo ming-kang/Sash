@@ -39,23 +39,6 @@ export function isControlMutation(method: string): boolean {
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 }
 
-const STANDARD_CORE_PREFIXES = [
-  "/proxies",
-  "/rules",
-  "/connections",
-  "/providers",
-  "/dns",
-] as const;
-
-/** Every HTTP route that enters the privileged Core controller gateway. */
-export function isCoreGatewayPath(pathname: string): boolean {
-  if (pathname === "/core/api" || pathname.startsWith("/core/api/")) return true;
-  if (pathname === "/version") return true;
-  return STANDARD_CORE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
-}
-
 /** Accept the persistent CLI bearer or the per-boot same-origin WebUI token. */
 export function isControlRequestAuthorized(
   req: IncomingMessage,

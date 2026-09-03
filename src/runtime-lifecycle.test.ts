@@ -67,6 +67,7 @@ function createRuntime(
       if (proxyFailure) throw proxyFailure;
       proxyApplied = true;
       if (exitDuringApply) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
         running = false;
         generation++;
       }
@@ -76,16 +77,14 @@ function createRuntime(
       if (proxyFailure) throw proxyFailure;
       proxyApplied = false;
     },
-    recover: async () => {
-      events.push("proxy:recover");
-      if (proxyFailure) throw proxyFailure;
-    },
-    inspect: () => ({
+    inspect: async () => ({
       applied: false,
       state: { supported: true, enabled: false },
+      appliedKnown: true,
+      stateKnown: true,
     }),
-    isApplied: () => false,
-    getState: (): SystemProxyState => ({ supported: true, enabled: false }),
+    isApplied: async () => false,
+    getState: async (): Promise<SystemProxyState> => ({ supported: true, enabled: false }),
   };
 
   return {
@@ -117,7 +116,7 @@ describe("RuntimeLifecycle", () => {
 
     assert.ok(result.pid > 0);
     assert.deepEqual(runtime.events, [
-      "proxy:recover",
+      "proxy:release",
       "config:prepare",
       "core:start",
       `proxy:apply:${DEFAULT_SETTINGS.mixedPort}`,
@@ -176,7 +175,7 @@ describe("RuntimeLifecycle", () => {
     await Promise.all([start, restart, stop]);
 
     assert.deepEqual(runtime.events, [
-      "proxy:recover",
+      "proxy:release",
       "core:start",
       "proxy:release",
       "core:restart",
@@ -264,10 +263,14 @@ describe("RuntimeLifecycle", () => {
     const proxy: SystemProxyController = {
       apply: async () => undefined,
       release: async () => undefined,
-      recover: async () => undefined,
-      inspect: () => ({ applied: false, state: { supported: true, enabled: false } }),
-      isApplied: () => false,
-      getState: () => ({ supported: true, enabled: false }),
+      inspect: async () => ({
+        applied: false,
+        state: { supported: true, enabled: false },
+        appliedKnown: true,
+        stateKnown: true,
+      }),
+      isApplied: async () => false,
+      getState: async () => ({ supported: true, enabled: false }),
     };
     const lifecycle = new RuntimeLifecycle({
       supervisor,
@@ -298,7 +301,7 @@ describe("RuntimeLifecycle", () => {
     await assert.rejects(runtime.lifecycle.start(), /ownership was lost while applying/);
 
     assert.deepEqual(runtime.events, [
-      "proxy:recover",
+      "proxy:release",
       "core:start",
       `proxy:apply:${DEFAULT_SETTINGS.mixedPort}`,
       "proxy:release",

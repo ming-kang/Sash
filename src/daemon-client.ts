@@ -1,13 +1,16 @@
-import type {
-  CoreStartResult,
-  DaemonStatus,
-  HealthInfo,
-  MaintenanceShutdownResult,
-  ProfileActionResponse,
-  ProfilesIndex,
-  ProfilesUpdateAllResponse,
-  ProfileUpdateResponse,
-  SystemProxyStatusResponse,
+import {
+  type CoreStartResult,
+  type DaemonStatus,
+  type HealthInfo,
+  type MaintenanceShutdownResult,
+  type ProfileActionResponse,
+  type ProfilesIndex,
+  type ProfilesUpdateAllResponse,
+  type ProfileUpdateResponse,
+  parseDaemonStatus,
+  parseHealthInfo,
+  parseSystemProxyStatusResponse,
+  type SystemProxyStatusResponse,
 } from "./contracts.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 
@@ -75,11 +78,13 @@ export class SashDaemonClient {
   }
 
   async health(): Promise<HealthInfo> {
-    return this.request<HealthInfo>("/sash/health", {
-      auth: false,
-      attempts: 1,
-      deadlineMs: 2000,
-    });
+    return parseHealthInfo(
+      await this.request("/sash/health", {
+        auth: false,
+        attempts: 1,
+        deadlineMs: 2000,
+      }),
+    );
   }
 
   async isReachable(): Promise<boolean> {
@@ -92,7 +97,7 @@ export class SashDaemonClient {
   }
 
   async status(fresh = false): Promise<DaemonStatus> {
-    return this.request<DaemonStatus>(fresh ? "/sash/status?fresh=1" : "/sash/status");
+    return parseDaemonStatus(await this.request(fresh ? "/sash/status?fresh=1" : "/sash/status"));
   }
 
   async startCore(): Promise<CoreStartResult> {
@@ -120,7 +125,7 @@ export class SashDaemonClient {
   }
 
   async getProxy(): Promise<SystemProxyStatusResponse> {
-    return this.request<SystemProxyStatusResponse>("/sash/proxy");
+    return parseSystemProxyStatusResponse(await this.request("/sash/proxy"));
   }
 
   async getProfiles(): Promise<ProfilesIndex> {

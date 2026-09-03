@@ -7,17 +7,14 @@ import type { DaemonStatus } from "./contracts.js";
 import { assertCoreInstallationConsistent, currentCoreVersion } from "./core.js";
 import { validateCoreConfigText } from "./core-config-validation.js";
 import { recoverCoreInstallTransaction } from "./core-install-transaction.js";
+import { pendingCoreUpdateVersion, readCoreUpdateTransaction } from "./core-update.js";
 import {
-  completePendingCoreUpdateAfterStart,
-  pendingCoreUpdateVersion,
-  readCoreUpdateTransaction,
-  recoverCoreUpdateTransaction,
-  rollbackCoreUpdateTransaction,
-} from "./core-update.js";
+  completeCoordinatedCoreUpdateAfterStart,
+  rollbackCoordinatedCoreUpdate,
+} from "./core-update-coordination.js";
 import {
   isControlMutation,
   isControlRequestAuthorized,
-  isCoreGatewayPath,
   isLoopbackHostHeader,
   isLoopbackOriginHeader,
   isWebSocketRequestAuthorized,
@@ -25,15 +22,24 @@ import {
 import { HttpError, parseJsonObjectBody, sendError, sendJson } from "./daemon-http.js";
 import { handleProfileRoutes } from "./daemon-profile-routes.js";
 import { forwardHttpToCore, forwardWsToCore } from "./daemon-proxy.js";
+import { matchHttpRoute, matchWebSocketRoute, parseDaemonRequestTarget } from "./daemon-routing.js";
 import { serveStaticUi } from "./daemon-static.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import { recoverManagedStateTransaction } from "./managed-state-transaction.js";
+import {
+  readManagedStateTransactionStatus,
+  recoverManagedStateTransaction,
+} from "./managed-state-transaction.js";
 import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { clearPidRecord } from "./process.js";
 import { migrateProfileState } from "./profile-migration.js";
-import { ProfileConflictError, ProfileService } from "./profile-service.js";
+import {
+  type PreparedActiveReload,
+  ProfileConflictError,
+  ProfileService,
+} from "./profile-service.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
+import { reconcileOrphanedRuntime } from "./runtime-recovery.js";
 import { loadSettings, publicSettings, type SashSettings, saveSettings } from "./settings.js";
 import { SettingsInputError, SettingsService } from "./settings-service.js";
 import { acquireStateLock, StateMutationQueue } from "./state-lock.js";
@@ -81,14 +87,21 @@ export interface DaemonInstance {
   close: () => Promise<void>;
 }
 
-function matchesPathPrefix(pathname: string, prefix: string): boolean {
-  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+function sendMethodNotAllowed(res: ServerResponse, allow: readonly string[]): void {
+  res.setHeader("Allow", allow.join(", "));
+  sendError(res, 405, "Method Not Allowed");
 }
 
-function rejectUpgrade(socket: Duplex, status: number, message: string): void {
+function rejectUpgrade(
+  socket: Duplex,
+  status: number,
+  message: string,
+  allow?: readonly string[],
+): void {
   const body = `${message}\n`;
+  const allowHeader = allow ? `Allow: ${allow.join(", ")}\r\n` : "";
   socket.end(
-    `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\n${allowHeader}Content-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
   );
 }
 
@@ -127,9 +140,9 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     coreUpdate: {
       pending: () => readCoreUpdateTransaction(layout) !== undefined,
       completeAfterStart: () => {
-        completePendingCoreUpdateAfterStart(layout);
+        completeCoordinatedCoreUpdateAfterStart(layout);
       },
-      rollbackAfterStartFailure: () => rollbackCoreUpdateTransaction(layout),
+      rollbackAfterStartFailure: () => rollbackCoordinatedCoreUpdate(layout),
     },
   });
 
@@ -176,57 +189,117 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     commit: mutate,
   });
 
+  const commitPreparedReload = (
+    prepared: PreparedActiveReload,
+    reloadRuntime: boolean,
+  ): Promise<GeneratedConfig> =>
+    profiles.commitPreparedActiveReload(prepared, {
+      reloadRuntime,
+      boundary: "already-held",
+    });
+
+  const startCore = async () => {
+    const retryAfterPreparation = Symbol("retry Core start after preparation");
+    for (;;) {
+      let prepared: PreparedActiveReload | undefined;
+      if (!supervisor.isRunning()) {
+        try {
+          prepared = await profiles.prepareActiveReload();
+        } catch (err) {
+          // Preserve idempotent start semantics when another mutation brought
+          // Core online while this request was preparing its stopped path.
+          if (supervisor.isRunning()) continue;
+          throw err;
+        }
+      }
+
+      const preparedForStart = prepared;
+      const result = await mutate("start core", async () => {
+        if (!preparedForStart && !supervisor.isRunning()) return retryAfterPreparation;
+        return lifecycle.start(
+          preparedForStart
+            ? async () => {
+                await commitPreparedReload(preparedForStart, false);
+              }
+            : undefined,
+        );
+      });
+      if (result !== retryAfterPreparation) return result;
+    }
+  };
+
+  const withPreparedReloadRetry = async <T>(
+    purpose: string,
+    action: (prepared: PreparedActiveReload) => Promise<T>,
+  ): Promise<T> => {
+    for (let attempt = 0; ; attempt += 1) {
+      const prepared = await profiles.prepareActiveReload();
+      try {
+        return await mutate(purpose, () => action(prepared));
+      } catch (err) {
+        if (!(err instanceof ProfileConflictError) || attempt >= 1) throw err;
+      }
+    }
+  };
+
+  const restartCore = (): Promise<Awaited<ReturnType<RuntimeLifecycle["restart"]>>> =>
+    withPreparedReloadRetry("restart core", (prepared) =>
+      lifecycle.restart(async () => {
+        await commitPreparedReload(prepared, false);
+      }),
+    );
+
+  const reloadCoreConfig = (): Promise<GeneratedConfig> =>
+    withPreparedReloadRetry("reload core config", (prepared) =>
+      commitPreparedReload(prepared, true),
+    );
+
   const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (!isLoopbackHostHeader(req.headers.host)) {
       sendError(res, 421, "Invalid Host header");
       return;
     }
 
-    let url: URL;
+    let target: ReturnType<typeof parseDaemonRequestTarget>;
     try {
-      url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+      target = parseDaemonRequestTarget(req.url ?? "/", req.headers.host ?? "");
     } catch {
       sendError(res, 400, "Invalid request target");
       return;
     }
-    const pathname = url.pathname.replace(/\/+$/, "") || "/";
     const method = req.method?.toUpperCase() ?? "GET";
+    const route = matchHttpRoute(method, target);
 
-    // 1. Health probe
-    if (method === "GET" && (pathname === "/sash/health" || pathname === "/health")) {
+    // Public health and dashboard routes are resolved before control auth.
+    if (route.kind === "health") {
       sendJson(res, 200, { ok: true, token, pid: process.pid, startedAt });
       return;
     }
-
-    // 2. Root redirect to /ui/
-    if (pathname === "/") {
-      res.writeHead(302, { Location: "/ui/" });
+    if (route.kind === "rootRedirect") {
+      res.writeHead(302, { Location: `/ui/${target.search}` });
       res.end();
       return;
     }
-
-    // 3. Redirect /ui to /ui/ so the dashboard's relative asset URLs resolve
-    //    (must use the raw pathname: the normalized one maps /ui/ to /ui)
-    if ((method === "GET" || method === "HEAD") && url.pathname === "/ui") {
-      res.writeHead(302, { Location: `/ui/${url.search}` });
+    if (route.kind === "uiRedirect") {
+      res.writeHead(302, { Location: `/ui/${target.search}` });
       res.end();
       return;
     }
-
-    // 4. Static WebUI assets
-    if ((method === "GET" || method === "HEAD") && serveStaticUi(req, res, pathname, layout)) {
+    if (route.kind === "staticUi") {
+      if (!serveStaticUi(req, res, target.routePathname, layout)) {
+        sendError(res, 404, `Not found: ${method} ${target.routePathname}`);
+      }
       return;
     }
 
-    // 5. Mutations and every Core gateway request require a CLI bearer or
-    //    WebUI boot token. HTTP mutations with a browser Origin must also be
-    //    same-host loopback requests.
+    // Mutations and every matched Core gateway request require a CLI bearer or
+    // WebUI boot token. The route match and upstream target share one parser.
     if (isControlMutation(method) && !isLoopbackOriginHeader(req.headers.origin)) {
       sendError(res, 403, "Invalid Origin header");
       return;
     }
     if (
-      (isControlMutation(method) || isCoreGatewayPath(pathname)) &&
+      (isControlMutation(method) || route.kind === "coreGateway") &&
       !isControlRequestAuthorized(req, {
         daemonSecret: committedSettings.daemonSecret,
         bootToken: token,
@@ -241,233 +314,188 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    // 6. API routes
+    // Route matching is pure; this switch owns only domain actions.
     try {
-      /* ==================================================================== */
-      /* /core/api/* — Reverse Proxy to Mihomo external-controller             */
-      /* ==================================================================== */
-      if (matchesPathPrefix(pathname, "/core/api")) {
-        const rawUrl = req.url ?? "/";
-        const prefixIdx = rawUrl.indexOf("/core/api");
-        const targetSubPath =
-          prefixIdx >= 0 ? rawUrl.slice(prefixIdx + "/core/api".length) || "/" : "/";
-        forwardHttpToCore(
-          req,
-          res,
-          targetSubPath,
-          runtimeSettings.controller,
-          runtimeSettings.secret,
-        );
-        return;
-      }
-
-      /* ==================================================================== */
-      /* Fallback proxy for standard core endpoints                           */
-      /* ==================================================================== */
-      if (isCoreGatewayPath(pathname)) {
-        forwardHttpToCore(
-          req,
-          res,
-          pathname + url.search,
-          runtimeSettings.controller,
-          runtimeSettings.secret,
-        );
-        return;
-      }
-
-      /* ==================================================================== */
-      /* /sash/* — Supervisor Domain                                          */
-      /* ==================================================================== */
-      if (method === "GET" && (pathname === "/sash/status" || pathname === "/status")) {
-        const runtimeCore = await supervisor.status();
-        const installedVersion = currentCoreVersion(layout);
-        const core =
-          runtimeCore.version || !installedVersion
-            ? runtimeCore
-            : { ...runtimeCore, version: installedVersion };
-        let actualProxy: SystemProxyState | undefined;
-        let proxyApplied = false;
-        let proxyAppliedKnown = false;
-        let proxyStateKnown = false;
-        let proxyQueryError: string | undefined;
-        try {
-          const inspection = systemProxy.inspect(url.searchParams.get("fresh") === "1");
-          proxyApplied = inspection.applied;
-          proxyAppliedKnown = inspection.appliedKnown !== false;
-          proxyStateKnown = inspection.stateKnown !== false;
-          if (proxyStateKnown) actualProxy = inspection.state;
-          proxyQueryError = inspection.queryError;
-        } catch (err) {
-          proxyQueryError = err instanceof Error ? err.message : String(err);
-        }
-        const active = profiles.active();
-        const status: DaemonStatus = {
-          daemon: {
-            pid: process.pid,
-            startedAt,
-            port: committedSettings.daemonPort,
-          },
-          revisions: {
-            profiles: profileRevision,
-          },
-          core,
-          systemProxy: {
-            desired: committedSettings.systemProxy,
-            applied: proxyApplied,
-            actual: actualProxy,
-            appliedKnown: proxyAppliedKnown,
-            stateKnown: proxyStateKnown,
-            ...(proxyQueryError ? { queryError: proxyQueryError } : {}),
-          },
-          settings: publicSettings(committedSettings),
-          activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
-        };
-        sendJson(res, 200, status);
-        return;
-      }
-
-      if (method === "GET" && (pathname === "/sash/proxy" || pathname === "/proxy")) {
-        const inspection = systemProxy.inspect(url.searchParams.get("fresh") === "1");
-        sendJson(res, 200, {
-          desired: committedSettings.systemProxy,
-          applied: inspection.applied,
-          ...inspection.state,
-          appliedKnown: inspection.appliedKnown !== false,
-          stateKnown: inspection.stateKnown !== false,
-          ...(inspection.queryError ? { queryError: inspection.queryError } : {}),
-        });
-        return;
-      }
-
-      if (
-        method === "POST" &&
-        (pathname === "/sash/proxy/enable" || pathname === "/proxy/enable")
-      ) {
-        const core = await supervisor.status();
-        if (!core.running || !core.healthy) {
-          sendError(res, 400, "Cannot enable system proxy: core is not healthy");
+      switch (route.kind) {
+        case "methodNotAllowed":
+          sendMethodNotAllowed(res, route.allow);
           return;
-        }
-        await settingsService.update("system-proxy", "on");
-        sendJson(res, 200, { ok: true, systemProxy: true });
-        return;
-      }
-
-      if (
-        method === "POST" &&
-        (pathname === "/sash/proxy/disable" || pathname === "/proxy/disable")
-      ) {
-        await settingsService.update("system-proxy", "off");
-        sendJson(res, 200, { ok: true, systemProxy: false });
-        return;
-      }
-
-      const handledProfile = await handleProfileRoutes({ req, res, method, pathname, profiles });
-      if (handledProfile) return;
-
-      if (method === "GET" && pathname === "/sash/settings") {
-        sendJson(res, 200, { ok: true, settings: publicSettings(committedSettings) });
-        return;
-      }
-
-      if (method === "PATCH" && (pathname === "/sash/settings" || pathname === "/settings")) {
-        const body = await parseJsonObjectBody(req);
-        const key = typeof body.key === "string" ? body.key : "";
-        const value = typeof body.value === "string" ? body.value : undefined;
-        if (!key) {
-          sendError(res, 400, "Missing 'key' in request body");
+        case "notFound":
+          sendError(res, 404, `Not found: ${method} ${target.routePathname}`);
           return;
-        }
-
-        try {
-          const updated = await settingsService.update(key, value);
-          sendJson(res, 200, { ok: true, settings: publicSettings(updated) });
-        } catch (err) {
-          if (err instanceof SettingsInputError) {
-            sendError(res, 400, err.message);
-            return;
+        case "coreGateway":
+          forwardHttpToCore(
+            req,
+            res,
+            route.target,
+            runtimeSettings.controller,
+            runtimeSettings.secret,
+          );
+          return;
+        case "status": {
+          const runtimeCore = await supervisor.status();
+          const installedVersion = currentCoreVersion(layout);
+          const core =
+            runtimeCore.version || !installedVersion
+              ? runtimeCore
+              : { ...runtimeCore, version: installedVersion };
+          let actualProxy: SystemProxyState | undefined;
+          let proxyApplied = false;
+          let proxyAppliedKnown = false;
+          let proxyStateKnown = false;
+          let proxyQueryError: string | undefined;
+          try {
+            const inspection = await systemProxy.inspect(target.searchParams.get("fresh") === "1");
+            proxyApplied = inspection.applied;
+            proxyAppliedKnown = inspection.appliedKnown;
+            proxyStateKnown = inspection.stateKnown;
+            if (proxyStateKnown) actualProxy = inspection.state;
+            proxyQueryError = inspection.queryError;
+          } catch (err) {
+            proxyQueryError = err instanceof Error ? err.message : String(err);
           }
-          if (err instanceof ProfileConflictError) {
-            sendError(res, 409, err.message);
-            return;
-          }
-          throw err;
-        }
-        return;
-      }
-
-      if (
-        method === "POST" &&
-        (pathname === "/sash/maintenance/shutdown" ||
-          pathname === "/sash/shutdown" ||
-          pathname === "/shutdown")
-      ) {
-        try {
-          // Cleanup must complete before acknowledging shutdown. Do not close
-          // the listener here: server.close() waits for this response socket.
-          const snapshot = await cleanupDaemon();
-          let closingListener = false;
-          const finishShutdown = (): void => {
-            if (closingListener) return;
-            closingListener = true;
-            void closeListener()
-              .then(() => deps.onShutdown?.())
-              .catch(() => undefined);
+          const active = profiles.active();
+          const status: DaemonStatus = {
+            daemon: {
+              pid: process.pid,
+              startedAt,
+              port: committedSettings.daemonPort,
+            },
+            revisions: {
+              profiles: profileRevision,
+            },
+            core,
+            systemProxy: {
+              desired: committedSettings.systemProxy,
+              applied: proxyApplied,
+              actual: actualProxy,
+              appliedKnown: proxyAppliedKnown,
+              stateKnown: proxyStateKnown,
+              ...(proxyQueryError ? { queryError: proxyQueryError } : {}),
+            },
+            settings: publicSettings(committedSettings),
+            activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
           };
-          res.once("finish", finishShutdown);
-          res.once("close", finishShutdown);
-          if (pathname === "/sash/maintenance/shutdown") {
-            sendJson(res, 200, { ok: true, coreWasRunning: snapshot.coreWasRunning });
-          } else {
-            sendJson(res, 200, { ok: true, shuttingDown: true });
-          }
-        } catch (err) {
-          sendError(res, 500, (err as Error).message);
+          sendJson(res, 200, status);
+          return;
         }
-        return;
-      }
+        case "proxyStatus": {
+          const inspection = await systemProxy.inspect(target.searchParams.get("fresh") === "1");
+          sendJson(res, 200, {
+            desired: committedSettings.systemProxy,
+            applied: inspection.applied,
+            ...inspection.state,
+            appliedKnown: inspection.appliedKnown,
+            stateKnown: inspection.stateKnown,
+            ...(inspection.queryError ? { queryError: inspection.queryError } : {}),
+          });
+          return;
+        }
+        case "proxyEnable": {
+          const core = await supervisor.status();
+          if (!core.running || !core.healthy) {
+            sendError(res, 400, "Cannot enable system proxy: core is not healthy");
+            return;
+          }
+          await settingsService.update("system-proxy", "on");
+          sendJson(res, 200, { ok: true, systemProxy: true });
+          return;
+        }
+        case "proxyDisable":
+          await settingsService.update("system-proxy", "off");
+          sendJson(res, 200, { ok: true, systemProxy: false });
+          return;
+        case "profiles": {
+          const handled = await handleProfileRoutes({
+            req,
+            res,
+            method,
+            pathname: target.routePathname,
+            profiles,
+          });
+          if (!handled) throw new Error("Matched profile route was not handled");
+          return;
+        }
+        case "settingsRead":
+          sendJson(res, 200, { ok: true, settings: publicSettings(committedSettings) });
+          return;
+        case "settingsUpdate": {
+          const body = await parseJsonObjectBody(req);
+          const key = typeof body.key === "string" ? body.key : "";
+          const value = typeof body.value === "string" ? body.value : undefined;
+          if (!key) {
+            sendError(res, 400, "Missing 'key' in request body");
+            return;
+          }
 
-      /* ==================================================================== */
-      /* /core/* — Core Lifecycle Domain                                      */
-      /* ==================================================================== */
-      if (method === "POST" && pathname === "/core/start") {
-        const result = await mutate("start core", () =>
-          lifecycle.start(async () => {
-            await profiles.reloadActive(false, false);
-          }),
-        );
-        sendJson(res, 200, { ok: true, ...result });
-        return;
+          try {
+            const updated = await settingsService.update(key, value);
+            sendJson(res, 200, { ok: true, settings: publicSettings(updated) });
+          } catch (err) {
+            if (err instanceof SettingsInputError) {
+              sendError(res, 400, err.message);
+              return;
+            }
+            if (err instanceof ProfileConflictError) {
+              sendError(res, 409, err.message);
+              return;
+            }
+            throw err;
+          }
+          return;
+        }
+        case "maintenanceShutdown":
+        case "shutdown":
+          try {
+            // Cleanup must complete before acknowledging shutdown. Do not close
+            // the listener here: server.close() waits for this response socket.
+            const snapshot = await cleanupDaemon();
+            let closingListener = false;
+            const finishShutdown = (): void => {
+              if (closingListener) return;
+              closingListener = true;
+              void closeListener()
+                .then(() => deps.onShutdown?.())
+                .catch(() => undefined);
+            };
+            res.once("finish", finishShutdown);
+            res.once("close", finishShutdown);
+            if (route.kind === "maintenanceShutdown") {
+              sendJson(res, 200, { ok: true, coreWasRunning: snapshot.coreWasRunning });
+            } else {
+              sendJson(res, 200, { ok: true, shuttingDown: true });
+            }
+          } catch (err) {
+            sendError(res, 500, (err as Error).message);
+          }
+          return;
+        case "coreStart": {
+          const result = await startCore();
+          sendJson(res, 200, { ok: true, ...result });
+          return;
+        }
+        case "coreStop":
+          await mutate("stop core", () => lifecycle.stop());
+          sendJson(res, 200, { ok: true });
+          return;
+        case "coreRestart": {
+          const result = await restartCore();
+          sendJson(res, 200, { ok: true, ...result });
+          return;
+        }
+        case "coreConfigReload": {
+          const result = await reloadCoreConfig();
+          sendJson(res, 200, {
+            ok: true,
+            proxyCount: result.proxyCount,
+            source: result.source,
+          });
+          return;
+        }
       }
-
-      if (method === "POST" && pathname === "/core/stop") {
-        await mutate("stop core", () => lifecycle.stop());
-        sendJson(res, 200, { ok: true });
-        return;
-      }
-
-      if (method === "POST" && pathname === "/core/restart") {
-        const result = await mutate("restart core", () =>
-          lifecycle.restart(async () => {
-            await profiles.reloadActive(false, false);
-          }),
-        );
-        sendJson(res, 200, { ok: true, ...result });
-        return;
-      }
-
-      if (
-        method === "POST" &&
-        (pathname === "/core/config/reload" || pathname === "/config/reload")
-      ) {
-        const result = await mutate("reload core config", () => profiles.reloadActive(true, false));
-        sendJson(res, 200, { ok: true, proxyCount: result.proxyCount, source: result.source });
-        return;
-      }
-
-      sendError(res, 404, `Not found: ${method} ${pathname}`);
     } catch (err) {
       if (err instanceof HttpError) sendError(res, err.statusCode, err.message);
+      else if (err instanceof ProfileConflictError) sendError(res, 409, err.message);
       else sendError(res, 500, (err as Error).message);
     }
   };
@@ -487,7 +515,8 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     });
   });
 
-  // Handle WebSocket upgrade proxying to Core controller (e.g. for /core/api/traffic)
+  // Handle authenticated WebSocket streams through the same canonical target
+  // parser used by HTTP Core gateway requests.
   const upgradedSockets = new Set<Duplex>();
   const handleUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
     if (!isLoopbackHostHeader(req.headers.host)) {
@@ -508,31 +537,32 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    let url: URL;
+    let target: ReturnType<typeof parseDaemonRequestTarget>;
     try {
-      url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+      target = parseDaemonRequestTarget(req.url ?? "/", req.headers.host ?? "");
     } catch {
       rejectUpgrade(socket, 400, "Invalid request target");
       return;
     }
-    const pathname = url.pathname.replace(/\/+$/, "") || "/";
-    const isCoreWs =
-      matchesPathPrefix(pathname, "/core/api") || pathname === "/traffic" || pathname === "/logs";
-    if (!isCoreWs) {
+    const route = matchWebSocketRoute(req.method?.toUpperCase() ?? "GET", target);
+    if (route.kind === "methodNotAllowed") {
+      rejectUpgrade(socket, 405, "Method Not Allowed", route.allow);
+      return;
+    }
+    if (route.kind === "notFound") {
       rejectUpgrade(socket, 404, "WebSocket endpoint not found");
       return;
     }
-
-    const rawUrl = req.url ?? "/";
-    const prefixIdx = rawUrl.indexOf("/core/api");
-    const targetSubPath =
-      prefixIdx >= 0 ? rawUrl.slice(prefixIdx + "/core/api".length) || "/" : rawUrl;
+    if (closing) {
+      rejectUpgrade(socket, 503, "sashd is shutting down");
+      return;
+    }
 
     forwardWsToCore(
       req,
       socket,
       head,
-      targetSubPath,
+      route.target,
       runtimeSettings.controller,
       runtimeSettings.secret,
     );
@@ -663,24 +693,28 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
     const initialization = new StateMutationQueue(layout.mutationLockFile);
     const settings = await initialization.run("initialize daemon state", async () => {
       recoverCoreInstallTransaction(layout);
-      recoverManagedStateTransaction(layout);
-      const loaded = loadSettings(layout);
-      // Recover first, then give the legacy URL priority. An unmanaged
-      // config.yaml is imported only if the URL migration did not create an index.
-      await migrateProfileState(loaded, layout);
+      const managed = readManagedStateTransactionStatus(layout);
+      if (managed?.coordination !== "core-update") {
+        recoverManagedStateTransaction(layout);
+      }
+
+      let loaded = loadSettings(layout);
+      // Restore proxy ownership and terminate only a verified stale Core before
+      // touching an executable rollback slot. Coordinated managed snapshots may
+      // remain published when the candidate still needs a managed start.
+      const pendingUpdate = await reconcileOrphanedRuntime({ layout, settings: loaded });
+      assertCoreInstallationConsistent(layout);
+      loaded = loadSettings(layout);
+      if (!pendingUpdate) {
+        // Give the legacy URL priority. An unmanaged config.yaml is imported
+        // only if the URL migration did not create an index.
+        await migrateProfileState(loaded, layout);
+      }
       return loaded;
     });
 
     const instance = createDaemonServer({ layout, settings });
     const serverClosed = new Promise<void>((resolve) => instance.server.once("close", resolve));
-
-    // Restore only proxy state proven to be owned by an earlier Sash session.
-    // If that cannot be done safely, preserve the stale Core rather than
-    // deliberately leaving an OS proxy pointed at a dead port.
-    await instance.lifecycle.recoverStartup();
-    await instance.supervisor.cleanStaleCore();
-    recoverCoreUpdateTransaction(layout);
-    assertCoreInstallationConsistent(layout);
 
     const port = settings.daemonPort;
     await new Promise<void>((resolve, reject) => {

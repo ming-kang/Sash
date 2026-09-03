@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { MihomoApi } from "./api.js";
+import { containsCoreVersionToken } from "./core-version.js";
+import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
 import type { SashLayout } from "./paths.js";
 import type { ProcessIdentity } from "./process.js";
 import {
@@ -12,7 +14,7 @@ import {
   isProcessAlive,
   killProcessGracefully,
   readPidRecord,
-  tailFile,
+  withPrivateAppendLogFds,
   writePidRecord,
 } from "./process.js";
 import type { SashSettings } from "./settings.js";
@@ -49,11 +51,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function versionMatches(observed: string, expected: string): boolean {
-  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^A-Za-z0-9._-])${escaped}($|[^A-Za-z0-9._-])`).test(observed);
-}
-
 function managedPathsMatch(a: string, b: string): boolean {
   const left = path.resolve(a);
   const right = path.resolve(b);
@@ -66,6 +63,7 @@ function managedPathsMatch(a: string, b: string): boolean {
  */
 export class CoreSupervisor {
   private child: ChildProcess | null = null;
+  private readonly pidRecordOwners = new WeakSet<ChildProcess>();
   private childStartedAt: string | undefined;
   private childGeneration = 0;
   private stopping = false;
@@ -107,49 +105,45 @@ export class CoreSupervisor {
     fs.mkdirSync(layout.logsDir, { recursive: true });
     fs.mkdirSync(layout.stateDir, { recursive: true });
 
-    const outFd = fs.openSync(layout.coreLogFile, "a", 0o600);
-    let errFd: number | undefined;
+    return withPrivateAppendLogFds(
+      layout.coreLogFile,
+      layout.coreErrLogFile,
+      ({ stdoutFd, stderrFd }) =>
+        spawn(layout.coreExe, ["-d", layout.root, "-f", layout.configFile], {
+          cwd: layout.root,
+          stdio: ["ignore", stdoutFd, stderrFd],
+          windowsHide: true,
+          env: buildSanitizedEnv(),
+        }),
+    );
+  }
 
-    try {
-      if (process.platform !== "win32") {
-        try {
-          fs.chmodSync(layout.coreLogFile, 0o600);
-        } catch {
-          // ignore
-        }
-      }
-      errFd = fs.openSync(layout.coreErrLogFile, "a", 0o600);
-      if (process.platform !== "win32") {
-        try {
-          fs.chmodSync(layout.coreErrLogFile, 0o600);
-        } catch {
-          // ignore
-        }
-      }
+  private clearOwnedPidRecord(child: ChildProcess): void {
+    if (this.pidRecordOwners.delete(child)) clearPidRecord(this.layout.pidFile);
+  }
 
-      const sanitizedEnv = buildSanitizedEnv();
-      const child = spawn(layout.coreExe, ["-d", layout.root, "-f", layout.configFile], {
-        cwd: layout.root,
-        stdio: ["ignore", outFd, errFd],
-        windowsHide: true,
-        env: sanitizedEnv,
-      });
-
-      return child;
-    } finally {
-      try {
-        fs.closeSync(outFd);
-      } catch {
-        // ignore
-      }
-      if (errFd !== undefined) {
-        try {
-          fs.closeSync(errFd);
-        } catch {
-          // ignore
-        }
-      }
+  /**
+   * Terminate a just-spawned child after a startup failure. `pidRecord:
+   * "owned"` clears the persisted record because this start wrote it;
+   * "uncertain" leaves any on-disk record untouched.
+   */
+  private async abortStart(
+    child: ChildProcess,
+    pid: number,
+    pidRecord: "uncertain" | "owned",
+  ): Promise<boolean> {
+    this.stopping = true;
+    const terminated = await this.kill(pid, {
+      timeoutMs: 3000,
+      verify: () => this.ownedChildIdentity(child),
+    });
+    if (terminated && this.child === child) {
+      this.child = null;
+      this.childStartedAt = undefined;
+      this.childGeneration++;
+      if (pidRecord === "owned") this.clearOwnedPidRecord(child);
     }
+    return terminated;
   }
 
   private async probeTunActive(api: MihomoApi): Promise<boolean | undefined> {
@@ -175,7 +169,14 @@ export class CoreSupervisor {
     const expectedVersion = this.getExpectedVersion();
     this.stopping = false;
     const settings = this.getSettings();
+    const errLogCursor = logTailCursor(this.layout.coreErrLogFile);
     const child = this.spawnFn(this.layout, settings);
+    // Attach the error listener before any early return: an asynchronous
+    // spawn failure must never surface as an unhandled "error" event.
+    let spawnError: Error | undefined;
+    child.on("error", (err) => {
+      spawnError = err;
+    });
     const pid = child.pid;
     if (!pid) {
       throw new Error("Failed to start core process (no PID returned)");
@@ -184,10 +185,6 @@ export class CoreSupervisor {
     this.child = child;
     this.childStartedAt = new Date().toISOString();
     this.childGeneration++;
-    let spawnError: Error | undefined;
-    child.on("error", (err) => {
-      spawnError = err;
-    });
 
     child.once("exit", (code, signal) => {
       // A stale exit from a replaced process (restart race) must not clobber
@@ -197,7 +194,7 @@ export class CoreSupervisor {
       this.child = null;
       this.childStartedAt = undefined;
       this.childGeneration++;
-      clearPidRecord(this.layout.pidFile);
+      this.clearOwnedPidRecord(child);
       if (!wasStopping) {
         Promise.resolve(this.onExitCallback?.(code, signal)).catch(() => {
           // ignore rejection in exit callback
@@ -211,17 +208,9 @@ export class CoreSupervisor {
         exe: this.layout.coreExe,
         startedAt: this.childStartedAt,
       });
+      this.pidRecordOwners.add(child);
     } catch (err) {
-      this.stopping = true;
-      const terminated = await this.kill(pid, {
-        timeoutMs: 3000,
-        verify: () => this.ownedChildIdentity(child),
-      });
-      if (terminated && this.child === child) {
-        this.child = null;
-        this.childStartedAt = undefined;
-        this.childGeneration++;
-      }
+      const terminated = await this.abortStart(child, pid, "uncertain");
       const cleanup = terminated ? "" : `; process ${pid} could not be confirmed stopped`;
       throw new Error(`Failed to persist Core PID ownership: ${(err as Error).message}${cleanup}`);
     }
@@ -233,18 +222,10 @@ export class CoreSupervisor {
 
     while (Date.now() < deadline) {
       if (spawnError) {
-        this.stopping = true;
-        const terminated = await this.kill(pid, {
-          timeoutMs: 3000,
-          verify: () => this.ownedChildIdentity(child),
+        const terminated = await this.abortStart(child, pid, "owned");
+        const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
+          maxLines: 20,
         });
-        if (terminated && this.child === child) {
-          this.child = null;
-          this.childStartedAt = undefined;
-          this.childGeneration++;
-          clearPidRecord(this.layout.pidFile);
-        }
-        const details = tailFile(this.layout.coreErrLogFile, 20);
         const cleanup = terminated ? "" : `; process ${pid} could not be confirmed stopped`;
         throw new Error(
           `Failed to start core: ${spawnError.message}${cleanup}${details ? `\n${details}` : ""}`,
@@ -252,8 +233,10 @@ export class CoreSupervisor {
       }
 
       if (!this.isAlive(pid)) {
-        clearPidRecord(this.layout.pidFile);
-        const details = tailFile(this.layout.coreErrLogFile, 20);
+        this.clearOwnedPidRecord(child);
+        const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
+          maxLines: 20,
+        });
         throw new Error(
           `Core exited during startup.${details ? `\nRecent errors:\n${details}` : ""}`,
         );
@@ -261,7 +244,7 @@ export class CoreSupervisor {
 
       try {
         version = await api.version();
-        if (expectedVersion && !versionMatches(version, expectedVersion)) {
+        if (expectedVersion && !containsCoreVersionToken(version, expectedVersion)) {
           throw new Error(
             `Controller version ${version} does not match expected ${expectedVersion}`,
           );
@@ -285,18 +268,10 @@ export class CoreSupervisor {
 
     // Health check timed out. Preserve ownership records unless termination
     // is positively confirmed, so later recovery can still identify the Core.
-    this.stopping = true;
-    const terminated = await this.kill(pid, {
-      timeoutMs: 3000,
-      verify: () => this.ownedChildIdentity(child),
+    const terminated = await this.abortStart(child, pid, "owned");
+    const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
+      maxLines: 20,
     });
-    if (terminated && this.child === child) {
-      clearPidRecord(this.layout.pidFile);
-      this.child = null;
-      this.childStartedAt = undefined;
-      this.childGeneration++;
-    }
-    const details = tailFile(this.layout.coreErrLogFile, 20);
     const cleanup = terminated
       ? ""
       : " The process could not be confirmed stopped; PID state was preserved.";
@@ -330,7 +305,7 @@ export class CoreSupervisor {
       this.child = null;
       this.childStartedAt = undefined;
       this.childGeneration++;
-      clearPidRecord(this.layout.pidFile);
+      this.clearOwnedPidRecord(child);
     }
   }
 

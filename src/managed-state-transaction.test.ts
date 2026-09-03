@@ -4,9 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
+  clearCommittedManagedStateTransaction,
   commitManagedStateTransaction,
   defaultManagedStateFileOperations,
+  markRetainedManagedStateTransactionCommitted,
+  readManagedStateTransactionStatus,
   recoverManagedStateTransaction,
+  retainManagedStateTransaction,
+  rollbackRetainedManagedStateTransaction,
 } from "./managed-state-transaction.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { profileFilePath } from "./profiles.js";
@@ -188,5 +193,70 @@ describe("managed-state transaction journal", () => {
 
     assert.equal(fs.existsSync(profileFilePath(layout, "123")), true);
     assert.equal(fs.existsSync(layout.managedStateTransactionFile), false);
+  });
+
+  it("retains a Core update publication until explicit rollback", async () => {
+    fs.mkdirSync(layout.profilesDir, { recursive: true });
+    fs.writeFileSync(layout.profilesIndexFile, "old index");
+    fs.writeFileSync(layout.configFile, "old config");
+
+    await retainManagedStateTransaction(layout, {
+      index: { activeId: null, profiles: [] },
+      config: { yaml: "new config", proxyCount: 0, source: "default" },
+      reloadRuntime: false,
+    });
+
+    assert.equal(fs.readFileSync(layout.configFile, "utf8"), "new config");
+    assert.match(fs.readFileSync(layout.profilesIndexFile, "utf8"), /"activeId": null/);
+    assert.deepEqual(readManagedStateTransactionStatus(layout), {
+      phase: "retained",
+      createdAt: readManagedStateTransactionStatus(layout)?.createdAt,
+      coordination: "core-update",
+    });
+    assert.throws(
+      () => recoverManagedStateTransaction(layout),
+      /requires coordinated Core update recovery/,
+    );
+
+    assert.equal(rollbackRetainedManagedStateTransaction(layout), true);
+    assert.equal(fs.readFileSync(layout.profilesIndexFile, "utf8"), "old index");
+    assert.equal(fs.readFileSync(layout.configFile, "utf8"), "old config");
+    assert.equal(readManagedStateTransactionStatus(layout), undefined);
+  });
+
+  it("persists a coordinated commit decision before clearing rollback snapshots", async () => {
+    fs.writeFileSync(layout.configFile, "old config");
+    await retainManagedStateTransaction(layout, {
+      config: { yaml: "new config", proxyCount: 0, source: "default" },
+      reloadRuntime: false,
+    });
+
+    assert.equal(markRetainedManagedStateTransactionCommitted(layout), true);
+    assert.equal(readManagedStateTransactionStatus(layout)?.phase, "committed");
+    assert.equal(fs.readFileSync(layout.configFile, "utf8"), "new config");
+    assert.equal(clearCommittedManagedStateTransaction(layout), true);
+    assert.equal(readManagedStateTransactionStatus(layout), undefined);
+    assert.equal(fs.readFileSync(layout.configFile, "utf8"), "new config");
+  });
+
+  it("rejects settings or runtime work in a retained Core update publication", async () => {
+    await assert.rejects(
+      () =>
+        retainManagedStateTransaction(layout, {
+          settings: {
+            schemaVersion: 1,
+            tun: false,
+            allowLan: false,
+            mixedPort: 17890,
+            controller: "127.0.0.1:19091",
+            secret: "secret",
+            daemonPort: 19090,
+            daemonSecret: "daemon-secret",
+            systemProxy: false,
+          },
+        }),
+      /cannot transition runtime or publish settings/,
+    );
+    assert.equal(readManagedStateTransactionStatus(layout), undefined);
   });
 });

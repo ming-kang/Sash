@@ -58,11 +58,11 @@ export function createLegacyProxyCleanup(
 export async function disableLegacySystemProxyIfOwned(opts: EnableOptions): Promise<boolean> {
   const backend = createSystemProxyBackend();
   if (backend.supported === false) return false;
-  const current = backend.capture();
+  const current = await backend.capture();
   const cleanup = createLegacyProxyCleanup(current, opts);
   if (!cleanup) return false;
-  backend.apply(cleanup);
-  const verified = backend.capture();
+  await backend.apply(cleanup);
+  const verified = await backend.capture();
   if (!backend.equivalent(verified, cleanup)) {
     throw new Error("Legacy system proxy cleanup could not be verified");
   }

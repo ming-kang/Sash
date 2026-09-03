@@ -2,7 +2,7 @@ import { SashDaemonClient } from "../daemon-client.js";
 import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { ProfileService } from "../profile-service.js";
-import { requiresCoreRestart, SETTABLE_KEYS, validateController } from "../settings.js";
+import { SETTABLE_KEYS } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { SystemProxyManager } from "../system-proxy-manager.js";
 import {
@@ -11,10 +11,6 @@ import {
   runOfflineMutation,
   runtimeContext,
 } from "./shared.js";
-
-/** Re-export for backwards compatibility */
-export const requiresRestart = requiresCoreRestart;
-export { validateController };
 
 export async function runConfigShow(): Promise<void> {
   const ctx = runtimeContext();
@@ -47,8 +43,8 @@ export async function runConfigSet(key: string, value: string | undefined): Prom
   const ctx = runtimeContext();
 
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.running) {
-    if (!daemonState.healthy) {
+  if (daemonState.kind !== "stopped") {
+    if (daemonState.kind !== "healthy") {
       throw new Error(
         "sashd is running but unresponsive; stop or recover it before editing settings",
       );

@@ -5,7 +5,12 @@ import net, { type AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { evaluateDaemon, spawnDaemon, stopDaemonFromCli } from "./daemon-lifecycle.js";
+import {
+  evaluateDaemon,
+  readDaemonPidRecord,
+  spawnDaemon,
+  stopDaemonFromCli,
+} from "./daemon-lifecycle.js";
 import { sashLayout } from "./paths.js";
 import { DEFAULT_SETTINGS, saveSettings } from "./settings.js";
 import { acquireStateLockSync, type StateLockRecord } from "./state-lock.js";
@@ -26,12 +31,42 @@ describe("daemon ownership evaluation", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it("accepts only canonical bounded daemon PID records", () => {
+    const layout = sashLayout(root);
+    fs.mkdirSync(layout.stateDir, { recursive: true });
+    const valid = {
+      pid: 1234,
+      token: "boot-token",
+      port: 19090,
+      startedAt: "2026-01-01T00:00:00.000Z",
+    };
+    fs.writeFileSync(layout.daemonPidFile, `${JSON.stringify({ ...valid, future: true })}\n`);
+    assert.deepEqual(readDaemonPidRecord(layout), valid);
+
+    for (const document of [
+      null,
+      [],
+      { ...valid, pid: 0 },
+      { ...valid, pid: 1.5 },
+      { ...valid, pid: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, token: "   " },
+      { ...valid, port: 0 },
+      { ...valid, port: 65_536 },
+      { ...valid, port: 19090.5 },
+      { ...valid, startedAt: "2026-01-01T00:00:00Z" },
+    ]) {
+      fs.writeFileSync(layout.daemonPidFile, `${JSON.stringify(document)}\n`);
+      assert.equal(readDaemonPidRecord(layout), undefined);
+    }
+  });
+
   it("treats a live singleton lease without a PID record as a starting daemon", async () => {
     const layout = sashLayout(root);
     const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test sashd" });
     try {
       const state = await evaluateDaemon(layout, { ...DEFAULT_SETTINGS });
       assert.deepEqual(state, {
+        kind: "unhealthy",
         running: true,
         healthy: false,
         pid: process.pid,
@@ -67,7 +102,9 @@ describe("daemon ownership evaluation", () => {
     const state = await evaluateDaemon(layout, { ...DEFAULT_SETTINGS });
 
     assert.deepEqual(state, {
+      kind: "stopped",
       running: false,
+      healthy: false,
       staleLeaseFile: true,
       pid: dead.pid,
     });

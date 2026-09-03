@@ -8,10 +8,15 @@ import {
   applyManagedKey,
   DEFAULT_SETTINGS,
   generateSecret,
+  isSettableKey,
   loadSettings,
+  parseControllerAddress,
   publicSettings,
   requiresCoreRestart,
   type SashSettings,
+  SETTABLE_KEYS,
+  type SettableKey,
+  sameSettings,
   saveSettings,
 } from "./settings.js";
 
@@ -132,6 +137,16 @@ describe("settings", () => {
       assertLoadRejectsWithoutOverwrite(remote, /loopback host:port/);
     });
 
+    it("does not rewrite an equivalent canonical document for formatting alone", () => {
+      const document = completeSettings();
+      const reversed = Object.fromEntries(Object.entries(document).reverse());
+      const text = `${JSON.stringify(reversed, null, 4)}\n`;
+      writeSettingsText(text);
+
+      assert.deepEqual(loadSettings(layout), document);
+      assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), text);
+    });
+
     it("rejects corrupted sash.json without overwriting it", () => {
       const corrupt = "{ corrupted invalid json content @#$%! ]]";
       assertLoadRejectsWithoutOverwrite(corrupt, /Settings file is invalid JSON/);
@@ -239,17 +254,49 @@ describe("settings", () => {
   });
 
   describe("publicSettings", () => {
-    it("omits schema and secrets from API-safe settings", () => {
+    it("projects only the explicit API-safe allowlist", () => {
       const settings: SashSettings = {
         ...DEFAULT_SETTINGS,
+        subscriptionUrl: "https://example.test/private-source",
         secret: "core-secret",
         daemonSecret: "daemon-secret",
       };
-      const exposed = publicSettings(settings) as Record<string, unknown>;
-      assert.equal("schemaVersion" in exposed, false);
-      assert.equal("secret" in exposed, false);
-      assert.equal("daemonSecret" in exposed, false);
-      assert.equal(exposed.mixedPort, DEFAULT_SETTINGS.mixedPort);
+
+      assert.deepEqual(publicSettings(settings), {
+        mixedPort: DEFAULT_SETTINGS.mixedPort,
+        controller: DEFAULT_SETTINGS.controller,
+        tun: DEFAULT_SETTINGS.tun,
+        allowLan: DEFAULT_SETTINGS.allowLan,
+        daemonPort: DEFAULT_SETTINGS.daemonPort,
+        systemProxy: DEFAULT_SETTINGS.systemProxy,
+      });
+    });
+  });
+
+  describe("sameSettings", () => {
+    it("compares canonical values independently of property order", () => {
+      const left: SashSettings = {
+        ...DEFAULT_SETTINGS,
+        subscriptionUrl: "https://example.test/sub",
+        secret: "core",
+        daemonSecret: "daemon",
+      };
+      const reordered: SashSettings = {
+        systemProxy: left.systemProxy,
+        daemonSecret: left.daemonSecret,
+        daemonPort: left.daemonPort,
+        allowLan: left.allowLan,
+        tun: left.tun,
+        secret: left.secret,
+        controller: left.controller,
+        mixedPort: left.mixedPort,
+        subscriptionUrl: left.subscriptionUrl,
+        schemaVersion: left.schemaVersion,
+      };
+
+      assert.equal(sameSettings(left, reordered), true);
+      assert.equal(sameSettings(left, { ...reordered, mixedPort: 18888 }), false);
+      assert.equal(sameSettings(left, { ...reordered, subscriptionUrl: undefined }), false);
     });
   });
 
@@ -282,18 +329,87 @@ describe("settings", () => {
       assert.throws(() => applyManagedKey(settings, "secret", "   "), /must not be blank/);
     });
 
-    it("rejects unknown keys", () => {
+    it("canonicalizes controller candidates through the shared parser", () => {
+      const settings = { ...DEFAULT_SETTINGS, secret: "core", daemonSecret: "daemon" };
+      assert.equal(
+        applyManagedKey(settings, "controller", " LOCALHOST:9091 ").controller,
+        "localhost:9091",
+      );
+      assert.throws(
+        () => applyManagedKey(settings, "controller", "controller.example:9090"),
+        /invalid controller address.*expected loopback host:port/,
+      );
+    });
+
+    it("rejects unknown keys with the canonical allowlist", () => {
       const settings = { ...DEFAULT_SETTINGS };
-      assert.throws(() => applyManagedKey(settings, "daemon-port", "1234"), /unknown key/);
+      assert.throws(() => applyManagedKey(settings, "daemon-port", "1234"), {
+        message:
+          "unknown key: daemon-port (settable: tun, allow-lan, mixed-port, controller, secret, system-proxy)",
+      });
     });
   });
 
   describe("requiresCoreRestart", () => {
-    it("classifies listener/auth keys as restart-requiring", () => {
-      for (const key of ["controller", "secret", "tun", "mixed-port", "allow-lan"]) {
-        assert.equal(requiresCoreRestart(key), true, key);
+    it("classifies every settable key from the shared metadata", () => {
+      const expected = {
+        tun: true,
+        "allow-lan": true,
+        "mixed-port": true,
+        controller: true,
+        secret: true,
+        "system-proxy": false,
+      } as const satisfies Record<SettableKey, boolean>;
+
+      for (const key of SETTABLE_KEYS) {
+        assert.equal(isSettableKey(key), true, key);
+        assert.equal(requiresCoreRestart(key), expected[key], key);
       }
-      assert.equal(requiresCoreRestart("system-proxy"), false);
+      for (const key of ["mode", "log-level", "dns", "", "unknown"]) {
+        assert.equal(isSettableKey(key), false, key);
+        assert.equal(requiresCoreRestart(key), false, key);
+      }
+    });
+  });
+
+  describe("parseControllerAddress", () => {
+    it("accepts and canonicalizes loopback host:port addresses", () => {
+      assert.deepEqual(parseControllerAddress("127.0.0.1:9090"), {
+        host: "127.0.0.1",
+        port: 9090,
+        canonical: "127.0.0.1:9090",
+      });
+      assert.deepEqual(parseControllerAddress(" LOCALHOST:8080 "), {
+        host: "localhost",
+        port: 8080,
+        canonical: "localhost:8080",
+      });
+      assert.deepEqual(parseControllerAddress("[::1]:9090"), {
+        host: "::1",
+        port: 9090,
+        canonical: "[::1]:9090",
+      });
+    });
+
+    it("rejects non-loopback and malformed addresses", () => {
+      for (const value of [
+        "0.0.0.0:80",
+        "192.168.1.2:9090",
+        "controller.example:9090",
+        "127.0.0.1:0",
+        "127.0.0.1:65536",
+        "127.0.0.1",
+        "",
+        "   ",
+        "host:abc",
+        "[::1]",
+        "host:9090/path",
+        "host:9090?q=1",
+        "user@host:9090",
+        "host: 9090",
+      ]) {
+        assert.equal(parseControllerAddress(value), undefined, JSON.stringify(value));
+      }
     });
   });
 

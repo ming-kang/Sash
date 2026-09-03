@@ -7,6 +7,7 @@ import {
   atomicWriteFileSync,
   durableRemoveFileSync,
   durableRenameSync,
+  pathEntryExists,
   removeWithRetrySync,
   renameWithRetrySync,
 } from "./fs-atomic.js";
@@ -24,6 +25,21 @@ describe("fs-atomic", () => {
     } catch {
       // best effort
     }
+  });
+
+  describe("pathEntryExists", () => {
+    it("distinguishes missing paths without narrowing existing path types", () => {
+      const file = path.join(tmpDir, "file.txt");
+      const directory = path.join(tmpDir, "directory");
+      const missing = path.join(tmpDir, "missing");
+      fs.writeFileSync(file, "data");
+      fs.mkdirSync(directory);
+
+      assert.equal(pathEntryExists(file), true);
+      assert.equal(pathEntryExists(directory), true);
+      assert.equal(pathEntryExists(missing), false);
+      assert.throws(() => pathEntryExists("\0"));
+    });
   });
 
   describe("atomicWriteFileSync", () => {

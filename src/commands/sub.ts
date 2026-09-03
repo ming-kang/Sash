@@ -16,8 +16,8 @@ export async function runSubSet(url: string): Promise<void> {
   log.info(`validating subscription: ${url}`);
 
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.running) {
-    if (!daemonState.healthy) {
+  if (daemonState.kind !== "stopped") {
+    if (daemonState.kind !== "healthy") {
       throw new Error("sashd is running but unresponsive; refusing a competing profile mutation");
     }
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
@@ -41,8 +41,8 @@ export async function runSubSet(url: string): Promise<void> {
 export async function runSubUpdate(): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.running) {
-    if (!daemonState.healthy) {
+  if (daemonState.kind !== "stopped") {
+    if (daemonState.kind !== "healthy") {
       throw new Error("sashd is running but unresponsive; refusing a competing profile mutation");
     }
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
@@ -74,8 +74,8 @@ export async function runSubUpdate(): Promise<void> {
 export async function runSubUnset(): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.running) {
-    if (!daemonState.healthy) {
+  if (daemonState.kind !== "stopped") {
+    if (daemonState.kind !== "healthy") {
       throw new Error("sashd is running but unresponsive; refusing a competing profile mutation");
     }
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
@@ -93,11 +93,11 @@ export async function runSubUnset(): Promise<void> {
   await prepareOfflineProfileMutation(ctx);
   const profiles = createProfileService(ctx, offlineProfileCommit(ctx));
   const active = profiles.active();
-  if (active) await profiles.activate(null);
   if (!active) {
     log.info("no active profile");
     return;
   }
+  await profiles.activate(null);
   log.ok(`profile "${active.name}" deselected; reverted to the DIRECT-only default config`);
 }
 
@@ -105,7 +105,7 @@ export async function runSubShow(): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
   const index =
-    daemonState.running && daemonState.healthy
+    daemonState.kind === "healthy"
       ? await new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret).getProfiles()
       : await runOfflineMutation(
           ctx,

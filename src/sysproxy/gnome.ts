@@ -96,42 +96,59 @@ function parseGSettingsBoolean(output: string, label: string): boolean {
   throw new Error(`Invalid gsettings ${label}: expected true or false`);
 }
 
-function getLinuxEndpoint(protocol: "http" | "https" | "socks"): LinuxProxyEndpoint {
+type CommandRunner = typeof runCmd;
+
+async function getLinuxEndpoint(
+  protocol: "http" | "https" | "socks",
+  run: CommandRunner,
+): Promise<LinuxProxyEndpoint> {
   const schema = `org.gnome.system.proxy.${protocol}`;
   return {
-    host: parseProxyString(runGSettingsGet(schema, "host"), `${protocol} host`),
-    port: parseGSettingsPort(runCmd("gsettings", ["get", schema, "port"]), `${protocol} port`),
+    host: parseProxyString(await runGSettingsGet(schema, "host", run), `${protocol} host`),
+    port: parseGSettingsPort(await run("gsettings", ["get", schema, "port"]), `${protocol} port`),
   };
 }
 
-function runGSettingsGet(schema: string, key: string): string {
-  return parseGSettingsString(runCmd("gsettings", ["get", schema, key]));
+async function runGSettingsGet(schema: string, key: string, run: CommandRunner): Promise<string> {
+  return parseGSettingsString(await run("gsettings", ["get", schema, key]));
 }
 
-export function captureLinuxSnapshot(): LinuxSystemProxySnapshot {
-  ensureGSettingsAvailable();
-  const mode = runGSettingsGet("org.gnome.system.proxy", "mode");
+export async function captureLinuxSnapshot(
+  run: CommandRunner = runCmd,
+  ensureAvailable: () => void = ensureGSettingsAvailable,
+): Promise<LinuxSystemProxySnapshot> {
+  ensureAvailable();
+  const mode = await runGSettingsGet("org.gnome.system.proxy", "mode", run);
   if (mode !== "none" && mode !== "manual" && mode !== "auto") {
     throw new Error("Invalid gsettings mode: expected none, manual, or auto");
   }
+  const autoConfigUrl = await runGSettingsGet("org.gnome.system.proxy", "autoconfig-url", run);
+  const httpUseAuthentication = parseGSettingsBoolean(
+    await run("gsettings", ["get", "org.gnome.system.proxy.http", "use-authentication"]),
+    "HTTP authentication state",
+  );
+  const http = await getLinuxEndpoint("http", run);
+  const https = await getLinuxEndpoint("https", run);
+  const socks = await getLinuxEndpoint("socks", run);
   return {
     version: SYSTEM_PROXY_SNAPSHOT_VERSION,
     platform: "linux",
     mode,
-    autoConfigUrl: runGSettingsGet("org.gnome.system.proxy", "autoconfig-url"),
-    httpUseAuthentication: parseGSettingsBoolean(
-      runCmd("gsettings", ["get", "org.gnome.system.proxy.http", "use-authentication"]),
-      "HTTP authentication state",
-    ),
-    http: getLinuxEndpoint("http"),
-    https: getLinuxEndpoint("https"),
-    socks: getLinuxEndpoint("socks"),
+    autoConfigUrl,
+    httpUseAuthentication,
+    http,
+    https,
+    socks,
   };
 }
 
-export function applyLinuxSnapshot(value: unknown): void {
+export async function applyLinuxSnapshot(
+  value: unknown,
+  run: CommandRunner = runCmd,
+  ensureAvailable: () => void = ensureGSettingsAvailable,
+): Promise<void> {
   const snapshot = linuxSnapshot(value);
-  ensureGSettingsAvailable();
+  ensureAvailable();
   const endpoints: ReadonlyArray<{ schema: string; value: LinuxProxyEndpoint }> = [
     { schema: "org.gnome.system.proxy.http", value: snapshot.http },
     { schema: "org.gnome.system.proxy.https", value: snapshot.https },
@@ -139,28 +156,28 @@ export function applyLinuxSnapshot(value: unknown): void {
   ];
 
   // Keep mode last so a partially-written target is not enabled before all endpoints exist.
-  runCmd("gsettings", [
+  await run("gsettings", [
     "set",
     "org.gnome.system.proxy",
     "autoconfig-url",
     formatGSettingsString(snapshot.autoConfigUrl),
   ]);
-  runCmd("gsettings", [
+  await run("gsettings", [
     "set",
     "org.gnome.system.proxy.http",
     "use-authentication",
     snapshot.httpUseAuthentication ? "true" : "false",
   ]);
   for (const endpoint of endpoints) {
-    runCmd("gsettings", [
+    await run("gsettings", [
       "set",
       endpoint.schema,
       "host",
       formatGSettingsString(endpoint.value.host),
     ]);
-    runCmd("gsettings", ["set", endpoint.schema, "port", String(endpoint.value.port)]);
+    await run("gsettings", ["set", endpoint.schema, "port", String(endpoint.value.port)]);
   }
-  runCmd("gsettings", [
+  await run("gsettings", [
     "set",
     "org.gnome.system.proxy",
     "mode",

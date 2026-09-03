@@ -15,7 +15,7 @@ export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
 
   let coreRunning = false;
-  if (daemonState.running && daemonState.healthy) {
+  if (daemonState.kind === "healthy") {
     try {
       const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
       const status = await client.status();

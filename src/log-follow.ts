@@ -119,6 +119,81 @@ export function readLogGrowth(
 }
 
 /**
+ * End-of-file cursor for startup diagnostics; never throws. An unreadable
+ * path yields a marker identity that later reads treat as a reset.
+ */
+export function logTailCursor(file: string): LogFileCursor {
+  try {
+    return logCursorAtEnd(file);
+  } catch {
+    return { identity: "unreadable", offset: 0 };
+  }
+}
+
+/**
+ * Last non-empty lines appended after `cursor`, for startup failure
+ * diagnostics: content written before the cursor is never reported. Missing,
+ * replaced, truncated, or unreadable files fail soft with "".
+ */
+export interface BoundedLogTailOptions {
+  maxBytes?: number;
+  maxLines?: number;
+}
+
+export function boundedLogTailSince(
+  file: string,
+  cursor: LogFileCursor,
+  options: BoundedLogTailOptions = {},
+): string {
+  const maxBytes = options.maxBytes ?? LOG_FOLLOW_CHUNK_BYTES;
+  const maxLines = options.maxLines ?? 20;
+  if (
+    !Number.isSafeInteger(maxBytes) ||
+    maxBytes <= 0 ||
+    !Number.isSafeInteger(maxLines) ||
+    maxLines <= 0
+  ) {
+    return "";
+  }
+
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, "r");
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || !Number.isSafeInteger(stat.size) || stat.size < 0) return "";
+    const identity = fileIdentity(stat);
+    const offset = Number.isSafeInteger(cursor.offset) && cursor.offset >= 0 ? cursor.offset : 0;
+    if (cursor.identity !== null && cursor.identity !== identity) return "";
+    if (stat.size < offset || stat.size === offset) return "";
+
+    const position = Math.max(offset, stat.size - maxBytes);
+    const length = stat.size - position;
+    const buffer = Buffer.allocUnsafe(length);
+    const bytesRead = fs.readSync(fd, buffer, 0, length, position);
+    let start = 0;
+    // If the bounded window begins inside a UTF-8 code point, discard only
+    // its continuation bytes instead of emitting a replacement character.
+    while (start < bytesRead && ((buffer[start] ?? 0) & 0xc0) === 0x80) start++;
+    const lines = buffer
+      .subarray(start, bytesRead)
+      .toString("utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+    return lines.slice(-maxLines).join("\n");
+  } catch {
+    return "";
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Startup diagnostics are fail-soft.
+      }
+    }
+  }
+}
+
+/**
  * Follow a path like `tail -F`: wait for creation, detect replacement by file
  * identity, restart at byte zero after truncation, and retain a polling fallback
  * when directory watch events are unavailable or coalesced.

@@ -1,27 +1,19 @@
-import fs from "node:fs";
 import { assertCoreInstallationConsistent, coreInstalled, installCore } from "../core.js";
 import { validateCoreConfigText } from "../core-config-validation.js";
 import { recoverCoreInstallTransaction } from "../core-install-transaction.js";
-import { recoverCoreUpdateTransaction } from "../core-update.js";
-import { evaluateDaemon } from "../daemon-lifecycle.js";
+import { recoverCoordinatedCoreUpdate } from "../core-update-coordination.js";
 import { log } from "../log.js";
-import { recoverManagedStateTransaction } from "../managed-state-transaction.js";
-import { type SashLayout, sashLayout } from "../paths.js";
-import { isProcessAlive, readPidRecord } from "../process.js";
-import { migrateProfileState } from "../profile-migration.js";
+import { type RuntimeContext, runOfflineMutation } from "../offline-mutation.js";
+import { sashLayout } from "../paths.js";
 import { type ProfileCommitBoundary, ProfileService } from "../profile-service.js";
-import { loadSettings, type SashSettings } from "../settings.js";
-import { withStateLock } from "../state-lock.js";
+import { loadSettings } from "../settings.js";
 
-export interface RuntimeContext {
-  layout: SashLayout;
-  settings: SashSettings;
-}
-
-export interface OfflineMutationOptions {
-  allowOrphanCore?: boolean;
-  migrateProfiles?: boolean;
-}
+export type {
+  OfflineMutationOptions,
+  OfflineRuntimeReconciliation,
+  RuntimeContext,
+} from "../offline-mutation.js";
+export { runOfflineMutation };
 
 export function runtimeContext(): RuntimeContext {
   const layout = sashLayout();
@@ -29,60 +21,9 @@ export function runtimeContext(): RuntimeContext {
   return { layout, settings };
 }
 
-/**
- * Run a disk mutation only when no daemon owns the data directory. The daemon
- * takes the same lock during initialization and all control mutations.
- */
-export async function runOfflineMutation<T>(
-  ctx: RuntimeContext,
-  purpose: string,
-  action: () => T | Promise<T>,
-  options: OfflineMutationOptions = {},
-): Promise<T> {
-  return withStateLock(ctx.layout.mutationLockFile, { purpose, timeoutMs: 30_000 }, async () => {
-    // The context may have waited behind another CLI. Refresh the committed
-    // snapshot only after acquiring the cross-process mutation lock.
-    ctx.settings = loadSettings(ctx.layout);
-    const daemon = await evaluateDaemon(ctx.layout, ctx.settings);
-    if (daemon.running) {
-      const owner = daemon.pid ? ` (PID=${daemon.pid})` : "";
-      throw new Error(
-        `sashd owns the data directory${owner} but is not accepting this operation; stop or recover it before retrying`,
-      );
-    }
-    if (!options.allowOrphanCore) {
-      const core = readPidRecord(ctx.layout.pidFile);
-      if (!core && fs.existsSync(ctx.layout.pidFile)) {
-        throw new Error(
-          `Core PID record is corrupt: ${ctx.layout.pidFile}; reconcile it before modifying state`,
-        );
-      }
-      if (core && isProcessAlive(core.pid)) {
-        throw new Error(
-          `Core PID ${core.pid} is still alive without sashd; run \`sash stop\` to reconcile it before modifying state`,
-        );
-      }
-    }
-    recoverCoreInstallTransaction(ctx.layout);
-    if (!options.allowOrphanCore) {
-      recoverCoreUpdateTransaction(ctx.layout);
-      assertCoreInstallationConsistent(ctx.layout);
-    }
-    recoverManagedStateTransaction(ctx.layout);
-    // Recovery may have restored sash.json from an interrupted transaction.
-    ctx.settings = loadSettings(ctx.layout);
-    if (options.migrateProfiles) {
-      // Legacy subscriptionUrl migration runs first so it remains canonical;
-      // only a still-uninitialized profile store may import config.yaml.
-      await migrateProfileState(ctx.settings, ctx.layout);
-    }
-    return action();
-  });
-}
-
 export async function ensureCore(ctx: RuntimeContext): Promise<void> {
   recoverCoreInstallTransaction(ctx.layout);
-  recoverCoreUpdateTransaction(ctx.layout);
+  recoverCoordinatedCoreUpdate(ctx.layout);
   assertCoreInstallationConsistent(ctx.layout);
   if (coreInstalled(ctx.layout)) return;
   log.info("mihomo core not installed; downloading latest release...");

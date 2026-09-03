@@ -9,7 +9,6 @@
 export { isSystemProxySupported } from "./sysproxy/common.js";
 export {
   parseDarwinAutoProxySetting,
-  parseDarwinGetWebProxy,
   parseDarwinProxySetting,
   parseDarwinServices,
 } from "./sysproxy/darwin.js";
@@ -40,5 +39,4 @@ export { DEFAULT_BYPASS_LIST, SYSTEM_PROXY_SNAPSHOT_VERSION } from "./sysproxy/t
 export {
   formatWindowsBypass,
   parseWindowsRegistryProxyValues,
-  parseWindowsRegQuery,
 } from "./sysproxy/windows.js";

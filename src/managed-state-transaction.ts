@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
+import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import type { GeneratedConfig } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import { type ProfilesIndex, profileFilePath, serializeProfiles } from "./profiles.js";
@@ -17,15 +18,31 @@ interface JournalSnapshot {
   data: string | null;
 }
 
-interface ManagedStateTransactionJournal {
-  version: 2;
-  phase: "publishing" | "committed";
+type ManagedStateTransactionPhase = "publishing" | "retained" | "committed";
+export type ManagedStateTransactionCoordination = "core-update";
+
+interface ManagedStateTransactionJournalBase {
+  phase: ManagedStateTransactionPhase;
   createdAt: string;
   index?: JournalSnapshot;
   profile?: { id: string; data: string | null };
   config?: JournalSnapshot;
   settings?: JournalSnapshot;
 }
+
+interface ManagedStateTransactionJournalV2 extends ManagedStateTransactionJournalBase {
+  version: 2;
+  phase: "publishing" | "committed";
+}
+
+interface ManagedStateTransactionJournalV3 extends ManagedStateTransactionJournalBase {
+  version: 3;
+  coordination: ManagedStateTransactionCoordination;
+}
+
+type ManagedStateTransactionJournal =
+  | ManagedStateTransactionJournalV2
+  | ManagedStateTransactionJournalV3;
 
 /** Injectable only to make managed-state persistence failures testable. */
 export interface ManagedStateFileOperations {
@@ -49,22 +66,14 @@ export interface ManagedStateTransaction {
   applyRuntime?: () => Promise<void>;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
-  );
-}
-
-function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
-  const actual = Object.keys(value);
-  return actual.length === keys.length && actual.every((key) => keys.includes(key));
+export interface ManagedStateTransactionStatus {
+  phase: ManagedStateTransactionPhase;
+  createdAt: string;
+  coordination?: ManagedStateTransactionCoordination;
 }
 
 function decodeSnapshot(value: unknown, role: string): Buffer | null {
-  if (!isPlainObject(value) || !hasExactKeys(value, ["data"])) {
+  if (!isPlainObject(value) || !hasExactOwnKeys(value, ["data"])) {
     throw new Error(`Managed-state transaction journal has invalid ${role} snapshot`);
   }
   if (value.data === null) return null;
@@ -78,8 +87,7 @@ function decodeSnapshot(value: unknown, role: string): Buffer | null {
   return decoded;
 }
 
-interface ParsedJournal {
-  phase: "publishing" | "committed";
+interface ParsedJournal extends ManagedStateTransactionStatus {
   snapshots: FileSnapshot[];
 }
 
@@ -88,39 +96,56 @@ function parseJournal(raw: unknown): ParsedJournal {
     throw new Error("Managed-state transaction journal has an invalid root shape");
   }
   const legacy = raw.version === 1;
+  const coordinated = raw.version === 3;
   const allowed = legacy
     ? ["version", "createdAt", "index", "profile", "config"]
-    : ["version", "phase", "createdAt", "index", "profile", "config", "settings"];
-  const required = legacy ? ["version", "createdAt", "index"] : ["version", "phase", "createdAt"];
+    : [
+        "version",
+        "phase",
+        "createdAt",
+        "index",
+        "profile",
+        "config",
+        "settings",
+        ...(coordinated ? ["coordination"] : []),
+      ];
+  const required = legacy
+    ? ["version", "createdAt", "index"]
+    : ["version", "phase", "createdAt", ...(coordinated ? ["coordination"] : [])];
   if (
     Object.keys(raw).some((key) => !allowed.includes(key)) ||
     !required.every((key) => key in raw)
   ) {
     throw new Error("Managed-state transaction journal has an invalid root shape");
   }
-  if (raw.version !== 1 && raw.version !== 2) {
+  if (raw.version !== 1 && raw.version !== 2 && raw.version !== 3) {
     throw new Error("Managed-state transaction journal has an unsupported version");
   }
   let phase: ParsedJournal["phase"];
   if (raw.version === 1) {
     phase = "publishing";
-  } else if (raw.phase === "publishing" || raw.phase === "committed") {
+  } else if (
+    raw.phase === "publishing" ||
+    raw.phase === "committed" ||
+    (raw.version === 3 && raw.phase === "retained")
+  ) {
     phase = raw.phase;
   } else {
     throw new Error("Managed-state transaction journal has an invalid phase");
   }
-  if (
-    typeof raw.createdAt !== "string" ||
-    !Number.isFinite(new Date(raw.createdAt).getTime()) ||
-    new Date(raw.createdAt).toISOString() !== raw.createdAt
-  ) {
+  if (!isCanonicalIsoTimestamp(raw.createdAt)) {
     throw new Error("Managed-state transaction journal has an invalid timestamp");
+  }
+  const coordination =
+    raw.version === 3 && raw.coordination === "core-update" ? raw.coordination : undefined;
+  if (raw.version === 3 && !coordination) {
+    throw new Error("Managed-state transaction journal has invalid coordination");
   }
 
   const index = raw.index === undefined ? undefined : decodeSnapshot(raw.index, "index");
   let profile: { id: string; data: Buffer | null } | undefined;
   if (raw.profile !== undefined) {
-    if (!isPlainObject(raw.profile) || !hasExactKeys(raw.profile, ["id", "data"])) {
+    if (!isPlainObject(raw.profile) || !hasExactOwnKeys(raw.profile, ["id", "data"])) {
       throw new Error("Managed-state transaction journal has an invalid profile snapshot");
     }
     if (typeof raw.profile.id !== "string" || !/^[0-9]+$/.test(raw.profile.id)) {
@@ -142,6 +167,8 @@ function parseJournal(raw: unknown): ParsedJournal {
 
   return {
     phase,
+    createdAt: raw.createdAt,
+    ...(coordination ? { coordination } : {}),
     snapshots: [
       ...(profile ? [{ path: profile.id, data: profile.data }] : []),
       ...(index !== undefined ? [{ path: "index", data: index }] : []),
@@ -172,6 +199,18 @@ function readJournal(layout: SashLayout): ParsedJournal | undefined {
   return parseJournal(raw);
 }
 
+export function readManagedStateTransactionStatus(
+  layout: SashLayout,
+): ManagedStateTransactionStatus | undefined {
+  const stored = readJournal(layout);
+  if (!stored) return undefined;
+  return {
+    phase: stored.phase,
+    createdAt: stored.createdAt,
+    ...(stored.coordination ? { coordination: stored.coordination } : {}),
+  };
+}
+
 function snapshot(paths: string[]): FileSnapshot[] {
   return [...new Set(paths)].map((file) => {
     try {
@@ -187,6 +226,7 @@ function journalFromSnapshots(
   snapshots: FileSnapshot[],
   layout: SashLayout,
   profileId: string | undefined,
+  coordination?: ManagedStateTransactionCoordination,
 ): ManagedStateTransactionJournal {
   const indexEntry = snapshots.find((entry) => entry.path === layout.profilesIndexFile);
   const profileEntry = profileId
@@ -202,9 +242,7 @@ function journalFromSnapshots(
   if (size > MAX_SNAPSHOT_BYTES) {
     throw new Error("Managed-state transaction snapshots exceed the journal size limit");
   }
-  return {
-    version: 2,
-    phase: "publishing",
+  const entries = {
     createdAt: new Date().toISOString(),
     ...(indexEntry ? { index: { data: indexEntry.data?.toString("base64") ?? null } } : {}),
     ...(profileEntry && profileId
@@ -220,6 +258,9 @@ function journalFromSnapshots(
       ? { settings: { data: settingsEntry.data?.toString("base64") ?? null } }
       : {}),
   };
+  return coordination
+    ? { version: 3, phase: "publishing", coordination, ...entries }
+    : { version: 2, phase: "publishing", ...entries };
 }
 
 function restore(snapshots: FileSnapshot[], files: ManagedStateFileOperations): string[] {
@@ -235,18 +276,8 @@ function restore(snapshots: FileSnapshot[], files: ManagedStateFileOperations): 
   return errors;
 }
 
-/** Restore an interrupted managed-state publication. Call only while owning mutation.lock. */
-export function recoverManagedStateTransaction(
-  layout: SashLayout,
-  files: ManagedStateFileOperations = defaultManagedStateFileOperations,
-): void {
-  const stored = readJournal(layout);
-  if (!stored) return;
-  if (stored.phase === "committed") {
-    durableRemoveFileSync(layout.managedStateTransactionFile);
-    return;
-  }
-  const snapshots = stored.snapshots.map((entry) => ({
+function resolvedSnapshots(stored: ParsedJournal, layout: SashLayout): FileSnapshot[] {
+  return stored.snapshots.map((entry) => ({
     path:
       entry.path === "index"
         ? layout.profilesIndexFile
@@ -257,7 +288,56 @@ export function recoverManagedStateTransaction(
             : profileFilePath(layout, entry.path),
     data: entry.data,
   }));
-  const errors = restore(snapshots, files);
+}
+
+function transactionSnapshots(
+  layout: SashLayout,
+  transaction: ManagedStateTransaction,
+): { profilePath?: string; snapshots: FileSnapshot[] } {
+  const profilePath = transaction.profile
+    ? profileFilePath(layout, transaction.profile.id)
+    : undefined;
+  return {
+    ...(profilePath ? { profilePath } : {}),
+    snapshots: snapshot([
+      ...(profilePath ? [profilePath] : []),
+      ...(transaction.index ? [layout.profilesIndexFile] : []),
+      ...(transaction.config ? [layout.configFile] : []),
+      ...(transaction.settings ? [layout.settingsFile] : []),
+    ]),
+  };
+}
+
+function publishFiles(
+  layout: SashLayout,
+  transaction: ManagedStateTransaction,
+  profilePath: string | undefined,
+  files: ManagedStateFileOperations,
+): void {
+  if (profilePath && transaction.profile) {
+    if (transaction.profile.yamlText === null) files.remove(profilePath);
+    else files.write(profilePath, transaction.profile.yamlText);
+  }
+  if (transaction.index) {
+    files.write(layout.profilesIndexFile, serializeProfiles(transaction.index));
+  }
+  if (transaction.config) files.write(layout.configFile, transaction.config.yaml);
+  if (transaction.settings) {
+    files.write(layout.settingsFile, `${JSON.stringify(transaction.settings, null, 2)}\n`);
+  }
+}
+
+function writeJournal(layout: SashLayout, journal: ManagedStateTransactionJournal): void {
+  atomicWriteFileSync(layout.managedStateTransactionFile, `${JSON.stringify(journal)}\n`);
+}
+
+function restoreAndClear(
+  stored: ParsedJournal,
+  layout: SashLayout,
+  files: ManagedStateFileOperations,
+  errorPrefix: string,
+): void {
+  const errors = restore(resolvedSnapshots(stored, layout), files);
   if (errors.length === 0) {
     try {
       durableRemoveFileSync(layout.managedStateTransactionFile);
@@ -265,8 +345,110 @@ export function recoverManagedStateTransaction(
       errors.push(`journal: ${(err as Error).message}`);
     }
   }
-  if (errors.length)
-    throw new Error(`Managed-state transaction recovery failed: ${errors.join("; ")}`);
+  if (errors.length) throw new Error(`${errorPrefix}: ${errors.join("; ")}`);
+}
+
+/** Restore an interrupted ordinary publication. Call only while owning mutation.lock. */
+export function recoverManagedStateTransaction(
+  layout: SashLayout,
+  files: ManagedStateFileOperations = defaultManagedStateFileOperations,
+): void {
+  const stored = readJournal(layout);
+  if (!stored) return;
+  if (stored.phase === "committed") {
+    durableRemoveFileSync(layout.managedStateTransactionFile);
+    return;
+  }
+  if (stored.phase === "retained") {
+    throw new Error(
+      "A retained managed-state transaction requires coordinated Core update recovery",
+    );
+  }
+  restoreAndClear(stored, layout, files, "Managed-state transaction recovery failed");
+}
+
+/**
+ * Publish a Core-update config/profile candidate while retaining its exact
+ * rollback snapshots. The caller must later commit or roll it back while still
+ * owning mutation.lock. Runtime transitions are intentionally forbidden here.
+ */
+export async function retainManagedStateTransaction(
+  layout: SashLayout,
+  transaction: ManagedStateTransaction,
+  files: ManagedStateFileOperations = defaultManagedStateFileOperations,
+): Promise<void> {
+  if (transaction.applyRuntime || transaction.reloadRuntime === true || transaction.settings) {
+    throw new Error(
+      "Retained Core update publications cannot transition runtime or publish settings",
+    );
+  }
+  recoverManagedStateTransaction(layout, files);
+  const { profilePath, snapshots } = transactionSnapshots(layout, transaction);
+  const journal = journalFromSnapshots(snapshots, layout, transaction.profile?.id, "core-update");
+  if (journal.version !== 3) {
+    throw new Error("Failed to create a coordinated managed-state transaction");
+  }
+  writeJournal(layout, journal);
+
+  try {
+    publishFiles(layout, transaction, profilePath, files);
+    writeJournal(layout, { ...journal, phase: "retained" });
+  } catch (err) {
+    const rollbackErrors = restore(snapshots, files);
+    if (rollbackErrors.length === 0) {
+      try {
+        durableRemoveFileSync(layout.managedStateTransactionFile);
+      } catch (clearErr) {
+        rollbackErrors.push(`journal: ${(clearErr as Error).message}`);
+      }
+    }
+    const suffix = rollbackErrors.length
+      ? `; managed-state transaction rollback failed: ${rollbackErrors.join("; ")}`
+      : "";
+    throw new Error(`${(err as Error).message}${suffix}`);
+  }
+}
+
+/** Roll back a retained Core-update publication and clear its journal on success. */
+export function rollbackRetainedManagedStateTransaction(
+  layout: SashLayout,
+  files: ManagedStateFileOperations = defaultManagedStateFileOperations,
+): boolean {
+  const stored = readJournal(layout);
+  if (!stored) return false;
+  if (stored.coordination !== "core-update" || stored.phase === "committed") {
+    throw new Error("Managed-state transaction is not a retained Core update publication");
+  }
+  restoreAndClear(stored, layout, files, "Retained managed-state transaction rollback failed");
+  return true;
+}
+
+/** Persist the decision to keep a retained publication before Core cleanup. */
+export function markRetainedManagedStateTransactionCommitted(layout: SashLayout): boolean {
+  const stored = readJournal(layout);
+  if (!stored) return false;
+  if (stored.coordination !== "core-update" || stored.phase !== "retained") {
+    throw new Error("Managed-state transaction is not ready for coordinated commit");
+  }
+  const raw = JSON.parse(fs.readFileSync(layout.managedStateTransactionFile, "utf8")) as
+    | ManagedStateTransactionJournalV3
+    | undefined;
+  if (raw?.version !== 3 || raw.coordination !== "core-update") {
+    throw new Error("Managed-state transaction changed during coordinated commit");
+  }
+  writeJournal(layout, { ...raw, phase: "committed" });
+  return true;
+}
+
+/** Clear only a durably committed coordinated publication. */
+export function clearCommittedManagedStateTransaction(layout: SashLayout): boolean {
+  const stored = readJournal(layout);
+  if (!stored) return false;
+  if (stored.coordination !== "core-update" || stored.phase !== "committed") {
+    throw new Error("Managed-state transaction is not committed coordinated state");
+  }
+  durableRemoveFileSync(layout.managedStateTransactionFile);
+  return true;
 }
 
 /**
@@ -281,40 +463,19 @@ export async function commitManagedStateTransaction(
   files: ManagedStateFileOperations = defaultManagedStateFileOperations,
 ): Promise<void> {
   recoverManagedStateTransaction(layout, files);
-  const profilePath = transaction.profile
-    ? profileFilePath(layout, transaction.profile.id)
-    : undefined;
-  const snapshots = snapshot([
-    ...(profilePath ? [profilePath] : []),
-    ...(transaction.index ? [layout.profilesIndexFile] : []),
-    ...(transaction.config ? [layout.configFile] : []),
-    ...(transaction.settings ? [layout.settingsFile] : []),
-  ]);
+  const { profilePath, snapshots } = transactionSnapshots(layout, transaction);
   const journal = journalFromSnapshots(snapshots, layout, transaction.profile?.id);
-  atomicWriteFileSync(layout.managedStateTransactionFile, `${JSON.stringify(journal)}\n`);
+  writeJournal(layout, journal);
   let reloadAttempted = false;
 
   try {
-    if (profilePath && transaction.profile) {
-      if (transaction.profile.yamlText === null) files.remove(profilePath);
-      else files.write(profilePath, transaction.profile.yamlText);
-    }
-    if (transaction.index) {
-      files.write(layout.profilesIndexFile, serializeProfiles(transaction.index));
-    }
-    if (transaction.config) files.write(layout.configFile, transaction.config.yaml);
-    if (transaction.settings) {
-      files.write(layout.settingsFile, `${JSON.stringify(transaction.settings, null, 2)}\n`);
-    }
+    publishFiles(layout, transaction, profilePath, files);
     if (transaction.config && transaction.reloadRuntime !== false && reloadConfig) {
       reloadAttempted = true;
       await reloadConfig(layout.configFile);
     }
     await transaction.applyRuntime?.();
-    atomicWriteFileSync(
-      layout.managedStateTransactionFile,
-      `${JSON.stringify({ ...journal, phase: "committed" })}\n`,
-    );
+    writeJournal(layout, { ...journal, phase: "committed" });
     durableRemoveFileSync(layout.managedStateTransactionFile);
   } catch (err) {
     const rollbackErrors = restore(snapshots, files);

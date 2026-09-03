@@ -1,3 +1,4 @@
+import { hasExactOwnKeys } from "../json-shape.js";
 import {
   compareStrings,
   isPlainObject,
@@ -28,8 +29,7 @@ function hasExactKeys(
   if (!isPlainObject(value)) {
     throw new Error(`Invalid system proxy snapshot: ${label} must be a plain object`);
   }
-  const actual = Object.keys(value);
-  if (actual.length !== keys.length || !keys.every((key) => Object.hasOwn(value, key))) {
+  if (!hasExactOwnKeys(value, keys)) {
     throw new Error(`Invalid system proxy snapshot: ${label} has unexpected fields`);
   }
   return value;

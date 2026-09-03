@@ -3,7 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { validateCoreConfigText } from "./core-config-validation.js";
+import {
+  validateCoreConfigText,
+  validateCoreConfigTextWithExecutable,
+} from "./core-config-validation.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
 describe("Core config validation", () => {
@@ -29,6 +32,26 @@ describe("Core config validation", () => {
       candidate = args[4] ?? "";
       assert.equal(fs.readFileSync(candidate, "utf8"), "rules:\n  - MATCH,DIRECT\n");
     });
+
+    assert.ok(candidate);
+    assert.equal(fs.existsSync(candidate), false);
+  });
+
+  it("can validate the candidate with an explicit staged executable", async () => {
+    const staged = path.join(layout.binDir, "staged-core");
+    fs.writeFileSync(staged, "staged");
+    let candidate = "";
+
+    await validateCoreConfigTextWithExecutable(
+      staged,
+      "rules:\n  - MATCH,DIRECT\n",
+      layout,
+      (executable, args) => {
+        assert.equal(executable, staged);
+        candidate = args[4] ?? "";
+        assert.equal(fs.readFileSync(candidate, "utf8"), "rules:\n  - MATCH,DIRECT\n");
+      },
+    );
 
     assert.ok(candidate);
     assert.equal(fs.existsSync(candidate), false);

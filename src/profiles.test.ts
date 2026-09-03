@@ -63,6 +63,17 @@ describe("profiles store", () => {
     assert.deepEqual(loadProfiles(layout), { activeId: a.id, profiles: [a] });
   });
 
+  it("accepts existing parseable non-canonical profile timestamps", () => {
+    const profile = meta("1", {
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T08:00:00+08:00",
+    });
+
+    saveProfiles({ activeId: profile.id, profiles: [profile] }, layout);
+
+    assert.deepEqual(loadProfiles(layout), { activeId: profile.id, profiles: [profile] });
+  });
+
   it("reads stored profile YAML and rejects invalid or missing content", () => {
     const profile = meta("1");
     saveProfiles({ activeId: profile.id, profiles: [profile] }, layout);

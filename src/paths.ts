@@ -6,8 +6,6 @@ import path from "node:path";
  * per-platform data dir conventions; SASH_HOME may override it when absolute.
  */
 
-const DIR_NAME = "sash";
-
 function envPathOr(fallback: string, value: string | undefined): string {
   const trimmed = value?.trim();
   // Per XDG spec: non-absolute paths must be ignored to avoid cwd-dependent drift.
@@ -30,7 +28,7 @@ export function sashRoot(): string {
     return path.join(os.homedir(), "Library", "Application Support", "Sash");
   }
   const xdgData = envPathOr(path.join(os.homedir(), ".local", "share"), process.env.XDG_DATA_HOME);
-  return path.join(xdgData, DIR_NAME);
+  return path.join(xdgData, "sash");
 }
 
 export interface SashLayout {

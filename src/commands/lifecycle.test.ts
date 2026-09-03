@@ -41,11 +41,14 @@ describe("lifecycle commands", () => {
     server = http.createServer((req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
       if (req.url === "/sash/health") {
-        res.end(JSON.stringify({ ok: true, token: daemonToken, pid: process.pid }));
-        return;
-      }
-      if (req.url === "/sash/status") {
-        res.end(JSON.stringify({ core: { running: true, healthy: true, pid: 77 } }));
+        res.end(
+          JSON.stringify({
+            ok: true,
+            token: daemonToken,
+            pid: process.pid,
+            startedAt: "2026-01-01T00:00:00.000Z",
+          }),
+        );
         return;
       }
       if (req.url === "/core/start") {
@@ -107,7 +110,14 @@ describe("lifecycle commands", () => {
     server = http.createServer((req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
       if (req.url === "/sash/health") {
-        res.end(JSON.stringify({ ok: true, token: daemonToken, pid: process.pid }));
+        res.end(
+          JSON.stringify({
+            ok: true,
+            token: daemonToken,
+            pid: process.pid,
+            startedAt: "2026-01-01T00:00:00.000Z",
+          }),
+        );
         return;
       }
       if (req.url === "/sash/maintenance/shutdown") {

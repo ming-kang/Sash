@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { errnoCode } from "./error-utils.js";
 
 /**
  * Atomic file writes: write to a temp file in the same directory, fsync, then
@@ -67,6 +68,16 @@ export function removeWithRetrySync(target: string, options: FileRetryOptions = 
     }
   }
   throw lastError;
+}
+
+export function pathEntryExists(target: string): boolean {
+  try {
+    fs.lstatSync(target);
+    return true;
+  } catch (err) {
+    if (errnoCode(err) === "ENOENT") return false;
+    throw err;
+  }
 }
 
 export function atomicWriteFileSync(target: string, data: string | Buffer, mode = 0o600): void {

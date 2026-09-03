@@ -5,44 +5,78 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonPidRecord } from "./daemon.js";
 import { SashDaemonClient } from "./daemon-client.js";
+import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import { log } from "./log.js";
+import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-follow.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import {
   buildSanitizedEnv,
   commandLineContains,
   isProcessAlive,
   killProcessGracefully,
-  tailFile,
+  withPrivateAppendLogFds,
 } from "./process.js";
 import { loadSettings, type SashSettings } from "./settings.js";
 import { readStateLockRecord, type StateLockRecord, withStateLock } from "./state-lock.js";
 
-export interface DaemonRunningInfo {
-  running: boolean;
+export interface DaemonStoppedInfo {
+  kind: "stopped";
+  running: false;
+  healthy: false;
   pid?: number;
-  healthy?: boolean;
-  stalePidFile?: boolean;
-  staleLeaseFile?: boolean;
-  legacyOwnership?: boolean;
-  port?: number;
+  stalePidFile?: true;
+  staleLeaseFile?: true;
 }
+
+export interface DaemonHealthyInfo {
+  kind: "healthy";
+  running: true;
+  healthy: true;
+  pid: number;
+  port: number;
+  legacyOwnership?: true;
+}
+
+export interface DaemonUnhealthyInfo {
+  kind: "unhealthy";
+  running: true;
+  healthy: false;
+  pid?: number;
+  port?: number;
+  stalePidFile?: true;
+  staleLeaseFile?: true;
+  legacyOwnership?: true;
+}
+
+export type DaemonRunningInfo = DaemonStoppedInfo | DaemonHealthyInfo | DaemonUnhealthyInfo;
 
 export function readDaemonPidRecord(
   layout: SashLayout = sashLayout(),
 ): DaemonPidRecord | undefined {
   try {
     if (!fs.existsSync(layout.daemonPidFile)) return undefined;
-    const raw = fs.readFileSync(layout.daemonPidFile, "utf8");
-    const parsed = JSON.parse(raw) as Partial<DaemonPidRecord>;
+    const parsed = JSON.parse(fs.readFileSync(layout.daemonPidFile, "utf8")) as unknown;
     if (
-      typeof parsed.pid === "number" &&
-      parsed.pid > 0 &&
-      typeof parsed.token === "string" &&
-      typeof parsed.port === "number"
+      !isPlainObject(parsed) ||
+      typeof parsed.pid !== "number" ||
+      !Number.isSafeInteger(parsed.pid) ||
+      parsed.pid <= 0 ||
+      typeof parsed.token !== "string" ||
+      !parsed.token.trim() ||
+      typeof parsed.port !== "number" ||
+      !Number.isInteger(parsed.port) ||
+      parsed.port < 1 ||
+      parsed.port > 65_535 ||
+      !isCanonicalIsoTimestamp(parsed.startedAt)
     ) {
-      return parsed as DaemonPidRecord;
+      return undefined;
     }
-    return undefined;
+    return {
+      pid: parsed.pid,
+      token: parsed.token,
+      port: parsed.port,
+      startedAt: parsed.startedAt,
+    };
   } catch {
     return undefined;
   }
@@ -67,7 +101,12 @@ export async function evaluateDaemon(
   } catch {
     // A corrupt singleton record is an ownership conflict, not evidence that
     // it is safe to mutate state or start a second daemon.
-    return { running: true, healthy: false, ...(record ? { stalePidFile: true } : {}) };
+    return {
+      kind: "unhealthy",
+      running: true,
+      healthy: false,
+      ...(record ? { stalePidFile: true } : {}),
+    };
   }
 
   if (!lease || !isProcessAlive(lease.pid)) {
@@ -78,6 +117,7 @@ export async function evaluateDaemon(
         const health = await legacyClient.health();
         if (health.ok && health.token === record.token && health.pid === record.pid) {
           return {
+            kind: "healthy",
             running: true,
             healthy: true,
             legacyOwnership: true,
@@ -89,6 +129,7 @@ export async function evaluateDaemon(
         // Fall through to the fail-closed ownership result below.
       }
       return {
+        kind: "unhealthy",
         running: true,
         healthy: false,
         legacyOwnership: true,
@@ -97,7 +138,9 @@ export async function evaluateDaemon(
       };
     }
     return {
+      kind: "stopped",
       running: false,
+      healthy: false,
       ...(record || lease ? { pid: record?.pid ?? lease?.pid } : {}),
       ...(record ? { stalePidFile: true } : {}),
       ...(lease ? { staleLeaseFile: true } : {}),
@@ -105,6 +148,7 @@ export async function evaluateDaemon(
   }
   if (!record || record.pid !== lease.pid || !isProcessAlive(record.pid)) {
     return {
+      kind: "unhealthy",
       running: true,
       healthy: false,
       pid: lease.pid,
@@ -119,16 +163,24 @@ export async function evaluateDaemon(
     const health = await client.health();
     if (health.ok && health.token === record.token && health.pid === record.pid) {
       return {
+        kind: "healthy",
         running: true,
         pid: record.pid,
         healthy: true,
         port: record.port,
       };
     }
-    return { running: true, healthy: false, stalePidFile: true, pid: record.pid };
+    return {
+      kind: "unhealthy",
+      running: true,
+      healthy: false,
+      stalePidFile: true,
+      pid: record.pid,
+    };
   } catch {
     // Process is alive but API doesn't answer (may still be booting or stuck)
     return {
+      kind: "unhealthy",
       running: true,
       pid: record.pid,
       healthy: false,
@@ -147,6 +199,12 @@ function resolveDaemonEntryPath(): string {
   return candidate;
 }
 
+/** Bounded startup diagnostics: only errors appended after spawn are reported. */
+function daemonStartupDiagnostics(layout: SashLayout, cursor: LogFileCursor): string {
+  const details = boundedLogTailSince(layout.daemonErrLogFile, cursor, { maxLines: 20 });
+  return `${details ? `\nRecent errors:\n${details}` : ""}\nCheck logs at: ${layout.daemonErrLogFile}`;
+}
+
 async function spawnDaemonUnlocked(
   opts: { layout?: SashLayout; settings?: SashSettings; timeoutMs?: number } = {},
 ): Promise<{ pid: number }> {
@@ -155,16 +213,16 @@ async function spawnDaemonUnlocked(
   const timeoutMs = opts.timeoutMs ?? 10_000;
 
   const state = await evaluateDaemon(layout, settings);
-  if (state.running && state.healthy && state.pid) {
+  if (state.kind === "healthy") {
     return { pid: state.pid };
   }
-  if (state.running) {
+  if (state.kind !== "stopped") {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       await sleep(200);
       const current = await evaluateDaemon(layout, settings);
-      if (current.running && current.healthy && current.pid) return { pid: current.pid };
-      if (!current.running) break;
+      if (current.kind === "healthy") return { pid: current.pid };
+      if (current.kind === "stopped") break;
     }
     const owner = state.pid ? ` (PID=${state.pid})` : "";
     throw new Error(
@@ -174,45 +232,29 @@ async function spawnDaemonUnlocked(
   fs.mkdirSync(layout.logsDir, { recursive: true });
   fs.mkdirSync(layout.stateDir, { recursive: true });
 
-  const outFd = fs.openSync(layout.daemonLogFile, "a", 0o600);
-  let errFd: number;
-  try {
-    if (process.platform !== "win32") {
-      try {
-        fs.chmodSync(layout.daemonLogFile, 0o600);
-      } catch {
-        // ignore
-      }
-    }
-    errFd = fs.openSync(layout.daemonErrLogFile, "a", 0o600);
-    if (process.platform !== "win32") {
-      try {
-        fs.chmodSync(layout.daemonErrLogFile, 0o600);
-      } catch {
-        // ignore
-      }
-    }
-  } catch (err) {
-    fs.closeSync(outFd);
-    throw err;
-  }
-
   const entryPath = resolveDaemonEntryPath();
   const sanitizedEnv = buildSanitizedEnv();
 
   // If entry ends in .ts, resolve tsx relative to Sash itself rather than the
-  // data-directory cwd used by the child daemon.
+  // data-directory cwd used by the child daemon. Compute every spawn argument
+  // before opening log descriptors so a synchronous failure cannot leak them.
   const nodeArgs = entryPath.endsWith(".ts")
     ? ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, entryPath]
     : [entryPath];
 
-  const child = spawn(process.execPath, nodeArgs, {
-    cwd: layout.root,
-    detached: true,
-    stdio: ["ignore", outFd, errFd],
-    windowsHide: true,
-    env: { ...sanitizedEnv, SASH_HOME: layout.root },
-  });
+  const errLogCursor = logTailCursor(layout.daemonErrLogFile);
+  const child = withPrivateAppendLogFds(
+    layout.daemonLogFile,
+    layout.daemonErrLogFile,
+    ({ stdoutFd, stderrFd }) =>
+      spawn(process.execPath, nodeArgs, {
+        cwd: layout.root,
+        detached: true,
+        stdio: ["ignore", stdoutFd, stderrFd],
+        windowsHide: true,
+        env: { ...sanitizedEnv, SASH_HOME: layout.root },
+      }),
+  );
 
   let spawnError: Error | undefined;
   child.once("error", (err) => {
@@ -220,12 +262,6 @@ async function spawnDaemonUnlocked(
   });
 
   child.unref();
-  try {
-    fs.closeSync(outFd);
-    fs.closeSync(errFd);
-  } catch {
-    // ignore
-  }
 
   const pid = child.pid;
   if (!pid) {
@@ -237,18 +273,14 @@ async function spawnDaemonUnlocked(
 
   while (Date.now() < deadline) {
     if (spawnError) {
-      const details = tailFile(layout.daemonErrLogFile, 20);
       throw new Error(
-        `Failed to start sashd: ${spawnError.message}${details ? `\n${details}` : ""}`,
+        `Failed to start sashd: ${spawnError.message}${daemonStartupDiagnostics(layout, errLogCursor)}`,
       );
     }
 
     if (!isProcessAlive(pid)) {
-      const details = tailFile(layout.daemonErrLogFile, 20);
       throw new Error(
-        `sashd (PID=${pid}) exited unexpectedly during startup.${
-          details ? `\nRecent errors:\n${details}` : ""
-        }\nCheck logs at: ${layout.daemonErrLogFile}`,
+        `sashd (PID=${pid}) exited unexpectedly during startup.${daemonStartupDiagnostics(layout, errLogCursor)}`,
       );
     }
 
@@ -283,14 +315,11 @@ async function spawnDaemonUnlocked(
         ? "match"
         : "mismatch",
   });
-  const details = tailFile(layout.daemonErrLogFile, 20);
   const cleanup = terminated
     ? ""
     : " The daemon could not be confirmed stopped; ownership state was preserved.";
   throw new Error(
-    `sashd started (PID=${pid}) but control API did not respond within ${timeoutMs}ms.${cleanup}${
-      details ? `\nRecent errors:\n${details}` : ""
-    }\nCheck logs at: ${layout.daemonErrLogFile}`,
+    `sashd started (PID=${pid}) but control API did not respond within ${timeoutMs}ms.${cleanup}${daemonStartupDiagnostics(layout, errLogCursor)}`,
   );
 }
 
@@ -313,7 +342,7 @@ export async function ensureDaemon(
   const layout = opts.layout ?? sashLayout();
   const settings = opts.settings ?? loadSettings(layout);
   const state = await evaluateDaemon(layout, settings);
-  if (state.running && state.healthy) return;
+  if (state.kind === "healthy") return;
   await spawnDaemon({ layout, settings });
 }
 
@@ -355,18 +384,15 @@ export async function prepareDaemonMaintenance(
   deps: DaemonMaintenanceDeps = {},
 ): Promise<DaemonMaintenanceSnapshot> {
   const daemonState = await (deps.evaluateDaemon ?? evaluateDaemon)(layout, settings);
-  if (daemonState.running && !daemonState.healthy) {
+  if (daemonState.kind === "unhealthy") {
     throw new Error(`sashd is running but unresponsive; refusing a competing ${purpose}`);
   }
-  if (!daemonState.running) {
+  if (daemonState.kind === "stopped") {
     return { daemonWasRunning: false, legacyDaemon: false, coreWasRunning: false };
-  }
-  if (!daemonState.pid) {
-    throw new Error(`sashd is running without a verified PID; refusing the ${purpose}`);
   }
 
   const client = (deps.clientFactory ?? ((port, secret) => new SashDaemonClient(port, secret)))(
-    settings.daemonPort,
+    daemonState.port,
     settings.daemonSecret,
   );
   if (daemonState.legacyOwnership) {

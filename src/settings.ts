@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { atomicWriteFileSync } from "./fs-atomic.js";
+import { isPlainObject } from "./json-shape.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { acquireStateLockSync } from "./state-lock.js";
 
@@ -27,12 +28,27 @@ export interface SashSettings {
   systemProxy: boolean;
 }
 
-export type PublicSashSettings = Pick<
-  SashSettings,
-  "mixedPort" | "controller" | "tun" | "allowLan" | "daemonPort" | "systemProxy"
->;
+const PUBLIC_SETTINGS_KEYS = [
+  "mixedPort",
+  "controller",
+  "tun",
+  "allowLan",
+  "daemonPort",
+  "systemProxy",
+] as const satisfies readonly (keyof SashSettings)[];
 
-const CANONICAL_SETTINGS_KEYS = [
+export type PublicSashSettings = Pick<SashSettings, (typeof PUBLIC_SETTINGS_KEYS)[number]>;
+
+type ExhaustiveKeyList<T, Keys extends readonly (keyof T)[]> = Keys &
+  (Exclude<keyof T, Keys[number]> extends never
+    ? unknown
+    : { readonly missingKeys: Exclude<keyof T, Keys[number]> });
+
+function exhaustiveKeys<T>() {
+  return <const Keys extends readonly (keyof T)[]>(keys: ExhaustiveKeyList<T, Keys>): Keys => keys;
+}
+
+const CANONICAL_SETTINGS_KEYS = exhaustiveKeys<SashSettings>()([
   "schemaVersion",
   "subscriptionUrl",
   "mixedPort",
@@ -43,7 +59,7 @@ const CANONICAL_SETTINGS_KEYS = [
   "daemonPort",
   "daemonSecret",
   "systemProxy",
-] as const;
+]);
 
 const LEGACY_SETTINGS_KEYS = ["coreVersion", "uiVersion"] as const;
 const ACCEPTED_SETTINGS_KEYS = new Set<string>([
@@ -60,6 +76,10 @@ export function publicSettings(settings: SashSettings): PublicSashSettings {
     daemonPort: settings.daemonPort,
     systemProxy: settings.systemProxy,
   };
+}
+
+export function sameSettings(a: SashSettings, b: SashSettings): boolean {
+  return CANONICAL_SETTINGS_KEYS.every((key) => a[key] === b[key]);
 }
 
 export const DEFAULT_SETTINGS: SashSettings = {
@@ -82,15 +102,6 @@ interface ParsedSettings {
 interface FieldResult<T> {
   value: T;
   missing: boolean;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
-  );
 }
 
 function hasOwn(object: Record<string, unknown>, key: string): boolean {
@@ -321,7 +332,6 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
   // diverge from the caller's requested settings.
   const normalizedSecret = secret.missing ? generateSecret() : secret.value;
   const normalizedDaemonSecret = daemonSecret.missing ? generateSecret() : daemonSecret.value;
-  needsRewrite ||= secret.missing || daemonSecret.missing;
 
   const settings: SashSettings = {
     schemaVersion: 1,
@@ -421,16 +431,21 @@ export function saveSettings(
 }
 
 /** Keys accepted by `sash config set` and the sashd PATCH /settings route. */
-export const SETTABLE_KEYS = [
-  "tun",
-  "allow-lan",
-  "mixed-port",
-  "controller",
-  "secret",
-  "system-proxy",
-] as const;
+const SETTABLE_KEY_METADATA = {
+  tun: { requiresCoreRestart: true },
+  "allow-lan": { requiresCoreRestart: true },
+  "mixed-port": { requiresCoreRestart: true },
+  controller: { requiresCoreRestart: true },
+  secret: { requiresCoreRestart: true },
+  "system-proxy": { requiresCoreRestart: false },
+} as const satisfies Record<string, { readonly requiresCoreRestart: boolean }>;
 
-export type SettableKey = (typeof SETTABLE_KEYS)[number];
+export type SettableKey = keyof typeof SETTABLE_KEY_METADATA;
+export const SETTABLE_KEYS = Object.keys(SETTABLE_KEY_METADATA) as readonly SettableKey[];
+
+export function isSettableKey(key: string): key is SettableKey {
+  return Object.hasOwn(SETTABLE_KEY_METADATA, key);
+}
 
 /**
  * These keys change where/how the core listens or authenticates; a running
@@ -438,16 +453,7 @@ export type SettableKey = (typeof SETTABLE_KEYS)[number];
  * address/secret), so they require a restart.
  */
 export function requiresCoreRestart(key: string): boolean {
-  switch (key) {
-    case "controller":
-    case "secret":
-    case "tun":
-    case "mixed-port":
-    case "allow-lan":
-      return true;
-    default:
-      return false;
-  }
+  return isSettableKey(key) && SETTABLE_KEY_METADATA[key].requiresCoreRestart;
 }
 
 export interface ControllerAddress {
@@ -472,10 +478,6 @@ export function parseControllerAddress(value: string): ControllerAddress | undef
   return { host, port, canonical: `${host}:${port}` };
 }
 
-export function validateController(value: string): boolean {
-  return parseControllerAddress(value) !== undefined;
-}
-
 function parseOnOff(value: string | undefined): boolean {
   if (value === "on" || value === "true" || value === "1") return true;
   if (value === "off" || value === "false" || value === "0") return false;
@@ -492,6 +494,9 @@ export function applyManagedKey(
   key: string,
   value: string | undefined,
 ): SashSettings {
+  if (!isSettableKey(key)) {
+    throw new Error(`unknown key: ${key} (settable: ${SETTABLE_KEYS.join(", ")})`);
+  }
   const candidate = { ...settings };
   switch (key) {
     case "tun":
@@ -533,8 +538,10 @@ export function applyManagedKey(
       }
       break;
     }
-    default:
-      throw new Error(`unknown key: ${key} (settable: ${SETTABLE_KEYS.join(", ")})`);
+    default: {
+      const exhaustive: never = key;
+      throw new Error(`unknown key: ${exhaustive} (settable: ${SETTABLE_KEYS.join(", ")})`);
+    }
   }
   // Use the same complete canonical validation used by persistence, but keep
   // CLI-oriented errors free of a filesystem path.

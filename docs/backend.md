@@ -28,14 +28,19 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/supervisor.ts`: child ownership, readiness probes and verified termination.
 - `src/daemon-lifecycle.ts`: daemon discovery, singleton startup, CLI shutdown and the maintenance boundary used by full restarts and Core updates.
 - `src/state-lock.ts`: atomic file leases and cross-process mutation queues.
-- `src/system-proxy-manager.ts`: durable proxy ownership journal and conditional recovery.
-- `src/sysproxy.ts` / `src/sysproxy/`: public system-proxy API plus focused Windows, macOS and GNOME snapshot/apply backends.
-- `src/profile-service.ts`: profile/config application transactions.
-- `src/core-update.ts`: executable/install-record update transaction and crash recovery.
+- `src/system-proxy-manager.ts`: durable proxy ownership journal, serialized asynchronous OS operations, generation-bound observation cache and conditional recovery.
+- `src/sysproxy.ts` / `src/sysproxy/`: public system-proxy API plus focused Windows, macOS and GNOME asynchronous snapshot/apply backends.
+- `src/profile-service.ts`: profile/config preparation and publication through one-shot opaque capabilities with strict optimistic rechecks.
+- `src/core-install-record.ts`: the canonical install-record codec and release-tag validation shared by install and update paths.
+- `src/core-update.ts`: the low-level executable/install-record transaction, force-repair quarantine and crash recovery.
+- `src/core-update-coordination.ts`: one logical commit/rollback decision across retained managed state and the Core update journal.
+- `src/core-update-service.ts`: staged update, runtime ownership, maintenance, publication and restoration orchestration.
+- `src/offline-mutation.ts` / `src/runtime-recovery.ts`: daemon/offline ownership checks and the fixed legacy-proxy, journaled-proxy, stale-Core and update-recovery order.
 - `src/http.ts` / `src/github.ts`: bounded networking and trusted release downloads, including one absolute asset budget shared across mirror attempts and redirects.
-- `src/settings.ts`: versioned runtime schema and immutable managed-key candidates for `sash.json`.
+- `src/settings.ts`: versioned runtime schema, explicit public-field allowlist and immutable managed-key candidates for `sash.json`.
 - `src/settings-service.ts`: shared online/offline settings preparation, durable publication and runtime-transition orchestration.
-- `src/contracts.ts`: API contracts shared by the daemon client and WebUI.
+- `src/contracts.ts`: browser-safe API contracts and `unknown`-to-typed response parsers shared by the daemon client and WebUI.
+- `src/json-shape.ts` / `src/error-utils.ts`: domain-neutral JSON shape, canonical timestamp and unknown-error helpers; persistent readers retain their own size, missing and corruption policies.
 - `src/status.ts`: stable CLI status/proxy observations, explicit unknown values and complete/incomplete exit semantics.
 - `src/log-follow.ts`: bounded tail/follow cursors with creation, truncation, identity-rotation and cancellation handling.
 
@@ -53,9 +58,9 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `state/settings.lock` prevents concurrent first-run secret generation and settings rewrites.
 - `state/system-proxy.json.lock` serializes proxy journal operations.
 
-Lock records are fully written and fsynced before an atomic hard-link publishes them. A live owner is never displaced. Dead owners can be reclaimed; corrupt records fail closed and require explicit repair. Durable rename/remove operations retry Windows sharing violations without deleting a caller-owned source; an interrupted executable unlock probe is restored before Core consistency checks, while conflicting target/probe bytes are both preserved for explicit repair.
+Lock records are fully written and fsynced before an atomic hard-link publishes them. Synchronous and asynchronous callers share one acquisition decision and differ only in how they wait, so live-owner, dead-owner, corruption and deadline rules cannot drift. A live owner is never displaced. Dead owners can be reclaimed; corrupt records fail closed and require explicit repair. If a lock disappears between metadata inspection and bounded content read it is retried as a missing observation rather than mislabeled corrupt. Durable rename/remove operations retry Windows sharing violations without deleting a caller-owned source; an interrupted executable unlock probe is restored before Core consistency checks, while conflicting target/probe bytes are both preserved for explicit repair.
 
-Offline commands reload settings after acquiring `mutation.lock`. They refuse to write when a daemon lease, live orphan Core PID or corrupt Core PID record makes ownership uncertain.
+Offline commands reload settings after acquiring `mutation.lock`. Ordinary mutations refuse a live orphan Core or corrupt PID record. Lifecycle and update callers must explicitly request reconciliation, which restores legacy and journaled proxy ownership before terminating only a verified stale Core and then recovering coordinated update state.
 
 ### Runtime lifecycle
 
@@ -96,6 +101,8 @@ Unexpected Core exit retries proxy restoration and records failures in daemon er
 
 Appending `?fresh=1` to status/proxy reads bypasses the short OS-state cache used by normal WebUI polling.
 
+The Node daemon client and browser WebUI both read successful health, status and proxy bodies as `unknown`, then pass them through the same browser-safe parsers in `src/contracts.ts`. Required nested fields, positive safe-integer PIDs, valid ports, nonnegative revisions, canonical timestamps, optional Core fields, proxy state and explicit public settings are validated before state changes. Unknown extra fields are tolerated for forward compatibility but discarded from the typed projection. `appliedKnown` and `stateKnown` are mandatory inside the current daemon; only the network parser normalizes flags omitted by a legacy daemon to `false`. A malformed `200` response is therefore an error, not trusted TypeScript data.
+
 ### `/core/*`
 
 | Endpoint | Method | Description |
@@ -107,7 +114,13 @@ Appending `?fresh=1` to status/proxy reads bypasses the short OS-state cache use
 
 ### `/core/api/*`
 
-Every request in this namespace requires the persistent CLI bearer or per-boot WebUI token before an upstream connection is opened. `sashd` strips Sash credentials and the browser Host header, then injects the internal controller bearer. Traffic/log streams use authenticated WebSocket upgrades.
+Every request in this namespace requires the persistent CLI bearer or per-boot WebUI token before an upstream connection is opened. `sashd` strips Sash credentials and the browser Host header, then injects the internal controller bearer.
+
+HTTP and WebSocket routing consume one parsed origin-form request target. Absolute-form, authority-form, asterisk-form, network-path and cross-authority backslash targets are rejected with `400`. Route matching removes only trailing route slashes; WHATWG dot-segment normalization happens once, encoded slashes are not decoded again, and the same canonical pathname constructs the Core target. In particular, `/core/api?x=1` forwards as `/?x=1`, repeated namespace-root slashes collapse to `/`, and the query is appended exactly once.
+
+Known paths with the wrong method return `405` plus `Allow`. Dashboard redirects accept only `GET`/`HEAD` and preserve the root query. Legacy aliases remain explicit rather than coming from generic `/sash` prefix removal: `/health`, `/status`, `/proxy`, `/proxy/enable`, `/proxy/disable`, `/settings`, `/shutdown` and `/config/reload` retain only their documented method-specific mappings.
+
+Traffic/log streams use authenticated `GET` WebSocket upgrades. The WebSocket allowlist is `/core/api/*`, `/traffic` and `/logs`; standard HTTP controller prefixes are not implicitly WebSocket-enabled.
 
 ---
 
@@ -130,6 +143,8 @@ After managed-state recovery, daemon and offline initialization first migrate a 
 
 `SettingsService` snapshots committed settings, creates an immutable canonical candidate, then fetches/renders/Core-validates active profile configuration outside the mutation lock. Under the short commit boundary it rechecks settings/profile snapshots and journals settings plus generated config before publication. The daemon exposes only `committedSettings` to GET/status/auth handlers; Core spawn/restart can temporarily use `runtimeSettings` while a candidate transition is in progress. The committed in-memory snapshot changes only after the journaled transition succeeds; failure restores disk/config and the old runtime. Online TUN enable is additionally committed only when the restarted Core reports `tun.enable: true`; inactive or unverified results use the same disk/config/runtime compensation path. Inactive TUN errors direct every platform to rerun a full `sash restart` from an elevated shell, which replaces the daemon itself; they preserve the data root explicitly only where it was customized or `sudo` would change the default home. A Core-only restart (for example from the dashboard) cannot elevate `sashd`.
 
+Prepared profile work is never exposed as a mutable internal transaction object. `ProfileService` issues WeakMap-backed, one-shot opaque capabilities that reject forgery, cross-instance use and repeated consumption. Settings publication deliberately binds a weak active-source snapshot (`activeId`, profile identity/URL and exact raw YAML digest), so unrelated metadata updates do not invalidate an otherwise safe settings change. A strict active reload instead binds the committed settings, complete active `ProfileMeta`, active selection and raw digest. Both paths prepare outside the mutation boundary and consume the capability only while rechecking and publishing; only a conflict raised before the publication callback is entered receives the single bounded automatic retry.
+
 Profile application follows:
 
 1. Parse the untrusted source profile.
@@ -138,8 +153,9 @@ Profile application follows:
 4. Run the installed Core with `-t -d <root> -f <candidate>`.
 5. Enter the short profile commit boundary, re-read the bounded regular index/profile files and verify the target profile identity, URL, active selection, managed-settings snapshot and exact raw-profile SHA-256 captured during preparation.
 6. Snapshot the affected fixed roles (`sash.json`, profile YAML, index and/or `config.yaml`), then atomically persist a `publishing` record in `state/managed-state-transaction.json` before publication.
-7. Reload or restart the runtime only after every file is published, mark the journal `committed`, then clear it. The same journal can include the canonical `sash.json` snapshot for settings/config publication. Startup finalizes a committed journal without rolling the published state back.
-8. On any publication or reload failure, restore every snapshot (continuing after individual restore errors), then reload the prior config when one existed. A rollback reload failure is reported explicitly. Incomplete rollback retains the journal; daemon and offline initialization recover a `publishing` journal under `mutation.lock` before reading or migrating profile state.
+7. Ordinary settings/profile publication reloads or restarts only after every file is published, marks the journal `committed`, then clears it. The same journal can include the canonical `sash.json` snapshot. Startup finalizes a committed journal without rolling the published state back.
+8. Core update publication uses a version-3 `core-update` coordination record. After profile/index/config files publish, phase `retained` preserves their exact pre-update snapshots until the Core journal has a durable health/restoration outcome. Ordinary mutations cannot consume this retained state.
+9. On any publication or reload failure, restore every snapshot while continuing after individual restore errors, then reload the prior config when one existed. A rollback reload failure is reported explicitly. Incomplete rollback retains the journal; daemon and offline initialization recover an ordinary `publishing` journal under `mutation.lock` before reading or migrating profile state.
 
 The daemon parses profile request bodies before its mutation boundary. Remote fetch, YAML parsing, rendering and Core validation also occur before that boundary; only recheck, publication and runtime reload are serialized. Offline commands use the same split boundary after reloading settings, verifying daemon/orphan-Core ownership and migrating the legacy setting. Remote and stored profile YAML are capped at 8 MiB; `profiles/index.json` is capped at 2 MiB, and both must be regular files. Profile requests use an absolute deadline and explicit hop-by-hop redirects: HTTPS cannot downgrade to HTTP, restricted literal addresses cannot cross origins, and public origins cannot redirect to literal private/loopback targets. Scheduled network fetches use bounded concurrency; state commits remain serialized and recheck profile identity/URL and active selection before publication. Scheduler timers are retained when daemon cleanup or listener closure fails, and are cleared only after successful shutdown.
 
@@ -155,6 +171,10 @@ applied:   target was written and read back exactly
 restoring: restoration began and original/target-compatible partial state remains recoverable
 ```
 
+All platform capture/apply work runs through asynchronous `execFile` children with the same scrubbed environment, absolute trusted-tool resolution, timeout and output bounds as other managed helpers. Commands remain explicitly sequential: Windows writes PAC/endpoints before `ProxyEnable` and awaits best-effort WinINet refresh; macOS writes data before states and turns unwanted modes off before enabling selected modes; GNOME writes every endpoint before changing `mode`. This keeps the daemon event loop responsive without weakening partial-write ordering.
+
+`SystemProxyManager` serializes inspect, apply and release operations in one in-process queue in addition to the cross-process journal lock. Every mutation invalidates a monotonic observation generation when queued and again when complete. Same-generation inspections share one in-flight capture; ordinary polling can reuse a settled short-lived cache, while a fresh read bypasses only that settled cache. Inspection compares strict journal observations before and after OS capture and retries once if another process changes or removes the journal. Unstable observations are never cached. `/sash/health` does not enter this queue, so it remains responsive while a slow OS inspection is pending.
+
 Enable flow:
 
 1. Capture all fields Sash will modify.
@@ -167,7 +187,7 @@ Release/recovery restores only when every managed value still equals either the 
 
 Platform scope:
 
-- Windows: manual proxy, bypass list, PAC URL and automatic detection registry values.
+- Windows: manual proxy, bypass list and PAC URL are managed; the legacy flat automatic-detection value is observed for status but intentionally neither written nor verified.
 - macOS: HTTP, HTTPS, SOCKS and automatic proxy URL/state for every active network service. Existing authenticated proxy settings are not taken over because credentials cannot be restored safely.
 - Linux: GNOME `gsettings` mode, automatic URL, HTTP authentication toggle and HTTP/HTTPS/SOCKS endpoints. Other desktop environments are reported unsupported.
 
@@ -189,7 +209,11 @@ Release identity and asset metadata come only from official GitHub endpoints. As
 
 First install publishes through `state/core-install-transaction.json`: after staging has passed digest/version checks, Sash records an empty pre-install binary/metadata snapshot, publishes the executable, publishes `state/install.json`, marks the transaction `committed`, then clears it. Startup/offline recovery removes binary and metadata for an interrupted `publishing` transaction, while a `committed` marker is only cleared. Transaction JSON uses a strict fixed schema with no stored paths.
 
-Update flow downloads outside runtime ownership, asks `sashd` for the atomic maintenance shutdown snapshot without first reading status, waits for daemon exit, then takes `state/runtime.lock` for the offline executable transaction and runtime restoration. Before any swap, `state/core-update-transaction.json` records strict fixed-path previous/target install records and advances through `prepared`, `swapped` and `health-verified`. A previously running Core is verified immediately; a stopped Core remains in `swapped` with the old install record and `.bak` until its next managed start proves the target controller version/health. Startup then commits the target record and removes the rollback slot, or restores the previous binary/record and attempts to restart it after a failed candidate start. A health-verified update still retains its journal and rollback slot until the original daemon/Core state is restored. Every crash phase is recovered before ordinary consistency checks; malformed journals, missing rollback files and ambiguous binary/record states fail closed and are never executed.
+Update flow downloads and validates outside runtime ownership. Once staging completes, it acquires `state/runtime.lock` before requesting the atomic maintenance shutdown snapshot and keeps that ownership through offline publication and runtime restoration. Under `mutation.lock`, Sash reloads committed settings, performs legacy/journaled proxy cleanup and verified stale-Core cleanup once, recovers earlier update state, prepares the active profile outside the short commit boundary, then rechecks both the profile capability and controller vacancy before publication.
+
+The final mutation first writes a retained managed-state journal for profile/index/config snapshots, then starts `state/core-update-transaction.json`. Normal updates use the version-1 `prepared`, `swapped` and `health-verified` phases. A previously running Core is verified immediately; a stopped Core remains in `swapped` with the old install record and `.bak` until its next managed start proves the target controller version and health. Successful external restoration marks managed state committed before removing the Core rollback slot, so a crash cannot lose both rollback directions. Failure restores managed state before binary/install metadata and still attempts both sides if either rollback reports an error.
+
+Forced repair uses the version-2 `repair-prepared` and `repair-restoring` phases in addition to the normal swap/health phases. Malformed executable and install-metadata entries are moved to fixed `.repair.bak` quarantine paths only after the journal is durable. Partial quarantine and partial restoration are resumable. Missing, extra or unowned quarantine entries fail closed. Daemon startup and offline commands use the same proxy, stale-Core and coordinated-journal recovery order before ordinary consistency checks.
 
 Official digest metadata is mandatory. If the metadata API is unavailable, Sash refuses an unverifiable mirror download instead of falling back to executing unverified bytes.
 
@@ -204,9 +228,10 @@ Atomic state writes use a same-directory temporary file, file `fsync`, rename an
 - `config.yaml`: runtime config rendered from the active profile or the DIRECT-only default; a qualifying pre-profile file is preserved during its one-time local-profile import.
 - `state/sash.pid`, `state/sashd.pid`: discovery records.
 - `state/system-proxy.json`: durable proxy ownership transaction.
-- `state/managed-state-transaction.json`: recoverable settings/profile/index/config publication snapshots.
-- `state/install.json`: committed Core version metadata.
+- `state/managed-state-transaction.json`: recoverable settings/profile/index/config snapshots, including retained Core-update coordination state.
+- `state/install.json`: committed Core version metadata using the shared fixed-shape install-record codec.
 - `state/core-install-transaction.json`: strict first-install publication journal.
+- `state/core-update-transaction.json`: strict version-1 update journal or version-2 force-repair quarantine journal, including deferred managed-start rollback ownership.
 - `state/*.lock`: local-filesystem ownership records.
 
 `SASH_HOME` should reside on a local filesystem that supports atomic rename, hard links and normal per-user permissions.

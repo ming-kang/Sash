@@ -61,14 +61,14 @@ export async function validateCoreConfigFile(
   }
 }
 
-/** Validate the exact generated YAML with the installed Core before committing it. */
-export async function validateCoreConfigText(
+export async function validateCoreConfigTextWithExecutable(
+  executable: string,
   yaml: string,
   layout: SashLayout,
   runner: CoreConfigTestRunner = defaultRunner,
 ): Promise<void> {
-  if (!fs.existsSync(layout.coreExe)) {
-    throw new Error(`Core executable is missing: ${layout.coreExe}`);
+  if (!fs.existsSync(executable)) {
+    throw new Error(`Core executable is missing: ${executable}`);
   }
   fs.mkdirSync(layout.tempDir, { recursive: true });
   const candidate = path.join(
@@ -77,7 +77,7 @@ export async function validateCoreConfigText(
   );
   try {
     atomicWriteFileSync(candidate, yaml);
-    await validateCoreConfigFile(layout.coreExe, candidate, layout, runner);
+    await validateCoreConfigFile(executable, candidate, layout, runner);
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("Core rejected generated configuration:")) {
       throw err;
@@ -86,4 +86,13 @@ export async function validateCoreConfigText(
   } finally {
     fs.rmSync(candidate, { force: true });
   }
+}
+
+/** Validate the exact generated YAML with the installed Core before committing it. */
+export function validateCoreConfigText(
+  yaml: string,
+  layout: SashLayout,
+  runner: CoreConfigTestRunner = defaultRunner,
+): Promise<void> {
+  return validateCoreConfigTextWithExecutable(layout.coreExe, yaml, layout, runner);
 }

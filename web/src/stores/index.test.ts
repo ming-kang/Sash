@@ -57,6 +57,8 @@ function runtimeStatus(options: {
       desired: false,
       applied: false,
       actual: { supported: true, enabled: false },
+      appliedKnown: true,
+      stateKnown: true,
     },
     settings: {
       mixedPort: 17890,

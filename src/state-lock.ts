@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { errnoCode, errorMessage } from "./error-utils.js";
+import { isPlainObject } from "./json-shape.js";
 import { isProcessAlive } from "./process.js";
 
 /** On-disk ownership record for a state-file lock. */
@@ -47,23 +49,6 @@ type ExistingStateLock =
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_MS = 50;
 const syncWaitCell = new Int32Array(new SharedArrayBuffer(4));
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) === Object.prototype
-  );
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-function errnoCode(err: unknown): string | undefined {
-  return (err as NodeJS.ErrnoException).code;
-}
 
 function ownerDescription(owner?: StateLockOwner): string {
   const pid = owner?.pid ?? "unknown";
@@ -137,9 +122,17 @@ function readExistingStateLock(file: string): ExistingStateLock {
       return { kind: "corrupt", reason: "lock path is not a regular file" };
     }
 
+    let text: string;
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch (err) {
+      if (errnoCode(err) === "ENOENT") return { kind: "missing" };
+      return { kind: "corrupt", reason: `lock record is not valid JSON (${errorMessage(err)})` };
+    }
+
     let parsed: unknown;
     try {
-      parsed = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+      parsed = JSON.parse(text) as unknown;
     } catch (err) {
       return { kind: "corrupt", reason: `lock record is not valid JSON (${errorMessage(err)})` };
     }
@@ -319,80 +312,69 @@ export function readStateLockRecord(file: string): StateLockRecord | undefined {
   return existing.record;
 }
 
+type StateLockAcquisitionStep =
+  | { kind: "acquired"; lease: StateLockLease }
+  | { kind: "retry" }
+  | { kind: "wait"; delayMs: number };
+
+function createStateLockAcquisition(
+  file: string,
+  options: StateLockOptions,
+): () => StateLockAcquisitionStep {
+  const normalized = normalizeOptions(file, options);
+  ensureParentDirectory(file);
+  const deadline = Date.now() + normalized.timeoutMs;
+  let sawCorruptRecord = false;
+
+  return () => {
+    const lease = tryCreateStateLock(file, normalized);
+    if (lease) return { kind: "acquired", lease };
+
+    const existing = inspectExistingLock(file);
+    if (existing.kind === "missing") {
+      sawCorruptRecord = false;
+      return { kind: "retry" };
+    }
+
+    const remaining = deadline - Date.now();
+    if (existing.kind === "corrupt") {
+      if (sawCorruptRecord || remaining <= 0) {
+        throw lockError(
+          file,
+          `is corrupt and cannot be reclaimed (${existing.reason})`,
+          existing.owner,
+        );
+      }
+      sawCorruptRecord = true;
+      return { kind: "wait", delayMs: Math.min(normalized.pollMs, remaining) };
+    }
+
+    sawCorruptRecord = false;
+    if (remaining <= 0) throw busyError(file, existing.record);
+    return { kind: "wait", delayMs: Math.min(normalized.pollMs, remaining) };
+  };
+}
+
 /** Acquire a state-file lock without blocking the Node.js event loop. */
 export async function acquireStateLock(
   file: string,
   options: StateLockOptions,
 ): Promise<StateLockLease> {
-  const normalized = normalizeOptions(file, options);
-  ensureParentDirectory(file);
-  const deadline = Date.now() + normalized.timeoutMs;
-  let sawCorruptRecord = false;
-
+  const next = createStateLockAcquisition(file, options);
   for (;;) {
-    const lease = tryCreateStateLock(file, normalized);
-    if (lease) return lease;
-
-    const existing = inspectExistingLock(file);
-    if (existing.kind === "missing") {
-      sawCorruptRecord = false;
-      continue;
-    }
-
-    const remaining = deadline - Date.now();
-    if (existing.kind === "corrupt") {
-      if (sawCorruptRecord || remaining <= 0) {
-        throw lockError(
-          file,
-          `is corrupt and cannot be reclaimed (${existing.reason})`,
-          existing.owner,
-        );
-      }
-      sawCorruptRecord = true;
-      await sleep(Math.min(normalized.pollMs, remaining));
-      continue;
-    }
-
-    sawCorruptRecord = false;
-    if (remaining <= 0) throw busyError(file, existing.record);
-    await sleep(Math.min(normalized.pollMs, remaining));
+    const step = next();
+    if (step.kind === "acquired") return step.lease;
+    if (step.kind === "wait") await sleep(step.delayMs);
   }
 }
 
 /** Acquire a state-file lock synchronously for synchronous state operations. */
 export function acquireStateLockSync(file: string, options: StateLockOptions): StateLockLease {
-  const normalized = normalizeOptions(file, options);
-  ensureParentDirectory(file);
-  const deadline = Date.now() + normalized.timeoutMs;
-  let sawCorruptRecord = false;
-
+  const next = createStateLockAcquisition(file, options);
   for (;;) {
-    const lease = tryCreateStateLock(file, normalized);
-    if (lease) return lease;
-
-    const existing = inspectExistingLock(file);
-    if (existing.kind === "missing") {
-      sawCorruptRecord = false;
-      continue;
-    }
-
-    const remaining = deadline - Date.now();
-    if (existing.kind === "corrupt") {
-      if (sawCorruptRecord || remaining <= 0) {
-        throw lockError(
-          file,
-          `is corrupt and cannot be reclaimed (${existing.reason})`,
-          existing.owner,
-        );
-      }
-      sawCorruptRecord = true;
-      sleepSync(Math.min(normalized.pollMs, remaining));
-      continue;
-    }
-
-    sawCorruptRecord = false;
-    if (remaining <= 0) throw busyError(file, existing.record);
-    sleepSync(Math.min(normalized.pollMs, remaining));
+    const step = next();
+    if (step.kind === "acquired") return step.lease;
+    if (step.kind === "wait") sleepSync(step.delayMs);
   }
 }
 

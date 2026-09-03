@@ -6,7 +6,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { mock } from "node:test";
 import { sashLayout } from "./paths.js";
 import { readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
@@ -325,6 +325,144 @@ test("stale Core cleanup never trusts an executable path supplied by the PID rec
     await assert.rejects(supervisor.cleanStaleCore(), /does not match the managed path/);
     assert.equal(killCalled, false);
     assert.equal(readPidRecord(layout.pidFile)?.pid, process.pid);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("start installs an error listener before rejecting a child without a PID", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-no-pid-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+  const child = Object.assign(new EventEmitter(), {
+    pid: undefined,
+    exitCode: null,
+    signalCode: null,
+  }) as ChildProcess;
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS }),
+    spawnFn: () => child,
+  });
+
+  try {
+    await assert.rejects(supervisor.start(), /no PID returned/);
+    assert.doesNotThrow(() => child.emit("error", new Error("late spawn failure")));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("PID write failure preserves uncertain ownership when termination fails", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-pid-preserve-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+  fs.mkdirSync(layout.pidFile, { recursive: true });
+  const child = Object.assign(new EventEmitter(), {
+    pid: 5353,
+    exitCode: null,
+    signalCode: null,
+  }) as ChildProcess;
+  let rmCalls = 0;
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS }),
+    spawnFn: () => child,
+    isAliveFn: () => true,
+    killFn: async () => false,
+  });
+
+  try {
+    await assert.rejects(
+      supervisor.start(),
+      /Failed to persist Core PID ownership:.*could not be confirmed stopped/,
+    );
+    assert.equal(supervisor.isRunning(), true);
+    mock.method(fs, "rmSync", (..._args: unknown[]): void => {
+      rmCalls++;
+    });
+    child.emit("exit", 1, null);
+    assert.equal(rmCalls, 0);
+  } finally {
+    mock.restoreAll();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("start aborts an owned child after an asynchronous spawn error", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-spawn-error-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+  const child = Object.assign(new EventEmitter(), {
+    pid: 5454,
+    exitCode: null,
+    signalCode: null,
+  }) as ChildProcess;
+  let alive = true;
+  let killCalls = 0;
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS, controller: "127.0.0.1:1" }),
+    spawnFn: () => {
+      setImmediate(() => child.emit("error", new Error("synthetic spawn failure")));
+      return child;
+    },
+    isAliveFn: () => alive,
+    killFn: async () => {
+      killCalls++;
+      alive = false;
+      return true;
+    },
+    waitHealthyMs: 2000,
+  });
+
+  try {
+    await assert.rejects(supervisor.start(), /Failed to start core: synthetic spawn failure/);
+    assert.equal(killCalls, 1);
+    assert.equal(supervisor.isRunning(), false);
+    assert.equal(readPidRecord(layout.pidFile), undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("health timeout aborts the child and clears its owned PID record", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-health-timeout-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+  const child = Object.assign(new EventEmitter(), {
+    pid: 5555,
+    exitCode: null,
+    signalCode: null,
+  }) as ChildProcess;
+  let alive = true;
+  let killCalls = 0;
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS, controller: "127.0.0.1:1" }),
+    spawnFn: () => child,
+    isAliveFn: () => alive,
+    killFn: async () => {
+      killCalls++;
+      alive = false;
+      return true;
+    },
+    waitHealthyMs: 20,
+  });
+
+  try {
+    await assert.rejects(supervisor.start(), /external-controller did not become healthy/);
+    assert.equal(killCalls, 1);
+    assert.equal(supervisor.isRunning(), false);
+    assert.equal(readPidRecord(layout.pidFile), undefined);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -26,9 +26,9 @@ import {
 } from "./windows.js";
 
 interface SupportedBackendOperations {
-  capture(): SystemProxySnapshot;
+  capture(): Promise<SystemProxySnapshot>;
   createTarget(original: SystemProxySnapshot, opts: EnableOptions): SystemProxySnapshot;
-  apply(snapshot: SystemProxySnapshot): void;
+  apply(snapshot: SystemProxySnapshot): Promise<void>;
   state(snapshot: SystemProxySnapshot): SystemProxyState;
 }
 
@@ -49,7 +49,7 @@ class UnsupportedSystemProxyBackend implements SystemProxyBackend {
 
   constructor(readonly details: string) {}
 
-  capture(): SystemProxySnapshot {
+  async capture(): Promise<SystemProxySnapshot> {
     throw new Error(this.details);
   }
 
@@ -57,7 +57,7 @@ class UnsupportedSystemProxyBackend implements SystemProxyBackend {
     throw new Error(this.details);
   }
 
-  apply(_snapshot: SystemProxySnapshot): void {
+  async apply(_snapshot: SystemProxySnapshot): Promise<void> {
     throw new Error(this.details);
   }
 

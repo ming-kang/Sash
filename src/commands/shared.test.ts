@@ -130,14 +130,35 @@ describe("offline mutation coordination", () => {
     );
     assert.equal(called, false);
 
+    const recoveryEvents: string[] = [];
     await runOfflineMutation(
       ctx,
       "recovery mutation",
       () => {
         called = true;
       },
-      { allowOrphanCore: true },
+      {
+        reconcileRuntime: {
+          deps: {
+            systemProxy: {
+              release: async () => {
+                recoveryEvents.push("proxy");
+              },
+            },
+            supervisor: {
+              cleanStaleCore: async () => {
+                recoveryEvents.push("core");
+              },
+            },
+            recoverCoreUpdate: () => {
+              recoveryEvents.push("update");
+              return undefined;
+            },
+          },
+        },
+      },
     );
     assert.equal(called, true);
+    assert.deepEqual(recoveryEvents, ["proxy", "core", "update"]);
   });
 });

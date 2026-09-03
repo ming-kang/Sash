@@ -5,7 +5,6 @@ import {
   coreWebSocketProtocols,
   isControlMutation,
   isControlRequestAuthorized,
-  isCoreGatewayPath,
   isLoopbackHostHeader,
   isLoopbackOriginHeader,
   isWebSocketRequestAuthorized,
@@ -41,25 +40,6 @@ describe("daemon control authorization", () => {
     assert.equal(isControlMutation("OPTIONS"), false);
     assert.equal(isControlMutation("POST"), true);
     assert.equal(isControlMutation("PATCH"), true);
-  });
-
-  it("classifies every privileged Core HTTP gateway without matching lookalikes", () => {
-    for (const pathname of [
-      "/core/api",
-      "/core/api/version",
-      "/version",
-      "/proxies",
-      "/proxies/GLOBAL",
-      "/rules",
-      "/connections/1",
-      "/providers/proxies/default",
-      "/dns/query",
-    ]) {
-      assert.equal(isCoreGatewayPath(pathname), true, pathname);
-    }
-    for (const pathname of ["/core/apiX", "/versions", "/proxy", "/sash/status", "/ui/"]) {
-      assert.equal(isCoreGatewayPath(pathname), false, pathname);
-    }
   });
 
   it("accepts the CLI bearer or WebUI boot token and rejects invalid credentials", () => {

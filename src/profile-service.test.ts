@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { defaultManagedStateFileOperations } from "./managed-state-transaction.js";
 import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { ProfileService } from "./profile-service.js";
+import {
+  type PreparedActiveConfig,
+  type PreparedActiveReload,
+  ProfileService,
+} from "./profile-service.js";
 import {
   loadProfiles,
   NEVER_UPDATED,
@@ -415,7 +419,124 @@ describe("ProfileService", () => {
     fs.mkdirSync(layout.profilesDir, { recursive: true });
     fs.writeFileSync(profileFilePath(layout, seeded.id), yamlB);
 
-    assert.throws(() => service.assertPreparedActiveCurrent(prepared), /content changed/);
+    await assert.rejects(
+      () => service.withPreparedActivePublication(prepared, () => undefined),
+      /content changed/,
+    );
+  });
+
+  it("lends a strict reload publication without writing before its callback succeeds", async () => {
+    const seeded = seedProfile(layout, { name: "active", url: "", yamlText: yamlA });
+    activateSeed(layout, seeded.id);
+    fs.writeFileSync(layout.configFile, "old config");
+    let notifications = 0;
+    const service = new ProfileService({
+      layout,
+      settings: () => settings,
+      onChange: () => {
+        notifications += 1;
+      },
+    });
+
+    const prepared = await service.prepareActiveReload();
+    await service.withPreparedActiveReloadPublication(prepared, (publication) => {
+      assert.equal(publication.index.activeId, seeded.id);
+      assert.match(publication.config.yaml, /node-a/);
+      assert.equal(publication.profile, undefined);
+      assert.equal(fs.readFileSync(layout.configFile, "utf8"), "old config");
+      assert.equal(notifications, 0);
+    });
+
+    assert.equal(fs.readFileSync(layout.configFile, "utf8"), "old config");
+    assert.equal(notifications, 1);
+    await assert.rejects(
+      () => service.withPreparedActiveReloadPublication(prepared, () => undefined),
+      /invalid or already consumed/,
+    );
+
+    const failing = await service.prepareActiveReload();
+    await assert.rejects(
+      () =>
+        service.withPreparedActiveReloadPublication(failing, () => {
+          throw new Error("publication failed");
+        }),
+      /publication failed/,
+    );
+    assert.equal(notifications, 1);
+  });
+
+  it("enforces instance-bound one-shot prepared capabilities", async () => {
+    const first = new ProfileService({ layout, settings: () => settings });
+    const second = new ProfileService({ layout, settings: () => settings });
+    const forgedReload = Object.freeze({}) as PreparedActiveReload;
+    await assert.rejects(
+      () => first.commitPreparedActiveReload(forgedReload, { reloadRuntime: false }),
+      /invalid or already consumed/,
+    );
+
+    const preparedReload = await first.prepareActiveReload();
+    await assert.rejects(
+      () => second.commitPreparedActiveReload(preparedReload, { reloadRuntime: false }),
+      /invalid or already consumed/,
+    );
+    await first.commitPreparedActiveReload(preparedReload, { reloadRuntime: false });
+    await assert.rejects(
+      () => first.commitPreparedActiveReload(preparedReload, { reloadRuntime: false }),
+      /invalid or already consumed/,
+    );
+
+    const forgedConfig = Object.freeze({}) as PreparedActiveConfig;
+    await assert.rejects(
+      () => first.withPreparedActivePublication(forgedConfig, () => undefined),
+      /invalid or already consumed/,
+    );
+    const preparedConfig = await first.prepareActiveConfig(settings, settings);
+    await first.withPreparedActivePublication(preparedConfig, () => undefined);
+    await assert.rejects(
+      () => first.withPreparedActivePublication(preparedConfig, () => undefined),
+      /invalid or already consumed/,
+    );
+  });
+
+  it("allows weak settings preparation across unrelated active metadata changes", async () => {
+    const seeded = seedProfile(layout, { name: "before", url: "", yamlText: yamlA });
+    activateSeed(layout, seeded.id);
+    const service = new ProfileService({ layout, settings: () => settings });
+    const prepared = await service.prepareActiveConfig(settings, settings);
+    const index = loadProfiles(layout);
+    const current = index.profiles[0];
+    assert.ok(current);
+    saveProfiles(
+      {
+        ...index,
+        profiles: [{ ...current, name: "after", lastError: "diagnostic only" }],
+      },
+      layout,
+    );
+
+    let callbackEntered = false;
+    await service.withPreparedActivePublication(prepared, ({ config }) => {
+      callbackEntered = true;
+      assert.match(config.yaml, /node-a/);
+    });
+
+    assert.equal(callbackEntered, true);
+  });
+
+  it("rejects strict reload preparation after any active metadata change", async () => {
+    const seeded = seedProfile(layout, { name: "before", url: "", yamlText: yamlA });
+    activateSeed(layout, seeded.id);
+    const service = new ProfileService({ layout, settings: () => settings });
+    const prepared = await service.prepareActiveReload();
+    const index = loadProfiles(layout);
+    const current = index.profiles[0];
+    assert.ok(current);
+    saveProfiles({ ...index, profiles: [{ ...current, name: "after" }] }, layout);
+
+    await assert.rejects(
+      () => service.commitPreparedActiveReload(prepared, { reloadRuntime: false }),
+      /profile changed or was removed/,
+    );
   });
 
   it("fetches independent update-all profiles concurrently and commits safely", async () => {

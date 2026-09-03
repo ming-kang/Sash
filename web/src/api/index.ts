@@ -3,6 +3,8 @@ import {
   type ProfileActionResponse,
   type ProfilesUpdateAllResponse,
   type ProfileUpdateResponse,
+  parseDaemonStatus,
+  parseHealthInfo,
   WEB_SOCKET_AUTH_PROTOCOL,
   WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
 } from "../../../src/contracts.js";
@@ -133,7 +135,7 @@ function connectStream(
 export const api = {
   initialize: async (): Promise<HealthInfo> => {
     try {
-      const health = await request<HealthInfo>("/sash/health");
+      const health = parseHealthInfo(await request("/sash/health"));
       controlToken = health.token;
       return health;
     } catch (err) {
@@ -146,8 +148,8 @@ export const api = {
   },
   hasSession: (): boolean => controlToken !== "",
 
-  getHealth: () => request<HealthInfo>("/sash/health"),
-  getStatus: () => request<SashStatus>("/sash/status"),
+  getHealth: async () => parseHealthInfo(await request("/sash/health")),
+  getStatus: async (): Promise<SashStatus> => parseDaemonStatus(await request("/sash/status")),
 
   enableSystemProxy: () =>
     request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/enable", { method: "POST" }),

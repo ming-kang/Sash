@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -290,6 +290,36 @@ export function runSanitizedCommand(
   return output ?? "";
 }
 
+/** Asynchronously execute a fixed helper without blocking the Node event loop. */
+export function runSanitizedCommandAsync(
+  command: string,
+  args: string[],
+  options: SanitizedCommandOptions = {},
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      command,
+      args,
+      {
+        encoding: "utf8",
+        env: buildSanitizedEnv(options.sourceEnv),
+        maxBuffer: options.maxBuffer,
+        shell: false,
+        timeout: options.timeoutMs ?? 5000,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(options.stdio === "ignore" ? "" : (stdout ?? ""));
+      },
+    );
+    child.stdin?.end();
+  });
+}
+
 /** Resolve a trusted executable bundled with Windows rather than consulting cwd/PATH. */
 export function windowsSystemExecutable(relativePath: string): string {
   const root = process.env.SystemRoot?.trim() || process.env.WINDIR?.trim();
@@ -315,6 +345,82 @@ export function findExecutableOnPath(
     }
   }
   return undefined;
+}
+
+export interface AppendLogFds {
+  stdoutFd: number;
+  stderrFd: number;
+}
+
+/**
+ * Open one child log file for append: create it 0o600, refuse symlinks and
+ * non-regular files, and restrict permissions on the opened handle itself so
+ * a pre-existing permissive file cannot stay readable.
+ */
+function openPrivateAppendLogFd(filePath: string): number {
+  try {
+    if (!fs.lstatSync(filePath).isFile()) {
+      throw new Error(`Refusing to append to non-regular log file: ${filePath}`);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  const noFollow = process.platform === "win32" ? 0 : fs.constants.O_NOFOLLOW;
+  const fd = fs.openSync(
+    filePath,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | noFollow,
+    0o600,
+  );
+  try {
+    if (!fs.fstatSync(fd).isFile()) {
+      throw new Error(`Refusing to append to non-regular log file: ${filePath}`);
+    }
+    if (process.platform !== "win32") fs.fchmodSync(fd, 0o600);
+    return fd;
+  } catch (err) {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      // Preserve the open/validation failure.
+    }
+    throw err;
+  }
+}
+
+/**
+ * Open private append logs for a spawned child, run `use`, and always close
+ * both descriptors — including when `use` throws synchronously, which the
+ * previous open/spawn/close sequence leaked on.
+ */
+export function withPrivateAppendLogFds<T>(
+  stdoutPath: string,
+  stderrPath: string,
+  use: (fds: AppendLogFds) => T,
+): T {
+  const stdoutFd = openPrivateAppendLogFd(stdoutPath);
+  let stderrFd: number;
+  try {
+    stderrFd = openPrivateAppendLogFd(stderrPath);
+  } catch (err) {
+    try {
+      fs.closeSync(stdoutFd);
+    } catch {
+      // Preserve the stderr open failure.
+    }
+    throw err;
+  }
+  try {
+    return use({ stdoutFd, stderrFd });
+  } finally {
+    for (const fd of [stdoutFd, stderrFd]) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // A failed close must not mask the callback outcome.
+      }
+    }
+  }
 }
 
 export const TAIL_FILE_CHUNK_BYTES = 64 * 1024;

@@ -79,14 +79,6 @@ function parseDarwinProxyOutput(output: string): ParsedDarwinProxyOutput {
   };
 }
 
-/** Legacy display parser retained for existing callers. */
-export function parseDarwinGetWebProxy(output: string): { enabled: boolean; server?: string } {
-  const parsed = parseDarwinProxyOutput(output);
-  const enabled = parsed.enabled === true;
-  if (!enabled || !parsed.server || !parsed.port) return { enabled };
-  return { enabled, server: `${parsed.server}:${parsed.port}` };
-}
-
 /** Parse the complete networksetup proxy record needed for lossless recovery. */
 export function parseDarwinProxySetting(output: string): DarwinProxySetting {
   const parsed = parseDarwinProxyOutput(output);
@@ -125,8 +117,10 @@ export function parseDarwinAutoProxySetting(output: string): DarwinAutoProxySett
   };
 }
 
-function listDarwinServices(): string[] {
-  const services = parseDarwinServices(runCmd("networksetup", ["-listallnetworkservices"]));
+type CommandRunner = typeof runCmd;
+
+async function listDarwinServices(run: CommandRunner): Promise<string[]> {
+  const services = parseDarwinServices(await run("networksetup", ["-listallnetworkservices"]));
   const canonical = services.map((service, index) =>
     parseServiceName(service, `network service ${index}`),
   );
@@ -167,13 +161,16 @@ const DARWIN_PROXY_COMMANDS: ReadonlyArray<{
   },
 ];
 
-export function captureDarwinSnapshot(): DarwinSystemProxySnapshot {
-  const services = listDarwinServices().map((service): DarwinServiceProxySnapshot => {
+export async function captureDarwinSnapshot(
+  run: CommandRunner = runCmd,
+): Promise<DarwinSystemProxySnapshot> {
+  const services: DarwinServiceProxySnapshot[] = [];
+  for (const service of await listDarwinServices(run)) {
     const settings = new Map<DarwinProxyKind, DarwinProxySetting>();
     for (const command of DARWIN_PROXY_COMMANDS) {
       settings.set(
         command.kind,
-        parseDarwinProxySetting(runCmd("networksetup", [command.get, service])),
+        parseDarwinProxySetting(await run("networksetup", [command.get, service])),
       );
     }
     const web = settings.get("web");
@@ -182,9 +179,11 @@ export function captureDarwinSnapshot(): DarwinSystemProxySnapshot {
     if (!web || !secureWeb || !socks) {
       throw new Error("Failed to capture all macOS proxy protocols");
     }
-    const auto = parseDarwinAutoProxySetting(runCmd("networksetup", ["-getautoproxyurl", service]));
-    return { service, web, secureWeb, socks, auto };
-  });
+    const auto = parseDarwinAutoProxySetting(
+      await run("networksetup", ["-getautoproxyurl", service]),
+    );
+    services.push({ service, web, secureWeb, socks, auto });
+  }
   return {
     version: SYSTEM_PROXY_SNAPSHOT_VERSION,
     platform: "darwin",
@@ -204,11 +203,14 @@ function assertNoAuthenticatedDarwinProxy(snapshot: DarwinSystemProxySnapshot): 
   }
 }
 
-export function applyDarwinSnapshot(value: unknown): void {
+export async function applyDarwinSnapshot(
+  value: unknown,
+  run: CommandRunner = runCmd,
+): Promise<void> {
   const snapshot = darwinSnapshot(value);
   assertNoAuthenticatedDarwinProxy(snapshot);
 
-  const activeServices = listDarwinServices();
+  const activeServices = await listDarwinServices(run);
   const snapshotServices = snapshot.services.map((service) => service.service);
   if (
     activeServices.length !== snapshotServices.length ||
@@ -224,7 +226,7 @@ export function applyDarwinSnapshot(value: unknown): void {
     for (const command of DARWIN_PROXY_COMMANDS) {
       const setting = service[command.kind];
       try {
-        runCmd("networksetup", [
+        await run("networksetup", [
           command.set,
           service.service,
           setting.server,
@@ -238,7 +240,7 @@ export function applyDarwinSnapshot(value: unknown): void {
     }
     if (service.auto.url) {
       try {
-        runCmd("networksetup", ["-setautoproxyurl", service.service, service.auto.url]);
+        await run("networksetup", ["-setautoproxyurl", service.service, service.auto.url]);
       } catch (err) {
         failures.push(
           `${JSON.stringify(service.service)} automatic proxy URL: ${errorMessage(err)}`,
@@ -265,7 +267,7 @@ export function applyDarwinSnapshot(value: unknown): void {
       ...stateOperations.filter((item) => item.enabled),
     ]) {
       try {
-        runCmd("networksetup", [
+        await run("networksetup", [
           operation.command,
           service.service,
           operation.enabled ? "on" : "off",

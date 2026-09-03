@@ -101,16 +101,16 @@ export type SystemProxySnapshot =
   | LinuxSystemProxySnapshot;
 
 /**
- * Synchronous low-level backend. Every snapshot passed to apply/state is
- * validated before it can become process arguments or OS configuration.
+ * Low-level backend. OS capture and apply are asynchronous; pure snapshot
+ * construction and comparison remain synchronous and strictly validated.
  */
 export interface SystemProxyBackend {
   /** Present on the built-in backends so callers can report unsupported systems. */
   readonly supported?: boolean;
   readonly details?: string;
-  capture(): SystemProxySnapshot;
+  capture(): Promise<SystemProxySnapshot>;
   createTarget(original: SystemProxySnapshot, opts: EnableOptions): SystemProxySnapshot;
-  apply(snapshot: SystemProxySnapshot): void;
+  apply(snapshot: SystemProxySnapshot): Promise<void>;
   equivalent(a: SystemProxySnapshot, b: SystemProxySnapshot): boolean;
   compatible(
     current: SystemProxySnapshot,

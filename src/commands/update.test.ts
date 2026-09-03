@@ -3,10 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
+import { prepareUpdateMaintenance } from "../core-update-service.js";
 import { sashLayout } from "../paths.js";
 import { DEFAULT_SETTINGS } from "../settings.js";
 import type { RuntimeContext } from "./shared.js";
-import { prepareUpdateMaintenance } from "./update.js";
 
 let root: string | undefined;
 
@@ -30,6 +30,8 @@ describe("update maintenance snapshot", () => {
     let statusCalls = 0;
     let maintenanceCalls = 0;
     let waitedFor: number | undefined;
+    let clientPort: number | undefined;
+    const verifiedPort = 19292;
     const client = {
       status: async () => {
         statusCalls++;
@@ -43,8 +45,17 @@ describe("update maintenance snapshot", () => {
     };
 
     const snapshot = await prepareUpdateMaintenance(ctx, {
-      evaluateDaemon: async () => ({ running: true, healthy: true, pid: 4321 }),
-      clientFactory: () => client,
+      evaluateDaemon: async () => ({
+        kind: "healthy",
+        running: true,
+        healthy: true,
+        pid: 4321,
+        port: verifiedPort,
+      }),
+      clientFactory: (port) => {
+        clientPort = port;
+        return client;
+      },
       waitForDaemonExit: async (pid) => {
         waitedFor = pid;
       },
@@ -58,6 +69,7 @@ describe("update maintenance snapshot", () => {
     assert.equal(maintenanceCalls, 1);
     assert.equal(statusCalls, 0);
     assert.equal(waitedFor, 4321);
+    assert.equal(clientPort, verifiedPort);
   });
 
   it("preserves the legacy daemon compatibility path", async () => {
@@ -75,10 +87,12 @@ describe("update maintenance snapshot", () => {
 
     const snapshot = await prepareUpdateMaintenance(ctx, {
       evaluateDaemon: async () => ({
+        kind: "healthy",
         running: true,
         healthy: true,
         legacyOwnership: true,
         pid: 4321,
+        port: ctx.settings.daemonPort,
       }),
       clientFactory: () => ({
         status: async () => ({ core: { running: true } }),
@@ -116,7 +130,7 @@ describe("update maintenance snapshot", () => {
     let clients = 0;
 
     const snapshot = await prepareUpdateMaintenance(ctx, {
-      evaluateDaemon: async () => ({ running: false }),
+      evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
       clientFactory: () => {
         clients++;
         throw new Error("client should not be created");

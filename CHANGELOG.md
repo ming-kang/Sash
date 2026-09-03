@@ -62,14 +62,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Core/proxy transitions now pass through one serialized runtime lifecycle; proxy restoration precedes deliberate Core shutdown and readiness precedes proxy apply.
 - Offline mutations reload committed settings under lock and refuse uncertain daemon/orphan-Core ownership.
 - Core release mirrors are transport-only: official GitHub metadata selects the release and supplies the mandatory SHA-256 digest.
-- Core updates stage outside runtime ownership, use the daemon's atomic maintenance snapshot instead of a stale status read, then serialize offline publication/restoration against start/stop.
+- Core updates stage outside runtime ownership, then hold runtime ownership across the daemon's atomic maintenance snapshot, offline publication and runtime restoration. A second controller-vacancy check runs inside the final mutation boundary.
+- Core updates retain managed profile/config rollback snapshots until the binary outcome is durable, and runtime restoration re-reads final settings while using the healthy daemon's observed port.
 - Core ZIP extraction accepts only the expected upstream executable basename; npm self-upgrade versions are restricted to strict semver or safe dist-tags.
 - Core updates temporarily stop the daemon, validate the staged binary/config and recover interrupted `.bak` states before publication.
 - System-proxy backends preserve manual, automatic/PAC and authentication-mode fields they modify; Linux automation is explicitly GNOME `gsettings` only.
+- System-proxy capture, apply, recovery and inspection now use asynchronous child processes behind one operation queue. Same-generation reads share in-flight work, normal polling uses a short cache, and `?fresh=1` bypasses only settled cache entries.
+- Daemon clients and the WebUI now parse successful health, status and proxy responses from `unknown`; internal proxy observation flags are required, while missing flags from legacy daemons are normalized only at the network boundary.
+- Profile and settings preparation now exposes one-shot opaque publication capabilities instead of mutable prepared-state objects or positional commit booleans. Weak settings-source snapshots and strict profile snapshots retain their distinct conflict semantics.
+- Daemon HTTP and WebSocket routing now share one origin-form request-target parser and explicit route table. Known method mismatches return `405` with `Allow`, dashboard redirects preserve root queries, and WebSocket streams are explicitly GET-only.
 - npm packages now include `docs/`, lint is part of `prepublishOnly`, and package self-upgrade requires the daemon to be stopped so runtime/schema versions cannot overlap.
 
 ### Fixed
 
+- Successful daemon health, status and proxy responses are now runtime-validated before CLI or WebUI state changes; malformed `200` payloads fail closed, and a failed WebUI initialization clears any stale per-boot session token.
+- Slow Windows, macOS and GNOME proxy commands no longer block the daemon event loop. Health requests remain responsive while asynchronous status/proxy inspection is pending, and platform writes preserve their safety order.
+- State-lock acquisition now treats disappearance between `lstat` and record read as a retryable missing observation instead of false corruption, with one shared decision path for synchronous and asynchronous callers.
+- Core gateway routing no longer derives authentication from a parsed path but forwarding from a raw suffix. Query-only namespace roots, dot segments, encoded path data and WebSocket targets now use the same canonical representation without duplicated queries.
+- Core and daemon child logs now use one private append-only descriptor helper that rejects non-regular paths, enforces POSIX `0600`, closes partial opens and cannot leak descriptors when spawn setup throws. Startup diagnostics include only bounded errors appended by the current attempt.
 - Windows system-proxy ownership no longer fails on real `reg query` responses: the strict parser now accepts the flush-left subkey listings that follow a whole-key query, while still rejecting unrelated or malformed output.
 - Windows system-proxy enable/restore no longer writes or verifies the legacy flat `AutoDetect` value. Windows rewrites it from the `DefaultConnectionSettings` blob on WinINet refreshes, so managing it made every enable fail verification and roll back; it is now observed but unmanaged, and excluded from ownership equivalence. PAC (`AutoConfigURL`) handling is unchanged.
 - WebUI text and control contrast now meets WCAG AA in both themes: light-theme accent, selection, success, muted, info, danger and chart colors are deepened (white-on-accent text was ~3:1), dark-theme accent surfaces use dark text, and the off-state switch track keeps a >= 3:1 boundary against app backgrounds; `scripts/contrast-check.mjs` recomputes the ratios.
@@ -136,5 +146,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Release downloads enforce HTTPS, redirect host boundaries, backpressure and compressed-size limits; ZIP extraction is streamed with a hard output cap.
 - Core version checks use exact tokens instead of substring matching, and controller readiness requires a non-empty version across consecutive probes.
 - Core update rollback slots remain available until daemon/runtime restoration succeeds; malformed install metadata and backup-only mismatch states are rejected before execution.
+- Core updates no longer discard managed profile/config snapshots before the executable transaction is durable. Crash recovery rolls managed state back before binary/install metadata and keeps both journals when either side cannot be restored.
+- `sash update --force` now journals malformed binary/install entries before moving them to fixed quarantine paths. Partial quarantine and restoration resume safely, while missing or unowned repair backups fail closed.
 - Core startup fails closed when executable and install metadata are missing, malformed or inconsistent, with an explicit `sash update --force` repair path.
 - npm upgrade and browser-launch children now receive the same scrubbed environment as managed runtime children.

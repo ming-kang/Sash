@@ -20,7 +20,7 @@ import {
 export async function runProxyOn(): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (!daemonState.running || !daemonState.healthy) {
+  if (daemonState.kind !== "healthy") {
     throw new Error("sash is not running; start it with `sash start` before enabling system proxy");
   }
 
@@ -59,8 +59,8 @@ export async function runProxyOff(): Promise<void> {
   const ctx = runtimeContext();
   const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
 
-  if (daemonState.running) {
-    if (!daemonState.healthy) {
+  if (daemonState.kind !== "stopped") {
+    if (daemonState.kind !== "healthy") {
       throw new Error("sashd is running but unresponsive; refusing a competing proxy mutation");
     }
     const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);

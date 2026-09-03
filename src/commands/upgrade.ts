@@ -30,7 +30,7 @@ export function buildUpgradeSpawnOptions(sourceEnv: NodeJS.ProcessEnv = process.
 export async function runUpgrade(opts: { version?: string } = {}): Promise<void> {
   const ctx = runtimeContext();
   const daemon = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemon.running) {
+  if (daemon.kind !== "stopped") {
     throw new Error("stop Sash with `sash stop` before upgrading the package");
   }
 
