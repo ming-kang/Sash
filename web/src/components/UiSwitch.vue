@@ -23,8 +23,8 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
 <style scoped>
 .switch {
   position: relative;
-  width: 46px;
-  height: 27px;
+  width: 34px;
+  height: 20px;
   flex-shrink: 0;
   padding: 0;
   border: 0;
@@ -44,10 +44,10 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
 }
 .knob {
   position: absolute;
-  top: 5px;
-  left: 5px;
-  width: 17px;
-  height: 17px;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
   border-radius: var(--radius-full);
   background: var(--switch-knob-off);
   box-shadow: var(--shadow-switch);
@@ -57,6 +57,6 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
 }
 .switch.on .knob {
   background: var(--switch-knob-on);
-  transform: translateX(19px);
+  transform: translateX(14px);
 }
 </style>

@@ -36,9 +36,9 @@ const { restarting, restartCore } = useCoreRestart();
 }
 .overview-split {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(0, 2fr);
+  grid-template-columns: minmax(300px, 0.92fr) minmax(0, 2fr);
   align-items: start;
-  gap: clamp(18px, 2.2vw, 32px);
+  gap: clamp(18px, 2vw, 26px);
 }
 
 @media (max-width: 1120px) {

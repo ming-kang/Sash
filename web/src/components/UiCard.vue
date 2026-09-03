@@ -1,5 +1,5 @@
 <template>
-  <section class="card ui-card">
+  <section class="ui-card">
     <header v-if="title || desc || $slots.actions" class="ui-card-head">
       <div class="ui-card-heading">
         <h2 v-if="title" class="ui-card-title">{{ title }}</h2>
@@ -9,7 +9,9 @@
         <slot name="actions" />
       </div>
     </header>
-    <slot />
+    <div class="ui-card-body">
+      <slot />
+    </div>
   </section>
 </template>
 
@@ -19,35 +21,30 @@ defineProps<{ title?: string; desc?: string }>();
 
 <style scoped>
 .ui-card {
-  padding: 15px 17px;
-  background: var(--bg-panel);
-  border-color: var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: none;
+  min-width: 0;
 }
 .ui-card-head {
   display: flex;
-  align-items: flex-start;
+  min-height: 28px;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 5px;
 }
 .ui-card-heading {
   min-width: 0;
 }
 .ui-card-title {
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0;
+  font-size: 15px;
+  font-weight: 400;
   line-height: 1.4;
 }
 .ui-card-desc {
-  max-width: 680px;
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--text-muted);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 10.5px;
+  line-height: 1.35;
 }
 .ui-card-actions {
   display: flex;
@@ -57,13 +54,18 @@ defineProps<{ title?: string; desc?: string }>();
   justify-content: flex-end;
   gap: 7px;
 }
+.ui-card-body {
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border-radius: 3px;
+}
 
 @media (max-width: 520px) {
-  .ui-card {
-    padding: 14px;
-  }
   .ui-card-head {
     flex-wrap: wrap;
+  }
+  .ui-card-body {
+    padding: 6px 8px;
   }
 }
 </style>

@@ -1,7 +1,5 @@
 <template>
-  <div>
-    <PageHeader :title="t('page.profiles.title')" :desc="t('page.profiles.desc')" />
-
+  <div class="profiles-view">
     <div class="dl-panel" :aria-busy="downloading || updatingAll || importing || profileBusy">
       <div class="dl-input-wrap">
         <input
@@ -28,7 +26,7 @@
       <div class="dl-actions">
         <button
           type="button"
-          class="btn btn-primary dl-action-primary"
+          class="btn btn-secondary dl-action-primary"
           :disabled="downloading || profileBusy || !dlUrl.trim()"
           @click="download"
         >
@@ -157,7 +155,6 @@ import { computed, onMounted, ref } from "vue";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
-import PageHeader from "../components/PageHeader.vue";
 import { locale, t } from "../i18n/index.js";
 import {
   activateProfile,
@@ -324,16 +321,19 @@ async function pasteFromClipboard(): Promise<void> {
 </script>
 
 <style scoped>
+.profiles-view {
+  min-height: 100%;
+}
 .dl-panel {
   display: grid;
+  min-height: 80px;
   grid-template-columns: minmax(260px, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 22px;
-  padding: 12px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  gap: 8px;
+  margin-bottom: 15px;
+  padding: 12px 34px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
 }
 .dl-input-wrap {
   position: relative;
@@ -341,7 +341,7 @@ async function pasteFromClipboard(): Promise<void> {
 }
 .dl-input {
   width: 100%;
-  min-height: 38px;
+  min-height: 46px;
   padding-right: 42px;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -360,13 +360,14 @@ async function pasteFromClipboard(): Promise<void> {
   gap: 7px;
 }
 .dl-actions .btn {
-  min-height: 38px;
+  min-height: 46px;
   padding-inline: 12px;
 }
 .hidden-file {
   display: none;
 }
 .empty-panel {
+  margin: 0 34px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -374,17 +375,18 @@ async function pasteFromClipboard(): Promise<void> {
 
 .profiles-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 12px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px 12px;
+  padding: 0 34px 44px;
 }
 .profile-card {
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 112px;
+  min-height: 72px;
   align-items: flex-start;
   gap: 10px;
-  padding: 15px 11px 15px 18px;
+  padding: 10px 8px 10px 15px;
   overflow: hidden;
   cursor: pointer;
   background: var(--bg-panel);
@@ -396,8 +398,8 @@ async function pasteFromClipboard(): Promise<void> {
 }
 .profile-card::before {
   position: absolute;
-  inset: 5px auto 5px 0;
-  width: 5px;
+  inset: 2px auto 2px 0;
+  width: 4px;
   border-radius: 0 var(--radius-full) var(--radius-full) 0;
   content: "";
   background: var(--border-strong);
@@ -408,8 +410,8 @@ async function pasteFromClipboard(): Promise<void> {
 }
 .profile-card.active {
   cursor: default;
-  background: var(--selection-soft);
-  border-color: var(--selection-border);
+  background: var(--bg-panel);
+  border-color: transparent;
 }
 .profile-card.active::before {
   background: var(--selection);
@@ -455,7 +457,7 @@ async function pasteFromClipboard(): Promise<void> {
   white-space: nowrap;
 }
 .profile-usage {
-  margin-top: 12px;
+  margin-top: 7px;
 }
 .usage-nums {
   display: flex;
@@ -517,6 +519,16 @@ async function pasteFromClipboard(): Promise<void> {
 @media (max-width: 820px) {
   .dl-panel {
     grid-template-columns: 1fr;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .profiles-grid {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+  .empty-panel {
+    margin-right: 16px;
+    margin-left: 16px;
   }
   .dl-actions {
     display: grid;

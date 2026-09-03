@@ -4,66 +4,72 @@
 
     <div class="settings-grid">
       <!-- Interface -->
-      <UiCard
-        :title="t('settings.appearanceTitle')"
-        :desc="t('settings.appearanceDesc')"
-        class="settings-card"
-      >
-        <div
-          class="segmented preference-control"
-          role="group"
-          :aria-label="t('settings.appearanceTitle')"
-        >
-          <button
-            type="button"
-            class="segmented-item"
-            :class="{ active: theme === 'system' }"
-            :aria-pressed="theme === 'system'"
-            @click="switchTheme('system')"
+      <UiCard :title="t('settings.appearanceTitle')" class="settings-card">
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">{{ t('settings.themeTitle') }}</span>
+            <span class="setting-desc">{{ t('settings.appearanceDesc') }}</span>
+          </div>
+          <div
+            class="segmented preference-control"
+            role="group"
+            :aria-label="t('settings.appearanceTitle')"
           >
-            {{ t('theme.system') }}
-          </button>
-          <button
-            type="button"
-            class="segmented-item"
-            :class="{ active: theme === 'light' }"
-            :aria-pressed="theme === 'light'"
-            @click="switchTheme('light')"
-          >
-            {{ t('theme.light') }}
-          </button>
-          <button
-            type="button"
-            class="segmented-item"
-            :class="{ active: theme === 'dark' }"
-            :aria-pressed="theme === 'dark'"
-            @click="switchTheme('dark')"
-          >
-            {{ t('theme.dark') }}
-          </button>
+            <button
+              type="button"
+              class="segmented-item"
+              :class="{ active: theme === 'system' }"
+              :aria-pressed="theme === 'system'"
+              @click="switchTheme('system')"
+            >
+              {{ t('theme.system') }}
+            </button>
+            <button
+              type="button"
+              class="segmented-item"
+              :class="{ active: theme === 'light' }"
+              :aria-pressed="theme === 'light'"
+              @click="switchTheme('light')"
+            >
+              {{ t('theme.light') }}
+            </button>
+            <button
+              type="button"
+              class="segmented-item"
+              :class="{ active: theme === 'dark' }"
+              :aria-pressed="theme === 'dark'"
+              @click="switchTheme('dark')"
+            >
+              {{ t('theme.dark') }}
+            </button>
+          </div>
         </div>
-      </UiCard>
 
-      <UiCard :title="t('settings.langTitle')" :desc="t('settings.langDesc')" class="settings-card">
-        <div class="segmented preference-control" role="group" :aria-label="t('settings.langTitle')">
-          <button
-            type="button"
-            class="segmented-item"
-            :class="{ active: locale === 'zh' }"
-            :aria-pressed="locale === 'zh'"
-            @click="switchLocale('zh')"
-          >
-            中文
-          </button>
-          <button
-            type="button"
-            class="segmented-item"
-            :class="{ active: locale === 'en' }"
-            :aria-pressed="locale === 'en'"
-            @click="switchLocale('en')"
-          >
-            English
-          </button>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">{{ t('settings.langTitle') }}</span>
+            <span class="setting-desc">{{ t('settings.langDesc') }}</span>
+          </div>
+          <div class="segmented preference-control language-control" role="group" :aria-label="t('settings.langTitle')">
+            <button
+              type="button"
+              class="segmented-item"
+              :class="{ active: locale === 'zh' }"
+              :aria-pressed="locale === 'zh'"
+              @click="switchLocale('zh')"
+            >
+              中文
+            </button>
+            <button
+              type="button"
+              class="segmented-item"
+              :class="{ active: locale === 'en' }"
+              :aria-pressed="locale === 'en'"
+              @click="switchLocale('en')"
+            >
+              English
+            </button>
+          </div>
         </div>
       </UiCard>
 
@@ -337,9 +343,9 @@ async function reloadConfig(): Promise<void> {
 <style scoped>
 .settings-grid {
   display: grid;
-  width: min(900px, 100%);
+  width: min(1046px, 100%);
   grid-template-columns: 1fr;
-  gap: 18px;
+  gap: 12px;
   margin: 0 auto;
 }
 .settings-card {
@@ -347,21 +353,35 @@ async function reloadConfig(): Promise<void> {
 }
 .preference-control {
   display: grid;
+  width: min(360px, 48%);
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: 100%;
+  flex-shrink: 0;
+  gap: 0;
+}
+.language-control {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .preference-control .segmented-item {
-  min-height: 35px;
+  min-height: 27px;
+  border: 0;
+  border-radius: 0;
+  font-size: 10.5px;
+}
+.preference-control .segmented-item:first-child {
+  border-radius: 5px 0 0 5px;
+}
+.preference-control .segmented-item:last-child {
+  border-radius: 0 5px 5px 0;
 }
 
 .setting-row {
   display: flex;
-  min-height: 52px;
+  min-height: 43px;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 6px 5px;
+  border-bottom: 0;
   transition: background var(--motion-fast) var(--ease-standard);
 }
 .setting-row:first-child {
@@ -371,7 +391,8 @@ async function reloadConfig(): Promise<void> {
   border-bottom: 0;
 }
 .setting-row:hover {
-  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+  background: var(--general-row-hover);
+  border-radius: 3px;
 }
 .caution-row .setting-name {
   color: var(--warning);
@@ -387,14 +408,14 @@ async function reloadConfig(): Promise<void> {
 }
 .setting-name {
   color: var(--text-primary);
-  font-size: 13.5px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
 }
 .setting-desc {
   max-width: 630px;
   color: var(--text-muted);
-  font-size: 11.5px;
-  line-height: 1.45;
+  font-size: 10.5px;
+  line-height: 1.35;
 }
 .setting-action {
   display: flex;
@@ -431,12 +452,12 @@ async function reloadConfig(): Promise<void> {
 .info-item {
   display: flex;
   min-width: 0;
-  min-height: 45px;
+  min-height: 39px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 6px 5px;
+  border-bottom: 0;
 }
 .info-item:last-child {
   border-bottom: 0;

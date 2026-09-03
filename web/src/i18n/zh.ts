@@ -105,6 +105,7 @@ export const zh = {
     active: "活跃连接",
     totalDown: "累计下行",
     totalUp: "累计上行",
+    totalShort: "总计: ↑{up} ↓{down}",
     searchPlaceholder: "按域名、IP、进程过滤…",
     closeAll: "关闭全部",
     colHost: "目标",
@@ -128,6 +129,8 @@ export const zh = {
     empty: "没有匹配的规则",
   },
   logs: {
+    searchPlaceholder: "搜索日志…",
+    levelLabel: "日志级别",
     levelAll: "全部",
     pause: "暂停滚动",
     resume: "恢复滚动",
@@ -157,6 +160,7 @@ export const zh = {
   settings: {
     appearanceTitle: "外观",
     appearanceDesc: "跟随系统或选择控制台主题",
+    themeTitle: "主题",
     langTitle: "界面语言",
     langDesc: "切换控制台显示语言",
     networkTitle: "网络与监听",

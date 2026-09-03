@@ -1,6 +1,7 @@
 <template>
-  <div>
-    <PageHeader :title="t('page.connections.title')" :desc="t('page.connections.desc')">
+  <div class="connections-view">
+    <header class="connections-toolbar">
+      <h1>{{ t('page.connections.title') }}</h1>
       <div class="search-box connection-search">
         <Icon name="search" :size="13" />
         <input
@@ -10,129 +11,90 @@
           :placeholder="t('connections.searchPlaceholder')"
         />
       </div>
+      <div class="connection-totals mono">
+        {{ t('connections.totalShort', {
+          up: formatBytes(store.connectionsUploadTotal),
+          down: formatBytes(store.connectionsDownloadTotal),
+        }) }}
+      </div>
       <button
-        class="btn btn-danger-outline btn-sm"
-        :aria-label="t('connections.closeAll')"
+        type="button"
+        class="btn btn-sm close-all"
         :disabled="store.connections.length === 0"
         @click="closeAll"
       >
-        <Icon name="trash" :size="12" />
-        <span>{{ t('connections.closeAll') }}</span>
+        {{ t('connections.closeAll') }} ({{ store.connections.length }})
       </button>
-    </PageHeader>
+    </header>
 
-    <div class="stat-chips">
-      <div class="chip card">
-        <span class="chip-label">{{ t('connections.active') }}</span>
-        <span class="chip-value mono">{{ store.connections.length }}</span>
-      </div>
-      <div class="chip card">
-        <span class="chip-label">{{ t('connections.totalDown') }}</span>
-        <span class="chip-value mono down">{{ formatBytes(store.connectionsDownloadTotal) }}</span>
-      </div>
-      <div class="chip card">
-        <span class="chip-label">{{ t('connections.totalUp') }}</span>
-        <span class="chip-value mono up">{{ formatBytes(store.connectionsUploadTotal) }}</span>
-      </div>
-    </div>
+    <div class="connection-list">
+      <article v-for="connection in pagedConnections" :key="connection.id" class="connection-row">
+        <div class="connection-main">
+          <div class="connection-host mono" :title="hostOf(connection)">
+            {{ hostOf(connection) }}
+          </div>
+          <div class="connection-tags">
+            <span class="connection-tag tag-network">{{ connection.metadata.network.toUpperCase() }}</span>
+            <span v-if="processName(connection) !== '-'" class="connection-tag tag-process" :title="connection.metadata.processPath">
+              {{ processName(connection) }}
+            </span>
+            <span
+              v-for="chain in connection.chains"
+              :key="chain"
+              class="connection-tag tag-chain"
+            >
+              {{ chain }}
+            </span>
+            <span class="connection-tag tag-rule" :title="connection.rulePayload">
+              {{ connection.rule || '-' }}<template v-if="connection.rulePayload">,{{ connection.rulePayload }}</template>
+            </span>
+            <span class="connection-tag tag-time">{{ formatAgo(connection.start, locale) }}</span>
+            <span class="connection-tag tag-traffic mono">
+              ↑{{ formatBytes(connection.upload) }} ↓{{ formatBytes(connection.download) }}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="connection-close"
+          :aria-label="t('connections.closeTitle')"
+          :title="t('connections.closeTitle')"
+          @click="closeOne(connection.id)"
+        >
+          <Icon name="x" :size="18" />
+        </button>
+      </article>
 
-    <div class="table-wrap connection-list mt-4">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>{{ t('connections.colHost') }}</th>
-            <th>{{ t('connections.colProcess') }}</th>
-            <th>{{ t('connections.colNetwork') }}</th>
-            <th>{{ t('connections.colChain') }}</th>
-            <th>{{ t('connections.colRule') }}</th>
-            <th class="num">{{ t('connections.colDown') }}</th>
-            <th class="num">{{ t('connections.colUp') }}</th>
-            <th>{{ t('connections.colAction') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="c in pagedConnections" :key="c.id">
-            <td class="cell-truncate" :data-label="t('connections.colHost')">
-              <div class="host-cell">
-                <span class="mono host-main" :title="hostOf(c)">{{ hostOf(c) }}</span>
-                <span class="host-sub text-muted mono"
-                  >{{ c.metadata.sourceIP }}:{{ c.metadata.sourcePort }}</span
-                >
-              </div>
-            </td>
-            <td
-              class="cell-truncate text-muted"
-              :data-label="t('connections.colProcess')"
-              :title="c.metadata.processPath"
-            >
-              {{ processName(c) }}
-            </td>
-            <td :data-label="t('connections.colNetwork')">
-              <span class="badge badge-neutral">{{ c.metadata.network }}</span>
-            </td>
-            <td
-              class="cell-truncate text-muted"
-              :data-label="t('connections.colChain')"
-              :title="c.chains.join(' → ')"
-            >
-              {{ c.chains.join(' → ') }}
-            </td>
-            <td :data-label="t('connections.colRule')">
-              <span class="badge badge-accent">{{ c.rule || '-' }}</span>
-            </td>
-            <td class="cell-mono num" :data-label="t('connections.colDown')">
-              {{ formatBytes(c.download) }}
-            </td>
-            <td class="cell-mono num" :data-label="t('connections.colUp')">
-              {{ formatBytes(c.upload) }}
-            </td>
-            <td class="num action-cell" :data-label="t('connections.colAction')">
-              <button
-                class="btn btn-ghost btn-xs close-btn"
-                :aria-label="t('connections.closeTitle')"
-                :title="t('connections.closeTitle')"
-                @click="closeOne(c.id)"
-              >
-                <Icon name="x" :size="12" />
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
       <EmptyState
         v-if="filteredConnections.length === 0"
         icon="swap"
         :title="t('connections.empty')"
       />
-      <footer v-else class="pagination-footer">
-        <span class="pagination-summary">
-          {{
-            t('common.pageSummary', {
-              page: currentPage,
-              total: totalPages,
-            })
-          }}
-        </span>
-        <div class="pagination-actions">
-          <button
-            class="btn btn-secondary btn-sm"
-            :aria-label="t('common.previous')"
-            :disabled="currentPage === 1"
-            @click="currentPage--"
-          >
-            {{ t('common.previous') }}
-          </button>
-          <button
-            class="btn btn-secondary btn-sm"
-            :aria-label="t('common.next')"
-            :disabled="currentPage === totalPages"
-            @click="currentPage++"
-          >
-            {{ t('common.next') }}
-          </button>
-        </div>
-      </footer>
     </div>
+
+    <footer v-if="filteredConnections.length > PAGE_SIZE" class="pagination-footer">
+      <span class="pagination-summary">
+        {{ t('common.pageSummary', { page: currentPage, total: totalPages }) }}
+      </span>
+      <div class="pagination-actions">
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="currentPage === 1"
+          @click="currentPage--"
+        >
+          {{ t('common.previous') }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="currentPage === totalPages"
+          @click="currentPage++"
+        >
+          {{ t('common.next') }}
+        </button>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -142,29 +104,28 @@ import { api } from "../api/index.js";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
-import PageHeader from "../components/PageHeader.vue";
-import { t } from "../i18n/index.js";
+import { locale, t } from "../i18n/index.js";
 import { errorText, store, toast } from "../stores/index.js";
 import type { ConnectionItem } from "../types/index.js";
-import { formatBytes } from "../utils/format.js";
+import { formatAgo, formatBytes } from "../utils/format.js";
 
 const PAGE_SIZE = 80;
 const searchQuery = ref("");
 const currentPage = ref(1);
 
-function matchesConnection(c: ConnectionItem, query: string): boolean {
+function matchesConnection(connection: ConnectionItem, query: string): boolean {
   const includes = (value: string | undefined): boolean =>
     Boolean(value?.toLowerCase().includes(query));
 
   return (
-    includes(c.metadata.host) ||
-    includes(c.metadata.destinationIP) ||
-    includes(c.metadata.sourceIP) ||
-    includes(c.metadata.processPath) ||
-    includes(c.metadata.network) ||
-    includes(c.rule) ||
-    includes(c.rulePayload) ||
-    c.chains.some((chain) => includes(chain))
+    includes(connection.metadata.host) ||
+    includes(connection.metadata.destinationIP) ||
+    includes(connection.metadata.sourceIP) ||
+    includes(connection.metadata.processPath) ||
+    includes(connection.metadata.network) ||
+    includes(connection.rule) ||
+    includes(connection.rulePayload) ||
+    connection.chains.some((chain) => includes(chain))
   );
 }
 
@@ -173,7 +134,6 @@ const filteredConnections = computed(() => {
   const list = query
     ? store.connections.filter((connection) => matchesConnection(connection, query))
     : [...store.connections];
-
   return list.sort((a, b) => b.start.localeCompare(a.start));
 });
 const totalPages = computed(() =>
@@ -198,32 +158,30 @@ watch(
   { immediate: true },
 );
 
-function hostOf(c: ConnectionItem): string {
-  if (c.metadata.host) return c.metadata.host;
-  return `${c.metadata.destinationIP}:${c.metadata.destinationPort}`;
+function hostOf(connection: ConnectionItem): string {
+  if (connection.metadata.host) return connection.metadata.host;
+  return `${connection.metadata.destinationIP}:${connection.metadata.destinationPort}`;
 }
 
-function processName(c: ConnectionItem): string {
-  const p = c.metadata.processPath;
-  return p ? (p.split(/[\\/]/).pop() ?? p) : "-";
+function processName(connection: ConnectionItem): string {
+  const path = connection.metadata.processPath;
+  return path ? (path.split(/[\\/]/).pop() ?? path) : "-";
 }
 
 async function closeOne(id: string): Promise<void> {
   try {
     await api.closeConnection(id);
-    store.connections = store.connections.filter((c) => c.id !== id);
+    store.connections = store.connections.filter((connection) => connection.id !== id);
     toast.success(t("toast.connClosed"));
-  } catch (err) {
-    toast.error(t("toast.failed", { msg: errorText(err) }));
+  } catch (error) {
+    toast.error(t("toast.failed", { msg: errorText(error) }));
   }
 }
 
 async function closeAll(): Promise<void> {
   const ok = await confirmDialog({
     title: t("connections.closeAll"),
-    message: t("connections.closeAllConfirm", {
-      n: store.connections.length,
-    }),
+    message: t("connections.closeAllConfirm", { n: store.connections.length }),
     confirmText: t("common.confirm"),
     cancelText: t("common.cancel"),
     danger: true,
@@ -233,70 +191,127 @@ async function closeAll(): Promise<void> {
     await api.closeAllConnections();
     store.connections = [];
     toast.success(t("toast.connAllClosed"));
-  } catch (err) {
-    toast.error(t("toast.failed", { msg: errorText(err) }));
+  } catch (error) {
+    toast.error(t("toast.failed", { msg: errorText(error) }));
   }
 }
 </script>
 
 <style scoped>
-.connection-search {
-  width: 240px;
+.connections-view {
+  min-height: 100%;
 }
-.stat-chips {
+.connections-toolbar {
   display: grid;
-  max-width: 720px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-height: 79px;
+  grid-template-columns: max-content minmax(220px, 1fr) max-content max-content;
+  align-items: center;
   gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
 }
-.chip {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  background: var(--bg-panel);
-  border-color: transparent;
-  border-radius: var(--radius-sm);
-  box-shadow: none;
+.connections-toolbar h1 {
+  font-size: 20px;
+  font-weight: 500;
 }
-.chip-label {
-  color: var(--text-muted);
-  font-size: 11.5px;
-}
-.chip-value {
-  font-size: 13.5px;
-  font-weight: 550;
-}
-.chip-value.down {
-  color: var(--chart-down);
-}
-.chip-value.up {
-  color: var(--chart-up);
-}
-
-.num {
-  text-align: right;
-}
-.host-cell {
-  display: flex;
-  flex-direction: column;
+.connection-search {
   min-width: 0;
 }
-.host-main {
-  font-weight: 600;
+.connection-totals {
+  color: var(--text-primary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.close-all {
+  background: #ef6468;
+  color: #ffffff;
+}
+.close-all:hover:not(:disabled) {
+  background: #dc565b;
+}
+.connection-list {
+  min-height: 180px;
+}
+.connection-row {
+  position: relative;
+  display: flex;
+  min-height: 49px;
+  align-items: center;
+  padding: 5px 46px 5px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.connection-row:hover {
+  background: var(--general-row-hover);
+}
+.connection-main {
+  min-width: 0;
+  flex: 1;
+}
+.connection-host {
   overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.host-sub {
-  font-size: 11px;
+.connection-tags {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
 }
-.close-btn {
-  color: var(--text-muted);
+.connection-tag {
+  display: inline-flex;
+  max-width: 320px;
+  min-height: 18px;
+  align-items: center;
+  padding: 1px 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  color: #ffffff;
+  font-size: 9.5px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.close-btn:hover {
+.tag-network {
+  background: #ce7838;
+}
+.tag-process {
+  background: #bd8b32;
+}
+.tag-chain {
+  background: #389d69;
+}
+.tag-rule {
+  background: #69a95b;
+}
+.tag-time {
+  background: #3b88df;
+}
+.tag-traffic {
+  background: #4d14b8;
+}
+.connection-close {
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  display: flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.connection-close:hover {
+  background: var(--danger-soft);
   color: var(--danger);
 }
 .pagination-footer {
@@ -304,13 +319,12 @@ async function closeAll(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 9px 12px;
+  padding: 9px 20px;
   border-top: 1px solid var(--border);
-  background: var(--bg-panel);
 }
 .pagination-summary {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 .pagination-actions {
   display: flex;
@@ -318,101 +332,30 @@ async function closeAll(): Promise<void> {
 }
 
 @media (max-width: 760px) {
-  :deep(.page-head-actions) {
-    flex-wrap: wrap;
-    justify-content: flex-end;
+  .connections-toolbar {
+    grid-template-columns: 1fr auto;
+    padding: 10px 6px;
   }
   .connection-search {
-    width: min(240px, 100%);
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
-  .connection-list {
-    overflow: visible;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
+  .connection-totals {
+    grid-column: 1 / -1;
+    grid-row: 3;
   }
-  .data-table,
-  .data-table tbody,
-  .data-table tr,
-  .data-table td {
-    display: block;
-    width: 100%;
+  .connection-row {
+    padding-right: 40px;
+    padding-left: 8px;
   }
-  .data-table thead {
-    display: none;
-  }
-  .data-table tbody {
-    display: grid;
-    gap: 10px;
-  }
-  .data-table tbody tr {
-    position: relative;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-panel);
-    box-shadow: none;
-  }
-  .data-table td {
-    display: grid;
-    grid-template-columns: minmax(74px, 0.35fr) minmax(0, 1fr);
-    align-items: baseline;
-    gap: 10px;
-    max-width: none;
-    padding: 4px 0;
-    border: 0;
-    text-align: left;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .data-table td::before {
-    content: attr(data-label);
-    color: var(--text-muted);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-  .data-table .action-cell {
-    position: absolute;
-    top: 8px;
+  .connection-close {
     right: 8px;
-    display: block;
-    width: auto;
-    padding: 0;
-  }
-  .data-table .action-cell::before {
-    display: none;
-  }
-  .data-table td:first-child {
-    padding-right: 38px;
-  }
-  .close-btn {
-    min-width: 36px;
-    min-height: 36px;
-  }
-  .pagination-footer {
-    margin-top: 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-card);
   }
 }
 
 @media (max-width: 480px) {
-  :deep(.page-head) {
-    flex-direction: column;
-  }
-  :deep(.page-head-actions) {
-    width: 100%;
-    justify-content: flex-start;
-  }
-  .connection-search {
-    width: 100%;
-    flex-basis: 100%;
-  }
-  .stat-chips {
-    grid-template-columns: 1fr;
+  .connection-tag {
+    max-width: 220px;
   }
   .pagination-footer {
     align-items: stretch;
@@ -420,7 +363,6 @@ async function closeAll(): Promise<void> {
   }
   .pagination-actions .btn {
     flex: 1;
-    min-height: 40px;
   }
 }
 </style>

@@ -123,6 +123,16 @@ watch(
 .rule-search {
   width: 260px;
 }
+.rule-list {
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+.data-table th,
+.data-table td {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
 .idx {
   width: 56px;
 }

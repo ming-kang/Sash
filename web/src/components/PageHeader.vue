@@ -17,12 +17,12 @@ defineProps<{ title: string; desc?: string }>();
 <style scoped>
 .page-head {
   display: flex;
-  min-height: 76px;
+  min-height: 70px;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 22px;
-  padding: 14px 0 13px;
+  margin-bottom: 16px;
+  padding: 12px 0 11px;
   border-bottom: 1px solid var(--border);
 }
 .page-head-text {
@@ -30,16 +30,16 @@ defineProps<{ title: string; desc?: string }>();
 }
 .page-title {
   color: var(--text-primary);
-  font-size: clamp(20px, 1.7vw, 24px);
+  font-size: clamp(19px, 1.55vw, 22px);
   font-weight: 500;
   letter-spacing: -0.015em;
   line-height: 1.2;
 }
 .page-desc {
   max-width: 720px;
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.45;
 }
 .page-head-actions {

@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- WebUI now uses a classic compact desktop-console shell with a 25px title strip, 170px live-traffic sidebar, recessed active navigation, dense profile/proxy rows, stream-style logs, tagged connection rows and grouped settings. The intentional combined General + Proxies Overview workspace and responsive bottom navigation are preserved.
 - `sash restart` now restarts the whole runtime: the daemon exits through its serialized maintenance shutdown boundary and a freshly spawned daemon (running the installed code) starts the Core. Core-only restarts remain available from the dashboard. The daemon/Core maintenance-shutdown orchestration is shared between restart and Core updates.
 - TUN privilege guidance now points at an elevated full `sash restart` instead of a stop/start sequence, since an elevated restart replaces the unprivileged daemon.
 - Pre-release metadata is marked private, source installation is documented explicitly, and the unreleased `0.1.0` history is consolidated under `[Unreleased]`.

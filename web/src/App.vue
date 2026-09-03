@@ -1,34 +1,43 @@
 <template>
-  <div class="app-shell">
-    <AppSidebar />
+  <div class="app-frame">
+    <header class="app-titlebar">
+      <span>Sash</span>
+    </header>
 
-    <main class="app-main">
-      <Transition name="fade">
+    <div class="app-shell">
+      <AppSidebar />
+
+      <main class="app-main">
+        <Transition name="fade">
+          <div
+            v-if="runtimeNotice"
+            class="runtime-banner"
+            :class="runtimeNotice"
+            role="status"
+            aria-live="polite"
+            :title="store.coreSnapshotError ?? undefined"
+          >
+            <Icon name="alert" :size="13" />
+            <span>{{ t(`status.${runtimeNotice}`) }}</span>
+          </div>
+        </Transition>
+
         <div
-          v-if="runtimeNotice"
-          class="runtime-banner"
-          :class="runtimeNotice"
-          role="status"
-          aria-live="polite"
-          :title="store.coreSnapshotError ?? undefined"
+          class="page-container"
+          :class="[`page-${currentRoute}`, { 'has-runtime-banner': runtimeNotice }]"
         >
-          <Icon name="alert" :size="13" />
-          <span>{{ t(`status.${runtimeNotice}`) }}</span>
+          <OverviewView v-if="currentRoute === 'overview'" />
+          <ProfilesView v-else-if="currentRoute === 'profiles'" />
+          <LogsView v-else-if="currentRoute === 'logs'" />
+          <ConnectionsView v-else-if="currentRoute === 'connections'" />
+          <RulesView v-else-if="currentRoute === 'rules'" />
+          <SettingsView v-else-if="currentRoute === 'settings'" />
         </div>
-      </Transition>
+      </main>
 
-      <div class="page-container" :class="`page-${currentRoute}`">
-        <OverviewView v-if="currentRoute === 'overview'" />
-        <ProfilesView v-else-if="currentRoute === 'profiles'" />
-        <LogsView v-else-if="currentRoute === 'logs'" />
-        <ConnectionsView v-else-if="currentRoute === 'connections'" />
-        <RulesView v-else-if="currentRoute === 'rules'" />
-        <SettingsView v-else-if="currentRoute === 'settings'" />
-      </div>
-    </main>
-
-    <ToastHost />
-    <ConfirmDialog />
+      <ToastHost />
+      <ConfirmDialog />
+    </div>
   </div>
 </template>
 
@@ -98,16 +107,38 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.app-shell {
-  display: flex;
+.app-frame {
   width: 100%;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
   background: var(--bg-app);
 }
-
+.app-titlebar {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  width: 100%;
+  height: 25px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-titlebar);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+.app-shell {
+  display: flex;
+  width: 100%;
+  height: calc(100vh - 25px);
+  height: calc(100dvh - 25px);
+  overflow: hidden;
+  background: var(--bg-app);
+}
 .app-main {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -115,22 +146,22 @@ onUnmounted(() => {
   flex-direction: column;
   background: var(--bg-app);
 }
-
 .runtime-banner {
-  position: sticky;
+  position: absolute;
   top: 0;
+  right: 0;
+  left: 0;
   z-index: 15;
   display: flex;
-  min-height: 32px;
+  min-height: 30px;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
   gap: 7px;
-  padding: 6px 18px;
+  padding: 5px 18px;
   background: var(--danger-soft);
   border-bottom: 1px solid var(--danger-border);
   color: var(--danger);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-align: center;
 }
@@ -140,44 +171,81 @@ onUnmounted(() => {
   border-bottom-color: var(--warning-border);
   color: var(--warning);
 }
-
 .page-container {
   width: 100%;
   min-height: 0;
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 0 clamp(24px, 3.4vw, 52px) 48px;
+  padding: 0 30px 44px;
+}
+.page-container.page-overview {
+  padding-right: 34px;
+  padding-left: 34px;
+}
+.page-container.page-profiles {
+  padding: 0;
+}
+.page-container.has-runtime-banner {
+  padding-top: 30px;
+}
+.page-container.page-logs,
+.page-container.page-connections {
+  padding-right: 0;
+  padding-bottom: 0;
+  padding-left: 0;
 }
 
 @media (max-width: 899px) {
-  .app-shell {
+  .app-titlebar {
+    height: 40px;
+    justify-content: flex-start;
+    padding: 0 14px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .app-frame {
     height: auto;
     min-height: 100vh;
     min-height: 100dvh;
     overflow: visible;
+  }
+  .app-shell {
+    height: auto;
+    min-height: calc(100dvh - 40px);
+    overflow: visible;
     flex-direction: column;
   }
   .app-main {
-    min-height: calc(100dvh - 58px);
+    min-height: calc(100dvh - 40px);
     overflow: visible;
   }
   .runtime-banner {
-    top: 58px;
+    position: sticky;
+    top: 0;
   }
-  .page-container {
+  .page-container,
+  .page-container.page-overview,
+  .page-container.page-profiles,
+  .page-container.page-logs,
+  .page-container.page-connections {
     overflow: visible;
     padding: 0 16px calc(78px + env(safe-area-inset-bottom));
   }
-  /* The logs view sizes itself exactly to the viewport; extra scroll room
-     would only produce a nested scrollbar. */
   .page-container.page-logs {
     padding-bottom: 8px;
+  }
+  .page-container.has-runtime-banner {
+    padding-top: 0;
   }
 }
 
 @media (max-width: 480px) {
-  .page-container {
+  .page-container,
+  .page-container.page-overview,
+  .page-container.page-profiles,
+  .page-container.page-logs,
+  .page-container.page-connections {
     padding-right: 12px;
     padding-left: 12px;
   }

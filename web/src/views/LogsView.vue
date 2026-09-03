@@ -1,42 +1,48 @@
 <template>
   <div class="logs-view">
-    <PageHeader :title="t('page.logs.title')" :desc="t('page.logs.desc')">
-      <div class="segmented level-filter" role="group" :aria-label="t('page.logs.title')">
-        <button
-          v-for="lvl in levels"
-          :key="lvl"
-          class="segmented-item"
-          :class="{ active: selectedLevel === lvl }"
-          :aria-label="lvl === 'all' ? t('logs.levelAll') : lvl.toUpperCase()"
-          :aria-pressed="selectedLevel === lvl"
-          @click="selectedLevel = lvl"
-        >
-          {{ lvl === 'all' ? t('logs.levelAll') : lvl.toUpperCase() }}
-        </button>
+    <header class="logs-toolbar">
+      <div class="logs-heading">
+        <h1>{{ t('page.logs.title') }}</h1>
+        <span>mode: {{ store.mode }}</span>
       </div>
+
+      <div class="search-box logs-search">
+        <Icon name="search" :size="13" />
+        <input
+          v-model="searchQuery"
+          type="search"
+          :aria-label="t('logs.searchPlaceholder')"
+          :placeholder="t('logs.searchPlaceholder')"
+        />
+      </div>
+
+      <select v-model="selectedLevel" class="input input-sm level-select" :aria-label="t('logs.levelLabel')">
+        <option v-for="level in levels" :key="level" :value="level">
+          {{ level === 'all' ? t('logs.levelAll') : level.toUpperCase() }}
+        </option>
+      </select>
+
       <button
-        class="btn btn-secondary btn-sm"
-        :aria-label="paused ? t('logs.resume') : t('logs.pause')"
-        :aria-pressed="paused"
-        @click="togglePaused"
-      >
-        <Icon :name="paused ? 'play' : 'pause'" :size="12" />
-        <span>{{ paused ? t('logs.resume') : t('logs.pause') }}</span>
-      </button>
-      <button
-        class="btn btn-secondary btn-sm"
-        :aria-label="t('common.clear')"
+        type="button"
+        class="btn btn-sm log-clear"
         :disabled="store.logs.length === 0"
         @click="clearLogs"
       >
-        <Icon name="trash" :size="12" />
-        <span>{{ t('common.clear') }}</span>
+        {{ t('common.clear') }}
       </button>
-    </PageHeader>
+      <button
+        type="button"
+        class="btn btn-sm log-pause"
+        :aria-pressed="paused"
+        @click="togglePaused"
+      >
+        {{ paused ? t('logs.resume') : t('logs.pause') }}
+      </button>
+    </header>
 
     <div
       ref="paneRef"
-      class="log-pane card"
+      class="log-pane"
       role="log"
       tabindex="0"
       aria-live="off"
@@ -47,12 +53,10 @@
       <div v-if="filteredLogs.length === 0" class="log-empty text-muted">
         {{ store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
       </div>
-      <div v-for="log in filteredLogs" :key="log.id" class="log-line">
-        <span v-if="log.time" class="log-time mono">{{ log.time }}</span>
-        <span class="log-level mono" :class="`lv-${log.type.toLowerCase()}`">
-          {{ levelLabel(log.type) }}
-        </span>
+      <div v-for="log in filteredLogs" :key="log.id" class="log-line" :class="`lv-${log.type.toLowerCase()}`">
+        <Icon :name="levelIcon(log.type)" :size="13" class="log-icon" />
         <span class="log-payload">{{ log.payload }}</span>
+        <span v-if="log.time" class="log-time mono">{{ log.time }}</span>
       </div>
     </div>
   </div>
@@ -61,12 +65,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import Icon from "../components/Icon.vue";
-import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
 import { clearLogs, store } from "../stores/index.js";
 
 const levels = ["all", "info", "warning", "error", "debug"];
 const selectedLevel = ref("all");
+const searchQuery = ref("");
 const paused = ref(false);
 const paneRef = ref<HTMLElement | null>(null);
 const stickToBottom = ref(true);
@@ -74,13 +78,20 @@ let scrollFrame: number | null = null;
 let disposed = false;
 
 const filteredLogs = computed(() => {
-  if (selectedLevel.value === "all") return store.logs;
-  return store.logs.filter((l) => l.type.toLowerCase() === selectedLevel.value);
+  const query = searchQuery.value.trim().toLowerCase();
+  return store.logs.filter((log) => {
+    const levelMatches =
+      selectedLevel.value === "all" || log.type.toLowerCase() === selectedLevel.value;
+    return levelMatches && (!query || log.payload.toLowerCase().includes(query));
+  });
 });
 
-function levelLabel(type: string): string {
-  const upper = type.toUpperCase();
-  return upper === "WARNING" ? "WARN" : upper;
+function levelIcon(type: string): string {
+  const level = type.toLowerCase();
+  if (level === "error") return "alert";
+  if (level === "warning") return "info";
+  if (level === "debug") return "terminal";
+  return "check-circle";
 }
 
 function onScroll(): void {
@@ -126,61 +137,102 @@ onBeforeUnmount(() => {
 .logs-view {
   display: flex;
   height: 100%;
+  min-height: 0;
   flex-direction: column;
+}
+.logs-toolbar {
+  display: grid;
+  min-height: 79px;
+  grid-template-columns: max-content minmax(220px, 1fr) 100px auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.logs-heading {
+  min-width: 128px;
+}
+.logs-heading h1 {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.logs-heading span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.logs-search {
+  min-width: 0;
+}
+.level-select {
+  min-height: 34px;
+}
+.log-clear {
+  min-width: 70px;
+  background: #239b20;
+  color: #ffffff;
+}
+.log-clear:hover:not(:disabled) {
+  background: #1d861b;
+}
+.log-pause {
+  min-width: 70px;
+  background: #ef6468;
+  color: #ffffff;
+}
+.log-pause:hover:not(:disabled) {
+  background: #dc565b;
 }
 .log-pane {
   min-width: 0;
-  min-height: 320px;
+  min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 8px 10px;
   contain: layout paint;
-  background: var(--bg-panel);
-  border-radius: var(--radius-sm);
-  box-shadow: none;
+  background: var(--bg-app);
   font-size: 12px;
 }
 .log-pane:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .log-empty {
-  padding: 8px 2px;
+  padding: 14px 20px;
   font-size: 12.5px;
 }
 .log-line {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 10px;
-  padding: 4px 5px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  display: grid;
+  min-height: 27px;
+  grid-template-columns: 14px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 20px;
+  border-bottom: 1px solid var(--border);
   contain: layout paint style;
   content-visibility: auto;
-  contain-intrinsic-size: auto 25px;
-  line-height: 1.45;
-}
-.log-line:last-child {
-  border-bottom: 0;
+  contain-intrinsic-size: auto 27px;
+  line-height: 1.35;
 }
 .log-line:hover {
-  background: var(--bg-hover);
+  background: var(--general-row-hover);
+}
+.log-icon {
+  flex-shrink: 0;
 }
 .log-time {
   color: var(--text-muted);
-  font-size: 11px;
-  flex-shrink: 0;
-}
-.log-level {
-  width: 46px;
-  flex-shrink: 0;
   font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+}
+.log-payload {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
 }
 .lv-info {
-  color: var(--info);
+  color: var(--success);
 }
 .lv-warning {
   color: var(--warning);
@@ -189,80 +241,54 @@ onBeforeUnmount(() => {
   color: var(--danger);
 }
 .lv-debug {
-  color: var(--text-muted);
-}
-.log-payload {
-  min-width: 0;
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-}
-.segmented-item:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  color: var(--text-secondary);
 }
 
 @media (max-width: 899px) {
-  /* Exact-fit height: sidebar top bar + fixed bottom nav + container padding. */
   .logs-view {
-    height: calc(100dvh - 58px - 62px - env(safe-area-inset-bottom, 0px) - 8px);
+    height: calc(100dvh - 40px - 62px - env(safe-area-inset-bottom, 0px) - 8px);
   }
 }
 
 @media (max-width: 760px) {
-  :deep(.page-head-actions) {
+  .logs-toolbar {
+    grid-template-columns: 1fr auto auto;
+    padding: 10px 6px;
+  }
+  .logs-heading {
     min-width: 0;
-    flex-wrap: wrap;
-    justify-content: flex-end;
   }
-  .level-filter {
-    max-width: 100%;
-    overflow-x: auto;
+  .logs-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
-  .segmented-item,
-  :deep(.page-head-actions > .btn) {
-    min-height: 36px;
-  }
-  .log-pane {
-    min-height: 280px;
-    padding: 8px;
+  .level-select {
+    min-width: 90px;
   }
   .log-line {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    gap: 1px 10px;
-    padding: 5px 2px;
-  }
-  .log-level {
-    width: auto;
-  }
-  .log-payload {
-    grid-column: 1 / -1;
+    padding-left: 8px;
   }
 }
 
 @media (max-width: 480px) {
-  :deep(.page-head) {
-    flex-direction: column;
+  .logs-toolbar {
+    grid-template-columns: 1fr 1fr;
   }
-  :deep(.page-head-actions) {
+  .logs-heading {
+    grid-column: 1 / -1;
+  }
+  .level-select {
+    grid-column: 1 / -1;
+  }
+  .log-clear,
+  .log-pause {
     width: 100%;
-    justify-content: flex-start;
   }
-  .level-filter {
-    width: 100%;
-  }
-  .segmented-item {
-    flex: 1 0 auto;
-  }
-  .log-pane {
-    min-height: 260px;
+  .log-line {
+    grid-template-columns: 14px minmax(0, 1fr);
   }
   .log-time {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    grid-column: 2;
   }
 }
 </style>

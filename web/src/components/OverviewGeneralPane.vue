@@ -278,25 +278,25 @@ async function refreshActiveProfile(): Promise<void> {
   min-width: 0;
   overflow: hidden;
   background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border: 0;
+  border-radius: 5px;
 }
 :global(html[data-theme="dark"]) .general-pane {
   --general-title: #e5e2e8;
 }
 .identity-row {
   display: flex;
-  min-height: 92px;
+  min-height: 88px;
   align-items: center;
   gap: 14px;
-  padding: 15px 17px;
+  padding: 14px 17px;
   border-bottom: 1px solid var(--border);
 }
 .identity-mark,
 .identity-mark svg {
   display: block;
-  width: 51px;
-  height: 51px;
+  width: 50px;
+  height: 50px;
   flex-shrink: 0;
 }
 .identity-copy {
@@ -338,7 +338,7 @@ async function refreshActiveProfile(): Promise<void> {
 }
 .mode-control,
 .traffic-compact {
-  padding: 14px 16px 16px;
+  padding: 13px 16px 15px;
   border-bottom: 1px solid var(--border);
 }
 .pane-section-heading {
@@ -374,7 +374,8 @@ async function refreshActiveProfile(): Promise<void> {
   padding: 6px 4px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
+  background: var(--mode-button-bg);
+  box-shadow: 1px 1px 5px rgba(45, 45, 50, 0.1);
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -387,8 +388,8 @@ async function refreshActiveProfile(): Promise<void> {
   color: var(--text-primary);
 }
 .mode-button.active {
-  background: var(--accent);
-  color: var(--accent-contrast);
+  background: var(--mode-button-active-bg);
+  color: var(--mode-button-active-text);
 }
 .mode-button:disabled {
   cursor: not-allowed;
@@ -407,7 +408,7 @@ async function refreshActiveProfile(): Promise<void> {
   white-space: nowrap;
 }
 .general-list {
-  background: color-mix(in srgb, var(--bg-app) 78%, var(--bg-panel));
+  background: var(--bg-app);
   border-bottom: 1px solid var(--border);
 }
 .general-row {
@@ -424,7 +425,7 @@ async function refreshActiveProfile(): Promise<void> {
   border-bottom: 0;
 }
 .general-row:hover {
-  background: var(--bg-hover);
+  background: var(--general-row-hover);
 }
 .general-label {
   display: flex;

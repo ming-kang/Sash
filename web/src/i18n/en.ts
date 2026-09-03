@@ -107,6 +107,7 @@ export const en: Messages = {
     active: "Active",
     totalDown: "Total Down",
     totalUp: "Total Up",
+    totalShort: "Total: ↑{up} ↓{down}",
     searchPlaceholder: "Filter by host, IP, process…",
     closeAll: "Close all",
     colHost: "Target",
@@ -130,6 +131,8 @@ export const en: Messages = {
     empty: "No rules match",
   },
   logs: {
+    searchPlaceholder: "Search logs…",
+    levelLabel: "Log level",
     levelAll: "All",
     pause: "Pause scroll",
     resume: "Resume scroll",
@@ -159,6 +162,7 @@ export const en: Messages = {
   settings: {
     appearanceTitle: "Appearance",
     appearanceDesc: "Follow the system or choose a console theme",
+    themeTitle: "Theme",
     langTitle: "Language",
     langDesc: "Display language of the console",
     networkTitle: "Network & Listeners",

@@ -133,11 +133,11 @@ function delayClass(name: string): string {
 
 <style scoped>
 .pgroup {
-  margin-bottom: 32px;
+  margin-bottom: 22px;
 }
 .pgroup-head {
   display: flex;
-  min-height: 42px;
+  min-height: 36px;
   align-items: center;
   gap: 9px;
   min-width: 0;
@@ -147,15 +147,15 @@ function delayClass(name: string): string {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pgroup-type {
   display: inline-flex;
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
@@ -169,7 +169,7 @@ function delayClass(name: string): string {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 13.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -185,15 +185,15 @@ function delayClass(name: string): string {
 
 .pgroup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-  gap: 10px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 12px;
 }
 .node-card {
   position: relative;
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 82px;
+  min-height: 58px;
   grid-template-columns: minmax(0, 1fr) auto;
   overflow: hidden;
   border: 1px solid transparent;
@@ -206,22 +206,22 @@ function delayClass(name: string): string {
 }
 .node-card::before {
   position: absolute;
-  top: 5px;
-  bottom: 5px;
+  top: 2px;
+  bottom: 2px;
   left: 0;
-  width: 5px;
+  width: 4px;
   border-radius: 0 var(--radius-full) var(--radius-full) 0;
   background: var(--border-strong);
   content: "";
   transition: background var(--motion-fast) var(--ease-standard);
 }
 .node-card:hover {
-  border-color: var(--border);
+  border-color: transparent;
   background: var(--bg-hover);
 }
 .node-card.selected {
-  border-color: var(--selection-border);
-  background: var(--selection-soft);
+  border-color: transparent;
+  background: var(--bg-panel);
 }
 .node-card.selected::before {
   background: var(--selection);
@@ -229,10 +229,10 @@ function delayClass(name: string): string {
 .node-main {
   display: flex;
   min-width: 0;
-  min-height: 80px;
+  min-height: 56px;
   flex-direction: column;
   justify-content: center;
-  padding: 12px 8px 11px 16px;
+  padding: 7px 7px 6px 14px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -260,20 +260,20 @@ function delayClass(name: string): string {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 14.5px;
+  font-size: 13px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .node-delay {
   display: inline-flex;
-  min-width: 66px;
-  min-height: 34px;
+  min-width: 62px;
+  min-height: 30px;
   align-items: center;
   justify-content: flex-end;
   align-self: center;
   gap: 4px;
-  margin-right: 14px;
+  margin-right: 12px;
   padding: 5px 0 5px 8px;
   border: 0;
   background: transparent;
@@ -314,9 +314,9 @@ function delayClass(name: string): string {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  margin-top: 5px;
+  margin-top: 2px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 10px;
 }
 .node-meta {
   min-width: 0;

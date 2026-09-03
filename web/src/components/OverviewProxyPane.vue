@@ -156,16 +156,16 @@ async function selectNode(group: string, name: string): Promise<void> {
 <style scoped>
 .proxy-pane {
   min-width: 0;
-  padding-bottom: 24px;
+  padding-bottom: 20px;
 }
 .proxy-pane-head {
   display: flex;
-  min-height: 70px;
+  min-height: 62px;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 15px;
-  padding: 8px 2px 12px;
+  margin-bottom: 10px;
+  padding: 6px 2px 9px;
   border-bottom: 1px solid var(--border);
 }
 .proxy-title-row {
@@ -189,7 +189,7 @@ async function selectNode(group: string, name: string): Promise<void> {
 }
 .proxy-pane-head h2 {
   color: var(--text-primary);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 500;
 }
 .proxy-pane-head p {
@@ -203,7 +203,7 @@ async function selectNode(group: string, name: string): Promise<void> {
   font-size: 10.5px;
 }
 .proxy-kind-heading {
-  margin: 21px 0 9px;
+  margin: 15px 0 7px;
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
