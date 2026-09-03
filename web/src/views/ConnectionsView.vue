@@ -303,6 +303,11 @@ async function closeAll(): Promise<void> {
 .connections-view {
   min-height: 100%;
 }
+/* The sort/control row is a secondary toolbar: it should hug the header's
+ * bottom rule instead of floating below PageHeader's content margin. */
+.connections-view > .page-head {
+  margin-bottom: 0;
+}
 .connection-search {
   min-width: 0;
   flex: 1;
