@@ -1,17 +1,17 @@
 /* Sash Web design system */
 @font-face {
-  font-family: "Maple Mono NF CN";
+  font-family: "LXGW WenKai Lite";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("./fonts/MapleMono-NF-CN-Regular.woff2") format("woff2");
+  src: url("./fonts/LXGWWenKaiLite-Regular.woff2") format("woff2");
 }
 
 :root {
   color-scheme: light;
-  --font-sans: "Maple Mono NF CN", "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui,
+  --font-sans: "LXGW WenKai Lite", "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui,
     sans-serif;
-  --font-mono: "Maple Mono NF CN", "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-mono: "LXGW WenKai Lite", "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
   /* CFW-inspired neutral surfaces */
   --bg-app: #ffffff;
