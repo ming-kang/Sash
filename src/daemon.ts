@@ -450,17 +450,6 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             sendError(res, 400, (err as Error).message);
             return;
           }
-          if (
-            parsed.daemonPort !== committedSettings.daemonPort ||
-            parsed.daemonSecret !== committedSettings.daemonSecret
-          ) {
-            sendError(
-              res,
-              400,
-              "daemonPort and daemonSecret cannot be changed online; stop Sash and edit sash.json directly",
-            );
-            return;
-          }
           try {
             await settingsService.applyFileSettings(parsed);
           } catch (err) {
@@ -474,7 +463,25 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             }
             throw err;
           }
-          sendJson(res, 200, { ok: true, settings: publicSettings(committedSettings) });
+          // daemonSecret is read from memory on every authenticated request, so
+          // it hot-swaps. daemonPort only lands on disk: the listener cannot be
+          // rebound online, and the next `sash restart` picks it up. Updating
+          // the committed value keeps later settings writes from reverting the
+          // pending port in the file.
+          const restartRequired = parsed.daemonPort !== committedSettings.daemonPort;
+          if (restartRequired || parsed.daemonSecret !== committedSettings.daemonSecret) {
+            committedSettings = {
+              ...committedSettings,
+              daemonPort: parsed.daemonPort,
+              daemonSecret: parsed.daemonSecret,
+            };
+            saveSettings(committedSettings, layout);
+          }
+          sendJson(res, 200, {
+            ok: true,
+            restartRequired,
+            settings: publicSettings(committedSettings),
+          });
           return;
         }
         case "settingsUpdate": {

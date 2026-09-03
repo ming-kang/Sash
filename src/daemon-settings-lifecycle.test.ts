@@ -151,12 +151,45 @@ describe("daemon server", () => {
       });
       assert.equal(unknownField.statusCode, 400);
 
-      const daemonPortChange = await h.apiRequest("/sash/settings/file", {
+      // daemonPort is persisted but flagged for a manual restart; the daemon
+      // keeps listening on the old port.
+      const portChange = await h.apiRequest("/sash/settings/file", {
         method: "PUT",
         body: { content: JSON.stringify({ ...edited, daemonPort: 29999 }) },
       });
-      assert.equal(daemonPortChange.statusCode, 400);
-      assert.match((daemonPortChange.data as { error: string }).error, /cannot be changed online/);
+      assert.equal(portChange.statusCode, 200);
+      assert.equal((portChange.data as { restartRequired: boolean }).restartRequired, true);
+      const persisted = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8"));
+      assert.equal(persisted.daemonPort, 29999);
+      const stillAlive = await h.apiRequest("/sash/health");
+      assert.equal(stillAlive.statusCode, 200);
+
+      // daemonSecret hot-swaps: the old secret stops working immediately.
+      const afterPortChange = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      const secretChange = await h.apiRequest("/sash/settings/file", {
+        method: "PUT",
+        body: {
+          content: JSON.stringify({ ...afterPortChange, daemonSecret: "rotated-secret" }),
+        },
+      });
+      assert.equal(secretChange.statusCode, 200);
+      assert.equal((secretChange.data as { restartRequired: boolean }).restartRequired, false);
+      // Verify with a mutation endpoint: reads like GET /sash/settings are public.
+      const staleSecret = await h.apiRequest("/sash/settings", {
+        method: "PATCH",
+        token: "rotated-secret",
+        body: { key: "allow-lan", value: "off" },
+      });
+      assert.equal(staleSecret.statusCode, 200);
+      const oldSecret = await h.apiRequest("/sash/settings", {
+        method: "PATCH",
+        token: h.settings.daemonSecret,
+        body: { key: "allow-lan", value: "off" },
+      });
+      assert.equal(oldSecret.statusCode, 401);
     });
   });
 

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- The Settings page now has an "Edit settings file" button (top right, next to the header) that opens the full `sash.json` in a CodeMirror JSON editor. Saves are validated strictly — invalid JSON, unknown fields, port conflicts and non-loopback controllers are rejected without touching the disk — and changed managed keys are applied through the existing settings transaction machinery (core restart included where required). `daemonPort` and `daemonSecret` cannot be changed online and are rejected with a clear message.
+- The Settings page now has an "Edit settings file" button (top right, next to the header) that opens the full `sash.json` in a CodeMirror JSON editor. Saves are validated strictly — invalid JSON, unknown fields, port conflicts and non-loopback controllers are rejected without touching the disk — and changed managed keys are applied through the existing settings transaction machinery (core restart included where required). `daemonSecret` changes hot-swap immediately; `daemonPort` changes are persisted and the UI reminds the user that they take effect after a manual `sash restart`.
 
 - Profiles can be renamed from the WebUI: a pencil button on each profile card opens a rename dialog backed by the new `PATCH /sash/profiles/:id` daemon endpoint. The rename touches only the profiles index (`profiles/index.json`) — the YAML file name is the timestamp id and the name never enters the generated core config, so no core reload is needed. Subscription updates keep the user-chosen name (matching Clash Verge Rev's behavior). The profile content editor button now uses a `</>` icon to distinguish it from rename.
 

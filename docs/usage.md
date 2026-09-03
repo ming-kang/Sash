@@ -110,7 +110,7 @@ Profiles are managed from the WebUI Profiles page: download from a subscription 
 
 ### Settings
 
-Runtime settings (`mixed-port`, `tun`, `allow-lan`, `system-proxy`) are managed from the WebUI Settings page, and the entire `sash.json` can be edited as JSON from the same page ("Edit settings file"); invalid documents are rejected without touching the disk. `daemonPort` and `daemonSecret` cannot be changed online — stop Sash first and edit the file directly (see the Configuration Reference below).
+Runtime settings (`mixed-port`, `tun`, `allow-lan`, `system-proxy`) are managed from the WebUI Settings page, and the entire `sash.json` can be edited as JSON from the same page ("Edit settings file"); invalid documents are rejected without touching the disk. `daemonSecret` changes apply immediately; `daemonPort` changes are saved but require a manual `sash restart` to rebind the listener.
 
 ### Maintenance & Upgrades
 

@@ -100,9 +100,13 @@ async function save(): Promise<void> {
   if (saving.value || loading.value || loadError.value !== null) return;
   saving.value = true;
   try {
-    await api.saveSettingsFile(currentText());
+    const result = await api.saveSettingsFile(currentText());
     await refreshStatus();
-    toast.success(t("toast.settingSaved"));
+    if (result.restartRequired) {
+      toast.success(t("toast.settingsSavedRestart"));
+    } else {
+      toast.success(t("toast.settingSaved"));
+    }
     emit("close");
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));

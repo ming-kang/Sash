@@ -184,7 +184,7 @@ export const en: Messages = {
     appearanceDesc: "Follow the system or choose a console theme",
     editFile: "Edit settings file",
     fileTitle: "sash.json",
-    fileHint: "daemonPort and daemonSecret require editing while Sash is stopped",
+    fileHint: "daemonPort changes need a manual sash restart to take effect",
     themeTitle: "Theme",
     langTitle: "Language",
     langDesc: "Display language of the console",
@@ -235,6 +235,8 @@ export const en: Messages = {
     pasteFailed: "Cannot read the clipboard",
     portSaved: "Port updated, core restarted",
     settingSaved: "Setting updated",
+    settingsSavedRestart:
+      "Settings saved; daemonPort changes take effect after a manual `sash restart`",
     coreRestarted: "Core restarted",
     configReloaded: "Config hot-reloaded, {n} nodes",
     connClosed: "Connection closed",
