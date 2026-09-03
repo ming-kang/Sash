@@ -215,6 +215,38 @@ describe("daemon server", () => {
       assert.equal(missing.statusCode, 404);
     });
 
+    it("PATCH renames a profile, rejecting empty names", async () => {
+      await h.startServer({ fetchProfile: mockFetchProfile });
+      const created = (
+        await h.apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } })
+      ).data as { profile: { id: string } };
+      const id = created.profile.id;
+
+      const empty = await h.apiRequest(`/sash/profiles/${id}`, {
+        method: "PATCH",
+        body: { name: "  " },
+      });
+      assert.equal(empty.statusCode, 400);
+
+      const renamed = await h.apiRequest(`/sash/profiles/${id}`, {
+        method: "PATCH",
+        body: { name: "my subscription" },
+      });
+      assert.equal(renamed.statusCode, 200);
+      assert.equal((renamed.data as { profile: { name: string } }).profile.name, "my subscription");
+
+      const list = (await h.apiRequest("/sash/profiles")).data as {
+        profiles: Array<{ name: string }>;
+      };
+      assert.equal(list.profiles[0]?.name, "my subscription");
+
+      const missing = await h.apiRequest("/sash/profiles/1234567890123", {
+        method: "PATCH",
+        body: { name: "ghost" },
+      });
+      assert.equal(missing.statusCode, 404);
+    });
+
     it("update-all reports per-profile failures and keeps the active one hot", async () => {
       await h.startServer({ fetchProfile: mockFetchProfile });
       await h.apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });

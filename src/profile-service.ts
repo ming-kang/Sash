@@ -935,4 +935,28 @@ export class ProfileService {
       return { wasActive, ...(prepared ? { proxyCount: prepared.proxyCount } : {}) };
     });
   }
+
+  /**
+   * Rename a profile. Display-only change: the YAML file name is the
+   * timestamp id and the name never enters the generated core config, so no
+   * reload is needed. Remote updates never overwrite the name (like Clash
+   * Verge Rev), so a user-chosen name sticks.
+   */
+  async rename(id: string, name: string): Promise<{ profile: ProfileMeta }> {
+    const trimmed = name.trim();
+    if (!trimmed) throw new ProfileInputError("Missing required profile name");
+    if (trimmed.length > 120) throw new ProfileInputError("Profile name is too long");
+
+    return this.commit("rename profile", async () => {
+      const index = this.list();
+      const profile = index.profiles.find((item) => item.id === id);
+      if (!profile) throw new ProfileNotFoundError(`profile not found: ${id}`);
+      const updated: ProfileMeta = { ...profile, name: trimmed };
+      await this.publish({
+        ...index,
+        profiles: index.profiles.map((item) => (item.id === id ? updated : item)),
+      });
+      return { profile: updated };
+    });
+  }
 }

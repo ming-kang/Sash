@@ -123,12 +123,22 @@
           <button
             type="button"
             class="icon-btn"
+            :title="t('profiles.rename')"
+            :aria-label="`${t('profiles.rename')}: ${p.name}`"
+            :disabled="profileBusy"
+            @click="renameTarget = p"
+          >
+            <Icon name="pencil" :size="14" />
+          </button>
+          <button
+            type="button"
+            class="icon-btn"
             :title="t('profiles.edit')"
             :aria-label="`${t('profiles.edit')}: ${p.name}`"
             :disabled="profileBusy"
             @click="openEditor(p)"
           >
-            <Icon name="edit" :size="14" />
+            <Icon name="code" :size="14" />
           </button>
           <button
             v-if="p.url"
@@ -155,6 +165,12 @@
       </article>
     </div>
 
+    <ProfileRenameDialog
+      v-if="renameTarget"
+      :profile="renameTarget"
+      @close="renameTarget = null"
+    />
+
     <ProfileEditorDialog
       v-if="editorProfile"
       :profile-id="editorProfile.id"
@@ -171,6 +187,7 @@ import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import ProfileEditorDialog from "../components/ProfileEditorDialog.vue";
+import ProfileRenameDialog from "../components/ProfileRenameDialog.vue";
 import { locale, t } from "../i18n/index.js";
 import {
   activateProfile,
@@ -194,6 +211,7 @@ const importing = ref(false);
 const updatingId = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
 const editorProfile = ref<ProfileMeta | null>(null);
+const renameTarget = ref<ProfileMeta | null>(null);
 
 const profiles = computed(() => store.profiles);
 const hasRemote = computed(() => store.profiles.some((p) => p.url !== ""));

@@ -150,7 +150,7 @@ function profileMethods(pathname: string): readonly string[] | undefined {
   if (pathname === "/sash/profiles/update-all") return ["POST"];
   if (/^\/sash\/profiles\/[0-9]+\/update$/.test(pathname)) return ["POST"];
   if (/^\/sash\/profiles\/[0-9]+\/content$/.test(pathname)) return ["GET", "PUT"];
-  if (/^\/sash\/profiles\/[0-9]+$/.test(pathname)) return ["DELETE"];
+  if (/^\/sash\/profiles\/[0-9]+$/.test(pathname)) return ["PATCH", "DELETE"];
   return undefined;
 }
 

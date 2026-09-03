@@ -89,6 +89,15 @@ export async function handleProfileRoutes(ctx: ProfileRouteContext): Promise<boo
       return true;
     }
 
+    const patchMatch = pathname.match(/^\/sash\/profiles\/([0-9]+)$/);
+    if (method === "PATCH" && patchMatch?.[1]) {
+      const body = await parseJsonObjectBody(req);
+      const name = typeof body.name === "string" ? body.name : "";
+      const result = await profiles.rename(patchMatch[1], name);
+      sendJson(res, 200, { ok: true, ...result });
+      return true;
+    }
+
     const deleteMatch = pathname.match(/^\/sash\/profiles\/([0-9]+)$/);
     if (method === "DELETE" && deleteMatch?.[1]) {
       const result = await profiles.remove(deleteMatch[1]);

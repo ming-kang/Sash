@@ -596,4 +596,18 @@ describe("ProfileService", () => {
     assert.equal(fs.readFileSync(profileFilePath(layout, profile.profile.id), "utf8"), yamlB);
     assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
   });
+
+  it("renames a profile without touching its YAML file", async () => {
+    const service = new ProfileService({ layout, settings: () => settings });
+    const profile = await service.importLocal("before", yamlA);
+
+    const renamed = await service.rename(profile.profile.id, "  after  ");
+    assert.equal(renamed.profile.name, "after");
+    assert.equal(loadProfiles(layout).profiles[0]?.name, "after");
+    assert.equal(fs.readFileSync(profileFilePath(layout, profile.profile.id), "utf8"), yamlA);
+
+    await assert.rejects(() => service.rename(profile.profile.id, "   "), /Missing required/);
+    await assert.rejects(() => service.rename(profile.profile.id, "x".repeat(121)), /too long/);
+    await assert.rejects(() => service.rename("1234567890123", "ghost"), /not found/);
+  });
 });

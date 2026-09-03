@@ -14,6 +14,7 @@ import type {
   ConnectionsResponse,
   LogMessage,
   OutboundMode,
+  ProfileMeta,
   ProfilesResponse,
   ProxiesResponse,
   RulesResponse,
@@ -176,6 +177,11 @@ export const api = {
   deleteProfile: (id: string) =>
     request<{ ok: boolean; wasActive: boolean; proxyCount?: number }>(`/sash/profiles/${id}`, {
       method: "DELETE",
+    }),
+  renameProfile: (id: string, name: string) =>
+    request<{ ok: boolean; profile: ProfileMeta }>(`/sash/profiles/${id}`, {
+      method: "PATCH",
+      body: { name },
     }),
   getProfileContent: (id: string) =>
     request<{ ok: boolean; name: string; content: string }>(`/sash/profiles/${id}/content`),

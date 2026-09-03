@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Profiles can be renamed from the WebUI: a pencil button on each profile card opens a rename dialog backed by the new `PATCH /sash/profiles/:id` daemon endpoint. The rename touches only the profiles index (`profiles/index.json`) — the YAML file name is the timestamp id and the name never enters the generated core config, so no core reload is needed. Subscription updates keep the user-chosen name (matching Clash Verge Rev's behavior). The profile content editor button now uses a `</>` icon to distinguish it from rename.
+
 - Cross-platform CLI lifecycle for installing, starting, stopping, restarting, inspecting and logging the managed runtime.
 - First-run Core bootstrap, transactional Core updates, npm self-upgrade command and managed configuration commands.
 - Platform-conventional private data directories with an absolute `SASH_HOME` override.
