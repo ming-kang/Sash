@@ -24,6 +24,10 @@ const resolvedTheme = computed<ResolvedTheme>(() =>
   theme.value === "system" ? systemTheme.value : theme.value,
 );
 
+export function isDarkTheme(): boolean {
+  return resolvedTheme.value === "dark";
+}
+
 function applyTheme(): void {
   if (!hasDOM) return;
   document.documentElement.dataset.theme = resolvedTheme.value;

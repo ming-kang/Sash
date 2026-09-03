@@ -573,4 +573,27 @@ describe("ProfileService", () => {
     assert.match(fs.readFileSync(profileFilePath(layout, b.id), "utf8"), /node-b/);
     assert.equal(loadProfiles(layout).profiles.length, 2);
   });
+
+  it("reads and writes profile content with validation and atomic publication", async () => {
+    const service = new ProfileService({ layout, settings: () => settings });
+    const profile = await service.importLocal("editable", yamlA);
+
+    const read = service.readContent(profile.profile.id);
+    assert.equal(read.name, "editable");
+    assert.equal(read.content, yamlA);
+
+    await assert.rejects(
+      () => service.writeContent(profile.profile.id, "invalid: ["),
+      /not valid YAML/,
+    );
+    await assert.rejects(
+      () => service.writeContent(profile.profile.id, "foo: bar\n"),
+      /missing proxies\/rules/,
+    );
+
+    const updateResult = await service.writeContent(profile.profile.id, yamlB);
+    assert.equal(updateResult.profile.name, "editable");
+    assert.equal(fs.readFileSync(profileFilePath(layout, profile.profile.id), "utf8"), yamlB);
+    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
+  });
 });

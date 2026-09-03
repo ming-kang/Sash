@@ -8,6 +8,18 @@
         </div>
         <p>{{ activeModeDescription }}</p>
       </div>
+      <div
+        v-if="store.mode !== 'direct' && store.proxyGroups.length > 0"
+        class="search-box proxy-filter"
+      >
+        <Icon name="search" :size="13" />
+        <input
+          v-model="filterQuery"
+          type="search"
+          :aria-label="t('proxies.filter')"
+          :placeholder="t('proxies.filter')"
+        />
+      </div>
       <span v-if="store.mode === 'rule'" class="group-count">
         {{ store.proxyGroups.length }} {{ t('profiles.statGroups') }}
       </span>
@@ -29,9 +41,13 @@
           :testing="testingGroups.has(group)"
           :testing-nodes="testingNodes"
           :busy="Boolean(store.operations.proxySelections[group])"
+          :collapsed="collapsedGroups.has(group)"
+          :hide-timeout="hideTimeoutGroups.has(group)"
           @select="(name) => selectNode(group, name)"
           @test-group="testGroup(group)"
           @test-node="testSingle"
+          @toggle-collapse="toggleCollapse(group)"
+          @toggle-hide-timeout="toggleHideTimeout(group)"
         />
       </template>
 
@@ -46,9 +62,13 @@
           :testing="testingGroups.has(group)"
           :testing-nodes="testingNodes"
           :busy="Boolean(store.operations.proxySelections[group])"
+          :collapsed="collapsedGroups.has(group)"
+          :hide-timeout="hideTimeoutGroups.has(group)"
           show-current-tag
           @test-group="testGroup(group)"
           @test-node="testSingle"
+          @toggle-collapse="toggleCollapse(group)"
+          @toggle-hide-timeout="toggleHideTimeout(group)"
         />
       </template>
 
@@ -70,9 +90,13 @@
         :testing="testingGroups.has('GLOBAL')"
         :testing-nodes="testingNodes"
         :busy="Boolean(store.operations.proxySelections.GLOBAL)"
+        :collapsed="collapsedGroups.has('GLOBAL')"
+        :hide-timeout="hideTimeoutGroups.has('GLOBAL')"
         @select="(name) => selectNode('GLOBAL', name)"
         @test-group="testGroup('GLOBAL')"
         @test-node="testSingle"
+        @toggle-collapse="toggleCollapse('GLOBAL')"
+        @toggle-hide-timeout="toggleHideTimeout('GLOBAL')"
       />
       <div v-else class="empty-panel">
         <EmptyState
@@ -98,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useProxyLatency } from "../composables/proxy-latency.js";
 import { t } from "../i18n/index.js";
 import {
@@ -109,9 +133,28 @@ import {
   toast,
 } from "../stores/index.js";
 import EmptyState from "./EmptyState.vue";
+import Icon from "./Icon.vue";
 import ProxyGroupSection from "./ProxyGroupSection.vue";
 
 const { testingGroups, testingNodes, testGroup, testSingle } = useProxyLatency();
+const filterQuery = ref("");
+const normalizedFilter = computed(() => filterQuery.value.trim().toLowerCase());
+const collapsedGroups = ref(new Set<string>());
+const hideTimeoutGroups = ref(new Set<string>());
+
+function toggleCollapse(group: string): void {
+  const next = new Set(collapsedGroups.value);
+  if (next.has(group)) next.delete(group);
+  else next.add(group);
+  collapsedGroups.value = next;
+}
+
+function toggleHideTimeout(group: string): void {
+  const next = new Set(hideTimeoutGroups.value);
+  if (next.has(group)) next.delete(group);
+  else next.add(group);
+  hideTimeoutGroups.value = next;
+}
 const activeModeLabel = computed(() => {
   if (store.mode === "global") return t("overview.modeGlobal");
   if (store.mode === "direct") return t("overview.modeDirect");
@@ -132,10 +175,15 @@ const autoGroups = computed(() =>
     (group) => store.proxies[group]?.type !== "Selector" && group !== "GLOBAL",
   ),
 );
-const globalMembers = computed(() => store.proxies.GLOBAL?.all ?? []);
+const globalMembers = computed(() => filterMembers(store.proxies.GLOBAL?.all ?? []));
+
+function filterMembers(members: string[]): string[] {
+  if (!normalizedFilter.value) return members;
+  return members.filter((name) => name.toLowerCase().includes(normalizedFilter.value));
+}
 
 function membersOf(group: string): string[] {
-  return store.proxies[group]?.all ?? [];
+  return filterMembers(store.proxies[group]?.all ?? []);
 }
 
 function nowOf(name: string): string {
@@ -201,6 +249,12 @@ async function selectNode(group: string, name: string): Promise<void> {
   flex-shrink: 0;
   color: var(--text-muted);
   font-size: 10.5px;
+}
+.proxy-filter {
+  min-width: 140px;
+  max-width: 240px;
+  min-height: 30px;
+  flex: 1;
 }
 .proxy-kind-heading {
   margin: 15px 0 7px;
@@ -268,6 +322,10 @@ async function selectNode(group: string, name: string): Promise<void> {
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
+  }
+  .proxy-filter {
+    width: 100%;
+    max-width: none;
   }
   .group-count {
     align-self: flex-end;

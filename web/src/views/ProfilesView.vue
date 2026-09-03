@@ -124,6 +124,16 @@
         </div>
         <div class="profile-actions" @click.stop>
           <button
+            type="button"
+            class="icon-btn"
+            :title="t('profiles.edit')"
+            :aria-label="`${t('profiles.edit')}: ${p.name}`"
+            :disabled="profileBusy"
+            @click="openEditor(p)"
+          >
+            <Icon name="edit" :size="14" />
+          </button>
+          <button
             v-if="p.url"
             type="button"
             class="icon-btn"
@@ -147,6 +157,14 @@
         </div>
       </article>
     </div>
+
+    <ProfileEditorDialog
+      v-if="editorProfile"
+      :profile-id="editorProfile.id"
+      :profile-name="editorProfile.name"
+      :is-remote="editorProfile.url !== ''"
+      @close="editorProfile = null"
+    />
   </div>
 </template>
 
@@ -155,6 +173,7 @@ import { computed, onMounted, ref } from "vue";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
+import ProfileEditorDialog from "../components/ProfileEditorDialog.vue";
 import { locale, t } from "../i18n/index.js";
 import {
   activateProfile,
@@ -177,6 +196,7 @@ const updatingAll = ref(false);
 const importing = ref(false);
 const updatingId = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
+const editorProfile = ref<ProfileMeta | null>(null);
 
 const profiles = computed(() => store.profiles);
 const hasRemote = computed(() => store.profiles.some((p) => p.url !== ""));
@@ -270,6 +290,11 @@ async function selectProfile(p: ProfileMeta): Promise<void> {
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   }
+}
+
+function openEditor(profile: ProfileMeta): void {
+  if (profileBusy.value) return;
+  editorProfile.value = profile;
 }
 
 async function removeProfile(p: ProfileMeta): Promise<void> {

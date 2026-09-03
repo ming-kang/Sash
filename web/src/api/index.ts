@@ -177,6 +177,13 @@ export const api = {
     request<{ ok: boolean; wasActive: boolean; proxyCount?: number }>(`/sash/profiles/${id}`, {
       method: "DELETE",
     }),
+  getProfileContent: (id: string) =>
+    request<{ ok: boolean; name: string; content: string }>(`/sash/profiles/${id}/content`),
+  setProfileContent: (id: string, content: string) =>
+    request<ProfileUpdateResponse>(`/sash/profiles/${id}/content`, {
+      method: "PUT",
+      body: { content },
+    }),
 
   patchSetting: (key: string, value: string) =>
     request<{ ok: boolean; settings: SashStatus["settings"] }>("/sash/settings", {

@@ -2,16 +2,7 @@
   <aside class="general-pane" :aria-label="t('overview.coreTitle')">
     <div class="identity-row">
       <span class="identity-mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64">
-          <rect width="64" height="64" rx="14" fill="var(--general-title)" />
-          <path
-            d="M42 22.4c-1.4-3.8-5.1-5.9-9.8-5.9-5.7 0-10 3.4-10 8 0 10.5 20.8 5.7 20.8 15.7 0 5-4.6 8.2-10.7 8.2-5.3 0-9.8-2.7-11-6.8"
-            fill="none"
-            stroke="var(--bg-panel)"
-            stroke-width="5"
-            stroke-linecap="round"
-          />
-        </svg>
+        <img :src="'./assets/branding/sash-cat.png'" alt="" />
       </span>
       <div class="identity-copy">
         <div class="identity-title-row">
@@ -109,8 +100,15 @@
 
       <div class="general-row">
         <div class="general-label">{{ t('overview.mixedPort') }}</div>
-        <div class="general-value mono">
-          127.0.0.1:{{ store.status?.settings.mixedPort ?? 17890 }}
+        <div class="general-value">
+          <button
+            type="button"
+            class="general-link mono"
+            :title="t('page.settings.title')"
+            @click="navigate('settings')"
+          >
+            127.0.0.1:{{ store.status?.settings.mixedPort ?? 17890 }}
+          </button>
         </div>
       </div>
 
@@ -120,9 +118,14 @@
           <small v-if="activeProfile">{{ t('common.nodesCount', { n: totalNodes }) }}</small>
         </div>
         <div v-if="activeProfile" class="general-value profile-value">
-          <span class="profile-name" :title="activeProfile.url || activeProfile.name">
+          <button
+            type="button"
+            class="general-link profile-name"
+            :title="activeProfile.url || activeProfile.name"
+            @click="navigate('profiles')"
+          >
             {{ activeProfile.name }}
-          </span>
+          </button>
           <button
             v-if="activeProfile.url"
             type="button"
@@ -292,12 +295,17 @@ async function refreshActiveProfile(): Promise<void> {
   padding: 14px 17px;
   border-bottom: 1px solid var(--border);
 }
-.identity-mark,
-.identity-mark svg {
+.identity-mark {
   display: block;
-  width: 50px;
+  width: 62px;
   height: 50px;
   flex-shrink: 0;
+}
+.identity-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .identity-copy {
   min-width: 0;
@@ -454,6 +462,27 @@ async function refreshActiveProfile(): Promise<void> {
 }
 .profile-value {
   max-width: 56%;
+}
+.general-link {
+  min-width: 0;
+  padding: 0 0 1px;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px dashed var(--clickable-border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: inherit;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+}
+.general-link:hover {
+  border-bottom-color: var(--text-primary);
+  color: var(--text-primary);
 }
 .profile-name {
   overflow: hidden;

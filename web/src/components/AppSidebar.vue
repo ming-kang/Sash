@@ -3,11 +3,13 @@
     <div class="traffic-panel" aria-live="off">
       <div class="traffic-row up" :title="t('overview.upload')">
         <span class="traffic-arrow">↑</span>
-        <span class="traffic-value mono">{{ formatSpeed(store.traffic.up) }}</span>
+        <span class="traffic-number mono">{{ uploadSpeed.numberText }}</span>
+        <span class="traffic-unit mono">{{ uploadSpeed.unitText }}</span>
       </div>
       <div class="traffic-row down" :title="t('overview.download')">
         <span class="traffic-arrow">↓</span>
-        <span class="traffic-value mono">{{ formatSpeed(store.traffic.down) }}</span>
+        <span class="traffic-number mono">{{ downloadSpeed.numberText }}</span>
+        <span class="traffic-unit mono">{{ downloadSpeed.unitText }}</span>
       </div>
     </div>
 
@@ -39,12 +41,33 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import { locale, t } from "../i18n/index.js";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { t } from "../i18n/index.js";
 import { currentRoute, navigate, type Route } from "../router.js";
 import { isCoreRunning, store } from "../stores/index.js";
-import { formatDuration, formatSpeed } from "../utils/format.js";
 import Icon from "./Icon.vue";
+
+interface TrafficSpeedDisplay {
+  numberText: string;
+  unitText: string;
+}
+
+function formatTrafficSpeed(bytesPerSecond: number): TrafficSpeedDisplay {
+  const normalizedSpeed = Number.isFinite(bytesPerSecond) ? Math.max(0, bytesPerSecond) : 0;
+  const units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
+  if (normalizedSpeed < 1024) {
+    return { numberText: Math.round(normalizedSpeed).toString(), unitText: units[0] ?? "B/s" };
+  }
+
+  const unitIndex = Math.min(
+    Math.floor(Math.log(normalizedSpeed) / Math.log(1024)),
+    units.length - 1,
+  );
+  return {
+    numberText: (normalizedSpeed / 1024 ** unitIndex).toFixed(2),
+    unitText: units[unitIndex] ?? "B/s",
+  };
+}
 
 const navItems: Array<{ route: Route; icon: string }> = [
   { route: "overview", icon: "grid" },
@@ -55,11 +78,39 @@ const navItems: Array<{ route: Route; icon: string }> = [
   { route: "settings", icon: "settings" },
 ];
 
+function formatRuntimeClock(startedAt: string | undefined, currentTime: number): string {
+  if (!startedAt) return "00 : 00 : 00";
+  const startedAtMilliseconds = new Date(startedAt).getTime();
+  if (!Number.isFinite(startedAtMilliseconds)) return "00 : 00 : 00";
+
+  const totalSeconds = Math.max(0, Math.floor((currentTime - startedAtMilliseconds) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const padTimePart = (value: number): string => value.toString().padStart(2, "0");
+  return `${padTimePart(hours)} : ${padTimePart(minutes)} : ${padTimePart(seconds)}`;
+}
+
+const currentTime = ref(Date.now());
+let clockTimer: number | null = null;
+
 const activeIndex = computed(() => navItems.findIndex((item) => item.route === currentRoute.value));
-const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
+const uploadSpeed = computed(() => formatTrafficSpeed(store.traffic.up));
+const downloadSpeed = computed(() => formatTrafficSpeed(store.traffic.down));
+const uptime = computed(() => formatRuntimeClock(store.status?.core.startedAt, currentTime.value));
 const coreTooltip = computed(() => {
   const status = isCoreRunning.value ? t("app.coreRunning") : t("app.coreStopped");
   return store.status?.core.pid ? `${status} · PID ${store.status.core.pid}` : status;
+});
+
+onMounted(() => {
+  clockTimer = window.setInterval(() => {
+    currentTime.value = Date.now();
+  }, 1000);
+});
+
+onUnmounted(() => {
+  if (clockTimer !== null) window.clearInterval(clockTimer);
 });
 
 function navItemClasses(index: number): Record<string, boolean> {
@@ -86,31 +137,38 @@ function navItemClasses(index: number): Record<string, boolean> {
 .traffic-panel {
   display: flex;
   height: 80px;
+  align-items: center;
   flex-shrink: 0;
   flex-direction: column;
   justify-content: center;
   gap: 12px;
-  padding: 11px 38px;
+  padding: 0;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border);
 }
 .traffic-row {
   display: grid;
-  min-width: 0;
-  grid-template-columns: 13px minmax(0, 1fr);
+  width: 122px;
+  grid-template-columns: 14px 58px 42px;
   align-items: baseline;
-  gap: 7px;
+  column-gap: 4px;
   color: var(--text-primary);
-  font-size: 11px;
-}
-.traffic-arrow {
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1;
 }
-.traffic-value {
+.traffic-arrow {
+  text-align: center;
+  font-size: 12px;
+}
+.traffic-number {
   overflow: hidden;
-  font-size: 10.5px;
-  text-overflow: ellipsis;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.traffic-unit {
+  overflow: hidden;
+  text-align: left;
   white-space: nowrap;
 }
 .side-nav {
@@ -173,10 +231,14 @@ function navItemClasses(index: number): Record<string, boolean> {
   background: var(--bg-sidebar);
 }
 .runtime {
+  width: 128px;
   margin-bottom: 14px;
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
 }
 .core-row {
   display: flex;

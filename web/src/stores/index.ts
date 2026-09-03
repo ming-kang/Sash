@@ -18,6 +18,7 @@ export {
   refreshProfiles,
   updateAllProfiles,
   updateProfile,
+  writeProfileContent,
 } from "./profile-actions.js";
 export {
   markDaemonOffline,

@@ -57,6 +57,13 @@ export function updateProfile(id: string): Promise<ProfileUpdateResponse> {
   );
 }
 
+export function writeProfileContent(id: string, content: string): Promise<ProfileUpdateResponse> {
+  return performProfileMutation(
+    () => api.setProfileContent(id, content),
+    (result) => result.proxyCount !== undefined,
+  );
+}
+
 export function updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
   return performProfileMutation(
     () => api.updateAllProfiles(),

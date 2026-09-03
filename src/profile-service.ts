@@ -670,6 +670,69 @@ export class ProfileService {
     });
   }
 
+  /** Return the stored YAML text of a profile for the dashboard editor. */
+  readContent(id: string): { name: string; content: string } {
+    const profile = this.list().profiles.find((item) => item.id === id);
+    if (!profile) throw new ProfileNotFoundError(`profile not found: ${id}`);
+    let content: string;
+    try {
+      content = fs.readFileSync(profileFilePath(this.layout, profile.id), "utf8");
+    } catch {
+      throw new ProfileNotFoundError(`profile file is missing: ${profile.id}`);
+    }
+    return { name: profile.name, content };
+  }
+
+  /**
+   * Replace a profile's YAML text from the dashboard editor. The content is
+   * untrusted input: it must parse and pass the core-format check, then the
+   * merged config is Core-validated before publication. When the profile is
+   * active, the new config is published and reloaded atomically.
+   */
+  async writeContent(id: string, content: string): Promise<ProfileUpdateResult> {
+    if (!content.trim()) throw new ProfileInputError("Missing required profile content");
+    let doc: unknown;
+    try {
+      doc = YAML.parse(content);
+    } catch (err) {
+      throw new ProfileInputError(`Content is not valid YAML: ${(err as Error).message}`);
+    }
+    if (!isValidMihomoConfig(doc)) {
+      throw new ProfileInputError(
+        "Content is not a valid core configuration (missing proxies/rules)",
+      );
+    }
+    const before = this.list();
+    const target = before.profiles.find((item) => item.id === id);
+    if (!target) throw new ProfileNotFoundError(`profile not found: ${id}`);
+    const snapshot = this.updateSnapshot(target, before.activeId);
+    const settings = this.settingsSnapshot();
+    const prepared = await this.prepare(doc, settings);
+
+    return this.commit("edit profile", async () => {
+      this.assertSettingsUnchanged(settings);
+      const index = this.list();
+      const profile = this.recheckProfileSnapshot(index, snapshot, "Profile changed while editing");
+      const updated: ProfileMeta = {
+        ...profile,
+        updatedAt: new Date().toISOString(),
+        lastError: undefined,
+      };
+      const active = index.activeId === profile.id;
+      await this.publish(
+        {
+          ...index,
+          profiles: index.profiles.map((item) => (item.id === profile.id ? updated : item)),
+        },
+        {
+          profile: { id: profile.id, yamlText: content },
+          ...(active ? { config: prepared } : {}),
+        },
+      );
+      return { profile: updated, ...(active ? { proxyCount: prepared.proxyCount } : {}) };
+    });
+  }
+
   async activate(id: string | null): Promise<{ activeId: string | null; proxyCount: number }> {
     const before = this.list();
     const settings = this.settingsSnapshot();

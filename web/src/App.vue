@@ -1,9 +1,5 @@
 <template>
   <div class="app-frame">
-    <header class="app-titlebar">
-      <span>Sash</span>
-    </header>
-
     <div class="app-shell">
       <AppSidebar />
 
@@ -114,26 +110,10 @@ onUnmounted(() => {
   overflow: hidden;
   background: var(--bg-app);
 }
-.app-titlebar {
-  position: relative;
-  z-index: 30;
-  display: flex;
-  width: 100%;
-  height: 25px;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: var(--bg-titlebar);
-  color: var(--text-primary);
-  font-size: 12px;
-  line-height: 1;
-  user-select: none;
-}
 .app-shell {
   display: flex;
   width: 100%;
-  height: calc(100vh - 25px);
-  height: calc(100dvh - 25px);
+  height: 100%;
   overflow: hidden;
   background: var(--bg-app);
 }
@@ -197,13 +177,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 899px) {
-  .app-titlebar {
-    height: 40px;
-    justify-content: flex-start;
-    padding: 0 14px;
-    font-size: 14px;
-    font-weight: 600;
-  }
   .app-frame {
     height: auto;
     min-height: 100vh;
@@ -212,12 +185,12 @@ onUnmounted(() => {
   }
   .app-shell {
     height: auto;
-    min-height: calc(100dvh - 40px);
+    min-height: 100dvh;
     overflow: visible;
     flex-direction: column;
   }
   .app-main {
-    min-height: calc(100dvh - 40px);
+    min-height: 100dvh;
     overflow: visible;
   }
   .runtime-banner {

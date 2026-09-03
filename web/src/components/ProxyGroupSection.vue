@@ -1,24 +1,43 @@
 <template>
   <section class="pgroup">
-    <div class="pgroup-head">
+    <div class="pgroup-head" @click="emit('toggle-collapse')">
       <span class="pgroup-name">{{ group }}</span>
       <span class="pgroup-type">{{ typeBadge }}</span>
       <span class="pgroup-now" :title="current">{{ current }}</span>
       <span class="pgroup-spacer"></span>
       <button
         type="button"
+        class="icon-btn group-action"
+        :class="{ active: hideTimeout }"
+        :title="t('proxies.hideTimeout')"
+        :aria-label="t('proxies.hideTimeout')"
+        @click.stop="emit('toggle-hide-timeout')"
+      >
+        <Icon name="timer" :size="15" />
+      </button>
+      <button
+        type="button"
         class="icon-btn group-test"
         :title="t('proxies.testAll')"
         :aria-label="`${t('proxies.testAll')}: ${group}`"
         :disabled="testing"
-        @click="emit('test-group')"
+        @click.stop="emit('test-group')"
       >
         <Icon name="zap" :size="15" :class="{ spin: testing }" />
       </button>
+      <button
+        type="button"
+        class="icon-btn group-action"
+        :title="t('proxies.toggleGroup')"
+        :aria-label="t('proxies.toggleGroup')"
+        @click.stop="emit('toggle-collapse')"
+      >
+        <Icon :name="collapsed ? 'eye-off' : 'eye'" :size="15" />
+      </button>
     </div>
-    <div class="pgroup-grid">
+    <div v-show="!collapsed" class="pgroup-grid">
       <article
-        v-for="member in members"
+        v-for="member in visibleMembers"
         :key="member"
         class="node-card"
         :class="{ selected: current === member, static: !selectable }"
@@ -80,17 +99,29 @@ const props = defineProps<{
   testingNodes?: ReadonlySet<string>;
   busy?: boolean;
   showCurrentTag?: boolean;
+  collapsed?: boolean;
+  hideTimeout?: boolean;
 }>();
 
 const emit = defineEmits<{
   select: [name: string];
   "test-group": [];
   "test-node": [name: string];
+  "toggle-collapse": [];
+  "toggle-hide-timeout": [];
 }>();
 
 const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
 const current = computed(() => store.proxies[props.group]?.now ?? "");
 const typeBadge = computed(() => (store.proxies[props.group]?.type ?? "S").charAt(0));
+
+const visibleMembers = computed(() => {
+  if (!props.hideTimeout) return props.members;
+  return props.members.filter((member) => {
+    const delay = proxyDelay(member);
+    return delay === undefined || delay > 0;
+  });
+});
 
 function nowOf(name: string): string {
   return store.proxies[name]?.now ?? "";
@@ -142,6 +173,8 @@ function delayClass(name: string): string {
   gap: 9px;
   min-width: 0;
   margin-bottom: 7px;
+  cursor: pointer;
+  user-select: none;
 }
 .pgroup-name {
   min-width: 0;
@@ -181,6 +214,16 @@ function delayClass(name: string): string {
 }
 .group-test:hover:not(:disabled) {
   color: var(--accent);
+}
+.group-action {
+  color: var(--text-secondary);
+}
+.group-action:hover:not(:disabled) {
+  color: var(--accent);
+}
+.group-action.active {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .pgroup-grid {

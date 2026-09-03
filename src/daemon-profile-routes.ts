@@ -76,6 +76,19 @@ export async function handleProfileRoutes(ctx: ProfileRouteContext): Promise<boo
       return true;
     }
 
+    const contentMatch = pathname.match(/^\/sash\/profiles\/([0-9]+)\/content$/);
+    if (method === "GET" && contentMatch?.[1]) {
+      sendJson(res, 200, { ok: true, ...profiles.readContent(contentMatch[1]) });
+      return true;
+    }
+    if (method === "PUT" && contentMatch?.[1]) {
+      const body = await parseJsonObjectBody(req, 8 * 1024 * 1024);
+      const content = typeof body.content === "string" ? body.content : "";
+      const result = await profiles.writeContent(contentMatch[1], content);
+      sendJson(res, 200, { ok: true, ...result });
+      return true;
+    }
+
     const deleteMatch = pathname.match(/^\/sash\/profiles\/([0-9]+)$/);
     if (method === "DELETE" && deleteMatch?.[1]) {
       const result = await profiles.remove(deleteMatch[1]);

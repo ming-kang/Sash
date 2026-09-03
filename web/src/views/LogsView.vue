@@ -142,7 +142,7 @@ onBeforeUnmount(() => {
 }
 .logs-toolbar {
   display: grid;
-  min-height: 79px;
+  min-height: 52px;
   grid-template-columns: max-content minmax(220px, 1fr) 100px auto auto;
   align-items: center;
   gap: 10px;
@@ -235,13 +235,13 @@ onBeforeUnmount(() => {
   color: var(--success);
 }
 .lv-warning {
-  color: var(--warning);
+  color: var(--danger);
 }
 .lv-error {
   color: var(--danger);
 }
 .lv-debug {
-  color: var(--text-secondary);
+  color: var(--log-debug);
 }
 
 @media (max-width: 899px) {
