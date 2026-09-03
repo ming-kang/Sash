@@ -1,9 +1,7 @@
 import type { CoreStartResult } from "../contracts.js";
-import { SashDaemonClient } from "../daemon-client.js";
 import {
   type DaemonMaintenanceDeps,
   ensureDaemon,
-  evaluateDaemon,
   prepareDaemonMaintenance,
   spawnDaemon,
   stopDaemonFromCli,
@@ -11,7 +9,16 @@ import {
 import { log } from "../log.js";
 import { withStateLock } from "../state-lock.js";
 import { tunPrivilegeGuidance } from "../tun-guidance.js";
-import { ensureCore, type RuntimeContext, runOfflineMutation, runtimeContext } from "./shared.js";
+import {
+  type CommandRuntimeOwner,
+  ensureCore,
+  type RuntimeContext,
+  resolveRuntimeOwner,
+  runOfflineMutation,
+  runtimeContext,
+} from "./shared.js";
+
+type HealthyCommandRuntimeOwner = Extract<CommandRuntimeOwner, { kind: "daemon" }>;
 
 function withRuntimeOperation<T>(
   ctx: RuntimeContext,
@@ -23,32 +30,32 @@ function withRuntimeOperation<T>(
   );
 }
 
-async function healthyDaemonClient(ctx: RuntimeContext): Promise<SashDaemonClient> {
-  const daemon = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemon.kind !== "healthy") {
+async function healthyDaemonOwner(ctx: RuntimeContext): Promise<HealthyCommandRuntimeOwner> {
+  const owner = await resolveRuntimeOwner(ctx);
+  if (owner.kind !== "daemon") {
     throw new Error("sashd did not become healthy after startup");
   }
-  return new SashDaemonClient(daemon.port, ctx.settings.daemonSecret);
+  return owner;
 }
 
 export async function runStart(): Promise<void> {
   const ctx = runtimeContext();
   await withRuntimeOperation(ctx, "start runtime", async () => {
-    const daemon = await evaluateDaemon(ctx.layout, ctx.settings);
-    if (daemon.kind === "unhealthy") {
+    const initialOwner = await resolveRuntimeOwner(ctx);
+    if (initialOwner.kind === "unhealthy") {
       throw new Error("sashd is already starting or unresponsive; refusing a competing start");
     }
-    if (daemon.kind === "stopped") {
+    if (initialOwner.kind === "offline") {
       await runOfflineMutation(ctx, "install Core before start", () => ensureCore(ctx));
     }
 
     await ensureDaemon({ layout: ctx.layout, settings: ctx.settings });
-    const client = await healthyDaemonClient(ctx);
-    const result = await client.startCore();
+    const owner = await healthyDaemonOwner(ctx);
+    const result = await owner.client.startCore();
     log.ok(
       `core started (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`,
     );
-    printEndpoints(ctx);
+    printEndpoints(ctx, owner.daemon.port);
     reportTunState(ctx, result);
     if (ctx.settings.systemProxy) log.ok("system proxy enabled");
   });
@@ -57,19 +64,19 @@ export async function runStart(): Promise<void> {
 export async function runStop(): Promise<void> {
   const ctx = runtimeContext();
   await withRuntimeOperation(ctx, "stop runtime", async () => {
-    const state = await evaluateDaemon(ctx.layout, ctx.settings);
-    if (state.kind !== "stopped") {
+    const owner = await resolveRuntimeOwner(ctx);
+    if (owner.kind !== "offline") {
       const stopped = await stopDaemonFromCli({ layout: ctx.layout, settings: ctx.settings });
       if (!stopped) throw new Error("sashd could not be stopped safely");
     }
 
     await runOfflineMutation(ctx, "finalize stopped runtime", () => undefined, {
       reconcileRuntime: {
-        ...(state.kind !== "stopped" && state.legacyOwnership ? { legacyDaemon: true } : {}),
+        ...(owner.kind !== "offline" && owner.daemon.legacyOwnership ? { legacyDaemon: true } : {}),
       },
     });
 
-    if (state.kind !== "stopped") {
+    if (owner.kind !== "offline") {
       log.ok("sash stopped; system proxy restored to its pre-Sash state");
     } else {
       log.info("sash is not running; stale runtime state was reconciled");
@@ -105,14 +112,14 @@ export async function runRestart(deps: DaemonMaintenanceDeps = {}): Promise<void
     }
 
     const { pid: daemonPid } = await spawnDaemon({ layout: ctx.layout, settings: ctx.settings });
-    const client = await healthyDaemonClient(ctx);
-    const result = await client.startCore();
+    const owner = await healthyDaemonOwner(ctx);
+    const result = await owner.client.startCore();
     const verb = maintenance.daemonWasRunning ? "restarted" : "started";
     log.ok(`sashd ${verb} (PID=${daemonPid})`);
     log.ok(
       `core ${verb} (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`,
     );
-    printEndpoints(ctx);
+    printEndpoints(ctx, owner.daemon.port);
     reportTunState(ctx, result);
   });
 }
@@ -132,8 +139,8 @@ function reportTunState(ctx: RuntimeContext, result: CoreStartResult): void {
   }
 }
 
-export function printEndpoints(ctx: RuntimeContext): void {
+export function printEndpoints(ctx: RuntimeContext, daemonPort: number): void {
   log.kv("mixed port", `127.0.0.1:${ctx.settings.mixedPort}`);
-  log.kv("sash api", `http://127.0.0.1:${ctx.settings.daemonPort}`);
-  log.kv("dashboard", `http://127.0.0.1:${ctx.settings.daemonPort}/ui/  (sash web to open)`);
+  log.kv("sash api", `http://127.0.0.1:${daemonPort}`);
+  log.kv("dashboard", `http://127.0.0.1:${daemonPort}/ui/  (sash web to open)`);
 }

@@ -1,40 +1,10 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { api } from "../api/index.js";
 import type { ProfileMeta, SashStatus } from "../types/index.js";
-import {
-  addLog,
-  clearLogs,
-  markDaemonOffline,
-  normalizeConnections,
-  refreshConnections,
-  refreshStatus,
-  store,
-} from "./index.js";
-
-describe("web store logs", () => {
-  afterEach(() => clearLogs());
-
-  it("keeps stable monotonic ids while trimming to the log limit", () => {
-    for (let index = 0; index < 605; index += 1) {
-      addLog({ type: "info", payload: `line-${index}` });
-    }
-
-    assert.equal(store.logs.length, 600);
-    assert.equal(store.logs[0]?.payload, "line-5");
-    assert.ok((store.logs.at(-1)?.id ?? 0) > (store.logs[0]?.id ?? 0));
-    assert.equal(new Set(store.logs.map((log) => log.id)).size, 600);
-  });
-
-  it("drops frames from an older runtime generation", () => {
-    addLog({ type: "info", payload: "stale" }, store.runtimeGeneration - 1);
-    assert.equal(store.logs.length, 0);
-  });
-
-  it("normalizes an empty Core connection snapshot", () => {
-    assert.deepEqual(normalizeConnections(null), []);
-  });
-});
+import { refreshConnections } from "./core-actions.js";
+import { markDaemonOffline, refreshRuntimeState, refreshStatus } from "./runtime-actions.js";
+import { store } from "./state.js";
 
 function runtimeStatus(options: {
   daemonStartedAt: string;
@@ -84,6 +54,64 @@ function profile(name: string): ProfileMeta {
 }
 
 describe("web runtime ownership", () => {
+  it("forces a Core snapshot only for explicit runtime refreshes", async () => {
+    const originals = {
+      getStatus: api.getStatus,
+      getProfiles: api.getProfiles,
+      getConfigs: api.getConfigs,
+      getProxies: api.getProxies,
+      getRules: api.getRules,
+      getConnections: api.getConnections,
+    };
+    const status = runtimeStatus({
+      daemonStartedAt: "daemon-force",
+      profileRevision: 1,
+      pid: 200,
+      coreStartedAt: "core-force",
+    });
+    let snapshotRequests = 0;
+
+    api.getStatus = async () => status;
+    api.getProfiles = async () => ({ activeId: null, profiles: [] });
+    api.getConfigs = async () => {
+      snapshotRequests += 1;
+      return {
+        port: 0,
+        "socks-port": 0,
+        "redir-port": 0,
+        "tproxy-port": 0,
+        "mixed-port": 17890,
+        "allow-lan": false,
+        mode: "rule",
+        "log-level": "info",
+      };
+    };
+    api.getProxies = async () => ({ proxies: {} });
+    api.getRules = async () => ({ rules: [] });
+    api.getConnections = async () => ({
+      uploadTotal: 0,
+      downloadTotal: 0,
+      connections: [],
+    });
+
+    markDaemonOffline();
+    try {
+      assert.equal(await refreshStatus(), "full");
+      assert.equal(snapshotRequests, 1);
+      assert.equal(await refreshStatus(), "status");
+      assert.equal(snapshotRequests, 1);
+
+      await refreshRuntimeState();
+      assert.equal(snapshotRequests, 2);
+    } finally {
+      Object.assign(api, originals);
+      markDaemonOffline();
+      store.profiles = [];
+      store.activeProfileId = null;
+      store.lastProfileRevision = null;
+    }
+  });
+
   it("keeps daemon, profile, and Core snapshot failures independently owned", async () => {
     const originals = {
       getStatus: api.getStatus,

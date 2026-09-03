@@ -55,7 +55,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Every Core start recompiles and validates `config.yaml` from the active profile and current settings. Remote profile responses are limited to 8 MiB.
 - The default mixed port is consistently `17890`. Installed core version is read from `state/install.json` instead of duplicated in settings.
 - Core updates download and validate the staged binary before stopping the existing runtime, and commit install metadata only after health checks pass.
-- Overview proxy groups share a reusable component; WebUI runtime refresh, profile mutations, mode/proxy intent and polling are centralized in store actions with per-domain generations.
+- Overview proxy groups share a reusable component; WebUI runtime refresh, profile mutations, mode/proxy intent and polling are organized behind a stable store facade with one reactive state source and per-domain generations. The Overview page now composes focused general/proxy panes, while latency requests own their busy sets and captured runtime generation in one composable.
+- Daemon integration tests and WebUI store tests are split by domain. Shared daemon fixtures have no top-level I/O and retain centralized instance, socket, scheduler and temporary-directory cleanup.
 - Daemon status exposes a per-boot monotonic profile revision so scheduled profile publications trigger one coherent WebUI runtime refresh without adding heavy requests to every poll.
 - `npm test` now runs server TypeScript, `vue-tsc`, backend tests and WebUI tests. WebUI TypeScript is included in Biome checks.
 - The minimum runtime is Node.js 24 across package metadata, the early CLI guard, documentation and CI. Vite continues to use its Node API; unused archive/version dependencies were removed, and published backend source maps are disabled.
@@ -64,6 +65,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Core release mirrors are transport-only: official GitHub metadata selects the release and supplies the mandatory SHA-256 digest.
 - Core updates stage outside runtime ownership, then hold runtime ownership across the daemon's atomic maintenance snapshot, offline publication and runtime restoration. A second controller-vacancy check runs inside the final mutation boundary.
 - Core updates retain managed profile/config rollback snapshots until the binary outcome is durable, and runtime restoration re-reads final settings while using the healthy daemon's observed port.
+- CLI commands now distinguish healthy, confirmed-offline and unresponsive runtime owners. Daemon clients, status endpoints, dashboard URLs and lifecycle output use the healthy daemon's observed port, while runtime/proxy status share one local system-proxy fallback and deduplicated error aggregation path.
 - Core ZIP extraction accepts only the expected upstream executable basename; npm self-upgrade versions are restricted to strict semver or safe dist-tags.
 - Core updates temporarily stop the daemon, validate the staged binary/config and recover interrupted `.bak` states before publication.
 - System-proxy backends preserve manual, automatic/PAC and authentication-mode fields they modify; Linux automation is explicitly GNOME `gsettings` only.

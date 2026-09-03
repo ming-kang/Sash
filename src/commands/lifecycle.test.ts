@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 describe("lifecycle commands", () => {
-  it("calls startCore even when the daemon would report an already healthy Core", async () => {
+  it("uses the observed daemon port when starting Core and printing endpoints", async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-command-start-test-"));
     previousSashHome = process.env.SASH_HOME;
     process.env.SASH_HOME = root;
@@ -61,9 +61,10 @@ describe("lifecycle commands", () => {
     });
     await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
+    const configuredPort = port === 19090 ? 19091 : 19090;
     const settings = {
       ...DEFAULT_SETTINGS,
-      daemonPort: port,
+      daemonPort: configuredPort,
       tun: true,
       secret: "test-core-secret",
       daemonSecret: "test-daemon-secret",
@@ -85,16 +86,30 @@ describe("lifecycle commands", () => {
 
     const daemon = await evaluateDaemon(layout, settings);
     assert.equal(daemon.healthy, true, JSON.stringify(daemon));
+    const output: string[] = [];
     const warnings: string[] = [];
+    const previousLog = console.log;
     const previousWarn = console.warn;
+    console.log = (...args: unknown[]) => output.push(args.map(String).join(" "));
     console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
     try {
       await runStart();
     } finally {
+      console.log = previousLog;
       console.warn = previousWarn;
     }
 
     assert.equal(startCalls, 1);
+    assert.equal(
+      output.some((line) => line.includes("sash api") && line.includes(`127.0.0.1:${port}`)),
+      true,
+    );
+    assert.equal(
+      output.some(
+        (line) => line.includes("sash api") && line.includes(`127.0.0.1:${configuredPort}`),
+      ),
+      false,
+    );
     assert.match(warnings.join("\n"), /TUN was requested but is inactive/);
     assert.match(warnings.join("\n"), /PowerShell as Administrator and run "sash restart"/);
   });

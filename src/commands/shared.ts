@@ -2,6 +2,13 @@ import { assertCoreInstallationConsistent, coreInstalled, installCore } from "..
 import { validateCoreConfigText } from "../core-config-validation.js";
 import { recoverCoreInstallTransaction } from "../core-install-transaction.js";
 import { recoverCoordinatedCoreUpdate } from "../core-update-coordination.js";
+import { SashDaemonClient } from "../daemon-client.js";
+import {
+  type DaemonHealthyInfo,
+  type DaemonStoppedInfo,
+  type DaemonUnhealthyInfo,
+  evaluateDaemon,
+} from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { type RuntimeContext, runOfflineMutation } from "../offline-mutation.js";
 import { sashLayout } from "../paths.js";
@@ -14,6 +21,30 @@ export type {
   RuntimeContext,
 } from "../offline-mutation.js";
 export { runOfflineMutation };
+
+export type CommandRuntimeOwner =
+  | { kind: "daemon"; daemon: DaemonHealthyInfo; client: SashDaemonClient }
+  | { kind: "offline"; daemon: DaemonStoppedInfo }
+  | { kind: "unhealthy"; daemon: DaemonUnhealthyInfo };
+
+export interface RuntimeOwnerDependencies {
+  evaluateDaemon?: typeof evaluateDaemon;
+  clientFactory?: (port: number, secret: string) => SashDaemonClient;
+}
+
+export async function resolveRuntimeOwner(
+  ctx: RuntimeContext,
+  dependencies: RuntimeOwnerDependencies = {},
+): Promise<CommandRuntimeOwner> {
+  const daemon = await (dependencies.evaluateDaemon ?? evaluateDaemon)(ctx.layout, ctx.settings);
+  if (daemon.kind === "healthy") {
+    const client = (
+      dependencies.clientFactory ?? ((port, secret) => new SashDaemonClient(port, secret))
+    )(daemon.port, ctx.settings.daemonSecret);
+    return { kind: "daemon", daemon, client };
+  }
+  return daemon.kind === "stopped" ? { kind: "offline", daemon } : { kind: "unhealthy", daemon };
+}
 
 export function runtimeContext(): RuntimeContext {
   const layout = sashLayout();

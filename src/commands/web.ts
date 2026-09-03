@@ -1,9 +1,7 @@
 import { openInBrowser } from "../browser.js";
-import { SashDaemonClient } from "../daemon-client.js";
-import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { runStart } from "./lifecycle.js";
-import { runtimeContext } from "./shared.js";
+import { resolveRuntimeOwner, runtimeContext } from "./shared.js";
 
 export function dashboardUrl(daemonPort: number): string {
   return `http://127.0.0.1:${daemonPort}/ui/`;
@@ -12,14 +10,12 @@ export function dashboardUrl(daemonPort: number): string {
 /** `sash web`: make sure sash is running, then open the built-in WebUI. */
 export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
   const ctx = runtimeContext();
-  const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
+  let owner = await resolveRuntimeOwner(ctx);
 
   let coreRunning = false;
-  if (daemonState.kind === "healthy") {
+  if (owner.kind === "daemon") {
     try {
-      const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
-      const status = await client.status();
-      coreRunning = status.core.running;
+      coreRunning = (await owner.client.status()).core.running;
     } catch {
       coreRunning = false;
     }
@@ -28,11 +24,13 @@ export async function runWeb(opts: { noOpen?: boolean } = {}): Promise<void> {
   if (!coreRunning) {
     log.info("sash is not running; starting it first...");
     await runStart();
+    owner = await resolveRuntimeOwner(ctx);
+  }
+  if (owner.kind !== "daemon") {
+    throw new Error("sashd did not become healthy before opening the dashboard");
   }
 
-  const url = dashboardUrl(ctx.settings.daemonPort);
+  const url = dashboardUrl(owner.daemon.port);
   log.ok(`dashboard: ${url}`);
-  if (!opts.noOpen) {
-    openInBrowser(url);
-  }
+  if (!opts.noOpen) openInBrowser(url);
 }

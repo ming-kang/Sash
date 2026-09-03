@@ -1,9 +1,8 @@
 import type { SpawnOptions } from "node:child_process";
 import spawn from "cross-spawn";
-import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { buildSanitizedEnv } from "../process.js";
-import { runtimeContext } from "./shared.js";
+import { resolveRuntimeOwner, runtimeContext } from "./shared.js";
 
 const PACKAGE_NAME = "@astralyn/sash";
 const STRICT_SEMVER =
@@ -29,8 +28,8 @@ export function buildUpgradeSpawnOptions(sourceEnv: NodeJS.ProcessEnv = process.
  */
 export async function runUpgrade(opts: { version?: string } = {}): Promise<void> {
   const ctx = runtimeContext();
-  const daemon = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemon.kind !== "stopped") {
+  const owner = await resolveRuntimeOwner(ctx);
+  if (owner.kind !== "offline") {
     throw new Error("stop Sash with `sash stop` before upgrading the package");
   }
 

@@ -13,6 +13,7 @@ import {
   collectRuntimeStatus,
   formatTunObservation,
   markIncompleteObservation,
+  resolveObservedSystemProxy,
   runtimeStatusHeadline,
   type StatusObservationContext,
   type StatusObservationDependencies,
@@ -131,6 +132,60 @@ async function captureConsole(action: () => Promise<void>): Promise<{
   return { logs, warnings, errors };
 }
 
+describe("system proxy observation resolver", () => {
+  it("merges daemon knowledge with local fallback and deduplicates errors", () => {
+    const observation = resolveObservedSystemProxy(
+      {
+        applied: false,
+        appliedKnown: false,
+        stateKnown: false,
+        queryError: "registry query failed",
+      },
+      null,
+      {
+        applied: false,
+        appliedKnown: false,
+        stateKnown: true,
+        queryError: "registry query failed",
+        state: { supported: true, enabled: false },
+      },
+    );
+
+    assert.equal(observation.daemonApplied, null);
+    assert.deepEqual(observation.osObserved, {
+      supported: true,
+      enabled: false,
+      server: null,
+      details: null,
+    });
+    assert.deepEqual(observation.errors, [
+      "Daemon-applied proxy state is unavailable",
+      "System proxy query failed: registry query failed",
+    ]);
+  });
+
+  it("preserves unknown OS state after both observations fail", () => {
+    const observation = resolveObservedSystemProxy(
+      undefined,
+      false,
+      undefined,
+      "OS proxy query failed: access denied",
+    );
+
+    assert.equal(observation.daemonApplied, false);
+    assert.deepEqual(observation.osObserved, {
+      supported: null,
+      enabled: null,
+      server: null,
+      details: null,
+    });
+    assert.deepEqual(observation.errors, [
+      "OS proxy query failed: access denied",
+      "OS proxy state is unavailable",
+    ]);
+  });
+});
+
 describe("CLI runtime status observations", () => {
   let previousExitCode: number | string | null | undefined;
 
@@ -183,6 +238,31 @@ describe("CLI runtime status observations", () => {
 
     await captureConsole(() => runStatus({ json: true }, async () => status));
     assert.equal(process.exitCode ?? 0, 0);
+  });
+
+  it("queries and reports the observed healthy daemon port", async () => {
+    let queriedPort: number | undefined;
+    const status = await collectRuntimeStatus(
+      context,
+      dependencies({
+        evaluateDaemon: async () => ({
+          kind: "healthy",
+          running: true,
+          healthy: true,
+          pid: 101,
+          port: 23456,
+        }),
+        queryDaemonStatus: async (_context, daemon) => {
+          queriedPort = daemon.port;
+          return statusResponse({ running: false });
+        },
+      }),
+    );
+
+    assert.equal(queriedPort, 23456);
+    assert.equal(status.daemon.port, 23456);
+    assert.equal(status.endpoints.daemonApi, "http://127.0.0.1:23456");
+    assert.equal(status.endpoints.dashboard, "http://127.0.0.1:23456/ui/");
   });
 
   it("reports a stopped daemon as a complete known state", async () => {

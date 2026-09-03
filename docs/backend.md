@@ -43,6 +43,8 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/json-shape.ts` / `src/error-utils.ts`: domain-neutral JSON shape, canonical timestamp and unknown-error helpers; persistent readers retain their own size, missing and corruption policies.
 - `src/status.ts`: stable CLI status/proxy observations, explicit unknown values and complete/incomplete exit semantics.
 - `src/log-follow.ts`: bounded tail/follow cursors with creation, truncation, identity-rotation and cancellation handling.
+- `web/src/stores/state.ts`: the single reactive WebUI state source, runtime ownership metadata and computed selectors. Focused runtime, profile, Core, telemetry and toast modules import it directly; `web/src/stores/index.ts` is only the stable public re-export facade.
+- `web/src/views/OverviewView.vue`: page header, Core restart and responsive two-column composition. `OverviewGeneralPane.vue` owns common controls and traffic, `OverviewProxyPane.vue` owns mode-driven groups, and `useProxyLatency()` owns generation-bound latency requests.
 
 ---
 
@@ -61,6 +63,8 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 Lock records are fully written and fsynced before an atomic hard-link publishes them. Synchronous and asynchronous callers share one acquisition decision and differ only in how they wait, so live-owner, dead-owner, corruption and deadline rules cannot drift. A live owner is never displaced. Dead owners can be reclaimed; corrupt records fail closed and require explicit repair. If a lock disappears between metadata inspection and bounded content read it is retried as a missing observation rather than mislabeled corrupt. Durable rename/remove operations retry Windows sharing violations without deleting a caller-owned source; an interrupted executable unlock probe is restored before Core consistency checks, while conflicting target/probe bytes are both preserved for explicit repair.
 
 Offline commands reload settings after acquiring `mutation.lock`. Ordinary mutations refuse a live orphan Core or corrupt PID record. Lifecycle and update callers must explicitly request reconciliation, which restores legacy and journaled proxy ownership before terminating only a verified stale Core and then recovering coordinated update state.
+
+CLI commands resolve one tagged runtime owner before choosing daemon or offline behavior. Only the healthy branch constructs a daemon client, and both control requests and displayed dashboard/API endpoints use the daemon's observed PID-record port rather than a potentially stale configured port. Confirmed-stopped and unresponsive owners remain distinct so an uncertain live daemon is never treated as offline.
 
 ### Runtime lifecycle
 
@@ -100,6 +104,8 @@ Unexpected Core exit retries proxy restoration and records failures in daemon er
 | `/sash/maintenance/shutdown` | `POST` | Under the daemon mutation queue, snapshot whether Core was running, restore proxy/stop Core, return `{ok, coreWasRunning}`, then close. The closing gate rejects mutations admitted after the snapshot. |
 
 Appending `?fresh=1` to status/proxy reads bypasses the short OS-state cache used by normal WebUI polling.
+
+The WebUI store has one runtime-refresh path. Normal polling keeps a coherent same-owner Core snapshot until it is missing, degraded or stale for the current profile revision, while explicit post-mutation refreshes force a complete snapshot. Connections, proxies and rules use the same generation-bound fetch/adopt/error template, so responses from an older runtime owner cannot overwrite current state.
 
 The Node daemon client and browser WebUI both read successful health, status and proxy bodies as `unknown`, then pass them through the same browser-safe parsers in `src/contracts.ts`. Required nested fields, positive safe-integer PIDs, valid ports, nonnegative revisions, canonical timestamps, optional Core fields, proxy state and explicit public settings are validated before state changes. Unknown extra fields are tolerated for forward compatibility but discarded from the typed projection. `appliedKnown` and `stateKnown` are mandatory inside the current daemon; only the network parser normalizes flags omitted by a legacy daemon to `false`. A malformed `200` response is therefore an error, not trusted TypeScript data.
 

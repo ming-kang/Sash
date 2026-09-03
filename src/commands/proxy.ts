@@ -1,5 +1,3 @@
-import { SashDaemonClient } from "../daemon-client.js";
-import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { SettingsService } from "../settings-service.js";
 import {
@@ -12,6 +10,7 @@ import { SystemProxyManager } from "../system-proxy-manager.js";
 import {
   createProfileService,
   type RuntimeContext,
+  resolveRuntimeOwner,
   runOfflineMutation,
   runtimeContext,
 } from "./shared.js";
@@ -19,19 +18,18 @@ import {
 /** `sash proxy on`: enable OS system proxy via the running sashd. */
 export async function runProxyOn(): Promise<void> {
   const ctx = runtimeContext();
-  const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.kind !== "healthy") {
+  const owner = await resolveRuntimeOwner(ctx);
+  if (owner.kind !== "daemon") {
     throw new Error("sash is not running; start it with `sash start` before enabling system proxy");
   }
 
-  const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
-  const status = await client.status();
+  const status = await owner.client.status();
   if (!status.core.running || !status.core.healthy) {
     throw new Error("core is not healthy; start or recover it before enabling system proxy");
   }
 
-  await client.enableProxy();
-  log.ok(`system proxy enabled -> 127.0.0.1:${ctx.settings.mixedPort}`);
+  await owner.client.enableProxy();
+  log.ok(`system proxy enabled -> 127.0.0.1:${status.settings.mixedPort}`);
 }
 
 export async function disableProxyOffline(
@@ -57,14 +55,13 @@ export async function disableProxyOffline(
 /** `sash proxy off`: disable OS system proxy (works even if daemon is stopped). */
 export async function runProxyOff(): Promise<void> {
   const ctx = runtimeContext();
-  const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
+  const owner = await resolveRuntimeOwner(ctx);
 
-  if (daemonState.kind !== "stopped") {
-    if (daemonState.kind !== "healthy") {
-      throw new Error("sashd is running but unresponsive; refusing a competing proxy mutation");
-    }
-    const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
-    await client.disableProxy();
+  if (owner.kind === "unhealthy") {
+    throw new Error("sashd is running but unresponsive; refusing a competing proxy mutation");
+  }
+  if (owner.kind === "daemon") {
+    await owner.client.disableProxy();
   } else {
     await runOfflineMutation(ctx, "restore system proxy offline", () => disableProxyOffline(ctx));
   }

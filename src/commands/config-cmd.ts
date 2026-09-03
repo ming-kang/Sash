@@ -1,5 +1,3 @@
-import { SashDaemonClient } from "../daemon-client.js";
-import { evaluateDaemon } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { ProfileService } from "../profile-service.js";
 import { SETTABLE_KEYS } from "../settings.js";
@@ -8,6 +6,7 @@ import { SystemProxyManager } from "../system-proxy-manager.js";
 import {
   createProfileService,
   prepareOfflineProfileMutation,
+  resolveRuntimeOwner,
   runOfflineMutation,
   runtimeContext,
 } from "./shared.js";
@@ -41,16 +40,14 @@ function maskSecret(secret: string): string {
 
 export async function runConfigSet(key: string, value: string | undefined): Promise<void> {
   const ctx = runtimeContext();
-
-  const daemonState = await evaluateDaemon(ctx.layout, ctx.settings);
-  if (daemonState.kind !== "stopped") {
-    if (daemonState.kind !== "healthy") {
-      throw new Error(
-        "sashd is running but unresponsive; stop or recover it before editing settings",
-      );
-    }
-    const client = new SashDaemonClient(ctx.settings.daemonPort, ctx.settings.daemonSecret);
-    await client.patchSetting(key, value);
+  const owner = await resolveRuntimeOwner(ctx);
+  if (owner.kind === "unhealthy") {
+    throw new Error(
+      "sashd is running but unresponsive; stop or recover it before editing settings",
+    );
+  }
+  if (owner.kind === "daemon") {
+    await owner.client.patchSetting(key, value);
     log.ok(`${key} updated`);
     return;
   }
