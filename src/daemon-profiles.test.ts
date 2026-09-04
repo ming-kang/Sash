@@ -35,8 +35,8 @@ describe("daemon server", () => {
         `POST /sash/profiles HTTP/1.1\r\nHost: 127.0.0.1:${h.boundPort}\r\nAuthorization: Bearer ${h.settings.daemonSecret}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body.slice(0, 5)}`,
       );
 
-      const stop = await h.apiRequest("/core/stop", { method: "POST" });
-      assert.equal(stop.statusCode, 200);
+      const stop = await h.apiRequest("/sash/core/stop", { method: "POST" });
+      assert.equal(stop.statusCode, 204);
       socket.destroy();
     });
 
@@ -61,8 +61,8 @@ describe("daemon server", () => {
         body: { url: subUrl },
       });
       await fetchStarted;
-      const stop = await h.apiRequest("/core/stop", { method: "POST" });
-      assert.equal(stop.statusCode, 200);
+      const stop = await h.apiRequest("/sash/core/stop", { method: "POST" });
+      assert.equal(stop.statusCode, 204);
       releaseFetch?.();
       assert.equal((await pendingProfile).statusCode, 200);
     });
@@ -96,7 +96,7 @@ describe("daemon server", () => {
       assert.equal(list.profiles[0]?.subInfo?.total, 100);
 
       assert.ok(fs.readFileSync(h.layout.configFile, "utf8").includes("node-a"));
-      const statusAfterAdd = (await h.apiRequest("/sash/status")).data as {
+      const statusAfterAdd = (await h.apiRequest("/sash/daemon/status")).data as {
         revisions: { profiles: number };
       };
       assert.equal(statusAfterAdd.revisions.profiles, 1);
@@ -106,7 +106,7 @@ describe("daemon server", () => {
       assert.equal(again.statusCode, 200);
       const list2 = (await h.apiRequest("/sash/profiles")).data as { profiles: unknown[] };
       assert.equal(list2.profiles.length, 1);
-      const statusAfterUpdate = (await h.apiRequest("/sash/status")).data as {
+      const statusAfterUpdate = (await h.apiRequest("/sash/daemon/status")).data as {
         revisions: { profiles: number };
       };
       assert.equal(statusAfterUpdate.revisions.profiles, 2);
@@ -265,12 +265,10 @@ describe("daemon server", () => {
       const res = await h.apiRequest("/sash/profiles/update-all", { method: "POST" });
       assert.equal(res.statusCode, 200);
       const data = res.data as {
-        ok: boolean;
         updated: number;
         failed: Array<{ name: string; error: string }>;
         proxyCount?: number;
       };
-      assert.equal(data.ok, false);
       assert.equal(data.updated, 1);
       assert.equal(data.failed.length, 1);
       assert.equal(data.failed[0]?.error, "boom");

@@ -1,9 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { type ApiErrorCode, apiErrorBody } from "./contracts.js";
 
 export class HttpError extends Error {
   constructor(
     readonly statusCode: number,
     message: string,
+    readonly code?: ApiErrorCode,
   ) {
     super(message);
     this.name = "HttpError";
@@ -106,6 +108,11 @@ export function sendJson(res: ServerResponse, statusCode: number, data: unknown)
   res.end(body);
 }
 
-export function sendError(res: ServerResponse, statusCode: number, message: string): void {
-  sendJson(res, statusCode, { error: message });
+export function sendError(
+  res: ServerResponse,
+  statusCode: number,
+  code: ApiErrorCode,
+  message: string,
+): void {
+  sendJson(res, statusCode, apiErrorBody(code, message));
 }

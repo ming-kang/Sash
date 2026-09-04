@@ -61,7 +61,7 @@ describe("daemon server", () => {
         },
       });
 
-      const restarting = h.apiRequest("/core/restart", { method: "POST" });
+      const restarting = h.apiRequest("/sash/core/restart", { method: "POST" });
       await validationEntered;
       fs.writeFileSync(profileFile, yamlB);
       releaseValidation?.();
@@ -107,10 +107,13 @@ describe("daemon server", () => {
         },
       });
 
-      const response = await h.apiRequest("/core/restart", { method: "POST" });
+      const response = await h.apiRequest("/sash/core/restart", { method: "POST" });
 
       assert.equal(response.statusCode, 409);
-      assert.match((response.data as { error: string }).error, /content changed/);
+      assert.match(
+        (response.data as { error: { message: string } }).error.message,
+        /content changed/,
+      );
       assert.equal(validations, 2);
       assert.equal(restarts, 0);
     });
@@ -161,7 +164,7 @@ describe("daemon server", () => {
       assert.equal((portChange.data as { restartRequired: boolean }).restartRequired, true);
       const persisted = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8"));
       assert.equal(persisted.daemonPort, 29999);
-      const stillAlive = await h.apiRequest("/sash/health");
+      const stillAlive = await h.apiRequest("/sash/daemon/health");
       assert.equal(stillAlive.statusCode, 200);
 
       // daemonSecret hot-swaps: the old secret stops working immediately.
@@ -229,7 +232,7 @@ describe("daemon server", () => {
 
       assert.equal(res.statusCode, 500);
       assert.match(
-        (res.data as { error: string }).error,
+        (res.data as { error: { message: string } }).error.message,
         /TUN did not become active.*sash config set tun on.*sash restart/s,
       );
       assert.equal(restartCalls, 2);
@@ -261,10 +264,7 @@ describe("daemon server", () => {
       });
       await validationEntered;
       const beforeCommit = await h.apiRequest("/sash/settings");
-      assert.equal(
-        (beforeCommit.data as { settings: { mixedPort: number } }).settings.mixedPort,
-        17890,
-      );
+      assert.equal((beforeCommit.data as { mixedPort: number }).mixedPort, 17890);
       release?.();
       assert.equal((await patch).statusCode, 200);
     });
@@ -276,7 +276,10 @@ describe("daemon server", () => {
         body: { bogus: true },
       });
       assert.equal(res.statusCode, 400);
-      assert.match((res.data as { error: string }).error, /known settings patch field/);
+      assert.match(
+        (res.data as { error: { message: string } }).error.message,
+        /known settings patch field/,
+      );
     });
 
     it("rebinds an enabled system proxy after mixed-port restarts the core", async () => {
@@ -327,7 +330,11 @@ describe("daemon server", () => {
         getState: async () => ({ supported: true, enabled: applied }),
       };
       await h.startServer({ supervisor, systemProxy });
-      await h.apiRequest("/sash/proxy/enable", { method: "POST" });
+      const enabled = await h.apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { systemProxy: true },
+      });
+      assert.equal(enabled.statusCode, 200);
 
       const res = await h.apiRequest("/sash/settings", {
         method: "PATCH",

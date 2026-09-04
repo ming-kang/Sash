@@ -40,7 +40,7 @@ describe("lifecycle commands", () => {
     let daemonToken = "";
     server = http.createServer((req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
-      if (req.url === "/sash/health") {
+      if (req.url === "/sash/daemon/health") {
         res.end(
           JSON.stringify({
             ok: true,
@@ -51,9 +51,9 @@ describe("lifecycle commands", () => {
         );
         return;
       }
-      if (req.url === "/core/start") {
+      if (req.url === "/sash/core/start") {
         startCalls++;
-        res.end(JSON.stringify({ ok: true, pid: 77, version: "v-test", tunActive: false }));
+        res.end(JSON.stringify({ pid: 77, version: "v-test", tunActive: false }));
         return;
       }
       res.writeHead(404);
@@ -124,7 +124,7 @@ describe("lifecycle commands", () => {
     let daemonToken = "";
     server = http.createServer((req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
-      if (req.url === "/sash/health") {
+      if (req.url === "/sash/daemon/health") {
         res.end(
           JSON.stringify({
             ok: true,
@@ -135,14 +135,14 @@ describe("lifecycle commands", () => {
         );
         return;
       }
-      if (req.url === "/sash/maintenance/shutdown") {
+      if (req.url === "/sash/daemon/shutdown") {
         maintenanceCalls++;
-        res.end(JSON.stringify({ ok: true, coreWasRunning: true }));
+        res.end(JSON.stringify({ coreWasRunning: true }));
         return;
       }
-      if (req.url === "/core/start") {
+      if (req.url === "/sash/core/start") {
         startCalls++;
-        res.end(JSON.stringify({ ok: true, pid: 77, version: "v-test", tunActive: false }));
+        res.end(JSON.stringify({ pid: 77, version: "v-test", tunActive: false }));
         return;
       }
       res.writeHead(404);

@@ -28,10 +28,11 @@ describe("daemon server", () => {
         "/core/api/proxies/DIRECT/delay?url=http%3A%2F%2F192.168.1.1%2Faction",
         { token: "" },
       );
+      // Root-level Core aliases are gone: unknown paths never reach the upstream.
       const fallback = await h.apiRequest("/version", { token: "" });
 
       assert.equal(delay.statusCode, 401);
-      assert.equal(fallback.statusCode, 401);
+      assert.equal(fallback.statusCode, 404);
       assert.equal(upstreamRequests, 0);
     });
 

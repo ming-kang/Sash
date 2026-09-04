@@ -23,8 +23,8 @@ afterEach(() => {
 describe("WebUI daemon response contracts", () => {
   it("clears an existing session when initialize receives malformed health JSON", async () => {
     const responses = [
-      { ok: true, token: "boot-token", pid: 1234, startedAt: "2026-01-01T00:00:00.000Z" },
-      { ok: true, token: "", pid: 1234, startedAt: "2026-01-01T00:00:00.000Z" },
+      { token: "boot-token", pid: 1234, startedAt: "2026-01-01T00:00:00.000Z" },
+      { token: "", pid: 1234, startedAt: "2026-01-01T00:00:00.000Z" },
     ];
     mockFetch(() => respond(responses.shift()));
 
@@ -36,8 +36,8 @@ describe("WebUI daemon response contracts", () => {
 
   it("rejects malformed health and status snapshots instead of trusting casts", async () => {
     mockFetch((url) =>
-      url.endsWith("/sash/health")
-        ? respond({ ok: true, token: "token", pid: 0, startedAt: "invalid" })
+      url.endsWith("/sash/daemon/health")
+        ? respond({ token: "token", pid: 0, startedAt: "invalid" })
         : respond({}),
     );
 

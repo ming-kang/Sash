@@ -32,6 +32,9 @@ import {
 import { type SashSettings, sameSettings } from "./settings.js";
 
 export class ProfileInputError extends Error {}
+
+/** The rendered config.yaml failed validation; a server-side state problem, not bad request input. */
+export class GeneratedConfigError extends Error {}
 export class ProfileNotFoundError extends Error {}
 export class ProfileConflictError extends Error {}
 
@@ -528,7 +531,7 @@ export class ProfileService {
     try {
       await this.validateConfig?.(generated);
     } catch (err) {
-      throw new ProfileInputError((err as Error).message);
+      throw new GeneratedConfigError((err as Error).message);
     }
     return generated;
   }

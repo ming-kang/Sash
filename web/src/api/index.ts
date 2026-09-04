@@ -1,24 +1,18 @@
 import {
   type HealthInfo,
-  type ProfileActionResponse,
-  type ProfilesUpdateAllResponse,
-  type ProfileUpdateResponse,
-  parseDaemonStatus,
-  parseHealthInfo,
+  type SettingsPatch,
   WEB_SOCKET_AUTH_PROTOCOL,
   WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
 } from "../../../src/contracts.js";
+import { SashClient } from "../../../src/sash-client.js";
 import { parseLogFrame, parseTrafficFrame } from "../stores/state-ownership.js";
 import type {
   ConfigsResponse,
   ConnectionsResponse,
   LogMessage,
   OutboundMode,
-  ProfileMeta,
-  ProfilesResponse,
   ProxiesResponse,
   RulesResponse,
-  SashStatus,
   TrafficMessage,
 } from "../types/index.js";
 import { formatTime } from "../utils/format.js";
@@ -31,6 +25,13 @@ interface RequestOptions {
 
 let controlToken = "";
 
+const sash = new SashClient({
+  baseUrl: "",
+  token: () => controlToken,
+  tokenHeader: "x-sash-token",
+});
+
+/** Reverse-proxied Core API calls; daemon-owned /sash/* lives on the shared client. */
 async function request<T>(
   endpoint: string,
   options?: RequestOptions & { response?: "json" },
@@ -136,7 +137,7 @@ function connectStream(
 export const api = {
   initialize: async (): Promise<HealthInfo> => {
     try {
-      const health = parseHealthInfo(await request("/sash/health"));
+      const health = await sash.health();
       controlToken = health.token;
       return health;
     } catch (err) {
@@ -149,65 +150,28 @@ export const api = {
   },
   hasSession: (): boolean => controlToken !== "",
 
-  getHealth: async () => parseHealthInfo(await request("/sash/health")),
-  getStatus: async (): Promise<SashStatus> => parseDaemonStatus(await request("/sash/status")),
+  getHealth: () => sash.health(),
+  getStatus: () => sash.status(),
 
-  enableSystemProxy: () =>
-    request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/enable", { method: "POST" }),
-  disableSystemProxy: () =>
-    request<{ ok: boolean; systemProxy: boolean }>("/sash/proxy/disable", { method: "POST" }),
+  enableSystemProxy: () => sash.patchSettings({ systemProxy: true }),
+  disableSystemProxy: () => sash.patchSettings({ systemProxy: false }),
 
-  getProfiles: () => request<ProfilesResponse>("/sash/profiles"),
-  addProfile: (url: string) =>
-    request<ProfileActionResponse>("/sash/profiles", { method: "POST", body: { url } }),
-  importProfile: (name: string, content: string) =>
-    request<ProfileActionResponse>("/sash/profiles/import", {
-      method: "POST",
-      body: { name, content },
-    }),
-  updateProfile: (id: string) =>
-    request<ProfileUpdateResponse>(`/sash/profiles/${id}/update`, { method: "POST" }),
-  updateAllProfiles: () =>
-    request<ProfilesUpdateAllResponse>("/sash/profiles/update-all", { method: "POST" }),
-  setActiveProfile: (id: string | null) =>
-    request<{ ok: boolean; activeId: string | null; proxyCount: number }>("/sash/profiles/active", {
-      method: "PUT",
-      body: { id },
-    }),
-  deleteProfile: (id: string) =>
-    request<{ ok: boolean; wasActive: boolean; proxyCount?: number }>(`/sash/profiles/${id}`, {
-      method: "DELETE",
-    }),
-  renameProfile: (id: string, name: string) =>
-    request<{ ok: boolean; profile: ProfileMeta }>(`/sash/profiles/${id}`, {
-      method: "PATCH",
-      body: { name },
-    }),
-  getProfileContent: (id: string) =>
-    request<{ ok: boolean; name: string; content: string }>(`/sash/profiles/${id}/content`),
-  setProfileContent: (id: string, content: string) =>
-    request<ProfileUpdateResponse>(`/sash/profiles/${id}/content`, {
-      method: "PUT",
-      body: { content },
-    }),
+  getProfiles: () => sash.listProfiles(),
+  addProfile: (url: string) => sash.addProfile(url),
+  importProfile: (name: string, content: string) => sash.importProfile(name, content),
+  updateProfile: (id: string) => sash.updateProfile(id),
+  updateAllProfiles: () => sash.updateAllProfiles(),
+  setActiveProfile: (id: string | null) => sash.activateProfile(id),
+  deleteProfile: (id: string) => sash.removeProfile(id),
+  renameProfile: (id: string, name: string) => sash.renameProfile(id, name),
+  getProfileContent: (id: string) => sash.getProfileContent(id),
+  setProfileContent: (id: string, content: string) => sash.writeProfileContent(id, content),
 
-  patchSetting: (key: string, value: string) =>
-    request<{ ok: boolean; settings: SashStatus["settings"] }>("/sash/settings", {
-      method: "PATCH",
-      body: { key, value },
-    }),
-  getSettingsFile: () => request<{ ok: boolean; content: string }>("/sash/settings/file"),
-  saveSettingsFile: (content: string) =>
-    request<{ ok: boolean; restartRequired: boolean; settings: SashStatus["settings"] }>(
-      "/sash/settings/file",
-      {
-        method: "PUT",
-        body: { content },
-      },
-    ),
-  restartCore: () => request<{ ok: boolean; pid: number }>("/core/restart", { method: "POST" }),
-  reloadCoreConfig: () =>
-    request<{ ok: boolean; proxyCount: number }>("/core/config/reload", { method: "POST" }),
+  patchSettings: (patch: SettingsPatch) => sash.patchSettings(patch),
+  getSettingsFile: () => sash.getSettingsFile(),
+  saveSettingsFile: (content: string) => sash.writeSettingsFile(content),
+  restartCore: () => sash.restartCore(),
+  reloadCoreConfig: () => sash.reloadCoreConfig(),
 
   getConfigs: () => request<ConfigsResponse>("/core/api/configs"),
   setMode: (mode: OutboundMode) =>

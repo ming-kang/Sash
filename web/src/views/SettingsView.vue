@@ -311,7 +311,7 @@ async function saveMixedPort(): Promise<void> {
   if (!portValid.value || savingPort.value) return;
   savingPort.value = true;
   try {
-    const result = await api.patchSetting("mixed-port", String(mixedPort.value));
+    const result = await api.patchSettings({ mixedPort: mixedPort.value });
     if (store.status) store.status = { ...store.status, settings: result.settings };
     await refreshRuntimeState();
     toast.success(t("toast.portSaved"));

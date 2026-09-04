@@ -1,5 +1,7 @@
 import type {
   ProfileActionResponse,
+  ProfileActivateResponse,
+  ProfileRemoveResponse,
   ProfilesUpdateAllResponse,
   ProfileUpdateResponse,
 } from "../../../src/contracts.js";
@@ -71,18 +73,14 @@ export function updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
   );
 }
 
-export function activateProfile(
-  id: string | null,
-): Promise<{ ok: boolean; activeId: string | null; proxyCount: number }> {
+export function activateProfile(id: string | null): Promise<ProfileActivateResponse> {
   return performProfileMutation(
     () => api.setActiveProfile(id),
     () => true,
   );
 }
 
-export function deleteProfile(
-  id: string,
-): Promise<{ ok: boolean; wasActive: boolean; proxyCount?: number }> {
+export function deleteProfile(id: string): Promise<ProfileRemoveResponse> {
   return performProfileMutation(
     () => api.deleteProfile(id),
     (result) => result.wasActive,

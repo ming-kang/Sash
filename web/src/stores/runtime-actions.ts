@@ -188,7 +188,7 @@ export async function patchBooleanSetting(key: "allow-lan" | "tun", next: boolea
   store.operations.networkSetting = true;
   requests.invalidate("runtime");
   try {
-    const result = await api.patchSetting(key, next ? "on" : "off");
+    const result = await api.patchSettings(key === "tun" ? { tun: next } : { allowLan: next });
     store.status = syncCommittedBooleanSetting(store.status, key, next, result.settings);
     await refreshRuntimeState();
   } finally {

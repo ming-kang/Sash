@@ -16,7 +16,7 @@ describe("daemon server", () => {
         h.layout,
       );
       await h.startServer();
-      const res = await h.apiRequest("/sash/status");
+      const res = await h.apiRequest("/sash/daemon/status");
       assert.equal(res.statusCode, 200);
       const data = res.data as {
         daemon: { pid: number };
@@ -58,9 +58,9 @@ describe("daemon server", () => {
       };
       await h.startServer({ systemProxy });
 
-      const status = h.apiRequest("/sash/status?fresh=1");
+      const status = h.apiRequest("/sash/daemon/status?fresh=1");
       await inspectEntered;
-      const health = await h.apiRequest("/sash/health");
+      const health = await h.apiRequest("/sash/daemon/health");
       assert.equal(health.statusCode, 200);
       releaseInspect?.();
       assert.equal((await status).statusCode, 200);
@@ -84,7 +84,7 @@ describe("daemon server", () => {
       } as unknown as CoreSupervisor;
       await h.startServer({ supervisor });
 
-      const res = await h.apiRequest("/sash/status");
+      const res = await h.apiRequest("/sash/daemon/status");
       assert.equal(res.statusCode, 200);
       const data = res.data as {
         core: { tunActive?: boolean };
@@ -151,14 +151,21 @@ describe("daemon server", () => {
 
       await h.startServer({ supervisor: fakeSupervisor, systemProxy });
 
-      // Core not running -> enable should fail
-      const failRes = await h.apiRequest("/sash/proxy/enable", { method: "POST" });
-      assert.equal(failRes.statusCode, 400);
+      // Core not running -> enable should fail with a core_unhealthy conflict
+      const failRes = await h.apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { systemProxy: true },
+      });
+      assert.equal(failRes.statusCode, 409);
+      assert.equal((failRes.data as { error: { code: string } }).error.code, "core_unhealthy");
 
       // Start core first
-      await h.apiRequest("/core/start", { method: "POST" });
+      await h.apiRequest("/sash/core/start", { method: "POST" });
 
-      const enableRes = await h.apiRequest("/sash/proxy/enable", { method: "POST" });
+      const enableRes = await h.apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { systemProxy: true },
+      });
       assert.equal(enableRes.statusCode, 200);
       assert.equal(enabledCalls, 1);
 
@@ -170,7 +177,10 @@ describe("daemon server", () => {
       assert.equal(state.applied, true);
 
       // Disable
-      const disableRes = await h.apiRequest("/sash/proxy/disable", { method: "POST" });
+      const disableRes = await h.apiRequest("/sash/settings", {
+        method: "PATCH",
+        body: { systemProxy: false },
+      });
       assert.equal(disableRes.statusCode, 200);
       assert.equal(disabledCalls, 1);
     });
@@ -247,13 +257,13 @@ describe("daemon server", () => {
       };
       const inst = await h.startServer({ systemProxy, scheduler });
 
-      const failed = await h.apiRequest("/sash/shutdown", { method: "POST" });
+      const failed = await h.apiRequest("/sash/daemon/shutdown", { method: "POST" });
       assert.equal(failed.statusCode, 500);
       assert.equal(inst.server.listening, true);
       assert.equal(clears, 0);
 
       const closed = new Promise<void>((resolve) => inst.server.once("close", resolve));
-      const successful = await h.apiRequest("/sash/shutdown", { method: "POST" });
+      const successful = await h.apiRequest("/sash/daemon/shutdown", { method: "POST" });
       assert.equal(successful.statusCode, 200);
       await closed;
       assert.equal(inst.server.listening, false);
@@ -290,9 +300,9 @@ describe("daemon server", () => {
       } as unknown as CoreSupervisor;
       const inst = await h.startServer({ supervisor });
 
-      const maintenance = h.apiRequest("/sash/maintenance/shutdown", { method: "POST" });
+      const maintenance = h.apiRequest("/sash/daemon/shutdown", { method: "POST" });
       await stopEntered;
-      const inserted = await h.apiRequest("/core/start", { method: "POST" });
+      const inserted = await h.apiRequest("/sash/core/start", { method: "POST" });
       assert.equal(inserted.statusCode, 503);
       assert.equal(starts, 0);
 
@@ -300,7 +310,7 @@ describe("daemon server", () => {
       releaseStop?.();
       const result = await maintenance;
       assert.equal(result.statusCode, 200);
-      assert.deepEqual(result.data, { ok: true, coreWasRunning: true });
+      assert.deepEqual(result.data, { coreWasRunning: true });
       await closed;
     });
 
