@@ -91,7 +91,7 @@
           <div class="profile-name-row">
             <span class="profile-name" :title="p.name">{{ p.name }}</span>
           </div>
-          <div class="profile-source">
+          <div class="profile-source" :title="`${sourceLabel(p)} · ${updatedLabel(p)}`">
             {{ sourceLabel(p) }} · {{ updatedLabel(p) }}
           </div>
           <div v-if="p.subInfo" class="profile-usage">
@@ -425,11 +425,9 @@ async function pasteFromClipboard(): Promise<void> {
 }
 .profile-card {
   position: relative;
-  display: flex;
+  display: block;
   min-width: 0;
   min-height: 72px;
-  align-items: flex-start;
-  gap: 10px;
   padding: 10px 8px 10px 15px;
   overflow: hidden;
   cursor: pointer;
@@ -464,7 +462,6 @@ async function pasteFromClipboard(): Promise<void> {
   cursor: wait;
 }
 .profile-card-main {
-  flex: 1;
   min-width: 0;
   border-radius: var(--radius-sm);
   outline: none;
@@ -477,6 +474,8 @@ async function pasteFromClipboard(): Promise<void> {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* keep the name clear of the absolutely positioned action buttons */
+  margin-right: 140px;
 }
 .profile-name {
   overflow: hidden;
@@ -488,9 +487,11 @@ async function pasteFromClipboard(): Promise<void> {
 }
 .profile-source {
   margin-top: 4px;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: 14px;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .profile-usage {
   margin-top: 7px;
@@ -536,6 +537,9 @@ async function pasteFromClipboard(): Promise<void> {
   white-space: nowrap;
 }
 .profile-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   display: flex;
   flex-shrink: 0;
   gap: 3px;
@@ -579,6 +583,9 @@ async function pasteFromClipboard(): Promise<void> {
   .profiles-grid {
     grid-template-columns: 1fr;
   }
+  .profile-name-row {
+    margin-right: 172px;
+  }
   .profile-actions .icon-btn {
     width: 40px;
     height: 40px;
@@ -605,8 +612,10 @@ async function pasteFromClipboard(): Promise<void> {
     height: 38px;
   }
   .profile-card {
-    gap: 6px;
     padding: 14px 8px 14px 15px;
+  }
+  .profile-name-row {
+    margin-right: 164px;
   }
   .usage-nums {
     flex-direction: column;

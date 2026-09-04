@@ -99,6 +99,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Proxy node delay buttons show only a spinner while testing (no "Loading…" text), and profile cards no longer wrap their meta line mid-phrase: the action buttons now overlay the card's top-right corner and the source/updated line is single-line with ellipsis plus a full-text tooltip, so it gets the whole card width.
 - Profile card action buttons (rename/edit/update/delete) no longer also activate the profile through click bubbling; activation is restricted to the card's main body.
 - All four WebUI dialogs now share a focus trap, Escape handling, focus return to the trigger, and a reference-counted scroll lock (previously nested dialogs could unlock page scrolling early). The two duplicated CodeMirror editor implementations are merged into a shared `CodeEditorModal` component.
 - The in-app profile editor's content endpoints (`GET/PUT /sash/profiles/:id/content`) are now registered in the daemon routing table; previously the handler existed but the router returned 404 before the request reached it.

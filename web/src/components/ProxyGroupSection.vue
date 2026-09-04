@@ -71,7 +71,7 @@
           @click="requestNodeTest(member)"
         >
           <Icon v-if="isNodeTesting(member)" name="refresh" :size="11" class="delay-spinner" />
-          {{ isNodeTesting(member) ? t('common.loading') : delayFor(member).text }}
+          <template v-else>{{ delayFor(member).text }}</template>
         </button>
       </article>
     </div>
@@ -336,6 +336,7 @@ function delayFor(name: string): DelayDisplay {
   text-underline-offset: 3px;
 }
 .node-delay.testing {
+  justify-content: center;
   color: var(--accent);
   cursor: wait;
 }
