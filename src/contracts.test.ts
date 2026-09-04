@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseDaemonStatus, parseHealthInfo, parseSystemProxyStatusResponse } from "./contracts.js";
+import {
+  parseApiErrorBody,
+  parseCoreReloadResult,
+  parseCoreStartResult,
+  parseDaemonStatus,
+  parseHealthInfo,
+  parseProfileActionResponse,
+  parseProfilesIndex,
+  parseProfilesUpdateAllResponse,
+  parseSettingsPatch,
+  parseSettingsWriteResult,
+  parseShutdownResult,
+  parseSystemProxyStatusResponse,
+} from "./contracts.js";
 
 const timestamp = "2026-01-02T03:04:05.000Z";
 
@@ -35,17 +48,27 @@ function statusDocument(): Record<string, unknown> {
   };
 }
 
+function profileMetaDocument(): Record<string, unknown> {
+  return {
+    id: "1780811098558",
+    name: "edge",
+    url: "https://example.com/sub",
+    intervalHours: 24,
+    createdAt: timestamp,
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  };
+}
+
 describe("daemon response contracts", () => {
   it("parses and projects a canonical health response", () => {
     assert.deepEqual(
       parseHealthInfo({
-        ok: true,
         token: "boot-token",
         pid: 1234,
         startedAt: timestamp,
         futureField: "ignored",
       }),
-      { ok: true, token: "boot-token", pid: 1234, startedAt: timestamp },
+      { token: "boot-token", pid: 1234, startedAt: timestamp },
     );
   });
 
@@ -57,7 +80,7 @@ describe("daemon response contracts", () => {
       ["token", "   "],
       ["startedAt", "2026-01-02 03:04:05Z"],
     ] as const) {
-      const document = { ok: true, token: "token", pid: 1, startedAt: timestamp, [field]: value };
+      const document = { token: "token", pid: 1, startedAt: timestamp, [field]: value };
       assert.throws(() => parseHealthInfo(document), new RegExp(String(field)));
     }
   });
@@ -175,5 +198,118 @@ describe("daemon response contracts", () => {
         }),
       /stateKnown/,
     );
+  });
+
+  it("parses core lifecycle results without an ok envelope", () => {
+    assert.deepEqual(parseCoreStartResult({ pid: 4321, version: "v1.2.3", tunActive: true }), {
+      pid: 4321,
+      version: "v1.2.3",
+      tunActive: true,
+    });
+    assert.deepEqual(parseCoreStartResult({ pid: 4321 }), { pid: 4321 });
+    assert.throws(() => parseCoreStartResult({ pid: -1 }), /pid/);
+
+    assert.deepEqual(parseCoreReloadResult({ proxyCount: 12, source: "subscription" }), {
+      proxyCount: 12,
+      source: "subscription",
+    });
+    assert.throws(() => parseCoreReloadResult({ proxyCount: 12, source: "other" }), /source/);
+
+    assert.deepEqual(parseShutdownResult({ coreWasRunning: false }), { coreWasRunning: false });
+    assert.throws(() => parseShutdownResult({}), /coreWasRunning/);
+  });
+
+  it("parses the settings patch protocol strictly", () => {
+    assert.deepEqual(
+      parseSettingsPatch({
+        mixedPort: 17891,
+        allowLan: true,
+        tun: false,
+        systemProxy: true,
+        daemonPort: 19091,
+        daemonSecret: "new-secret",
+      }),
+      {
+        mixedPort: 17891,
+        allowLan: true,
+        tun: false,
+        systemProxy: true,
+        daemonPort: 19091,
+        daemonSecret: "new-secret",
+      },
+    );
+    assert.deepEqual(parseSettingsPatch({}), {});
+    assert.throws(() => parseSettingsPatch({ secret: "core-secret" }), /secret/);
+    assert.throws(() => parseSettingsPatch({ mixedPort: 0 }), /mixedPort/);
+    assert.throws(() => parseSettingsPatch({ tun: "on" }), /tun/);
+    assert.throws(() => parseSettingsPatch({ daemonSecret: "  " }), /daemonSecret/);
+  });
+
+  it("parses settings write results and file content", () => {
+    const parsed = parseSettingsWriteResult({
+      restartRequired: true,
+      settings: {
+        mixedPort: 17890,
+        controller: "127.0.0.1:9090",
+        tun: false,
+        allowLan: false,
+        daemonPort: 19091,
+        systemProxy: false,
+      },
+    });
+    assert.equal(parsed.restartRequired, true);
+    assert.equal(parsed.settings.daemonPort, 19091);
+    assert.throws(() => parseSettingsWriteResult({ restartRequired: true }), /settings/);
+  });
+
+  it("parses profile responses with full metadata validation", () => {
+    const index = parseProfilesIndex({
+      activeId: "1780811098558",
+      profiles: [
+        {
+          ...profileMetaDocument(),
+          subInfo: { upload: 1, download: 2, total: 3, expire: 4 },
+          homePage: "https://example.com",
+          lastError: "boom",
+        },
+      ],
+    });
+    assert.equal(index.activeId, "1780811098558");
+    assert.equal(index.profiles[0]?.subInfo?.total, 3);
+    assert.equal(index.profiles[0]?.lastError, "boom");
+
+    assert.deepEqual(parseProfilesIndex({ activeId: null, profiles: [] }), {
+      activeId: null,
+      profiles: [],
+    });
+    assert.throws(() => parseProfilesIndex({ activeId: null, profiles: [{}] }), /profiles\[0\]/);
+
+    const action = parseProfileActionResponse({
+      profile: profileMetaDocument(),
+      activated: true,
+      proxyCount: 7,
+    });
+    assert.equal(action.profile.id, "1780811098558");
+    assert.equal(action.proxyCount, 7);
+
+    const all = parseProfilesUpdateAllResponse({
+      updated: 2,
+      failed: [{ id: "1", name: "edge", error: "fetch failed" }],
+    });
+    assert.equal(all.failed[0]?.error, "fetch failed");
+    assert.throws(
+      () => parseProfilesUpdateAllResponse({ updated: 2, failed: [{ id: "1" }] }),
+      /failed\[0\]/,
+    );
+  });
+
+  it("extracts structured error envelopes", () => {
+    assert.deepEqual(parseApiErrorBody({ error: { code: "conflict", message: "busy" } }), {
+      code: "conflict",
+      message: "busy",
+    });
+    assert.equal(parseApiErrorBody({ error: "plain string" }), undefined);
+    assert.equal(parseApiErrorBody({}), undefined);
+    assert.equal(parseApiErrorBody("nope"), undefined);
   });
 });

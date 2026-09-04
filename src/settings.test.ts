@@ -5,19 +5,15 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { type SashLayout, sashLayout } from "./paths.js";
 import {
-  applyManagedKey,
   DEFAULT_SETTINGS,
   generateSecret,
-  isSettableKey,
   loadSettings,
   parseControllerAddress,
   publicSettings,
-  requiresCoreRestart,
   type SashSettings,
-  SETTABLE_KEYS,
-  type SettableKey,
   sameSettings,
   saveSettings,
+  validateSettingsCandidate,
 } from "./settings.js";
 
 describe("settings", () => {
@@ -300,75 +296,41 @@ describe("settings", () => {
     });
   });
 
-  describe("applyManagedKey", () => {
-    it("returns immutable boolean candidates", () => {
+  describe("validateSettingsCandidate", () => {
+    it("returns immutable canonicalized candidates", () => {
       const settings = { ...DEFAULT_SETTINGS, secret: "core", daemonSecret: "daemon" };
-      const tun = applyManagedKey(settings, "tun", "on");
+      const candidate = validateSettingsCandidate({
+        ...settings,
+        tun: true,
+        controller: " LOCALHOST:9091 ",
+      });
       assert.equal(settings.tun, false);
-      assert.equal(tun.tun, true);
-      const proxy = applyManagedKey(tun, "system-proxy", "1");
-      assert.equal(proxy.systemProxy, true);
-      assert.equal(applyManagedKey(proxy, "allow-lan", "off").allowLan, false);
+      assert.equal(candidate.tun, true);
+      assert.equal(candidate.controller, "localhost:9091");
     });
 
-    it("applies mixed-port with strict validation", () => {
+    it("rejects invalid ports, blank secrets and non-loopback controllers", () => {
       const settings = { ...DEFAULT_SETTINGS, secret: "core", daemonSecret: "daemon" };
-      const candidate = applyManagedKey(settings, "mixed-port", "10808");
-      assert.equal(candidate.mixedPort, 10808);
-      assert.equal(settings.mixedPort, DEFAULT_SETTINGS.mixedPort);
-      assert.throws(() => applyManagedKey(settings, "mixed-port", "0x10"), /invalid port/);
-      assert.throws(() => applyManagedKey(settings, "mixed-port", "70000"), /invalid port/);
-    });
-
-    it("regenerates the controller secret on demand", () => {
-      const settings = { ...DEFAULT_SETTINGS, secret: "fixed", daemonSecret: "daemon" };
-      const candidate = applyManagedKey(settings, "secret", "regenerate");
-      assert.equal(settings.secret, "fixed");
-      assert.notEqual(candidate.secret, "fixed");
-      assert.equal(candidate.secret.length, 48);
-      assert.throws(() => applyManagedKey(settings, "secret", "   "), /must not be blank/);
-    });
-
-    it("canonicalizes controller candidates through the shared parser", () => {
-      const settings = { ...DEFAULT_SETTINGS, secret: "core", daemonSecret: "daemon" };
-      assert.equal(
-        applyManagedKey(settings, "controller", " LOCALHOST:9091 ").controller,
-        "localhost:9091",
+      assert.throws(
+        () => validateSettingsCandidate({ ...settings, mixedPort: 70_000 }),
+        /mixedPort must be an integer from 1 to 65535/,
       );
       assert.throws(
-        () => applyManagedKey(settings, "controller", "controller.example:9090"),
-        /invalid controller address.*expected loopback host:port/,
+        () => validateSettingsCandidate({ ...settings, secret: "   " }),
+        /secret must not be blank/,
+      );
+      assert.throws(
+        () => validateSettingsCandidate({ ...settings, controller: "controller.example:9090" }),
+        /controller must be a loopback host:port controller address/,
       );
     });
 
-    it("rejects unknown keys with the canonical allowlist", () => {
-      const settings = { ...DEFAULT_SETTINGS };
-      assert.throws(() => applyManagedKey(settings, "daemon-port", "1234"), {
-        message:
-          "unknown key: daemon-port (settable: tun, allow-lan, mixed-port, controller, secret, system-proxy)",
-      });
-    });
-  });
-
-  describe("requiresCoreRestart", () => {
-    it("classifies every settable key from the shared metadata", () => {
-      const expected = {
-        tun: true,
-        "allow-lan": true,
-        "mixed-port": true,
-        controller: true,
-        secret: true,
-        "system-proxy": false,
-      } as const satisfies Record<SettableKey, boolean>;
-
-      for (const key of SETTABLE_KEYS) {
-        assert.equal(isSettableKey(key), true, key);
-        assert.equal(requiresCoreRestart(key), expected[key], key);
-      }
-      for (const key of ["mode", "log-level", "dns", "", "unknown"]) {
-        assert.equal(isSettableKey(key), false, key);
-        assert.equal(requiresCoreRestart(key), false, key);
-      }
+    it("rejects port collisions across all three listeners", () => {
+      const settings = { ...DEFAULT_SETTINGS, secret: "core", daemonSecret: "daemon" };
+      assert.throws(
+        () => validateSettingsCandidate({ ...settings, mixedPort: DEFAULT_SETTINGS.daemonPort }),
+        /must use different ports/,
+      );
     });
   });
 

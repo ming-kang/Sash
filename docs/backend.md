@@ -7,8 +7,7 @@ CLI / WebUI
     │  http://127.0.0.1:19090
     ▼
 sashd
-├── /sash/*       settings, profiles, status, system proxy
-├── /core/*       serialized Core lifecycle and config reload
+├── /sash/*       daemon control, Core lifecycle, settings, profiles, system proxy
 ├── /core/api/*   authenticated controller reverse proxy
 ├── ProfileService
 ├── RuntimeLifecycle
@@ -89,34 +88,48 @@ Unexpected Core exit retries proxy restoration and records failures in daemon er
 
 ## 3. API Namespaces
 
+There are exactly two HTTP namespaces plus the static dashboard. Every `/sash/*` route is implemented by `sashd` itself; every `/core/api/*` route is reverse-proxied to the Core controller. There are no root-level aliases and no unprefixed duplicates.
+
+```text
+/sash/*        implemented by sashd
+/core/api/*    forwarded to the Core controller (HTTP and WebSocket share one rule)
+/ui/*          static dashboard assets
+/              302 redirect to /ui/
+```
+
 ### `/sash/*`
 
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/sash/health` | `GET` | Readiness, PID, start time and per-boot WebUI token. |
-| `/sash/status` | `GET` | Daemon/Core/proxy/public-settings snapshot; `core.tunActive` is the verified runtime TUN state when available, while proxy `appliedKnown`/`stateKnown` and `queryError` preserve OS observation uncertainty. |
-| `/sash/proxy` | `GET` | Desired, Sash-owned and observed OS proxy state. |
-| `/sash/proxy/enable` | `POST` | Persist and apply proxy ownership; requires a healthy Core. |
-| `/sash/proxy/disable` | `POST` | Persist off and restore the pre-Sash proxy snapshot. |
-| `/sash/profiles*` | mixed | List, add/import, activate, update and delete profiles. |
-| `/sash/settings` | `GET` / `PATCH` | Read or transactionally update managed settings. |
-| `/sash/shutdown` | `POST` | Restore proxy and stop Core before returning success; the listener closes only after that response finishes. Cleanup failure returns `500` and leaves the daemon available for retry. |
-| `/sash/maintenance/shutdown` | `POST` | Under the daemon mutation queue, snapshot whether Core was running, restore proxy/stop Core, return `{ok, coreWasRunning}`, then close. The closing gate rejects mutations admitted after the snapshot. |
+| Endpoint | Method | Auth | Description |
+| :--- | :--- | :--- | :--- |
+| `/sash/daemon/health` | `GET` | public | Readiness, PID, start time and per-boot WebUI token. |
+| `/sash/daemon/status` | `GET` | public | Daemon/Core/proxy/public-settings snapshot; `core.tunActive` is the verified runtime TUN state when available, while proxy `appliedKnown`/`stateKnown` and `queryError` preserve OS observation uncertainty. |
+| `/sash/daemon/shutdown` | `POST` | control | Under the daemon mutation queue, snapshot whether Core was running, restore proxy/stop Core, return `{coreWasRunning}`, then close. Cleanup failure returns `500` and leaves the daemon available for retry. |
+| `/sash/core/start` | `POST` | control | Rebuild config, start and wait for readiness; returns `{pid, version?, tunActive?}`. |
+| `/sash/core/stop` | `POST` | control | Restore proxy, then stop the child; `204`. |
+| `/sash/core/restart` | `POST` | control | Rebuild config and execute one serialized replacement; same body as start. |
+| `/sash/core/reload` | `POST` | control | Re-render, validate and reload active config; returns `{proxyCount, source}`. |
+| `/sash/proxy` | `GET` | public | Desired, Sash-owned and observed OS proxy state. |
+| `/sash/settings` | `GET` | public | Public settings projection (secrets omitted). |
+| `/sash/settings` | `PATCH` | control | Partial-object update (`SettingsPatch`); one transaction per apply, returns `{restartRequired, settings}`. Enabling `systemProxy` requires a healthy Core. |
+| `/sash/settings/file` | `GET` | control | Raw canonical `sash.json` text, including secrets. |
+| `/sash/settings/file` | `PUT` | control | Replace settings from raw text; parsed, diffed and applied through the same `SettingsService.apply` path. |
+| `/sash/profiles` | `GET` / `POST` | public / control | List profiles; add a remote subscription. |
+| `/sash/profiles/import` | `POST` | control | Import a local profile document. |
+| `/sash/profiles/active` | `PUT` | control | Activate a profile id or `null`. |
+| `/sash/profiles/update-all` | `POST` | control | Update every profile; always `200`, per-profile failures in `failed`. |
+| `/sash/profiles/:id/content` | `GET` / `PUT` | control | Read or replace raw profile YAML. |
+| `/sash/profiles/:id/update` | `POST` | control | Re-fetch one remote profile. |
+| `/sash/profiles/:id` | `PATCH` / `DELETE` | control | Rename or remove one profile. |
 
 Appending `?fresh=1` to status/proxy reads bypasses the short OS-state cache used by normal WebUI polling.
 
+### Response envelope
+
+Success responses return the resource body directly with no `ok` field; mutations with no content return `204`. Error responses always carry `{error: {code, message}}` where `code` is machine-readable: `invalid_input`, `not_found`, `conflict`, `core_unhealthy`, `shutting_down`, `unauthorized`, `http` or `internal`. A `500` never leaks internal error text. `update-all` reports per-profile business failures through its `failed` array at HTTP `200`.
+
 The WebUI store has one runtime-refresh path. Normal polling keeps a coherent same-owner Core snapshot until it is missing, degraded or stale for the current profile revision, while explicit post-mutation refreshes force a complete snapshot. Connections, proxies and rules use the same generation-bound fetch/adopt/error template, so responses from an older runtime owner cannot overwrite current state.
 
-The Node daemon client and browser WebUI both read successful health, status and proxy bodies as `unknown`, then pass them through the same browser-safe parsers in `src/contracts.ts`. Required nested fields, positive safe-integer PIDs, valid ports, nonnegative revisions, canonical timestamps, optional Core fields, proxy state and explicit public settings are validated before state changes. Unknown extra fields are tolerated for forward compatibility but discarded from the typed projection. `appliedKnown` and `stateKnown` are mandatory inside the current daemon; only the network parser normalizes flags omitted by a legacy daemon to `false`. A malformed `200` response is therefore an error, not trusted TypeScript data.
-
-### `/core/*`
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/core/start` | `POST` | Rebuild config, start and wait for readiness. |
-| `/core/stop` | `POST` | Restore proxy, then stop the child. |
-| `/core/restart` | `POST` | Rebuild config and execute one serialized replacement. |
-| `/core/config/reload` | `POST` | Re-render, validate and reload active config. |
+The Node daemon client and browser WebUI share one browser-safe client built on `src/contracts.ts`: successful bodies are read as `unknown` and passed through per-resource parsers. Required nested fields, positive safe-integer PIDs, valid ports, nonnegative revisions, canonical timestamps, optional Core fields, proxy state and explicit public settings are validated before state changes. Unknown extra fields are tolerated for forward compatibility but discarded from the typed projection. `appliedKnown` and `stateKnown` are mandatory inside the current daemon; only the network parser normalizes flags omitted by a legacy daemon to `false`. A malformed `200` response is therefore an error, not trusted TypeScript data.
 
 ### `/core/api/*`
 
@@ -124,9 +137,9 @@ Every request in this namespace requires the persistent CLI bearer or per-boot W
 
 HTTP and WebSocket routing consume one parsed origin-form request target. Absolute-form, authority-form, asterisk-form, network-path and cross-authority backslash targets are rejected with `400`. Route matching removes only trailing route slashes; WHATWG dot-segment normalization happens once, encoded slashes are not decoded again, and the same canonical pathname constructs the Core target. In particular, `/core/api?x=1` forwards as `/?x=1`, repeated namespace-root slashes collapse to `/`, and the query is appended exactly once.
 
-Known paths with the wrong method return `405` plus `Allow`. Dashboard redirects accept only `GET`/`HEAD` and preserve the root query. Legacy aliases remain explicit rather than coming from generic `/sash` prefix removal: `/health`, `/status`, `/proxy`, `/proxy/enable`, `/proxy/disable`, `/settings`, `/shutdown` and `/config/reload` retain only their documented method-specific mappings.
+Known paths with the wrong method return `405` plus an `Allow` header derived from the route table. Dashboard redirects accept only `GET`/`HEAD` and preserve the root query.
 
-Traffic/log streams use authenticated `GET` WebSocket upgrades. The WebSocket allowlist is `/core/api/*`, `/traffic` and `/logs`; standard HTTP controller prefixes are not implicitly WebSocket-enabled.
+Traffic/log streams are authenticated `GET` WebSocket upgrades under `/core/api/traffic` and `/core/api/logs`. HTTP and WebSocket share the same gateway rule: only `/core/api/*` is forwarded, and WebSocket upgrades only accept `GET`.
 
 ---
 

@@ -19,7 +19,7 @@ describe("SashDaemonClient mutation requests", () => {
 
     try {
       const result = await new SashDaemonClient(port, "maintenance-secret").maintenanceShutdown();
-      assert.deepEqual(result, { ok: true, coreWasRunning: true });
+      assert.deepEqual(result, { coreWasRunning: true });
       assert.equal(authorization, "Bearer maintenance-secret");
     } finally {
       server.closeAllConnections();

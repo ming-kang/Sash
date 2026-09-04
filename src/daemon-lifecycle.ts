@@ -115,7 +115,7 @@ export async function evaluateDaemon(
       const legacyClient = new SashDaemonClient(record.port || s.daemonPort, s.daemonSecret);
       try {
         const health = await legacyClient.health();
-        if (health.ok && health.token === record.token && health.pid === record.pid) {
+        if (health.token === record.token && health.pid === record.pid) {
           return {
             kind: "healthy",
             running: true,
@@ -161,7 +161,7 @@ export async function evaluateDaemon(
 
   try {
     const health = await client.health();
-    if (health.ok && health.token === record.token && health.pid === record.pid) {
+    if (health.token === record.token && health.pid === record.pid) {
       return {
         kind: "healthy",
         running: true,
@@ -288,12 +288,7 @@ async function spawnDaemonUnlocked(
       const record = readDaemonPidRecord(layout);
       if (record) {
         const health = await client.health();
-        if (
-          record.pid === pid &&
-          health.ok &&
-          health.token === record.token &&
-          health.pid === pid
-        ) {
+        if (record.pid === pid && health.token === record.token && health.pid === pid) {
           return { pid };
         }
       }
@@ -407,9 +402,6 @@ export async function prepareDaemonMaintenance(
   }
 
   const snapshot = await client.maintenanceShutdown();
-  if (snapshot.ok !== true || typeof snapshot.coreWasRunning !== "boolean") {
-    throw new Error("sashd returned an invalid maintenance shutdown snapshot");
-  }
   await (deps.waitForDaemonExit ?? waitForDaemonExit)(daemonState.pid, 20_000);
   return { daemonWasRunning: true, legacyDaemon: false, coreWasRunning: snapshot.coreWasRunning };
 }
@@ -454,7 +446,7 @@ export async function stopDaemonFromCli(
   const healthMatchesRecord = async (): Promise<boolean> => {
     try {
       const health = await client.health();
-      return health.ok && health.token === record.token && health.pid === pid;
+      return health.token === record.token && health.pid === pid;
     } catch {
       return false;
     }

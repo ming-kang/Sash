@@ -5,6 +5,7 @@ import http from "node:http";
 import type { Duplex } from "node:stream";
 import { MihomoApi } from "./api.js";
 import type { DaemonStatus } from "./contracts.js";
+import { parseSettingsPatch, type SettingsPatch } from "./contracts.js";
 import { assertCoreInstallationConsistent, currentCoreVersion } from "./core.js";
 import { validateCoreConfigText } from "./core-config-validation.js";
 import { recoverCoreInstallTransaction } from "./core-install-transaction.js";
@@ -48,7 +49,7 @@ import {
   type SashSettings,
   saveSettings,
 } from "./settings.js";
-import { SettingsInputError, SettingsService } from "./settings-service.js";
+import { CoreUnhealthyError, SettingsInputError, SettingsService } from "./settings-service.js";
 import { acquireStateLock, StateMutationQueue } from "./state-lock.js";
 import { type CoreState, CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy.js";
@@ -402,17 +403,20 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
           return;
         }
         case "proxyEnable": {
-          const core = await supervisor.status();
-          if (!core.running || !core.healthy) {
-            sendError(res, 400, "Cannot enable system proxy: core is not healthy");
-            return;
+          try {
+            await settingsService.apply({ systemProxy: true });
+          } catch (err) {
+            if (err instanceof CoreUnhealthyError) {
+              sendError(res, 400, err.message);
+              return;
+            }
+            throw err;
           }
-          await settingsService.update("system-proxy", "on");
           sendJson(res, 200, { ok: true, systemProxy: true });
           return;
         }
         case "proxyDisable":
-          await settingsService.update("system-proxy", "off");
+          await settingsService.apply({ systemProxy: false });
           sendJson(res, 200, { ok: true, systemProxy: false });
           return;
         case "profiles": {
@@ -451,10 +455,22 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             return;
           }
           try {
-            await settingsService.applyFileSettings(parsed);
+            const result = await settingsService.applyFileSettings(parsed);
+            // daemonSecret is read from memory on every authenticated request,
+            // so it hot-swaps. daemonPort only lands on disk: the listener
+            // cannot be rebound online, and the next `sash restart` picks it up.
+            sendJson(res, 200, {
+              ok: true,
+              restartRequired: result.restartRequired,
+              settings: publicSettings(result.settings),
+            });
           } catch (err) {
             if (err instanceof SettingsInputError) {
               sendError(res, 400, err.message);
+              return;
+            }
+            if (err instanceof CoreUnhealthyError) {
+              sendError(res, 409, err.message);
               return;
             }
             if (err instanceof ProfileConflictError) {
@@ -463,42 +479,32 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
             }
             throw err;
           }
-          // daemonSecret is read from memory on every authenticated request, so
-          // it hot-swaps. daemonPort only lands on disk: the listener cannot be
-          // rebound online, and the next `sash restart` picks it up. Updating
-          // the committed value keeps later settings writes from reverting the
-          // pending port in the file.
-          const restartRequired = parsed.daemonPort !== committedSettings.daemonPort;
-          if (restartRequired || parsed.daemonSecret !== committedSettings.daemonSecret) {
-            committedSettings = {
-              ...committedSettings,
-              daemonPort: parsed.daemonPort,
-              daemonSecret: parsed.daemonSecret,
-            };
-            saveSettings(committedSettings, layout);
-          }
-          sendJson(res, 200, {
-            ok: true,
-            restartRequired,
-            settings: publicSettings(committedSettings),
-          });
           return;
         }
         case "settingsUpdate": {
           const body = await parseJsonObjectBody(req);
-          const key = typeof body.key === "string" ? body.key : "";
-          const value = typeof body.value === "string" ? body.value : undefined;
-          if (!key) {
-            sendError(res, 400, "Missing 'key' in request body");
+          let patch: SettingsPatch;
+          try {
+            patch = parseSettingsPatch(body);
+          } catch (err) {
+            sendError(res, 400, (err as Error).message);
             return;
           }
 
           try {
-            const updated = await settingsService.update(key, value);
-            sendJson(res, 200, { ok: true, settings: publicSettings(updated) });
+            const result = await settingsService.apply(patch);
+            sendJson(res, 200, {
+              ok: true,
+              restartRequired: result.restartRequired,
+              settings: publicSettings(result.settings),
+            });
           } catch (err) {
             if (err instanceof SettingsInputError) {
               sendError(res, 400, err.message);
+              return;
+            }
+            if (err instanceof CoreUnhealthyError) {
+              sendError(res, 409, err.message);
               return;
             }
             if (err instanceof ProfileConflictError) {

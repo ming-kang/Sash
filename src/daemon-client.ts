@@ -2,9 +2,10 @@ import {
   type CoreStartResult,
   type DaemonStatus,
   type HealthInfo,
-  type MaintenanceShutdownResult,
   parseDaemonStatus,
   parseHealthInfo,
+  parseShutdownResult,
+  type ShutdownResult,
 } from "./contracts.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 
@@ -84,7 +85,7 @@ export class SashDaemonClient {
   async isReachable(): Promise<boolean> {
     try {
       const h = await this.health();
-      return Boolean(h?.ok);
+      return Boolean(h?.token);
     } catch {
       return false;
     }
@@ -98,11 +99,13 @@ export class SashDaemonClient {
     return this.request<CoreStartResult>("/core/start", { method: "POST", deadlineMs: 15_000 });
   }
 
-  async maintenanceShutdown(): Promise<MaintenanceShutdownResult> {
-    return this.request<MaintenanceShutdownResult>("/sash/maintenance/shutdown", {
-      method: "POST",
-      deadlineMs: 45_000,
-    });
+  async maintenanceShutdown(): Promise<ShutdownResult> {
+    return parseShutdownResult(
+      await this.request("/sash/maintenance/shutdown", {
+        method: "POST",
+        deadlineMs: 45_000,
+      }),
+    );
   }
 
   async shutdown(): Promise<void> {

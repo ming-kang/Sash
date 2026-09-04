@@ -447,30 +447,13 @@ export function parseSettingsText(text: string, file = "sash.json"): SashSetting
   return parseSettings(document, file, false).settings;
 }
 
-/** Keys accepted by `sash config set` and the sashd PATCH /settings route. */
-const SETTABLE_KEY_METADATA = {
-  tun: { requiresCoreRestart: true },
-  "allow-lan": { requiresCoreRestart: true },
-  "mixed-port": { requiresCoreRestart: true },
-  controller: { requiresCoreRestart: true },
-  secret: { requiresCoreRestart: true },
-  "system-proxy": { requiresCoreRestart: false },
-} as const satisfies Record<string, { readonly requiresCoreRestart: boolean }>;
-
-export type SettableKey = keyof typeof SETTABLE_KEY_METADATA;
-export const SETTABLE_KEYS = Object.keys(SETTABLE_KEY_METADATA) as readonly SettableKey[];
-
-export function isSettableKey(key: string): key is SettableKey {
-  return Object.hasOwn(SETTABLE_KEY_METADATA, key);
-}
-
 /**
- * These keys change where/how the core listens or authenticates; a running
- * core cannot apply them via PUT /configs (it would still be on the old
- * address/secret), so they require a restart.
+ * Validate a complete settings candidate with the same canonical rules used by
+ * persistence, keeping errors free of a filesystem path. Returns the
+ * canonicalized settings (loopback controller address normalized).
  */
-export function requiresCoreRestart(key: string): boolean {
-  return isSettableKey(key) && SETTABLE_KEY_METADATA[key].requiresCoreRestart;
+export function validateSettingsCandidate(candidate: SashSettings): SashSettings {
+  return parseSettings(candidate, "candidate settings", false).settings;
 }
 
 export interface ControllerAddress {
@@ -493,75 +476,4 @@ export function parseControllerAddress(value: string): ControllerAddress | undef
   }
   const host = rawHost === "localhost" ? "localhost" : "127.0.0.1";
   return { host, port, canonical: `${host}:${port}` };
-}
-
-function parseOnOff(value: string | undefined): boolean {
-  if (value === "on" || value === "true" || value === "1") return true;
-  if (value === "off" || value === "false" || value === "0") return false;
-  throw new Error(`expected on|off, got: ${value ?? ""}`);
-}
-
-/**
- * Validate and apply one managed key to a copy of `settings`. Shared by CLI
- * and daemon callers so both accept exactly the same input without exposing a
- * partially mutated committed snapshot.
- */
-export function applyManagedKey(
-  settings: SashSettings,
-  key: string,
-  value: string | undefined,
-): SashSettings {
-  if (!isSettableKey(key)) {
-    throw new Error(`unknown key: ${key} (settable: ${SETTABLE_KEYS.join(", ")})`);
-  }
-  const candidate = { ...settings };
-  switch (key) {
-    case "tun":
-      candidate.tun = parseOnOff(value);
-      break;
-    case "allow-lan":
-      candidate.allowLan = parseOnOff(value);
-      break;
-    case "system-proxy":
-      candidate.systemProxy = parseOnOff(value);
-      break;
-    case "mixed-port": {
-      const raw = (value ?? "").trim();
-      const port = Number.parseInt(raw, 10);
-      if (!raw || !Number.isInteger(port) || port < 1 || port > 65535 || String(port) !== raw) {
-        throw new Error(`invalid port: ${value ?? ""} (expected 1-65535)`);
-      }
-      candidate.mixedPort = port;
-      break;
-    }
-    case "controller": {
-      const v = (value ?? "").trim();
-      const address = parseControllerAddress(v);
-      if (!address) {
-        throw new Error(`invalid controller address: ${v} (expected loopback host:port)`);
-      }
-      candidate.controller = address.canonical;
-      break;
-    }
-    case "secret": {
-      if (value === undefined || value === "regenerate") candidate.secret = generateSecret();
-      else {
-        const secret = value.trim();
-        if (!secret) throw new Error("secret must not be blank");
-        if (hasSecretControlCharacter(secret)) {
-          throw new Error("secret must not contain control characters");
-        }
-        candidate.secret = secret;
-      }
-      break;
-    }
-    default: {
-      const exhaustive: never = key;
-      throw new Error(`unknown key: ${exhaustive} (settable: ${SETTABLE_KEYS.join(", ")})`);
-    }
-  }
-  // Use the same complete canonical validation used by persistence, but keep
-  // CLI-oriented errors free of a filesystem path.
-  const parsed = parseSettings(candidate, "candidate settings", false);
-  return parsed.settings;
 }

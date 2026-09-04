@@ -181,13 +181,13 @@ describe("daemon server", () => {
       const staleSecret = await h.apiRequest("/sash/settings", {
         method: "PATCH",
         token: "rotated-secret",
-        body: { key: "allow-lan", value: "off" },
+        body: { allowLan: false },
       });
       assert.equal(staleSecret.statusCode, 200);
       const oldSecret = await h.apiRequest("/sash/settings", {
         method: "PATCH",
         token: h.settings.daemonSecret,
-        body: { key: "allow-lan", value: "off" },
+        body: { allowLan: false },
       });
       assert.equal(oldSecret.statusCode, 401);
     });
@@ -198,7 +198,7 @@ describe("daemon server", () => {
       await h.startServer();
       const res = await h.apiRequest("/sash/settings", {
         method: "PATCH",
-        body: { key: "tun", value: "on" },
+        body: { tun: true },
       });
       assert.equal(res.statusCode, 200);
 
@@ -224,7 +224,7 @@ describe("daemon server", () => {
 
       const res = await h.apiRequest("/sash/settings", {
         method: "PATCH",
-        body: { key: "tun", value: "on" },
+        body: { tun: true },
       });
 
       assert.equal(res.statusCode, 500);
@@ -257,7 +257,7 @@ describe("daemon server", () => {
 
       const patch = h.apiRequest("/sash/settings", {
         method: "PATCH",
-        body: { key: "mixed-port", value: "18888" },
+        body: { mixedPort: 18888 },
       });
       await validationEntered;
       const beforeCommit = await h.apiRequest("/sash/settings");
@@ -273,10 +273,10 @@ describe("daemon server", () => {
       await h.startServer();
       const res = await h.apiRequest("/sash/settings", {
         method: "PATCH",
-        body: { key: "invalid-key", value: "value" },
+        body: { bogus: true },
       });
       assert.equal(res.statusCode, 400);
-      assert.match((res.data as { error: string }).error, /unknown key/);
+      assert.match((res.data as { error: string }).error, /known settings patch field/);
     });
 
     it("rebinds an enabled system proxy after mixed-port restarts the core", async () => {
@@ -331,7 +331,7 @@ describe("daemon server", () => {
 
       const res = await h.apiRequest("/sash/settings", {
         method: "PATCH",
-        body: { key: "mixed-port", value: "18888" },
+        body: { mixedPort: 18888 },
       });
 
       assert.equal(res.statusCode, 200);
@@ -350,7 +350,7 @@ describe("daemon server", () => {
 
       const res = await h.apiRequest("/sash/settings", {
         method: "PATCH",
-        body: { key: "mixed-port", value: "18888" },
+        body: { mixedPort: 18888 },
       });
 
       assert.equal(res.statusCode, 500);
@@ -385,7 +385,7 @@ describe("daemon server", () => {
 
       const res = await h.apiRequest("/sash/settings", {
         method: "PATCH",
-        body: { key: "mixed-port", value: "18888" },
+        body: { mixedPort: 18888 },
       });
 
       assert.equal(res.statusCode, 500);

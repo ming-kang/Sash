@@ -192,6 +192,7 @@ describe("daemon server", () => {
         isApplied: async () => true,
         getState: async () => ({ supported: true, enabled: true }),
       };
+      h.settings = { ...h.settings, systemProxy: true };
       await h.startServer({
         systemProxy,
         fetchProfile: async () => {
@@ -205,7 +206,7 @@ describe("daemon server", () => {
 
       const response = await h.apiRequest("/sash/settings", {
         method: "PATCH",
-        body: { key: "system-proxy", value: "off" },
+        body: { systemProxy: false },
       });
       assert.equal(response.statusCode, 500);
       assert.equal(fetches, 0);

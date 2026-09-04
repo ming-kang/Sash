@@ -14,7 +14,7 @@ import {
 } from "./profiles.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { DEFAULT_SETTINGS, loadSettings, type SashSettings, saveSettings } from "./settings.js";
-import { SettingsService } from "./settings-service.js";
+import { CoreUnhealthyError, SettingsService } from "./settings-service.js";
 import type { CoreSupervisor } from "./supervisor.js";
 
 function seedActiveRemote(layout: SashLayout, url: string): ProfileMeta {
@@ -93,7 +93,7 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await service.update("mixed-port", "18888");
+    await service.apply({ mixedPort: 18888 });
 
     assert.equal(observedRuntimePort, 18888);
     assert.equal(observedCommittedPort, 17890);
@@ -128,7 +128,7 @@ describe("SettingsService", () => {
             }
           : async (_purpose, action) => action(),
       });
-      await service.update("allow-lan", "on");
+      await service.apply({ allowLan: true });
       assert.equal(runtime.allowLan, true);
       return loadSettings(localLayout);
     };
@@ -164,7 +164,7 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await service.update("allow-lan", "on");
+    await service.apply({ allowLan: true });
 
     assert.equal(runtime.allowLan, true);
     assert.equal(fs.existsSync(profileFilePath(layout, seeded.id)), true);
@@ -220,7 +220,7 @@ describe("SettingsService", () => {
       commit,
     });
 
-    const updatingSettings = service.update("allow-lan", "on");
+    const updatingSettings = service.apply({ allowLan: true });
     await settingsPrepareEntered.promise;
     await profiles.update(seeded.id);
     assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
@@ -257,7 +257,7 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await assert.rejects(() => service.update("allow-lan", "on"), /profile keeps changing/);
+    await assert.rejects(() => service.apply({ allowLan: true }), /profile keeps changing/);
     assert.equal(assertions, 2);
     assert.equal(committed.allowLan, false);
     assert.equal(runtime.allowLan, false);
@@ -290,7 +290,7 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await service.update("allow-lan", "on");
+    await service.apply({ allowLan: true });
 
     assert.equal(validations, 2);
     assert.equal(committed.allowLan, true);
@@ -336,7 +336,7 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    const updating = service.update("allow-lan", "on");
+    const updating = service.apply({ allowLan: true });
     committed = saveSettings({ ...previous, mixedPort: 18888 }, layout);
     await validationEntered.promise;
     committed = saveSettings(previous, layout);
@@ -383,7 +383,7 @@ describe("SettingsService", () => {
     });
 
     await assert.rejects(
-      () => service.update("allow-lan", "on"),
+      () => service.apply({ allowLan: true }),
       /profile moved; state lock release failed/,
     );
     assert.equal(boundaryCalls, 1);
@@ -408,7 +408,7 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await assert.rejects(() => service.update("system-proxy", "off"));
+    await assert.rejects(() => service.apply({ systemProxy: false }));
 
     assert.equal(runtime.systemProxy, true);
     assert.equal(committed.systemProxy, true);
@@ -452,7 +452,7 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await assert.rejects(() => service.update("allow-lan", "on"), /restart failed/);
+    await assert.rejects(() => service.apply({ allowLan: true }), /restart failed/);
 
     assert.equal(restartCalls, 2);
     assert.equal(fs.existsSync(profileFilePath(layout, seeded.id)), false);
@@ -492,7 +492,7 @@ describe("SettingsService", () => {
     });
 
     await assert.rejects(
-      () => service.update("tun", "on"),
+      () => service.apply({ tun: true }),
       /TUN did not become active.*sash config set tun on.*sash restart/s,
     );
 
@@ -525,11 +525,166 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await service.update("system-proxy", "off");
+    await service.apply({ systemProxy: false });
 
     assert.equal(released, true);
     assert.equal(committed.systemProxy, false);
     assert.equal(runtime.systemProxy, false);
     assert.equal(loadSettings(layout).systemProxy, false);
+  });
+
+  it("applies a multi-key patch in one core transaction", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    let commits = 0;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles: new ProfileService({ layout, settings: () => committed }),
+      commit: async (_purpose, action) => {
+        commits += 1;
+        return action();
+      },
+    });
+
+    const result = await service.apply({ mixedPort: 18888, allowLan: true });
+
+    assert.equal(commits, 1);
+    assert.equal(result.restartRequired, false);
+    assert.equal(committed.mixedPort, 18888);
+    assert.equal(committed.allowLan, true);
+    assert.equal(runtime.mixedPort, 18888);
+    const persisted = loadSettings(layout);
+    assert.equal(persisted.mixedPort, 18888);
+    assert.equal(persisted.allowLan, true);
+    const config = fs.readFileSync(layout.configFile, "utf8");
+    assert.match(config, /mixed-port: 18888/);
+    assert.match(config, /allow-lan: true/);
+  });
+
+  it("persists daemon-level keys without republishing config", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    let validations = 0;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles: new ProfileService({
+        layout,
+        settings: () => committed,
+        validateConfig: () => {
+          validations += 1;
+        },
+      }),
+      commit: async (_purpose, action) => action(),
+    });
+
+    const result = await service.apply({ daemonPort: 29999, daemonSecret: "rotated" });
+
+    assert.equal(result.restartRequired, true);
+    assert.equal(committed.daemonPort, 29999);
+    assert.equal(committed.daemonSecret, "rotated");
+    assert.equal(runtime.daemonSecret, "rotated");
+    assert.equal(loadSettings(layout).daemonPort, 29999);
+    assert.equal(validations, 0);
+    assert.equal(fs.existsSync(layout.configFile), false);
+  });
+
+  it("performs no transaction for a no-op patch", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let commits = 0;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: () => undefined,
+      profiles: new ProfileService({ layout, settings: () => committed }),
+      commit: async (_purpose, action) => {
+        commits += 1;
+        return action();
+      },
+    });
+
+    const result = await service.apply({ mixedPort: committed.mixedPort });
+
+    assert.equal(commits, 0);
+    assert.equal(result.restartRequired, false);
+    assert.equal(result.settings.mixedPort, committed.mixedPort);
+  });
+
+  it("rejects a proxy enable while Core is unhealthy without persisting desired state", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    const supervisor = {
+      status: async () => ({ running: true, healthy: false }),
+    } as unknown as CoreSupervisor;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: () => undefined,
+      profiles: new ProfileService({ layout, settings: () => committed }),
+      supervisor,
+      commit: async (_purpose, action) => action(),
+    });
+
+    await assert.rejects(() => service.apply({ systemProxy: true }), CoreUnhealthyError);
+    assert.equal(committed.systemProxy, false);
+    assert.equal(loadSettings(layout).systemProxy, false);
+  });
+
+  it("reconciles the system proxy after the core restart in a combined patch", async () => {
+    let committed = saveSettings(initialSettings(), layout);
+    let runtime = committed;
+    const order: string[] = [];
+    const supervisor = {
+      isRunning: () => true,
+      status: async () => ({ running: true, healthy: true }),
+    } as unknown as CoreSupervisor;
+    const lifecycle = {
+      restart: async () => {
+        order.push("restart");
+        return { pid: 1234 };
+      },
+      reconcileSystemProxy: async () => {
+        order.push("reconcile");
+      },
+    } as unknown as RuntimeLifecycle;
+    const service = new SettingsService({
+      layout,
+      getCommitted: () => committed,
+      setCommitted: (next) => {
+        committed = next;
+      },
+      setRuntime: (next) => {
+        runtime = next;
+      },
+      profiles: new ProfileService({ layout, settings: () => committed }),
+      supervisor,
+      lifecycle,
+      commit: async (_purpose, action) => action(),
+    });
+
+    await service.apply({ mixedPort: 18888, systemProxy: true });
+
+    assert.deepEqual(order, ["restart", "reconcile"]);
+    assert.equal(committed.mixedPort, 18888);
+    assert.equal(committed.systemProxy, true);
+    assert.equal(runtime.systemProxy, true);
   });
 });
