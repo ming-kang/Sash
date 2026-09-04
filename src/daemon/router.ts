@@ -395,10 +395,11 @@ export async function dispatch(
   const match = matchRoute(routes, method, pathname);
   const route = match.kind === "matched" ? match.route : undefined;
 
-  // Every state-changing request requires a loopback Origin. Authentication
+  // Any non-loopback Origin is rejected outright, not just on mutations: the
+  // daemon never participates in cross-origin browser flows. Authentication
   // covers protected routes plus any mutation, so unauthenticated probes
   // cannot distinguish unknown paths from existing ones.
-  if (isControlMutation(method) && !isLoopbackOriginHeader(req.headers.origin)) {
+  if (!isLoopbackOriginHeader(req.headers.origin)) {
     sendError(res, 403, "unauthorized", "Invalid Origin header");
     return;
   }

@@ -125,6 +125,11 @@ function parseLines(value: string): number {
 
 async function main(): Promise<void> {
   try {
+    // Bare `sash` is `sash status`.
+    if (process.argv.length <= 2) {
+      await withCliErrors(() => runStatus())();
+      return;
+    }
     await program.parseAsync(process.argv);
   } catch (err) {
     if (err instanceof CommanderError) {

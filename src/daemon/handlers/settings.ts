@@ -25,7 +25,7 @@ export async function patchSettings(ctx: DaemonContext, req: RouteRequest): Prom
   const body = await req.readJson();
   let patch: SettingsPatch;
   try {
-    patch = parseSettingsPatch(body);
+    patch = parseSettingsPatch(body, "request");
   } catch (err) {
     throw new HttpError(400, (err as Error).message);
   }

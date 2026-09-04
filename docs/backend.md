@@ -150,7 +150,7 @@ Traffic/log streams are authenticated `GET` WebSocket upgrades under `/core/api/
 ## 4. Control-Request Security
 
 - The daemon listener binds only to `127.0.0.1`, rejects non-loopback Host headers, and only accepts loopback Core controller addresses.
-- State-changing methods and every HTTP Core-gateway route require the persistent CLI bearer or per-boot WebUI token. Browser mutations additionally require a loopback Origin when the header is present.
+- State-changing methods and every HTTP Core-gateway route require the persistent CLI bearer or per-boot WebUI token. Any request carrying a non-loopback Origin header is rejected outright, regardless of method.
 - WebSocket upgrades validate loopback Origin, authentication and route boundaries.
 - Public settings/status contracts omit controller and daemon secrets.
 - Controller and daemon clients use a direct dispatcher with normal TLS verification; proxy environment variables apply only to remote downloads.

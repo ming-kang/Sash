@@ -19,7 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Non-detached Core supervision with PID identity verification and conservative, fail-closed termination.
 - Built-in Vue 3 dashboard is bundled in the npm package under `dist/ui/`, with no runtime dashboard download.
 - WebUI includes Chinese and English localization with a Settings-page language switcher.
-- Dedicated `sash proxy on|off|status` commands manage explicit OS system-proxy ownership and recovery.
+- Running `sash` with no arguments prints the same output as `sash status`.
+- The system proxy is toggled from the dashboard or `PATCH /sash/settings`; there is no separate `sash proxy` command.
 - Immutable `SettingsService` coordinates shared daemon/offline settings candidates, config validation and durable settings/config publication.
 - Local profile library under `<root>/profiles/`: one timestamp-named YAML file per profile plus `index.json` metadata, active selection, provider update interval, quota/expiry data and persisted update errors.
 - WebUI Profiles page with URL download, clipboard paste, local YAML import, Update All, profile cards, active selection, quota display and delete confirmation.
@@ -42,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Daemon HTTP API reorganized into three namespaces: `/sash/*` is implemented by sashd, `/core/api/*` is the authenticated reverse proxy to the Core controller, and `/ui/*` serves the dashboard. Root-level aliases and the `/core/start|stop|restart|config/reload` paths are removed: Core lifecycle moved to `/sash/core/*`, health/status to `/sash/daemon/*`, and the two shutdown endpoints merged into `POST /sash/daemon/shutdown` returning `{ coreWasRunning }`. Success bodies no longer carry `ok` envelopes (empty successes answer 204), errors use a unified `{ error: { code, message } }` envelope with a fixed code set (`invalid_input`, `not_found`, `conflict`, `core_unhealthy`, `shutting_down`, `unauthorized`, `http`, `internal`), and 405 responses derive `Allow` from the route table.
 - `PATCH /sash/settings` now takes a typed partial object (`{ mixedPort?, allowLan?, tun?, systemProxy?, daemonPort?, daemonSecret? }`) instead of string key/value pairs, and the dedicated `POST /sash/proxy/enable|disable` endpoints are gone — the system proxy is toggled through the same settings transaction, with the Core health check enforced inside `SettingsService.apply()` and reported as `409 core_unhealthy`.
+- Any request carrying a non-loopback `Origin` header is rejected with `403 unauthorized`, not only mutations; WebSocket upgrades already behaved this way.
 - WebUI page headers are unified: every page now uses the shared `PageHeader` component — an 80px bar matching the sidebar traffic panel whose bottom rule spans the full content width via a `--page-gutter` CSS variable. The Logs and Connections pages migrated from their bespoke toolbars; page-specific controls (search, filters, buttons) go through the component's actions slot. The mixed-port input no longer right-aligns its value.
 - WebUI typography now embeds a bundled WOFF2 font (declared via `@font-face` with system fallbacks) and uses a coarser 12/14/16/18/20/24/26px size scale for readability.
 - WebUI accent color is now an indigo-violet scale (light `#5558dd`, dark `#8f91f3`) replacing the previous teal; the traffic chart's upload series is warm orange to stay distinguishable, and `scripts/contrast-check.mjs` tracks the new palette.

@@ -469,9 +469,16 @@ export function parseSystemProxyStatusResponse(value: unknown): SystemProxyStatu
   };
 }
 
-export function parseSettingsPatch(value: unknown): SettingsPatch {
-  const contract = "sashd settings patch";
-  const source = objectValue(value, contract, "request");
+export function parseSettingsPatch(
+  value: unknown,
+  direction: "request" | "response" = "response",
+): SettingsPatch {
+  const subject = `sashd settings patch ${direction}`;
+  const fail = (path: string, expected: string): never => {
+    throw new TypeError(`${subject} is invalid: ${path} must be ${expected}`);
+  };
+  if (!isPlainObject(value)) fail("body", "a plain object");
+  const source = value as Record<string, unknown>;
   const allowed = new Set([
     "mixedPort",
     "allowLan",
@@ -481,26 +488,39 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
     "daemonSecret",
   ]);
   for (const key of Object.keys(source)) {
-    if (!allowed.has(key)) invalid(contract, key, "a known settings patch field");
+    if (!allowed.has(key)) fail(key, "a known settings patch field");
   }
+  const portField = (key: "mixedPort" | "daemonPort"): number | undefined => {
+    if (!Object.hasOwn(source, key)) return undefined;
+    const field = source[key];
+    if (typeof field !== "number" || !Number.isInteger(field) || field < 1 || field > 65_535) {
+      return fail(key, "an integer port from 1 to 65535");
+    }
+    return field;
+  };
+  const boolField = (key: "allowLan" | "tun" | "systemProxy"): boolean | undefined => {
+    if (!Object.hasOwn(source, key)) return undefined;
+    const field = source[key];
+    if (typeof field !== "boolean") return fail(key, "a boolean");
+    return field;
+  };
   const patch: SettingsPatch = {};
-  if (Object.hasOwn(source, "mixedPort")) {
-    patch.mixedPort = portValue(source.mixedPort, contract, "mixedPort");
-  }
-  if (Object.hasOwn(source, "daemonPort")) {
-    patch.daemonPort = portValue(source.daemonPort, contract, "daemonPort");
-  }
-  if (Object.hasOwn(source, "allowLan")) {
-    patch.allowLan = booleanValue(source.allowLan, contract, "allowLan");
-  }
-  if (Object.hasOwn(source, "tun")) {
-    patch.tun = booleanValue(source.tun, contract, "tun");
-  }
-  if (Object.hasOwn(source, "systemProxy")) {
-    patch.systemProxy = booleanValue(source.systemProxy, contract, "systemProxy");
-  }
+  const mixedPort = portField("mixedPort");
+  if (mixedPort !== undefined) patch.mixedPort = mixedPort;
+  const daemonPort = portField("daemonPort");
+  if (daemonPort !== undefined) patch.daemonPort = daemonPort;
+  const allowLan = boolField("allowLan");
+  if (allowLan !== undefined) patch.allowLan = allowLan;
+  const tun = boolField("tun");
+  if (tun !== undefined) patch.tun = tun;
+  const systemProxy = boolField("systemProxy");
+  if (systemProxy !== undefined) patch.systemProxy = systemProxy;
   if (Object.hasOwn(source, "daemonSecret")) {
-    patch.daemonSecret = stringValue(source.daemonSecret, contract, "daemonSecret", true);
+    const secret = source.daemonSecret;
+    if (typeof secret !== "string" || !secret.trim()) {
+      fail("daemonSecret", "a non-empty string");
+    }
+    patch.daemonSecret = secret as string;
   }
   return patch;
 }
