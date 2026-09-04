@@ -11,6 +11,13 @@ const UI_SECURITY_HEADERS = {
   "Referrer-Policy": "no-referrer",
 } as const;
 
+/**
+ * Vite emits fingerprinted bundles and font chunks as `assets/<name>-<hash>.<ext>`;
+ * those URLs change with their content, so clients may cache them forever.
+ * Unfingerprinted files (favicon, branding art) get a short bounded lifetime.
+ */
+const FINGERPRINTED_ASSET = /^assets\/.+-[A-Za-z0-9_-]{8}\.[^/\\]+$/;
+
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -82,6 +89,10 @@ export function serveStaticUi(
       headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
       headers.Pragma = "no-cache";
       headers.Expires = "0";
+    } else if (FINGERPRINTED_ASSET.test(relative)) {
+      headers["Cache-Control"] = "public, max-age=31536000, immutable";
+    } else {
+      headers["Cache-Control"] = "public, max-age=3600";
     }
     if (req.method === "HEAD") {
       res.writeHead(200, headers);

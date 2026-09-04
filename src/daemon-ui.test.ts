@@ -52,5 +52,27 @@ describe("daemon server", () => {
       assert.equal(res.statusCode, 200);
       assert.equal(await res.body.text(), "");
     });
+
+    it("caches fingerprinted assets immutably and bounds everything else", async () => {
+      fs.mkdirSync(path.join(h.layout.uiDir, "assets", "branding"), { recursive: true });
+      fs.writeFileSync(path.join(h.layout.uiDir, "index.html"), "<html>ui</html>");
+      fs.writeFileSync(path.join(h.layout.uiDir, "assets", "index-AbCdEf12.js"), "export {};\n");
+      fs.writeFileSync(path.join(h.layout.uiDir, "assets", "chunk-x8vWq2Yz.woff2"), "font");
+      fs.writeFileSync(path.join(h.layout.uiDir, "assets", "branding", "sash-cat.png"), "png");
+      await h.startServer();
+
+      const cases: Array<[string, string]> = [
+        ["/ui/", "no-cache, no-store, must-revalidate"],
+        ["/ui/assets/index-AbCdEf12.js", "public, max-age=31536000, immutable"],
+        ["/ui/assets/chunk-x8vWq2Yz.woff2", "public, max-age=31536000, immutable"],
+        ["/ui/assets/branding/sash-cat.png", "public, max-age=3600"],
+      ];
+      for (const [pathname, expected] of cases) {
+        const res = await request(`http://127.0.0.1:${h.boundPort}${pathname}`);
+        await res.body.text();
+        assert.equal(res.statusCode, 200, pathname);
+        assert.equal(res.headers["cache-control"], expected, pathname);
+      }
+    });
   });
 });

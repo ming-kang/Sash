@@ -1,11 +1,8 @@
 /* Sash Web design system */
-@font-face {
-  font-family: "LXGW WenKai Lite";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./fonts/LXGWWenKaiLite-Regular.woff2") format("woff2");
-}
+/* LXGW WenKai Lite is split into unicode-range chunks at build time
+   (see the font-split plugin in vite.config.ts); only the glyph slices a
+   page actually renders are downloaded. */
+@import "../assets/fonts/lxgw/result.css";
 
 :root {
   color-scheme: light;
