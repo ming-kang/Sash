@@ -76,7 +76,6 @@
         :key="p.id"
         class="profile-card"
         :class="{ active: p.id === store.activeProfileId, busy: profileBusy }"
-        @click="selectProfile(p)"
       >
         <div
           class="profile-card-main"
@@ -85,6 +84,7 @@
           :aria-current="p.id === store.activeProfileId ? 'true' : undefined"
           :aria-disabled="profileBusy || p.id === store.activeProfileId"
           :title="p.id === store.activeProfileId ? undefined : t('profiles.clickToUse')"
+          @click="selectProfile(p)"
           @keydown.enter.prevent="selectProfile(p)"
           @keydown.space.prevent="selectProfile(p)"
         >
@@ -119,14 +119,14 @@
             <span class="profile-error-text">{{ p.lastError }}</span>
           </div>
         </div>
-        <div class="profile-actions" @click.stop>
+        <div class="profile-actions">
           <button
             type="button"
             class="icon-btn"
             :title="t('profiles.rename')"
             :aria-label="`${t('profiles.rename')}: ${p.name}`"
             :disabled="profileBusy"
-            @click="renameTarget = p"
+            @click.stop="renameTarget = p"
           >
             <Icon name="pencil" :size="14" />
           </button>
@@ -136,7 +136,7 @@
             :title="t('profiles.edit')"
             :aria-label="`${t('profiles.edit')}: ${p.name}`"
             :disabled="profileBusy"
-            @click="openEditor(p)"
+            @click.stop="openEditor(p)"
           >
             <Icon name="code" :size="14" />
           </button>
@@ -147,7 +147,7 @@
             :title="t('profiles.update')"
             :aria-label="`${t('profiles.update')}: ${p.name}`"
             :disabled="profileBusy"
-            @click="updateOne(p)"
+            @click.stop="updateOne(p)"
           >
             <Icon name="refresh" :size="14" :class="{ spin: updatingId === p.id }" />
           </button>
@@ -157,7 +157,7 @@
             :title="t('profiles.delete')"
             :aria-label="`${t('profiles.delete')}: ${p.name}`"
             :disabled="profileBusy"
-            @click="removeProfile(p)"
+            @click.stop="removeProfile(p)"
           >
             <Icon name="trash" :size="14" />
           </button>
@@ -182,11 +182,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref } from "vue";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
-import ProfileEditorDialog from "../components/ProfileEditorDialog.vue";
 import ProfileRenameDialog from "../components/ProfileRenameDialog.vue";
 import { locale, t } from "../i18n/index.js";
 import {
@@ -203,6 +202,11 @@ import {
 } from "../stores/index.js";
 import type { ProfileMeta } from "../types/index.js";
 import { formatAgo, formatBytes, formatDate } from "../utils/format.js";
+
+// CodeMirror rides along with the editor dialog chunk, not the profiles page.
+const ProfileEditorDialog = defineAsyncComponent(
+  () => import("../components/ProfileEditorDialog.vue"),
+);
 
 const dlUrl = ref("");
 const downloading = ref(false);

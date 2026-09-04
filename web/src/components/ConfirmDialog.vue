@@ -39,7 +39,9 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, useId, watch } from "vue";
+import { onUnmounted, ref, useId, watch } from "vue";
+import { useDialogFocus } from "../composables/useDialogFocus.js";
+import { acquireScrollLock, releaseScrollLock } from "../composables/useScrollLock.js";
 import { currentRoute } from "../router.js";
 import { confirmState, settleConfirm } from "./confirm.js";
 
@@ -50,89 +52,37 @@ const id = useId();
 const titleId = `${id}-title`;
 const descriptionId = `${id}-description`;
 
-let triggerElement: HTMLElement | null = null;
-let previousBodyOverflow: string | null = null;
-let previousRootOverflow: string | null = null;
+let scrollLocked = false;
 
-function lockBackgroundScroll(): void {
-  if (previousBodyOverflow !== null) return;
-  previousBodyOverflow = document.body.style.overflow;
-  previousRootOverflow = document.documentElement.style.overflow;
-  document.body.style.overflow = "hidden";
-  document.documentElement.style.overflow = "hidden";
+const { open, close } = useDialogFocus({
+  container: dialogElement,
+  initialFocus: () =>
+    (confirmState.danger ? cancelButton.value : confirmButton.value) ?? cancelButton.value,
+  onEscape: () => settleConfirm(false),
+});
+
+function lockScroll(): void {
+  if (scrollLocked) return;
+  acquireScrollLock();
+  scrollLocked = true;
 }
 
-function restoreBackgroundScroll(): void {
-  if (previousBodyOverflow === null || previousRootOverflow === null) return;
-  document.body.style.overflow = previousBodyOverflow;
-  document.documentElement.style.overflow = previousRootOverflow;
-  previousBodyOverflow = null;
-  previousRootOverflow = null;
-}
-
-function takeTriggerElement(): HTMLElement | null {
-  const trigger = triggerElement;
-  triggerElement = null;
-  return trigger?.isConnected ? trigger : null;
-}
-
-function focusableElements(): HTMLElement[] {
-  if (!dialogElement.value) return [];
-  return Array.from(
-    dialogElement.value.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((element) => !element.hasAttribute("hidden"));
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (!confirmState.visible) return;
-  if (event.key === "Escape") {
-    event.preventDefault();
-    settleConfirm(false);
-    return;
-  }
-  if (event.key !== "Tab") return;
-
-  const focusable = focusableElements();
-  if (focusable.length === 0) {
-    event.preventDefault();
-    dialogElement.value?.focus();
-    return;
-  }
-
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  const active = document.activeElement;
-  if (
-    event.shiftKey &&
-    (active === first || active === dialogElement.value || !dialogElement.value?.contains(active))
-  ) {
-    event.preventDefault();
-    last?.focus();
-  } else if (!event.shiftKey && (active === last || !dialogElement.value?.contains(active))) {
-    event.preventDefault();
-    first?.focus();
-  }
+function unlockScroll(): void {
+  if (!scrollLocked) return;
+  releaseScrollLock();
+  scrollLocked = false;
 }
 
 watch(
   () => confirmState.visible,
   async (visible) => {
     if (visible) {
-      triggerElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      lockBackgroundScroll();
-      await nextTick();
-      if (!confirmState.visible) return;
-      const preferredButton = confirmState.danger ? cancelButton.value : confirmButton.value;
-      (preferredButton ?? cancelButton.value ?? dialogElement.value)?.focus();
+      lockScroll();
+      await open();
       return;
     }
-
-    restoreBackgroundScroll();
-    const trigger = takeTriggerElement();
-    await nextTick();
-    trigger?.focus({ preventScroll: true });
+    unlockScroll();
+    close();
   },
   { immediate: true },
 );
@@ -141,12 +91,10 @@ watch(currentRoute, () => {
   if (confirmState.visible) settleConfirm(false);
 });
 
-onMounted(() => window.addEventListener("keydown", onKeydown));
 onUnmounted(() => {
-  window.removeEventListener("keydown", onKeydown);
   if (confirmState.visible) settleConfirm(false);
-  restoreBackgroundScroll();
-  takeTriggerElement()?.focus({ preventScroll: true });
+  unlockScroll();
+  close();
 });
 </script>
 
@@ -154,7 +102,7 @@ onUnmounted(() => {
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 90;
+  z-index: var(--z-confirm);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -222,11 +222,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { api } from "../api/index.js";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
-import SettingsFileDialog from "../components/SettingsFileDialog.vue";
 import UiCard from "../components/UiCard.vue";
 import UiSwitch from "../components/UiSwitch.vue";
 import { coreVersion, tunStatusBadge, useCoreRestart } from "../composables/core-runtime.js";
@@ -244,6 +243,11 @@ import {
   reconcileCommittedDraft,
 } from "../stores/state-ownership.js";
 import { setTheme, theme, type Theme } from "../theme.js";
+
+// The settings-file editor (CodeMirror) loads only when the dialog opens.
+const SettingsFileDialog = defineAsyncComponent(
+  () => import("../components/SettingsFileDialog.vue"),
+);
 
 const fileEditorOpen = ref(false);
 

@@ -3,11 +3,11 @@
     <Transition name="fade" appear>
       <div class="rename-overlay" @click.self="emit('close')">
         <div
+          ref="dialogElement"
           class="rename-dialog card"
           role="dialog"
           aria-modal="true"
           :aria-labelledby="titleId"
-          @keydown.esc="emit('close')"
         >
           <h3 :id="titleId" class="rename-title">{{ t("profiles.renameTitle") }}</h3>
           <label class="rename-label" :for="inputId">{{ t("profiles.nameLabel") }}</label>
@@ -47,9 +47,10 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, useId } from "vue";
-import { api } from "../api/index.js";
+import { useDialogFocus } from "../composables/useDialogFocus.js";
+import { acquireScrollLock, releaseScrollLock } from "../composables/useScrollLock.js";
 import { t } from "../i18n/index.js";
-import { errorText, refreshStatus, toast } from "../stores/index.js";
+import { errorText, renameProfile, toast } from "../stores/index.js";
 import type { ProfileMeta } from "../types/index.js";
 
 const props = defineProps<{ profile: ProfileMeta }>();
@@ -58,18 +59,28 @@ const emit = defineEmits<{ close: [] }>();
 const id = useId();
 const titleId = `${id}-title`;
 const inputId = `${id}-input`;
+const dialogElement = ref<HTMLElement | null>(null);
 const inputElement = ref<HTMLInputElement | null>(null);
 const initialName = props.profile.name;
 const name = ref(initialName);
 const saving = ref(false);
 
+const { open, close } = useDialogFocus({
+  container: dialogElement,
+  initialFocus: () => {
+    inputElement.value?.select();
+    return inputElement.value;
+  },
+  onEscape: () => emit("close"),
+});
+
 onMounted(() => {
-  document.documentElement.style.overflow = "hidden";
-  inputElement.value?.focus();
-  inputElement.value?.select();
+  acquireScrollLock();
+  void open();
 });
 onUnmounted(() => {
-  document.documentElement.style.overflow = "";
+  close();
+  releaseScrollLock();
 });
 
 async function save(): Promise<void> {
@@ -77,8 +88,7 @@ async function save(): Promise<void> {
   if (!next || next === initialName || saving.value) return;
   saving.value = true;
   try {
-    await api.renameProfile(props.profile.id, next);
-    await refreshStatus();
+    await renameProfile(props.profile.id, next);
     toast.success(t("toast.settingSaved"));
     emit("close");
   } catch (error) {
@@ -92,7 +102,7 @@ async function save(): Promise<void> {
 <style scoped>
 .rename-overlay {
   position: fixed;
-  z-index: 200;
+  z-index: var(--z-rename);
   display: flex;
   align-items: center;
   justify-content: center;
