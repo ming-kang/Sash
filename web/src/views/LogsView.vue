@@ -155,19 +155,19 @@ onBeforeUnmount(() => {
 }
 .log-clear {
   min-width: 70px;
-  background: #239b20;
-  color: #ffffff;
+  background: var(--success);
+  color: var(--text-inverse);
 }
 .log-clear:hover:not(:disabled) {
-  background: #1d861b;
+  background: var(--success-strong);
 }
 .log-pause {
   min-width: 70px;
-  background: #ef6468;
-  color: #ffffff;
+  background: var(--danger);
+  color: var(--text-inverse);
 }
 .log-pause:hover:not(:disabled) {
-  background: #dc565b;
+  background: var(--danger-hover);
 }
 .log-pane {
   min-width: 0;

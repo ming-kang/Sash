@@ -38,7 +38,7 @@ function iconFor(kind: ToastItem["kind"]): string {
   position: fixed;
   top: max(16px, env(safe-area-inset-top, 0px));
   right: max(16px, env(safe-area-inset-right, 0px));
-  z-index: 100;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;

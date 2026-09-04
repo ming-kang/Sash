@@ -53,6 +53,7 @@
   --selection-soft: #e8f7ef;
   --selection-border: #8ed4ad;
   --success: #157f4c;
+  --success-strong: #0e6b3d;
   --success-soft: #e8f7ef;
   --success-border: #9ed6b7;
   --warning: #9a650d;
@@ -107,6 +108,14 @@
   --scrollbar: #c7c7c9;
   --scrollbar-hover: #a7a7aa;
   --sidebar-w: 170px;
+
+  /* Layering scale (App.vue's .runtime-banner owns --z-banner: 15) */
+  --z-banner: 15;
+  --z-sidebar: 20;
+  --z-dialog: 80;
+  --z-confirm: 90;
+  --z-toast: 100;
+  --z-rename: 200;
 }
 
 html[data-theme="dark"] {
@@ -150,6 +159,7 @@ html[data-theme="dark"] {
   --selection-soft: rgba(51, 201, 99, 0.12);
   --selection-border: #248c48;
   --success: #42d07e;
+  --success-strong: #63dd95;
   --success-soft: rgba(66, 208, 126, 0.12);
   --success-border: #337851;
   --warning: #efbd62;

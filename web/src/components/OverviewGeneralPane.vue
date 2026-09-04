@@ -346,7 +346,7 @@ async function refreshActiveProfile(): Promise<void> {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: var(--mode-button-bg);
-  box-shadow: 1px 1px 5px rgba(45, 45, 50, 0.1);
+  box-shadow: var(--shadow-card);
   color: var(--text-muted);
   cursor: pointer;
   transition:

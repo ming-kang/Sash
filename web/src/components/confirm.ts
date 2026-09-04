@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { t } from "../i18n/index.js";
 
 interface ConfirmOptions {
   title: string;
@@ -17,8 +18,8 @@ export const confirmState = reactive<ConfirmState>({
   visible: false,
   title: "",
   message: "",
-  confirmText: "OK",
-  cancelText: "Cancel",
+  confirmText: t("common.confirm"),
+  cancelText: t("common.cancel"),
   danger: false,
   resolve: null,
 });
@@ -30,8 +31,8 @@ export function confirmDialog(
   if (confirmState.resolve) settleConfirm(false);
   confirmState.title = opts.title;
   confirmState.message = opts.message;
-  confirmState.confirmText = opts.confirmText ?? "OK";
-  confirmState.cancelText = opts.cancelText ?? "Cancel";
+  confirmState.confirmText = opts.confirmText ?? t("common.confirm");
+  confirmState.cancelText = opts.cancelText ?? t("common.cancel");
   confirmState.danger = opts.danger ?? false;
   confirmState.visible = true;
   return new Promise<boolean>((resolve) => {

@@ -5,7 +5,7 @@
     :viewBox="`0 0 ${W} ${H}`"
     preserveAspectRatio="none"
     role="img"
-    :aria-label="label"
+    :aria-label="chartLabel"
   >
     <defs>
       <linearGradient :id="downGradientId" x1="0" y1="0" x2="0" y2="1">
@@ -53,6 +53,7 @@
 
 <script setup lang="ts">
 import { computed, useId } from "vue";
+import { t } from "../i18n/index.js";
 
 const props = withDefaults(
   defineProps<{
@@ -63,9 +64,10 @@ const props = withDefaults(
   }>(),
   {
     height: 150,
-    label: "Live traffic chart",
   },
 );
+
+const chartLabel = computed(() => props.label ?? t("overview.trafficChartLabel"));
 
 const W = 600;
 const H = 148;

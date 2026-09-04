@@ -1,3 +1,5 @@
+import { t } from "../i18n/index.js";
+
 export function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return "0 B";
   const k = 1024;
@@ -20,16 +22,12 @@ export function formatDuration(startIso: string | undefined, locale: string): st
   secs %= 86400;
   const hours = Math.floor(secs / 3600);
   const mins = Math.floor((secs % 3600) / 60);
-  if (locale === "zh") {
-    if (days > 0) return `${days} 天 ${hours} 小时`;
-    if (hours > 0) return `${hours} 小时 ${mins} 分`;
-    if (mins > 0) return `${mins} 分钟`;
-    return `${Math.max(secs % 60, 0)} 秒`;
-  }
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  if (mins > 0) return `${mins}m`;
-  return `${Math.max(secs % 60, 0)}s`;
+  // Signature kept for callers; strings resolve via t() against the active locale.
+  void locale;
+  if (days > 0) return t("format.durationDayHour", { d: days, h: hours });
+  if (hours > 0) return t("format.durationHourMin", { h: hours, m: mins });
+  if (mins > 0) return t("format.durationMin", { m: mins });
+  return t("format.durationSec", { s: Math.max(secs % 60, 0) });
 }
 
 export function formatTime(date: Date = new Date()): string {
@@ -42,17 +40,17 @@ export function formatAgo(iso: string, locale: string): string {
   const ms = new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return "-";
   const mins = Math.floor(Math.max(0, Date.now() - ms) / 60000);
-  const zh = locale === "zh";
-  if (mins < 1) return zh ? "刚刚" : "just now";
-  if (mins < 60) return zh ? `${mins} 分钟前` : `${mins} min ago`;
+  void locale; // strings resolve via t() against the active locale
+  if (mins < 1) return t("format.justNow");
+  if (mins < 60) return t("format.minutesAgo", { n: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return zh ? `${hours} 小时前` : `${hours} h ago`;
+  if (hours < 24) return t("format.hoursAgo", { n: hours });
   const days = Math.floor(hours / 24);
-  if (days < 30) return zh ? `${days} 天前` : `${days} d ago`;
+  if (days < 30) return t("format.daysAgo", { n: days });
   const months = Math.floor(days / 30);
-  if (months < 12) return zh ? `${months} 个月前` : `${months} mo ago`;
+  if (months < 12) return t("format.monthsAgo", { n: months });
   const years = Math.floor(months / 12);
-  return zh ? `${years} 年前` : `${years} y ago`;
+  return t("format.yearsAgo", { n: years });
 }
 
 /** Unix epoch seconds → yyyy-mm-dd. */
