@@ -22,7 +22,9 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 
 ## 1. Module Boundaries
 
-- `src/daemon.ts`: daemon assembly, routing, scheduler and shutdown.
+- `src/daemon.ts`: public facade re-exporting the daemon surface.
+- `src/daemon/router.ts`: the single URLPattern route table plus match → auth → dispatch; `src/daemon/handlers/*` own the per-domain handlers, `src/daemon/errors.ts` maps domain errors onto the unified error envelope, and `src/daemon/context.ts` holds the shared `DaemonContext`/`DaemonGate`.
+- `src/daemon/app.ts`: service assembly around one mutation queue; `src/daemon/server.ts` owns the HTTP/WebSocket listeners and listener close; `src/daemon/scheduler.ts` owns profile auto-update timers; `src/daemon/entry.ts` is the production entrypoint.
 - `src/runtime-lifecycle.ts`: serialized Core/proxy state transitions.
 - `src/supervisor.ts`: child ownership, readiness probes and verified termination.
 - `src/daemon-lifecycle.ts`: daemon discovery, singleton startup, CLI shutdown and the maintenance boundary used by full restarts and Core updates.
@@ -36,9 +38,11 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/core-update-service.ts`: staged update, runtime ownership, maintenance, publication and restoration orchestration.
 - `src/offline-mutation.ts` / `src/runtime-recovery.ts`: daemon/offline ownership checks and the fixed legacy-proxy, journaled-proxy, stale-Core and update-recovery order.
 - `src/http.ts` / `src/github.ts`: bounded networking and trusted release downloads, including one absolute asset budget shared across mirror attempts and redirects.
-- `src/settings.ts`: versioned runtime schema, explicit public-field allowlist and immutable managed-key candidates for `sash.json`.
-- `src/settings-service.ts`: shared online/offline settings preparation, durable publication and runtime-transition orchestration.
+- `src/settings.ts`: versioned runtime schema, explicit public-field allowlist and candidate validation for `sash.json`.
+- `src/settings-service.ts`: shared online/offline settings preparation, durable publication and runtime-transition orchestration behind a single typed `apply(patch)` transaction.
 - `src/contracts.ts`: browser-safe API contracts and `unknown`-to-typed response parsers shared by the daemon client and WebUI.
+- `src/sash-client.ts`: browser-safe typed client for the daemon-owned `/sash/*` API, built from those parsers; `src/daemon-client.ts` is the Node factory adding retries, deadlines and loopback-only dispatch.
+- `src/runtime-owner.ts`: runtime ownership state machine and the start/stop/restart orchestration consumed by the thin `src/commands/*` wiring modules.
 - `src/json-shape.ts` / `src/error-utils.ts`: domain-neutral JSON shape, canonical timestamp and unknown-error helpers; persistent readers retain their own size, missing and corruption policies.
 - `src/status.ts`: stable CLI status/proxy observations, explicit unknown values and complete/incomplete exit semantics.
 - `src/log-follow.ts`: bounded tail/follow cursors with creation, truncation, identity-rotation and cancellation handling.
