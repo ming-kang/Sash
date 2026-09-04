@@ -180,8 +180,18 @@ function filterMembers(members: string[]): string[] {
   return members.filter((name) => name.toLowerCase().includes(normalizedFilter.value));
 }
 
+// One pass over all groups so every ProxyGroupSection gets a stable array
+// reference; per-render membersOf() calls would defeat prop memoization.
+const membersByGroup = computed(() => {
+  const map = new Map<string, string[]>();
+  for (const group of store.proxyGroups) {
+    map.set(group, filterMembers(store.proxies[group]?.all ?? []));
+  }
+  return map;
+});
+
 function membersOf(group: string): string[] {
-  return filterMembers(store.proxies[group]?.all ?? []);
+  return membersByGroup.value.get(group) ?? [];
 }
 
 function nowOf(name: string): string {

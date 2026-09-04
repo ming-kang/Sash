@@ -24,7 +24,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in filteredRules" :key="entry.key">
+          <tr v-for="entry in pagedRules" :key="entry.key">
             <td class="cell-mono text-muted idx" :data-label="t('rules.colIndex')">
               {{ entry.originalIndex + 1 }}
             </td>
@@ -46,18 +46,24 @@
       </table>
       <EmptyState v-if="filteredRules.length === 0" icon="list-filter" :title="t('rules.empty')" />
     </div>
+
+    <PaginationFooter v-model:page="currentPage" :pages="totalPages" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
+import PaginationFooter from "../components/PaginationFooter.vue";
 import { t } from "../i18n/index.js";
 import { store } from "../stores/index.js";
 
+const PAGE_SIZE = 80;
+
 const searchQuery = ref("");
+const currentPage = ref(1);
 
 const indexedRules = computed(() =>
   store.rules.map((rule, originalIndex) => ({
@@ -72,6 +78,28 @@ const filteredRules = computed(() => {
   if (!query) return indexedRules.value;
   return indexedRules.value.filter(({ searchKey }) => searchKey.includes(query));
 });
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRules.value.length / PAGE_SIZE)));
+const pagedRules = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE;
+  return filteredRules.value.slice(start, start + PAGE_SIZE);
+});
+
+watch(searchQuery, () => {
+  currentPage.value = 1;
+});
+watch(
+  () => store.rules,
+  () => {
+    currentPage.value = 1;
+  },
+);
+watch(
+  totalPages,
+  (pages) => {
+    currentPage.value = Math.min(currentPage.value, pages);
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>

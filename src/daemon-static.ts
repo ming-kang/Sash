@@ -66,25 +66,32 @@ export function serveStaticUi(
   const candidate = path.join(uiRoot, relative);
   const hasExt = Boolean(path.extname(relative));
 
-  const isFile = (file: string): boolean => {
+  const statFile = (file: string): fs.Stats | null => {
     try {
-      return fs.statSync(file).isFile();
+      const stats = fs.statSync(file);
+      return stats.isFile() ? stats : null;
     } catch {
-      return false;
+      return null;
     }
   };
 
   let targetFile: string | null = null;
-  if (isFile(candidate)) {
+  let targetStats = statFile(candidate);
+  if (targetStats) {
     targetFile = candidate;
   } else if (!hasExt) {
     targetFile = path.join(uiRoot, "index.html");
+    targetStats = statFile(targetFile);
   }
 
-  if (targetFile && isFile(targetFile)) {
+  if (targetFile && targetStats) {
     const ext = path.extname(targetFile);
     const mime = MIME_TYPES[ext] ?? "application/octet-stream";
-    const headers: Record<string, string> = { ...UI_SECURITY_HEADERS, "Content-Type": mime };
+    const headers: Record<string, string> = {
+      ...UI_SECURITY_HEADERS,
+      "Content-Type": mime,
+      "Content-Length": String(targetStats.size),
+    };
     if (ext === ".html") {
       headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
       headers.Pragma = "no-cache";

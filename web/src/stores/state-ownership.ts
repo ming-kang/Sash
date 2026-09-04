@@ -46,10 +46,12 @@ export function clearCoreOwnedState(state: CoreOwnedState, historyLength: number
   state.connectionsUploadTotal = 0;
   state.connectionsDownloadTotal = 0;
   state.rules = [];
-  state.traffic.up = 0;
-  state.traffic.down = 0;
-  state.traffic.historyUp = Array(historyLength).fill(0);
-  state.traffic.historyDown = Array(historyLength).fill(0);
+  state.traffic = {
+    up: 0,
+    down: 0,
+    historyUp: Array(historyLength).fill(0),
+    historyDown: Array(historyLength).fill(0),
+  };
   state.manualProxyDelays = {};
   state.activeGroup = "";
   state.runtimeGeneration += 1;

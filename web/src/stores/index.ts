@@ -1,4 +1,6 @@
 export {
+  closeAllConnections,
+  closeConnection,
   normalizeConnections,
   proxyDelay,
   refreshConnections,
@@ -9,6 +11,7 @@ export {
   setOutboundMode,
   setProxies,
   updateProxyDelay,
+  updateProxyDelays,
 } from "./core-actions.js";
 export {
   activateProfile,
@@ -16,6 +19,7 @@ export {
   deleteProfile,
   importProfile,
   refreshProfiles,
+  renameProfile,
   updateAllProfiles,
   updateProfile,
   writeProfileContent,
@@ -40,5 +44,5 @@ export {
   store,
   tunRuntime,
 } from "./state.js";
-export { addLog, addTraffic, clearLogs } from "./telemetry.js";
+export { addLog, addTraffic, clearLogs, flushLogs } from "./telemetry.js";
 export { dismissToast, pushToast, toast } from "./toast.js";

@@ -4,13 +4,12 @@ let toastSequence = 0;
 
 export function pushToast(kind: ToastItem["kind"], text: string): void {
   const id = ++toastSequence;
-  store.toasts.push({ id, kind, text });
+  store.toasts = [...store.toasts, { id, kind, text }];
   window.setTimeout(() => dismissToast(id), 4200);
 }
 
 export function dismissToast(id: number): void {
-  const index = store.toasts.findIndex((item) => item.id === id);
-  if (index >= 0) store.toasts.splice(index, 1);
+  store.toasts = store.toasts.filter((item) => item.id !== id);
 }
 
 export const toast = {

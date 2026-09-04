@@ -72,6 +72,13 @@ describe("daemon server", () => {
         await res.body.text();
         assert.equal(res.statusCode, 200, pathname);
         assert.equal(res.headers["cache-control"], expected, pathname);
+        const size = fs.statSync(
+          path.join(
+            h.layout.uiDir,
+            pathname === "/ui/" ? "index.html" : pathname.slice("/ui/".length),
+          ),
+        ).size;
+        assert.equal(res.headers["content-length"], String(size), pathname);
       }
     });
   });

@@ -36,10 +36,12 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
 }
 
 export function resetTraffic(): void {
-  store.traffic.up = 0;
-  store.traffic.down = 0;
-  store.traffic.historyUp = Array(HISTORY_LEN).fill(0);
-  store.traffic.historyDown = Array(HISTORY_LEN).fill(0);
+  store.traffic = {
+    up: 0,
+    down: 0,
+    historyUp: Array(HISTORY_LEN).fill(0),
+    historyDown: Array(HISTORY_LEN).fill(0),
+  };
 }
 
 export async function refreshCoreSnapshot(
@@ -112,6 +114,18 @@ export function refreshConnections(): Promise<void> {
   });
 }
 
+export async function closeConnection(id: string): Promise<void> {
+  if (!isCoreHealthy(store.status)) throw new Error("Core is not healthy");
+  await api.closeConnection(id);
+  store.connections = store.connections.filter((connection) => connection.id !== id);
+}
+
+export async function closeAllConnections(): Promise<void> {
+  if (!isCoreHealthy(store.status)) throw new Error("Core is not healthy");
+  await api.closeAllConnections();
+  store.connections = [];
+}
+
 export function refreshProxies(): Promise<void> {
   return refreshCoreResource(api.getProxies, (proxies) => setProxies(proxies.proxies));
 }
@@ -125,7 +139,7 @@ export function refreshRules(): Promise<void> {
 export async function setOutboundMode(mode: OutboundMode): Promise<void> {
   if (store.operations.mode || mode === store.mode) return;
   if (!isCoreHealthy(store.status)) throw new Error("Core is not healthy");
-  store.operations.mode = true;
+  store.operations = { ...store.operations, mode: true };
   requests.invalidate("runtime");
   const generation = requests.begin("mode");
   try {
@@ -133,31 +147,51 @@ export async function setOutboundMode(mode: OutboundMode): Promise<void> {
     requests.invalidate("runtime");
     if (requests.isCurrent("mode", generation)) store.mode = mode;
   } finally {
-    if (requests.isCurrent("mode", generation)) store.operations.mode = false;
+    if (requests.isCurrent("mode", generation)) {
+      store.operations = { ...store.operations, mode: false };
+    }
   }
 }
 
 export async function selectGroupProxy(groupName: string, proxyName: string): Promise<void> {
   if (store.operations.proxySelections[groupName]) return;
   if (!isCoreHealthy(store.status)) throw new Error("Core is not healthy");
-  store.operations.proxySelections[groupName] = true;
+  store.operations = {
+    ...store.operations,
+    proxySelections: { ...store.operations.proxySelections, [groupName]: true },
+  };
   requests.invalidate("runtime");
   const domain = `proxy-selection:${groupName}`;
   const generation = requests.begin(domain);
   try {
     await api.selectProxy(groupName, proxyName);
     requests.invalidate("runtime");
-    if (requests.isCurrent(domain, generation) && store.proxies[groupName]) {
-      store.proxies[groupName].now = proxyName;
+    const group = store.proxies[groupName];
+    if (requests.isCurrent(domain, generation) && group) {
+      store.proxies = { ...store.proxies, [groupName]: { ...group, now: proxyName } };
     }
   } finally {
-    if (requests.isCurrent(domain, generation)) delete store.operations.proxySelections[groupName];
+    if (requests.isCurrent(domain, generation)) {
+      const proxySelections = { ...store.operations.proxySelections };
+      delete proxySelections[groupName];
+      store.operations = { ...store.operations, proxySelections };
+    }
   }
 }
 
 export function updateProxyDelay(name: string, delay: number, generation: number): void {
   if (generation !== store.runtimeGeneration || !store.proxies[name]) return;
-  store.manualProxyDelays[name] = delay;
+  store.manualProxyDelays = { ...store.manualProxyDelays, [name]: delay };
+}
+
+/** Batch variant for group latency tests: one record swap for the whole group. */
+export function updateProxyDelays(delays: Record<string, number>, generation: number): void {
+  if (generation !== store.runtimeGeneration) return;
+  const merged = { ...store.manualProxyDelays };
+  for (const [name, delay] of Object.entries(delays)) {
+    if (store.proxies[name]) merged[name] = delay;
+  }
+  store.manualProxyDelays = merged;
 }
 
 export function proxyDelay(name: string): number | undefined {

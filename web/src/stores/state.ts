@@ -1,4 +1,4 @@
-import { computed, reactive } from "vue";
+import { computed, shallowReactive } from "vue";
 import type {
   ConnectionItem,
   LogMessage,
@@ -80,7 +80,10 @@ export const runtimeOwnership: RuntimeOwnershipState = {
   lastDaemonStartedAt: null,
 };
 
-export const store = reactive<StoreState>({
+// Shallow on purpose: collections (connections, rules, proxies, logs, traffic)
+// hold thousands of entries and are always replaced by reference, never mutated
+// in place. Deep proxies would wrap every nested object on every poll cycle.
+export const store = shallowReactive<StoreState>({
   status: null,
   daemonOnline: true,
   lastProfileRevision: null,

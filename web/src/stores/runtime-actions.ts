@@ -1,4 +1,6 @@
+import { watch } from "vue";
 import { api } from "../api/index.js";
+import { currentRoute } from "../router.js";
 import type { SashStatus } from "../types/index.js";
 import { refreshConnections, refreshCoreSnapshot, refreshProxies } from "./core-actions.js";
 import {
@@ -113,7 +115,10 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
       const result = await refreshStatus();
       cycle += 1;
       if (result === "status" && isCoreHealthy(store.status)) {
-        await refreshConnections().catch(() => undefined);
+        // Connection dumps are large; only views that show them need fresh data.
+        if (currentRoute.value === "connections" || currentRoute.value === "overview") {
+          await refreshConnections().catch(() => undefined);
+        }
         if (cycle % 3 === 0) await refreshProxies().catch(() => undefined);
       }
     } catch {
@@ -146,11 +151,20 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
   };
 
   document.addEventListener("visibilitychange", onVisibilityChange);
+  // Navigating to a connection-aware view fetches immediately instead of
+  // waiting out the polling interval on possibly stale rows.
+  const stopRouteWatch = watch(currentRoute, (route) => {
+    if (stopped) return;
+    if ((route === "connections" || route === "overview") && isCoreHealthy(store.status)) {
+      void refreshConnections().catch(() => undefined);
+    }
+  });
   void tick();
   return () => {
     stopped = true;
     refreshWhenIdle = false;
     clearTimer();
+    stopRouteWatch();
     document.removeEventListener("visibilitychange", onVisibilityChange);
   };
 }
@@ -162,7 +176,7 @@ export async function setSystemProxyEnabled(target: boolean): Promise<void> {
       target ? "Cannot enable system proxy: Core is not healthy" : "System proxy is already off",
     );
   }
-  store.operations.systemProxy = true;
+  store.operations = { ...store.operations, systemProxy: true };
   requests.invalidate("runtime");
   try {
     if (target) await api.enableSystemProxy();
@@ -179,19 +193,19 @@ export async function setSystemProxyEnabled(target: boolean): Promise<void> {
     }
     await refreshStatus();
   } finally {
-    store.operations.systemProxy = false;
+    store.operations = { ...store.operations, systemProxy: false };
   }
 }
 
 export async function patchBooleanSetting(key: "allow-lan" | "tun", next: boolean): Promise<void> {
   if (store.operations.networkSetting) return;
-  store.operations.networkSetting = true;
+  store.operations = { ...store.operations, networkSetting: true };
   requests.invalidate("runtime");
   try {
     const result = await api.patchSettings(key === "tun" ? { tun: next } : { allowLan: next });
     store.status = syncCommittedBooleanSetting(store.status, key, next, result.settings);
     await refreshRuntimeState();
   } finally {
-    store.operations.networkSetting = false;
+    store.operations = { ...store.operations, networkSetting: false };
   }
 }

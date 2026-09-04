@@ -6,7 +6,7 @@ import type {
   ProfileUpdateResponse,
 } from "../../../src/contracts.js";
 import { api } from "../api/index.js";
-import { refreshRuntimeState } from "./runtime-actions.js";
+import { refreshRuntimeState, refreshStatus } from "./runtime-actions.js";
 import { requests, setProfiles, store } from "./state.js";
 import { runProfileMutationSequence } from "./state-ownership.js";
 
@@ -26,7 +26,7 @@ async function performProfileMutation<T>(
   refreshesRuntime: (result: T) => boolean,
 ): Promise<T> {
   if (store.operations.profileMutation) throw new Error("A profile operation is already running");
-  store.operations.profileMutation = true;
+  store.operations = { ...store.operations, profileMutation: true };
   requests.invalidate("runtime");
   requests.invalidate("profiles");
   try {
@@ -34,8 +34,15 @@ async function performProfileMutation<T>(
       if (refreshesRuntime(result)) await refreshRuntimeState();
     });
   } finally {
-    store.operations.profileMutation = false;
+    store.operations = { ...store.operations, profileMutation: false };
   }
+}
+
+export async function renameProfile(id: string, name: string): Promise<void> {
+  // Rename only touches the profile index, so it skips the heavyweight
+  // runtime-refresh mutation sequence; a plain status refresh is enough.
+  await api.renameProfile(id, name);
+  await refreshStatus();
 }
 
 export function addProfile(url: string): Promise<ProfileActionResponse> {

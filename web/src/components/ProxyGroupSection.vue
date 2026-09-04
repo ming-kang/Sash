@@ -35,7 +35,7 @@
         <Icon :name="collapsed ? 'eye-off' : 'eye'" :size="15" />
       </button>
     </div>
-    <div v-show="!collapsed" class="pgroup-grid">
+    <div v-if="!collapsed" class="pgroup-grid">
       <article
         v-for="member in visibleMembers"
         :key="member"
@@ -65,13 +65,13 @@
         <button
           type="button"
           class="node-delay"
-          :class="[delayClass(member), { testing: isNodeTesting(member) }]"
+          :class="[delayFor(member).cls, { testing: isNodeTesting(member) }]"
           :aria-label="t('proxies.testNode', { name: member })"
           :disabled="isNodeTesting(member)"
           @click="requestNodeTest(member)"
         >
           <Icon v-if="isNodeTesting(member)" name="refresh" :size="11" class="delay-spinner" />
-          {{ isNodeTesting(member) ? t('common.loading') : delayText(member) }}
+          {{ isNodeTesting(member) ? t('common.loading') : delayFor(member).text }}
         </button>
       </article>
     </div>
@@ -140,18 +140,30 @@ function requestNodeTest(name: string): void {
   if (!isNodeTesting(name)) emit("test-node", name);
 }
 
-function delayText(name: string): string {
-  const delay = proxyDelay(name);
-  if (delay === undefined) return t("common.untested");
-  if (delay <= 0) return t("common.timeout");
-  return `${delay} ms`;
+interface DelayDisplay {
+  cls: string;
+  text: string;
 }
 
-function delayClass(name: string): string {
-  const delay = proxyDelay(name);
-  if (delay === undefined) return "delay-none";
-  const level = delayLevel(delay);
-  return level === "good" ? "delay-good" : level === "mid" ? "delay-mid" : "delay-bad";
+const delayDisplays = computed(() => {
+  const map = new Map<string, DelayDisplay>();
+  for (const member of props.members) {
+    const delay = proxyDelay(member);
+    if (delay === undefined) {
+      map.set(member, { cls: "delay-none", text: t("common.untested") });
+    } else {
+      const level = delayLevel(delay);
+      map.set(member, {
+        cls: level === "good" ? "delay-good" : level === "mid" ? "delay-mid" : "delay-bad",
+        text: delay <= 0 ? t("common.timeout") : `${delay} ms`,
+      });
+    }
+  }
+  return map;
+});
+
+function delayFor(name: string): DelayDisplay {
+  return delayDisplays.value.get(name) ?? { cls: "delay-none", text: t("common.untested") };
 }
 </script>
 
@@ -187,7 +199,7 @@ function delayClass(name: string): string {
   flex-shrink: 0;
   border-radius: var(--radius-xs);
   background: var(--selection);
-  color: #ffffff;
+  color: var(--text-inverse);
   font-size: 12px;
   font-weight: 650;
 }

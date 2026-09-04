@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from "vue";
+import { defineAsyncComponent, onMounted, onUnmounted, watch } from "vue";
 import { api } from "./api/index.js";
 import AppSidebar from "./components/AppSidebar.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
@@ -55,12 +55,15 @@ import {
   startRuntimePolling,
   store,
 } from "./stores/index.js";
-import ConnectionsView from "./views/ConnectionsView.vue";
-import LogsView from "./views/LogsView.vue";
+// OverviewView is the default route and stays in the entry chunk; the rest
+// load on first navigation (their chunks carry view-only deps like CodeMirror).
 import OverviewView from "./views/OverviewView.vue";
-import ProfilesView from "./views/ProfilesView.vue";
-import RulesView from "./views/RulesView.vue";
-import SettingsView from "./views/SettingsView.vue";
+
+const ConnectionsView = defineAsyncComponent(() => import("./views/ConnectionsView.vue"));
+const LogsView = defineAsyncComponent(() => import("./views/LogsView.vue"));
+const ProfilesView = defineAsyncComponent(() => import("./views/ProfilesView.vue"));
+const RulesView = defineAsyncComponent(() => import("./views/RulesView.vue"));
+const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
 
 let stopPolling: (() => void) | null = null;
 let unsubTraffic: (() => void) | null = null;
@@ -107,6 +110,23 @@ watch(
         if (generation === store.runtimeGeneration) resetTraffic();
       },
     );
+  },
+);
+
+// Log frames are only consumed by the logs view; the socket stays closed
+// on every other route so bursts never hit the reactive store off-screen.
+watch(
+  () =>
+    store.daemonOnline &&
+    isCoreReady.value &&
+    api.hasSession() &&
+    currentRoute.value === "logs"
+      ? store.runtimeGeneration
+      : null,
+  (generation) => {
+    unsubLogs?.();
+    unsubLogs = null;
+    if (generation === null) return;
     unsubLogs = api.connectLogs((message) => addLog(message, generation));
   },
 );

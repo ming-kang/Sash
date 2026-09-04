@@ -128,41 +128,25 @@
       />
     </div>
 
-    <footer v-if="filteredConnections.length > PAGE_SIZE" class="pagination-footer">
-      <span class="pagination-summary">
-        {{ t('common.pageSummary', { page: currentPage, total: totalPages }) }}
-      </span>
-      <div class="pagination-actions">
-        <button
-          type="button"
-          class="btn btn-secondary btn-sm"
-          :disabled="currentPage === 1"
-          @click="currentPage--"
-        >
-          {{ t('common.previous') }}
-        </button>
-        <button
-          type="button"
-          class="btn btn-secondary btn-sm"
-          :disabled="currentPage === totalPages"
-          @click="currentPage++"
-        >
-          {{ t('common.next') }}
-        </button>
-      </div>
-    </footer>
+    <PaginationFooter v-model:page="currentPage" :pages="totalPages" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { api } from "../api/index.js";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
+import PaginationFooter from "../components/PaginationFooter.vue";
 import { locale, t } from "../i18n/index.js";
-import { errorText, store, toast } from "../stores/index.js";
+import {
+  closeAllConnections,
+  closeConnection,
+  errorText,
+  store,
+  toast,
+} from "../stores/index.js";
 import type { ConnectionItem } from "../types/index.js";
 import { formatAgo, formatBytes } from "../utils/format.js";
 
@@ -224,14 +208,21 @@ const filteredConnections = computed(() => {
   const list = query
     ? activeConnections.value.filter((connection) => matchesConnection(connection, query))
     : [...activeConnections.value];
-  return list.sort((a, b) => {
-    let diff = 0;
-    if (sortKey.value === "upload") diff = a.upload - b.upload;
-    else if (sortKey.value === "download") diff = a.download - b.download;
-    else if (sortKey.value === "host") diff = hostOf(a).localeCompare(hostOf(b));
-    else diff = a.start.localeCompare(b.start);
-    return sortDesc.value ? -diff : diff;
-  });
+  // Decorate-sort-undecorate: keys are computed once per row instead of
+  // O(n log n) hostOf()/localeCompare calls inside the comparator.
+  const keyOf = (connection: ConnectionItem): number | string => {
+    if (sortKey.value === "upload") return connection.upload;
+    if (sortKey.value === "download") return connection.download;
+    if (sortKey.value === "host") return hostOf(connection);
+    return connection.start;
+  };
+  return list
+    .map((connection) => ({ connection, key: keyOf(connection) }))
+    .sort((a, b) => {
+      const diff = a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+      return sortDesc.value ? -diff : diff;
+    })
+    .map((entry) => entry.connection);
 });
 const totalPages = computed(() =>
   Math.max(1, Math.ceil(filteredConnections.value.length / PAGE_SIZE)),
@@ -267,8 +258,7 @@ function processName(connection: ConnectionItem): string {
 
 async function closeOne(id: string): Promise<void> {
   try {
-    await api.closeConnection(id);
-    store.connections = store.connections.filter((connection) => connection.id !== id);
+    await closeConnection(id);
     if (paused.value) {
       pausedSnapshot.value = pausedSnapshot.value.filter((connection) => connection.id !== id);
     }
@@ -289,8 +279,7 @@ async function closeAll(): Promise<void> {
   });
   if (!ok) return;
   try {
-    await api.closeAllConnections();
-    store.connections = [];
+    await closeAllConnections();
     pausedSnapshot.value = [];
     toast.success(t("toast.connAllClosed"));
   } catch (error) {
@@ -359,12 +348,12 @@ async function closeAll(): Promise<void> {
 .sort-label-btn.active {
   background: var(--selection);
   border-color: var(--selection);
-  color: #ffffff;
+  color: var(--text-inverse);
 }
 .sort-label-btn.active.reverse {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--text-inverse);
 }
 .control-actions {
   display: flex;
@@ -373,7 +362,7 @@ async function closeAll(): Promise<void> {
 }
 .btn-pause {
   background: var(--pause-bg);
-  color: #ffffff;
+  color: var(--text-inverse);
 }
 .btn-pause:hover:not(:disabled) {
   background: var(--pause-bg-hover);
@@ -425,7 +414,7 @@ async function closeAll(): Promise<void> {
   padding: 1px 5px;
   overflow: hidden;
   border-radius: 3px;
-  color: #ffffff;
+  color: var(--text-inverse);
   font-size: 12px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -470,22 +459,6 @@ async function closeAll(): Promise<void> {
   background: var(--danger-soft);
   color: var(--danger);
 }
-.pagination-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 20px;
-  border-top: 1px solid var(--border);
-}
-.pagination-summary {
-  color: var(--text-muted);
-  font-size: 14px;
-}
-.pagination-actions {
-  display: flex;
-  gap: 8px;
-}
 
 @media (max-width: 760px) {
   .connections-control {
@@ -509,13 +482,6 @@ async function closeAll(): Promise<void> {
 @media (max-width: 480px) {
   .connection-tag {
     max-width: 220px;
-  }
-  .pagination-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .pagination-actions .btn {
-    flex: 1;
   }
 }
 </style>

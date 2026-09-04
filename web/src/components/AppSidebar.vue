@@ -103,14 +103,36 @@ const coreTooltip = computed(() => {
   return store.status?.core.pid ? `${status} · PID ${store.status.core.pid}` : status;
 });
 
-onMounted(() => {
+function startClock(): void {
+  if (clockTimer !== null || document.hidden) return;
   clockTimer = window.setInterval(() => {
     currentTime.value = Date.now();
   }, 1000);
+}
+
+function stopClock(): void {
+  if (clockTimer === null) return;
+  window.clearInterval(clockTimer);
+  clockTimer = null;
+}
+
+function onVisibilityChange(): void {
+  if (document.hidden) {
+    stopClock();
+  } else {
+    currentTime.value = Date.now();
+    startClock();
+  }
+}
+
+onMounted(() => {
+  startClock();
+  document.addEventListener("visibilitychange", onVisibilityChange);
 });
 
 onUnmounted(() => {
-  if (clockTimer !== null) window.clearInterval(clockTimer);
+  stopClock();
+  document.removeEventListener("visibilitychange", onVisibilityChange);
 });
 
 function navItemClasses(index: number): Record<string, boolean> {
@@ -125,7 +147,7 @@ function navItemClasses(index: number): Record<string, boolean> {
 <style scoped>
 .sidebar {
   position: relative;
-  z-index: 20;
+  z-index: var(--z-sidebar);
   display: flex;
   width: var(--sidebar-w);
   height: 100%;

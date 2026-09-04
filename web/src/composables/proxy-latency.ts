@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
-import { errorText, store, toast, updateProxyDelay } from "../stores/index.js";
+import { errorText, store, toast, updateProxyDelay, updateProxyDelays } from "../stores/index.js";
 
 export function useProxyLatency() {
   const testingGroups = ref(new Set<string>());
@@ -13,9 +13,7 @@ export function useProxyLatency() {
     const generation = store.runtimeGeneration;
     try {
       const delays = await api.testGroupDelay(group);
-      for (const [name, delay] of Object.entries(delays)) {
-        updateProxyDelay(name, delay, generation);
-      }
+      updateProxyDelays(delays, generation);
     } catch (error) {
       toast.error(t("toast.failed", { msg: errorText(error) }));
     } finally {
