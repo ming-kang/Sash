@@ -2,7 +2,8 @@ import type { SpawnOptions } from "node:child_process";
 import spawn from "cross-spawn";
 import { log } from "../log.js";
 import { buildSanitizedEnv } from "../process.js";
-import { resolveRuntimeOwner, runtimeContext } from "./shared.js";
+import { resolveRuntimeOwner } from "../runtime-owner.js";
+import { runtimeContext } from "./shared.js";
 
 const PACKAGE_NAME = "@astralyn/sash";
 const STRICT_SEMVER =

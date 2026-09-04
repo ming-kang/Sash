@@ -1,7 +1,8 @@
 import { openInBrowser } from "../browser.js";
 import { log } from "../log.js";
+import { resolveRuntimeOwner } from "../runtime-owner.js";
 import { runStart } from "./lifecycle.js";
-import { resolveRuntimeOwner, runtimeContext } from "./shared.js";
+import { runtimeContext } from "./shared.js";
 
 export function dashboardUrl(daemonPort: number): string {
   return `http://127.0.0.1:${daemonPort}/ui/`;
