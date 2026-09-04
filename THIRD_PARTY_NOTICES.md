@@ -38,6 +38,15 @@ THE SOFTWARE.
 
 Sash embeds selected Remix Icon components as functional interface symbols. They are not used as the Sash logo or brand identity. The complete Remix Icon License v1.0 text is included in [`docs/remix-icon-license.txt`](./docs/remix-icon-license.txt).
 
+## LXGW WenKai Lite
+
+- Font: LXGW WenKai Lite 1.522 (`LXGWWenKaiLite-Regular`, split into unicode-range WOFF2 chunks at build time)
+- Project: <https://github.com/lxgw/LxgwWenKai-Lite>
+- License: SIL Open Font License 1.1 (<https://openfontlicense.org>)
+- Copyright: Copyright 2021-2026 LXGW; Copyright 2020 The Klee Project Authors (Fontworks Inc.)
+
+The dashboard embeds this font for its UI typography. Redistribution and subsetting are permitted under the OFL 1.1; the font software remains the work of its authors and is not sold on its own.
+
 ## Runtime-downloaded Core
 
 The upstream Core is not embedded in the Sash source tree or npm tarball. Sash downloads an unmodified release artifact at runtime from the upstream release project identified in the README attribution section.
