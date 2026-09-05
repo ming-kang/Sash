@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-09-05
 
 ### Added
 
@@ -55,7 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - WebUI now uses a classic compact desktop-console shell with a 25px title strip, 170px live-traffic sidebar, recessed active navigation, dense profile/proxy rows, stream-style logs, tagged connection rows and grouped settings. The intentional combined General + Proxies Overview workspace and responsive bottom navigation are preserved.
 - `sash restart` now restarts the whole runtime: the daemon exits through its serialized maintenance shutdown boundary and a freshly spawned daemon (running the installed code) starts the Core. Core-only restarts remain available from the dashboard. The daemon/Core maintenance-shutdown orchestration is shared between restart and Core updates.
 - TUN privilege guidance now points at an elevated full `sash restart` instead of a stop/start sequence, since an elevated restart replaces the unprivileged daemon.
-- Pre-release metadata is marked private, source installation is documented explicitly, and the unreleased `0.1.0` history is consolidated under `[Unreleased]`.
+- npm installation is documented as the primary install path alongside the source-checkout `npm link` flow, and the `0.1.0` history is consolidated in the changelog.
 - amd64 Core downloads now prefer the upstream broadly compatible x86-64 build, with v1 and the x86-64-v3 plain asset used only as availability fallbacks.
 - WebUI functional iconography now uses tree-shaken Remix Icon line components behind the existing semantic icon API.
 - Built-in WebUI now uses a flat, neutral Light/Dark console with a wide text navigation sidebar, compact settings and data rows, accessible controls, responsive mobile navigation, and a two-column Overview workspace that keeps common controls beside its mode-driven proxy panel.
@@ -71,7 +71,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The legacy `subscriptionUrl` setting migrates once into the profile index and is then removed instead of remaining as a second source of truth; it takes priority over unmanaged-config import.
 - Runtime config generation now has only two canonical inputs: the active profile or the built-in DIRECT-only default. The dead existing-`config.yaml` fallback pipeline was removed.
 - Every Core start recompiles and validates `config.yaml` from the active profile and current settings. Remote profile responses are limited to 8 MiB.
-- The default mixed port is consistently `17890`. Installed core version is read from `state/install.json` instead of duplicated in settings.
+- The default mixed port is consistently `7890`. Installed core version is read from `state/install.json` instead of duplicated in settings.
 - Core updates download and validate the staged binary before stopping the existing runtime, and commit install metadata only after health checks pass.
 - Overview proxy groups share a reusable component; WebUI runtime refresh, profile mutations, mode/proxy intent and polling are organized behind a stable store facade with one reactive state source and per-domain generations. The Overview page now composes focused general/proxy panes, while latency requests own their busy sets and captured runtime generation in one composable.
 - Daemon integration tests and WebUI store tests are split by domain. Shared daemon fixtures have no top-level I/O and retain centralized instance, socket, scheduler and temporary-directory cleanup.
@@ -92,12 +92,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Profile and settings preparation now exposes one-shot opaque publication capabilities instead of mutable prepared-state objects or positional commit booleans. Weak settings-source snapshots and strict profile snapshots retain their distinct conflict semantics.
 - Daemon HTTP and WebSocket routing now share one origin-form request-target parser and explicit route table. Known method mismatches return `405` with `Allow`, dashboard redirects preserve root queries, and WebSocket streams are explicitly GET-only.
 - npm packages now include `docs/`, lint is part of `prepublishOnly`, and package self-upgrade requires the daemon to be stopped so runtime/schema versions cannot overlap.
-
-### Changed
-
 - The CLI is trimmed to lifecycle and diagnostics: `start`, `stop`, `restart`, `status`, `logs`, `web`, `update`, `upgrade` and `version`. Profile management, the system-proxy toggle and runtime settings moved to the web dashboard exclusively; the `sub`, `proxy` and `config` command groups were removed along with the offline-mutation paths that only served them. The `controller` and `secret` keys are now edited directly in `sash.json`.
 
 ### Fixed
+
+- Package smoke verification now recurses into nested UI asset directories such as `dist/ui/assets/branding/` instead of asserting every top-level asset entry is a regular file.
 
 - Proxy node delay buttons show only a spinner while testing (no "Loading…" text), and profile cards no longer wrap their meta line mid-phrase: the action buttons now overlay the card's top-right corner and the source/updated line is single-line with ellipsis plus a full-text tooltip, so it gets the whole card width.
 - Profile card action buttons (rename/edit/update/delete) no longer also activate the profile through click bubbling; activation is restricted to the card's main body.

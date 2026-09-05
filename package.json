@@ -1,7 +1,6 @@
 {
   "name": "@astralyn/sash",
   "version": "0.1.0",
-  "private": true,
   "description": "A lightweight command-line companion for a rule-based network core and its web dashboard. For developers and advanced users.",
   "license": "MIT",
   "author": "ming-kang",

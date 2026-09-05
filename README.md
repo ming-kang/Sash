@@ -22,11 +22,14 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 
 Automatic Linux system-proxy integration currently requires a GNOME desktop with `gsettings`; Core lifecycle and local endpoints do not have that desktop requirement.
 
-## Development Status and Source Install
+## Install
 
-Sash has not yet been published to npm. The `@astralyn/sash` package name and `npm install -g @astralyn/sash` command are reserved for the first approved release; they are not currently an installation path.
+```sh
+npm install -g @astralyn/sash
+sash --help
+```
 
-From an existing source checkout, install the current development tree with:
+From a source checkout instead:
 
 ```sh
 npm ci
