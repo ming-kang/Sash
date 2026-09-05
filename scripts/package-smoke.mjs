@@ -72,6 +72,16 @@ function runNpm(args, options = {}) {
   if (npmExecPath && fs.existsSync(npmExecPath)) {
     return run(process.execPath, [npmExecPath, ...args], options);
   }
+  const bundledCli = path.join(
+    path.dirname(process.execPath),
+    "node_modules",
+    "npm",
+    "bin",
+    "npm-cli.js",
+  );
+  if (fs.existsSync(bundledCli)) {
+    return run(process.execPath, [bundledCli, ...args], options);
+  }
   return run(process.platform === "win32" ? "npm.cmd" : "npm", args, options);
 }
 
@@ -154,28 +164,43 @@ function assertPackedFiles(files) {
   }
 }
 
+const installSpec = process.argv[2];
+
 try {
-  assertBuiltTree();
   const packDir = path.join(tempRoot, "pack");
   const installDir = path.join(tempRoot, "install");
   const homeDir = path.join(tempRoot, "home");
   fs.mkdirSync(packDir, { recursive: true });
 
-  const packOutput = JSON.parse(runNpm(["pack", "--json", "--pack-destination", packDir]));
-  assert.equal(packOutput.length, 1, "npm pack produced an unexpected result count");
-  const packed = packOutput[0];
-  assertPackedFiles(packed.files);
-  const tarball = path.join(packDir, packed.filename);
-  assertNonEmptyFile(tarball);
+  let spec = installSpec;
+  let expectedVersion = packageJson.version;
+  let packedFiles;
+  if (spec) {
+    const packOutput = JSON.parse(
+      runNpm(["pack", spec, "--dry-run", "--json", "--pack-destination", packDir]),
+    );
+    assert.equal(packOutput.length, 1, "npm pack produced an unexpected result count");
+    expectedVersion = packOutput[0].version ?? expectedVersion;
+    packedFiles = packOutput[0].files;
+  } else {
+    assertBuiltTree();
+    const packOutput = JSON.parse(runNpm(["pack", "--json", "--pack-destination", packDir]));
+    assert.equal(packOutput.length, 1, "npm pack produced an unexpected result count");
+    const packed = packOutput[0];
+    spec = path.join(packDir, packed.filename);
+    assertNonEmptyFile(spec);
+    packedFiles = packed.files;
+  }
+  assertPackedFiles(packedFiles);
 
-  runNpm(["install", "--prefix", installDir, "--omit=dev", "--no-audit", "--no-fund", tarball]);
+  runNpm(["install", "--prefix", installDir, "--omit=dev", "--no-audit", "--no-fund", spec]);
   const installedRoot = path.join(installDir, "node_modules", "@astralyn", "sash");
   assert.equal(fs.statSync(installedRoot).isDirectory(), true);
   const installedFiles = walkFiles(installedRoot).sort();
-  const packedFiles = packed.files.map((entry) => entry.path.replaceAll("\\", "/")).sort();
+  const expectedFiles = packedFiles.map((entry) => entry.path.replaceAll("\\", "/")).sort();
   assert.deepEqual(
     installedFiles,
-    packedFiles,
+    expectedFiles,
     "installed package differs from the packed file set",
   );
   assertNonEmptyFile(path.join(installedRoot, "dist", "ui", "index.html"));
@@ -204,7 +229,7 @@ try {
     ["exec", "--offline", "--yes=false", "--prefix", installDir, "--", "sash", "--version"],
     { env: cliEnv },
   ).trim();
-  assert.equal(version, packageJson.version);
+  assert.equal(version, expectedVersion);
   const help = runNpm(
     ["exec", "--offline", "--yes=false", "--prefix", installDir, "--", "sash", "--help"],
     { env: cliEnv },
@@ -213,7 +238,7 @@ try {
   assert.match(help, /show runtime state/);
 
   console.log(
-    `[package-smoke] packed, installed and verified ${packageJson.name}@${packageJson.version} (${packed.files.length} files)`,
+    `[package-smoke] installed and verified ${installSpec ?? "the freshly packed tarball"} as ${packageJson.name}@${expectedVersion} (${packedFiles.length} files)`,
   );
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
