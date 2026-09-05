@@ -113,7 +113,7 @@ describe("settings", () => {
     it("rejects every managed listener port collision without overwriting settings", () => {
       for (const overrides of [
         { mixedPort: 19090 },
-        { controller: "127.0.0.1:17890" },
+        { controller: "127.0.0.1:7890" },
         { controller: "127.0.0.1:19090" },
       ]) {
         const text = JSON.stringify(completeSettings(overrides));

@@ -251,7 +251,7 @@ const SettingsFileDialog = defineAsyncComponent(
 
 const fileEditorOpen = ref(false);
 
-const committedMixedPort = ref(store.status?.settings.mixedPort ?? 17890);
+const committedMixedPort = ref(store.status?.settings.mixedPort ?? 7890);
 const mixedPort = ref(committedMixedPort.value);
 
 const savingPort = ref(false);

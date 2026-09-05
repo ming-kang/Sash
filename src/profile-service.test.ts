@@ -120,7 +120,7 @@ describe("ProfileService", () => {
     });
 
     await assert.rejects(() => service.importLocal("invalid", yamlA), /core validation rejected/);
-    assert.match(validatedYaml, /mixed-port: 17890/);
+    assert.match(validatedYaml, /mixed-port: 7890/);
     assert.equal(service.list().profiles.length, 0);
     assert.equal(fs.existsSync(layout.configFile), false);
   });

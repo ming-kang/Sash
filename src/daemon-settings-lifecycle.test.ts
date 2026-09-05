@@ -264,7 +264,7 @@ describe("daemon server", () => {
       });
       await validationEntered;
       const beforeCommit = await h.apiRequest("/sash/settings");
-      assert.equal((beforeCommit.data as { mixedPort: number }).mixedPort, 17890);
+      assert.equal((beforeCommit.data as { mixedPort: number }).mixedPort, 7890);
       release?.();
       assert.equal((await patch).statusCode, 200);
     });
@@ -342,7 +342,7 @@ describe("daemon server", () => {
       });
 
       assert.equal(res.statusCode, 200);
-      assert.deepEqual(enabledPorts, [17890, 18888]);
+      assert.deepEqual(enabledPorts, [7890, 18888]);
       assert.equal(disabled, 1);
     });
 
@@ -364,7 +364,7 @@ describe("daemon server", () => {
       const persisted = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8")) as {
         mixedPort: number;
       };
-      assert.equal(persisted.mixedPort, 17890);
+      assert.equal(persisted.mixedPort, 7890);
       assert.equal(fs.existsSync(h.layout.configFile), false);
     });
 
@@ -399,8 +399,8 @@ describe("daemon server", () => {
       const persisted = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8")) as {
         mixedPort: number;
       };
-      assert.equal(persisted.mixedPort, 17890);
-      assert.match(fs.readFileSync(h.layout.configFile, "utf8"), /mixed-port: 17890/);
+      assert.equal(persisted.mixedPort, 7890);
+      assert.match(fs.readFileSync(h.layout.configFile, "utf8"), /mixed-port: 7890/);
       assert.equal(running, true);
       assert.equal(recoveryStarts, 1);
     });

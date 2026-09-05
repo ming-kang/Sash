@@ -172,7 +172,7 @@ export const zh = {
     langDesc: "切换控制台显示语言",
     networkTitle: "网络与监听",
     mixedPortTitle: "混合代理端口",
-    mixedPortDesc: "本地 HTTP / SOCKS5 混合入站端口（默认 17890，保存后核心自动重启）",
+    mixedPortDesc: "本地 HTTP / SOCKS5 混合入站端口（默认 7890，保存后核心自动重启）",
     allowLanTitle: "允许局域网连接",
     allowLanDesc: "接受来自局域网其他设备的代理请求",
     tunTitle: "TUN 模式（虚拟网卡）",

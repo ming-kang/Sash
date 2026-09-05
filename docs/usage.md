@@ -64,7 +64,7 @@ Profiles, the system proxy and all runtime settings are managed from the web das
   },
   "uiInstalled": true,
   "endpoints": {
-    "mixedProxy": "127.0.0.1:17890",
+    "mixedProxy": "127.0.0.1:7890",
     "controller": "127.0.0.1:9090",
     "daemonApi": "http://127.0.0.1:19090",
     "dashboard": "http://127.0.0.1:19090/ui/"
@@ -131,7 +131,7 @@ Core updates download and validate before shutdown, then use an authenticated ma
 | Key | Default | Description |
 | :--- | :--- | :--- |
 | `schemaVersion` | `1` | On-disk settings schema; managed by Sash. |
-| `mixedPort` | `17890` | Local HTTP/SOCKS5 mixed inbound port. The CLI key is `mixed-port`. |
+| `mixedPort` | `7890` | Local HTTP/SOCKS5 mixed inbound port. The CLI key is `mixed-port`. |
 | `controller` | `127.0.0.1:9090` | Internal controller listen address; only loopback hosts are accepted. |
 | `daemonPort` | `19090` | Daemon API and WebUI port. |
 | `secret` | *(random)* | Internal controller secret. It is never returned by the public status API. |

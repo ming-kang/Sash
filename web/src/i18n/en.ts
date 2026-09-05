@@ -174,7 +174,7 @@ export const en: Messages = {
     langDesc: "Display language of the console",
     networkTitle: "Network & Listeners",
     mixedPortTitle: "Mixed Proxy Port",
-    mixedPortDesc: "Local HTTP / SOCKS5 mixed inbound port (default 17890; core restarts on save)",
+    mixedPortDesc: "Local HTTP / SOCKS5 mixed inbound port (default 7890; core restarts on save)",
     allowLanTitle: "Allow LAN Connections",
     allowLanDesc: "Accept proxy requests from other devices on the LAN",
     tunTitle: "TUN Mode (Virtual NIC)",

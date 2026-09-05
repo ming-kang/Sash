@@ -84,7 +84,7 @@ export function sameSettings(a: SashSettings, b: SashSettings): boolean {
 
 export const DEFAULT_SETTINGS: SashSettings = {
   schemaVersion: 1,
-  mixedPort: 17890,
+  mixedPort: 7890,
   controller: "127.0.0.1:9090",
   secret: "",
   tun: false,

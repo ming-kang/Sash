@@ -96,7 +96,7 @@ describe("SettingsService", () => {
     await service.apply({ mixedPort: 18888 });
 
     assert.equal(observedRuntimePort, 18888);
-    assert.equal(observedCommittedPort, 17890);
+    assert.equal(observedCommittedPort, 7890);
     assert.equal(committed.mixedPort, 18888);
     assert.equal(loadSettings(layout).mixedPort, 18888);
   });

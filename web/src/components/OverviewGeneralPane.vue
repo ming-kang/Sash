@@ -84,7 +84,7 @@
             :title="t('page.settings.title')"
             @click="navigate('settings')"
           >
-            127.0.0.1:{{ store.status?.settings.mixedPort ?? 17890 }}
+            127.0.0.1:{{ store.status?.settings.mixedPort ?? 7890 }}
           </button>
         </div>
       </div>
