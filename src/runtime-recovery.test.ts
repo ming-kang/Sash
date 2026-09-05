@@ -28,6 +28,64 @@ describe("orphaned runtime recovery", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it("restores proxy before service recovery and never uses direct PID cleanup", async () => {
+    const events: string[] = [];
+    await reconcileOrphanedRuntime(
+      { layout, settings },
+      {
+        systemProxy: {
+          release: async () => {
+            events.push("proxy");
+          },
+        },
+        recoverService: async () => {
+          events.push("service:stop-and-close");
+          return true;
+        },
+        supervisor: {
+          cleanStaleCore: async () => {
+            throw new Error("direct cleanup forbidden");
+          },
+        },
+        recoverCoreUpdate: () => {
+          events.push("journals");
+          return undefined;
+        },
+      },
+    );
+    assert.deepEqual(events, ["proxy", "service:stop-and-close", "journals"]);
+  });
+
+  it("does not fall back on service conflict or unavailable ownership", async () => {
+    const events: string[] = [];
+    await assert.rejects(
+      reconcileOrphanedRuntime(
+        { layout, settings },
+        {
+          systemProxy: {
+            release: async () => {
+              events.push("proxy");
+            },
+          },
+          recoverService: async () => {
+            throw new Error("service conflict");
+          },
+          supervisor: {
+            cleanStaleCore: async () => {
+              events.push("direct");
+            },
+          },
+          recoverCoreUpdate: () => {
+            events.push("journals");
+            return undefined;
+          },
+        },
+      ),
+      /service conflict/,
+    );
+    assert.deepEqual(events, ["proxy"]);
+  });
+
   it("uses the fixed legacy, proxy, Core, transaction, and controller order", async () => {
     const events: string[] = [];
 

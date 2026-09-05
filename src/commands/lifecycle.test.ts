@@ -112,7 +112,10 @@ describe("lifecycle commands", () => {
     );
     assert.match(warnings.join("\n"), /TUN was requested but is inactive/);
     if (process.platform === "win32") {
-      assert.match(warnings.join("\n"), /PowerShell as Administrator and run "sash restart"/);
+      assert.match(
+        warnings.join("\n"),
+        /PowerShell as Administrator and run "sash service install"/,
+      );
     } else {
       assert.match(warnings.join("\n"), /Restart Sash with root privileges.*command -v sash/s);
     }

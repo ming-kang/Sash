@@ -17,6 +17,10 @@
   ],
   "scripts": {
     "clean:build": "node scripts/clean-build.mjs",
+    "build:service": "node scripts/build-service.mjs",
+    "test:service": "cd service && go test -mod=readonly ./...",
+    "check:service": "cd service && go vet -mod=readonly ./...",
+    "audit:service": "cd service && go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...",
     "build:ui": "node scripts/build-ui.mjs",
     "build": "npm run clean:build && tsc -p tsconfig.build.json && npm run build:ui",
     "dev": "tsx src/cli.ts",

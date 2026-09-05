@@ -25,6 +25,35 @@ export function markDaemonOffline(): void {
   transitionRuntimeOwner(null);
   store.daemonOnline = false;
   store.status = null;
+  store.serviceStatus = null;
+  store.serviceCheckedAt = 0;
+  requests.invalidate("service");
+}
+
+async function refreshServiceForStatus(
+  status: SashStatus,
+  isCurrent: () => boolean,
+): Promise<void> {
+  if (Date.now() - store.serviceCheckedAt < 5000) return;
+  const request = requests.begin("service");
+  const session = api.getSessionGeneration();
+  const current = () =>
+    isCurrent() &&
+    requests.isCurrent("service", request) &&
+    session === api.getSessionGeneration() &&
+    store.status?.daemon.startedAt === status.daemon.startedAt;
+  try {
+    const service = await api.getServiceStatus();
+    if (current()) {
+      store.serviceStatus = service;
+      store.serviceCheckedAt = Date.now();
+    }
+  } catch {
+    if (current()) {
+      store.serviceStatus = null;
+      store.serviceCheckedAt = Date.now();
+    }
+  }
 }
 
 async function refreshProfilesForStatus(
@@ -68,7 +97,10 @@ async function refreshRuntime(
   if (!isCurrent()) return "superseded";
   adoptDaemonStatus(status);
 
-  const profiles = refreshProfilesForStatus(status, runtimeRequest);
+  const profiles = Promise.all([
+    refreshProfilesForStatus(status, runtimeRequest),
+    refreshServiceForStatus(status, isCurrent),
+  ]);
   if (!isCoreHealthy(status)) {
     await profiles;
     return !isCurrent() ? "superseded" : status.core.running ? "degraded" : "stopped";

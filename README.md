@@ -2,7 +2,7 @@
 
 > A lightweight command-line companion and web dashboard for a rule-based network core.
 
-Sash is a **network toolbox for developers and advanced users**. It installs, runs, and maintains a rule-based network core on your machine: local HTTP/SOCKS endpoints, rule-driven traffic routing, remote profile management, live traffic inspection through a built-in web dashboard, and an optional TUN mode for device-level traffic takeover.
+Sash is a **network toolbox for developers, learning, and research**. It installs, runs, and maintains a rule-based network core on your machine: local HTTP/SOCKS endpoints, rule-driven traffic routing, remote profile management, live traffic inspection through a built-in web dashboard, and an optional TUN mode for device-level traffic takeover.
 
 ## Features
 
@@ -12,7 +12,7 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 - **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
 - **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles from the dashboard
 - **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)
-- **TUN mode** — `sash tun on|off` or dashboard controls, with verified activation and rollback (requires an elevated Sash runtime)
+- **Windows service mode** — an optional privileged Core service with an ordinary-user daemon and dashboard; TUN is controlled from the dashboard with verified activation and rollback
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
 
 ## Requirements
@@ -49,7 +49,9 @@ sash status                # runtime state, endpoints, and proxy status
 sash stop                  # restores prior proxy state, stops core and sashd
 ```
 
-TUN controls require an already responsive daemon; they never start or elevate it. After a failed enable rolls back, restart the **whole Sash runtime** elevated with the same data directory, then run `sash tun on` again. See [TUN setup and DNS policy](./docs/usage.md#4-tun-mode), including POSIX private-file ownership precautions. An active TUN listener is not proof of connectivity or complete traffic capture.
+On Windows, TUN requires the optional Sash Service, not an elevated daemon. Run `sash service install` in an Administrator PowerShell under the same user and `SASH_HOME`, then return to an ordinary shell for `sash start` and enable TUN in the dashboard. Installation stops the previous daemon/proxy and does not enable TUN or automatically restart the user daemon. See [service setup and TUN policy](./docs/usage.md#4-tun-mode). Non-Windows manual elevation remains supported; there is no `sash tun` command.
+
+Ordinary npm install/build/use requires no Go toolchain. For npm installations, the helper is downloaded separately from the matching official Sash GitHub release with mandatory asset-digest verification; neither helper nor Core binaries are bundled in npm. Source developers can use `npm run build:service` with Go 1.26.7; see the [native build guide](https://github.com/ming-kang/Sash/blob/main/service/README.md). An active TUN listener is not proof of connectivity or complete traffic capture.
 
 ## Documentation
 
@@ -58,6 +60,7 @@ Comprehensive documentation is available in the [`docs/`](./docs) directory:
 - [**User & Operations Guide**](./docs/usage.md) — complete CLI command reference, configuration parameters, TUN mode, and troubleshooting.
 - [**Backend Architecture**](./docs/backend.md) — supervisor daemon model (`sashd`), API endpoints, lifecycle management, system proxy adapters, and safety invariants.
 - [**Frontend Architecture**](./docs/frontend.md) — built-in Vue 3 + Vite dashboard, shared API contracts, reactive runtime state, and WebSocket streaming.
+- [**Service Protocol**](./docs/service-protocol.md) — Windows trust boundaries, safe configuration policy and helper artifact release procedure.
 - [**Third-Party Notices**](./THIRD_PARTY_NOTICES.md) — licenses and attribution for code/assets embedded in the dashboard and the runtime-downloaded Core.
 
 ## Disclaimer

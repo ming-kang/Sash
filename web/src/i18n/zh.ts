@@ -1,4 +1,27 @@
 export const zh = {
+  service: {
+    title: "Windows 核心服务",
+    unknown: "状态未知",
+    "not-installed": "未安装",
+    ready: "就绪",
+    unavailable: "不可用",
+    incompatible: "版本不兼容",
+    "root-mismatch": "注册冲突",
+    ownership:
+      "服务负责特权核心子进程；Sash 用户守护进程在普通 PowerShell 中运行。此页面不会安装、提权或启动服务。",
+    nativeVersion: "服务版本",
+    adminInstall: "仅安装需要：以同一 Windows 用户打开管理员 PowerShell，使用相同的 SASH_HOME：",
+    normalStart: "随后在普通 PowerShell 中使用相同的 SASH_HOME 启动 Sash，再从面板启用 TUN：",
+    guidance: {
+      unknown: "无法确认服务状态。启用 Windows TUN 前请检查命令行服务状态。",
+      "not-installed": "Windows TUN 需要核心服务，其他网络设置仍可使用。",
+      unavailable: "无法连接服务。请检查服务状态并在管理员 PowerShell 中修复；不会回退到直接启动。",
+      incompatible:
+        "请在管理员 PowerShell 中使用匹配的 Sash 版本更新或修复服务；不会回退到直接启动。",
+      "root-mismatch":
+        "请使用已注册的 Windows 用户和 SASH_HOME。不要接管其他注册，请先由其所有者卸载。",
+    },
+  },
   app: {
     coreRunning: "核心运行中",
     coreStopped: "核心已停止",
@@ -177,22 +200,22 @@ export const zh = {
     allowLanDesc: "接受来自局域网其他设备的代理请求",
     tunTitle: "TUN 模式（虚拟网卡）",
     tunDesc:
-      "通过虚拟网卡路由受支持的流量，需要管理员 / root 权限。核心报告的状态不代表所有流量或 DNS 均已接管。若启用已回滚，请先在提权终端运行 sash restart，再重新启用。",
+      "通过虚拟网卡路由受支持的流量。Windows 需要核心服务：在管理员 PowerShell 中安装后，正常运行 Sash。POSIX 仍需手动以 root 运行。核心状态不代表全部流量或 DNS 均已接管。",
     tunStateActive: "已生效",
     tunStateInactive: "未生效",
     tunStateUnverified: "未核验",
     tunStateStopped: "待启动",
     tunStateUnexpected: "状态不一致",
     tunInactiveDesc:
-      "核心报告 TUN 未启用。请检查核心错误日志；若为权限错误，请从管理员 / root 终端运行 sash restart，重启整个守护进程。若启用已回滚，请随后重新启用 TUN。网页“重启核心”无法提升守护进程权限。",
+      "核心报告 TUN 未启用。Windows 请检查核心日志和服务状态，不要提升用户守护进程权限。POSIX 请使用相同数据目录以 root 重启 Sash；若已回滚，随后重新启用 TUN。",
     tunUnverifiedDesc:
-      "TUN 已配置，但无法获取核心报告的状态；这不代表权限不足。请检查核心健康状态和错误日志后重试。若为权限错误，请从管理员 / root 终端运行 sash restart；网页“重启核心”无法提升守护进程权限。",
+      "已配置 TUN，但运行状态未知，不代表权限不足。请检查核心健康状态、日志和 Windows 服务状态后重试。",
     tunUnexpectedDesc:
       "核心报告 TUN 已启用，但已保存的设置为关闭。请检查核心日志并重启核心，重新应用已保存的设置。",
     coreTitle: "核心控制",
     restartTitle: "重启核心进程",
     restartDesc:
-      "仅重启核心子进程并重新应用配置，活动连接会中断；无法提升守护进程权限，提权请在管理员 / root 终端运行 sash restart。",
+      "重启核心并重新应用配置，连接会中断。Windows 服务模式下，由服务负责核心子进程，用户守护进程不需要提权。",
     restartBtn: "重启核心",
     restartConfirmTitle: "重启核心",
     restartConfirmMsg: "重启期间活动连接会中断，确定继续？",

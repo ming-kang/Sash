@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
+import type { CoreRuntime } from "./core-runtime.js";
 import {
   type CoreState,
-  type CoreSupervisor,
   createDaemonServer,
   type DaemonInstance,
   type DaemonScheduler,
@@ -19,7 +19,7 @@ import type { SystemProxyState } from "./sysproxy.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
 
 export interface DaemonServerOverrides {
-  supervisor?: CoreSupervisor;
+  supervisor?: CoreRuntime;
   systemProxy?: SystemProxyController;
   fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
   validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
@@ -106,7 +106,7 @@ export class DaemonTestHarness {
   }
 
   async startServer(overrides: DaemonServerOverrides = {}): Promise<DaemonInstance> {
-    const fakeSupervisor: CoreSupervisor =
+    const fakeSupervisor: CoreRuntime =
       overrides.supervisor ??
       ({
         isRunning: () => false,
@@ -117,7 +117,7 @@ export class DaemonTestHarness {
         stop: async () => {},
         restart: async () => ({ pid: 10000, version: "v1.0.0" }),
         cleanStaleCore: async () => {},
-      } as unknown as CoreSupervisor);
+      } as unknown as CoreRuntime);
 
     const instance = createDaemonServer({
       layout: this.layout,

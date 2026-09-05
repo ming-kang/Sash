@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Require patched Go 1.26.7 for the native helper instead of the initially tested 1.26.4 toolchain, addressing reachable standard-library findings reported by `govulncheck`.
 - Correct cross-platform TUN privilege-guidance assertions and invoke the logs test's registered signal handler directly instead of emitting a process-wide signal that can terminate the shared runner; these corrections do not establish that all remote CI passes.
 - Resolve native Windows log-watcher directories through realpath to avoid the libuv short-name (8.3 prefix) abort. Scope a Koffi `2.16.3` override to `cn-font-split` for upstream Node.js 24.14+ teardown fixes; local uncached build validated, remote macOS CI not yet confirmed.
 - Verify active TUN after every settings-driven restart and profile/config hot reload when TUN is desired, with prior-state/runtime compensation on inactive or unverified results. API errors distinguish `409 tun_inactive`, `409 tun_unverified`, settings conflicts and invalid TUN/DNS candidates; incomplete rollback reports `500` details.
@@ -16,11 +17,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `sash tun <on|off>` changes intent through the verified responsive daemon's settings API without auto-start, elevation or offline edits; stopped Core intent remains pending start. Document elevated full restart followed by re-enable, including same-root and POSIX private-file ownership precautions.
+- Optional Windows Sash Service: independently implemented Go helper owns privileged Core as SYSTEM while the daemon, profiles, settings and system-proxy ownership remain user-owned. Explicit same-user administrative install/uninstall and service-mode `sash update [--version V]` use protected staging and retain Core rollback until a healthy managed start; no auto-UAC or automatic Core/TUN start at install or boot.
+- SID-authenticated native bridge and session/generation-based Core ownership, private controller credentials, bounded independently validated configuration bundles, unprivileged provider refresh and digest-verified geodata cache. Raw Core config replacement and upgrade routes are denied in service mode.
+- `sash service status`, service status API and dashboard card distinguish not-installed, ready, unavailable, incompatible and root mismatch. Service probe failures preserve `core.running: null` with query diagnostics without marking a reachable daemon offline.
+- Separate Go 1.26.7 helper builds for Windows amd64/arm64, native fixture tests/vet, bundled helper license notices and a manually dispatched tag-only artifact workflow that attaches immutable assets to an existing release. npm build and package contents remain TypeScript/UI-only, with helpers fetched separately from the matching digest-verified release.
 - Validated profile TUN `stack`, `mtu` and `strict-route` overrides alongside Sash-owned routing/DNS-hijack policy. TUN supplies enabled DNS defaults only when absent, normalizes missing DNS enable, preserves existing DNS choices and rejects incompatible disabled/malformed DNS before publication.
 - Deterministic dual-engine TUN WebUI mock verification in `scripts/tun-ui-verify.mts`, without starting a real Core or changing OS networking.
 - OIDC trusted-publishing release workflow (`.github/workflows/publish.yml`): manually dispatched, idempotent (an already-published version is verified through its registry provenance instead of failing), and re-verifies installation from the registry after publishing. Package smoke verification (`scripts/package-smoke.mjs`) now accepts an external install spec (tarball path or `name@version`) and resolves the Node-bundled npm CLI when run outside `npm run`.
 - `RELEASING.md` release runbook and Dependabot configuration for npm and GitHub Actions updates.
+
+### Changed
+
+- Windows TUN now requires the optional service; run `sash service install` in a same-user Administrator shell, then `sash start` ordinarily and enable TUN from the dashboard. Remove the unreleased CLI TUN toggle; non-Windows direct mode retains manual elevated restart and same-root/private-file ownership precautions.
 
 ## [0.1.0] - 2026-09-05
 

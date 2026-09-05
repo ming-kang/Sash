@@ -233,9 +233,9 @@ describe("daemon server", () => {
       assert.equal(res.statusCode, 409);
       assert.equal((res.data as { error: { code: string } }).error.code, "tun_inactive");
       const message = (res.data as { error: { message: string } }).error.message;
-      assert.match(message, /TUN did not become active.*sash tun on/s);
+      assert.match(message, /TUN did not become active.*dashboard/s);
       if (process.platform === "win32") {
-        assert.match(message, /PowerShell as Administrator and run "sash restart"/);
+        assert.match(message, /PowerShell as Administrator and run "sash service install"/);
       } else {
         assert.match(message, /Restart Sash with root privileges.*command -v sash/s);
       }

@@ -16,6 +16,11 @@ import {
 } from "./daemon-lifecycle.js";
 import { log } from "./log.js";
 import { type RuntimeContext, runOfflineMutation } from "./offline-mutation.js";
+import {
+  inspectService,
+  requireActiveService,
+  type ServiceDiscoveryDeps,
+} from "./service-client.js";
 import { withStateLock } from "./state-lock.js";
 
 /**
@@ -51,7 +56,15 @@ export async function resolveRuntimeOwner(
 }
 
 /** Install the Core when missing; refuse to touch an ambiguous binary. */
-export async function ensureCore(ctx: RuntimeContext): Promise<void> {
+export async function ensureCore(
+  ctx: RuntimeContext,
+  discovery?: ServiceDiscoveryDeps,
+): Promise<void> {
+  const service = await inspectService(ctx.layout, discovery);
+  if (service.installed) {
+    requireActiveService(service, ctx.layout);
+    return;
+  }
   recoverCoreInstallTransaction(ctx.layout);
   recoverCoordinatedCoreUpdate(ctx.layout);
   assertCoreInstallationConsistent(ctx.layout);

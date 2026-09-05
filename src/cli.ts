@@ -3,12 +3,12 @@ import "./node-version-guard.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Argument, Command, CommanderError, InvalidArgumentError } from "commander";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
+import { runServiceInstall, runServiceStatus, runServiceUninstall } from "./commands/service.js";
 import { runStatus } from "./commands/status.js";
-import { runTun } from "./commands/tun.js";
 import { runUpdate } from "./commands/update.js";
 import { runUpgrade } from "./commands/upgrade.js";
 import { runWeb } from "./commands/web.js";
@@ -71,11 +71,26 @@ program
   .option("--json", "output machine-readable JSON")
   .action(withCliErrors((opts: { json?: boolean }) => runStatus(opts)));
 
-program
-  .command("tun")
-  .description("set TUN on or off through the running daemon (does not start or elevate Core)")
-  .addArgument(new Argument("<on|off>", "desired TUN setting").choices(["on", "off"]))
-  .action(withCliErrors((target: "on" | "off") => runTun(target)));
+const service = program
+  .command("service")
+  .description("manage the Windows Core service (installation requires Administrator)");
+service
+  .command("install")
+  .description("install or repair the Core service from an Administrator PowerShell")
+  .option("--core-version <tag>", "install a specific Core version")
+  .option("--helper <path>", "use a locally built service helper")
+  .action(
+    withCliErrors((opts: { coreVersion?: string; helper?: string }) => runServiceInstall(opts)),
+  );
+service
+  .command("status")
+  .description("show service availability without starting Core")
+  .option("--json", "output machine-readable JSON")
+  .action(withCliErrors((opts: { json?: boolean }) => runServiceStatus(opts)));
+service
+  .command("uninstall")
+  .description("uninstall the Core service from an Administrator PowerShell")
+  .action(withCliErrors(() => runServiceUninstall()));
 
 program
   .command("logs")

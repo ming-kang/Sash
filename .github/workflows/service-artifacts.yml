@@ -1,0 +1,122 @@
+name: Publish service artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: service-artifacts-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.target.outputs.tag }}
+      commit: ${{ steps.target.outputs.commit }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Verify existing tag and checkout
+        id: target
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const tag = `v${version}`;
+          if (process.env.GITHUB_REF !== `refs/tags/${tag}`) {
+            throw new Error('Dispatch on the existing v<package.json version> tag, never a branch.');
+          }
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          const commit = git('rev-parse', 'HEAD');
+          if (commit !== git('rev-parse', `refs/tags/${tag}^{commit}`) || commit !== process.env.GITHUB_SHA) {
+            throw new Error('Checkout does not match the requested tag/dispatch commit');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\ncommit=${commit}\n`);
+          NODE
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0; verified against actions/setup-go
+        with:
+          go-version: '1.26.7'
+          cache-dependency-path: service/go.sum
+      - name: Test native fixtures only (no SCM install or real Core/TUN)
+        run: |
+          export SASH_HOME="$(cygpath -w "$RUNNER_TEMP/sash-service-tests")"
+          npm run test:service
+          npm run check:service
+          npm run audit:service
+      - name: Build Windows console helpers and notices
+        run: |
+          npm run build:service -- --arch amd64
+          npm run build:service -- --arch arm64
+          mkdir service-assets
+          cp .native/windows-amd64/sash-service.exe service-assets/sash-service-windows-amd64.exe
+          cp .native/windows-arm64/sash-service.exe service-assets/sash-service-windows-arm64.exe
+          cp .native/windows-amd64/sash-service-{LICENSE,NOTICE}.txt service-assets/
+          cd service-assets
+          sha256sum sash-service-windows-*.exe sash-service-LICENSE.txt sash-service-NOTICE.txt > sash-service-SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: service-assets
+          path: service-assets/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: service-assets
+          path: service-assets
+      - name: Attach immutable assets to an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Refuse a moved tag between build and publication, including annotated tags.
+          ref="$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG")"
+          kind="$(jq -r '.object.type' <<< "$ref")"
+          sha="$(jq -r '.object.sha' <<< "$ref")"
+          while [ "$kind" = tag ]; do
+            ref="$(gh api "repos/$GH_REPO/git/tags/$sha")"
+            kind="$(jq -r '.object.type' <<< "$ref")"
+            sha="$(jq -r '.object.sha' <<< "$ref")"
+          done
+          test "$kind" = commit && test "$sha" = "$RELEASE_COMMIT"
+          gh release view "$RELEASE_TAG" --json assets > release.json
+          (cd service-assets && sha256sum -c sash-service-SHA256SUMS.txt)
+          mkdir existing
+          # Preflight every collision before uploading anything. No replacement or release creation.
+          for file in service-assets/*; do
+            name="$(basename "$file")"
+            if jq -e --arg name "$name" '.assets[] | select(.name == $name)' release.json >/dev/null; then
+              gh release download "$RELEASE_TAG" --pattern "$name" --dir existing
+              cmp "$file" "existing/$name" || { echo "Immutable asset differs: $name" >&2; exit 1; }
+            fi
+          done
+          for file in service-assets/*; do
+            name="$(basename "$file")"
+            if [ ! -f "existing/$name" ]; then
+              gh release upload "$RELEASE_TAG" "$file"
+            fi
+          done

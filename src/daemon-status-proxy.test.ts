@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
+import { parseDaemonStatus, parseHealthInfo } from "./contracts.js";
 import { writeInstallRecord } from "./core.js";
+import type { CoreRuntime } from "./core-runtime.js";
 import type { CoreState, CoreSupervisor, DaemonScheduler } from "./daemon.js";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
@@ -28,6 +30,61 @@ describe("daemon server", () => {
       assert.equal(data.core.version, "v1.2.3");
       assert.equal(data.systemProxy.desired, false);
     });
+
+    for (const backend of ["service", "direct"] as const) {
+      it(`preserves daemon identity while ${backend} status observation fails`, async () => {
+        let queries = 0;
+        const supervisor: CoreRuntime = {
+          backend,
+          isRunning: () => false,
+          ownedCoreSnapshot: () => undefined,
+          ownsCore: () => false,
+          status: async () => {
+            queries++;
+            throw new Error(`private backend detail ${h.settings.secret}`);
+          },
+          start: async () => ({ pid: 1234 }),
+          restart: async () => ({ pid: 1234 }),
+          stop: async () => {},
+        };
+        await h.startServer({ supervisor });
+        const before = parseHealthInfo((await h.apiRequest("/sash/daemon/health")).data);
+        assert.equal(
+          (await h.apiRequest("/sash/daemon/status", { origin: "https://untrusted.example" }))
+            .statusCode,
+          403,
+        );
+        assert.equal(
+          (await h.apiRequest("/sash/core/start", { method: "POST", token: "" })).statusCode,
+          401,
+        );
+        assert.equal(queries, 0);
+        const response = await h.apiRequest("/sash/daemon/status");
+        if (backend === "service") {
+          assert.equal(response.statusCode, 200);
+          const data = parseDaemonStatus(response.data);
+          assert.deepEqual(data.core, {
+            running: null,
+            healthy: false,
+            queryError: "Sash Service Core state could not be verified",
+          });
+          assert.equal(data.daemon.pid, before.pid);
+          assert.equal(data.daemon.startedAt, before.startedAt);
+          const text = JSON.stringify(response.data);
+          for (const secret of [
+            h.settings.secret,
+            h.settings.daemonSecret,
+            "private backend detail",
+          ]) {
+            assert.equal(text.includes(secret), false);
+          }
+        } else {
+          assert.equal(response.statusCode, 500);
+          assert.equal((response.data as { error: { code: string } }).error.code, "internal");
+        }
+        assert.deepEqual(parseHealthInfo((await h.apiRequest("/sash/daemon/health")).data), before);
+      });
+    }
 
     it("keeps health responsive while async proxy inspection is pending", async () => {
       let inspectFresh: boolean | undefined;

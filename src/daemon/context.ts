@@ -1,4 +1,5 @@
 import type { CoreStartResult, ShutdownResult } from "../contracts.js";
+import type { CoreRuntime } from "../core-runtime.js";
 import type { GeneratedConfig } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
 import type { ProfileService } from "../profile-service.js";
@@ -6,7 +7,6 @@ import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { SashSettings } from "../settings.js";
 import type { SettingsService } from "../settings-service.js";
 import type { StateMutationQueue } from "../state-lock.js";
-import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../system-proxy-manager.js";
 import { ShuttingDownError } from "./errors.js";
 
@@ -66,7 +66,7 @@ export interface DaemonContext {
   readonly profiles: ProfileService;
   readonly settingsService: SettingsService;
   readonly lifecycle: RuntimeLifecycle;
-  readonly supervisor: CoreSupervisor;
+  readonly supervisor: CoreRuntime;
   readonly systemProxy: SystemProxyController;
   readonly gate: DaemonGate;
   readonly settings: {
@@ -74,6 +74,7 @@ export interface DaemonContext {
     runtime(): SashSettings;
   };
   mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T>;
+  coreControllerEndpoint?(): { controller: string; secret: string };
   profileRevision(): number;
   startCore(): Promise<CoreStartResult>;
   restartCore(): Promise<CoreStartResult>;

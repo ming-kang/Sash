@@ -154,13 +154,15 @@
             <UiSwitch
               :model-value="store.status?.settings.tun ?? false"
               :label="t('settings.tunTitle')"
-              :disabled="store.operations.networkSetting || !store.status"
+              :disabled="!canToggleTun"
               @update:model-value="toggleTun"
             />
           </div>
         </div>
         <TunFeedback />
       </UiCard>
+
+      <ServiceCard />
 
       <!-- Core control -->
       <UiCard :title="t('settings.coreTitle')" class="settings-card">
@@ -225,6 +227,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { api } from "../api/index.js";
+import ServiceCard from "../components/ServiceCard.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import UiCard from "../components/UiCard.vue";
@@ -233,6 +236,7 @@ import UiSwitch from "../components/UiSwitch.vue";
 import { coreVersion, tunStatusBadge, useCoreRestart } from "../composables/core-runtime.js";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
 import {
+  canToggleTun,
   errorText,
   patchBooleanSetting,
   refreshRuntimeState,

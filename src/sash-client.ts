@@ -11,6 +11,7 @@ import {
   type ProfilesIndex,
   type ProfilesUpdateAllResponse,
   type ProfileUpdateResponse,
+  type PublicServiceStatus,
   parseApiErrorBody,
   parseCoreReloadResult,
   parseCoreStartResult,
@@ -24,6 +25,7 @@ import {
   parseProfilesIndex,
   parseProfilesUpdateAllResponse,
   parseProfileUpdateResponse,
+  parsePublicServiceStatus,
   parsePublicSettings,
   parseSettingsFileContent,
   parseSettingsWriteResult,
@@ -170,6 +172,10 @@ export class SashClient {
     return parseHealthInfo(
       await this.request("/sash/daemon/health", { timeoutMs: 2_000, attempts: 1 }),
     );
+  }
+
+  async serviceStatus(): Promise<PublicServiceStatus> {
+    return parsePublicServiceStatus(await this.request("/sash/service"));
   }
 
   async status(fresh = false): Promise<DaemonStatus> {

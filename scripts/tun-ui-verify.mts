@@ -12,6 +12,8 @@ import {
   apiErrorBody,
   type DaemonStatus,
   parseDaemonStatus,
+  parsePublicServiceStatus,
+  type PublicServiceStatus,
   parseHealthInfo,
   parseProfilesIndex,
   parseSettingsPatch,
@@ -35,6 +37,7 @@ const scenarios: Array<{
   desired: boolean;
   core: DaemonStatus["core"];
   badge: string;
+  service?: PublicServiceStatus;
 }> = [
   {
     name: "off",
@@ -74,6 +77,16 @@ const scenarios: Array<{
     badge: "State mismatch",
   },
 ];
+for (const service of [
+  { supported: true, state: "not-installed" },
+  { supported: true, state: "unavailable" },
+  { supported: true, state: "incompatible" },
+  { supported: true, state: "root-mismatch" },
+  { supported: true, state: "ready", version: "0.1.0", coreVersion: "v1.19.30" },
+  { supported: false, state: "not-installed" },
+] satisfies PublicServiceStatus[]) {
+  scenarios.push({ ...scenarios[0]!, name: `service-${service.supported ? service.state : "mac-unsupported"}`, service });
+}
 const violations: string[] = [];
 const results: string[] = [];
 const versions: Record<string, string> = {};
@@ -266,6 +279,9 @@ try {
                           );
                         } else await json(parseDaemonStatus(status));
                         return;
+                      case "GET /sash/service":
+                        await json(parsePublicServiceStatus(scenario.service ?? { supported: true, state: "ready", version: "0.1.0", coreVersion: "v1.19.30" }));
+                        return;
                       case "GET /sash/profiles":
                         await json(parseProfilesIndex({ activeId: null, profiles: [] }));
                         return;
@@ -383,6 +399,23 @@ try {
                     (await description.textContent())?.trim(),
                     "TUN guidance is exposed as a live status",
                   );
+                }
+                if (scenario.service) {
+                  if (routeName === "settings") {
+                    const labels = { "not-installed": "Not installed", ready: "Ready", unavailable: "Unavailable", incompatible: "Incompatible", "root-mismatch": "Enrollment conflict" };
+                    await page.waitForFunction(({ supported, label }) => {
+                      const card = document.querySelector(".service-card");
+                      return supported ? card?.textContent?.includes(label) : card === null;
+                    }, { supported: scenario.service.supported, label: labels[scenario.service.state] });
+                  }
+                  const blocked = scenario.service.supported && scenario.service.state !== "ready";
+                  if (blocked) await page.waitForFunction(() => document.querySelector('.caution-row button:disabled, .toggle-button:last-child:disabled'));
+                  assert.equal(await control.isDisabled(), blocked);
+                  if (routeName === "settings") {
+                    assert.equal(await page.locator(".service-card").count(), scenario.service.supported ? 1 : 0);
+                    if (scenario.service.state === "not-installed" && scenario.service.supported)
+                      assert((await page.locator(".service-card").textContent())?.includes("sash service install"));
+                  }
                 }
                 if (scenario.name === "failed-enable" || scenario.name === "saved-unverified") {
                   await control.click();

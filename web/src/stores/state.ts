@@ -1,4 +1,5 @@
 import { computed, shallowReactive } from "vue";
+import type { PublicServiceStatus } from "../../../src/contracts.js";
 import type {
   ConnectionItem,
   LogMessage,
@@ -32,6 +33,8 @@ export interface StoredLogMessage extends LogMessage {
 
 export interface StoreState {
   status: SashStatus | null;
+  serviceStatus: PublicServiceStatus | null;
+  serviceCheckedAt: number;
   daemonOnline: boolean;
   lastProfileRevision: number | null;
   coreSnapshotAvailable: boolean;
@@ -88,6 +91,8 @@ export const runtimeOwnership: RuntimeOwnershipState = {
 // in place. Deep proxies would wrap every nested object on every poll cycle.
 export const store = shallowReactive<StoreState>({
   status: null,
+  serviceStatus: null,
+  serviceCheckedAt: 0,
   daemonOnline: true,
   lastProfileRevision: null,
   coreSnapshotAvailable: false,
@@ -125,6 +130,14 @@ export const store = shallowReactive<StoreState>({
 export const isSysProxyOn = computed(() => systemProxyNeedsDisable(store.status));
 export const isCoreRunning = computed(() => store.status?.core.running ?? false);
 export const isCoreReady = computed(() => isCoreHealthy(store.status));
+export const canToggleTun = computed(
+  () =>
+    !store.operations.networkSetting &&
+    store.status !== null &&
+    (store.status.settings.tun ||
+      !store.serviceStatus?.supported ||
+      store.serviceStatus.state === "ready"),
+);
 export const tunRuntime = computed(() => tunRuntimeState(store.status));
 export const runtimeNotice = computed(() =>
   runtimeNoticeKind(
@@ -169,6 +182,9 @@ export function transitionRuntimeOwner(status: SashStatus | null): void {
 
 export function adoptDaemonStatus(status: SashStatus): void {
   if (runtimeOwnership.lastDaemonStartedAt !== status.daemon.startedAt) {
+    store.serviceStatus = null;
+    store.serviceCheckedAt = 0;
+    requests.invalidate("service");
     requests.invalidate("profiles");
     store.lastProfileRevision = null;
   }

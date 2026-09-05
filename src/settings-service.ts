@@ -1,4 +1,6 @@
 import type { SettingsPatch } from "./contracts.js";
+import type { CoreRuntime } from "./core-runtime.js";
+import { requireServiceForTun } from "./core-runtime.js";
 import { commitManagedStateTransaction } from "./managed-state-transaction.js";
 import type { SashLayout } from "./paths.js";
 import {
@@ -8,7 +10,6 @@ import {
 } from "./profile-service.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { type SashSettings, sameSettings, validateSettingsCandidate } from "./settings.js";
-import type { CoreSupervisor } from "./supervisor.js";
 import { tunPrivilegeGuidance } from "./tun-guidance.js";
 
 export class SettingsInputError extends Error {}
@@ -51,7 +52,7 @@ export interface SettingsServiceOptions {
   setCommitted: (settings: SashSettings) => void;
   setRuntime: (settings: SashSettings) => void;
   profiles: ProfileService;
-  supervisor?: CoreSupervisor;
+  supervisor?: CoreRuntime;
   lifecycle?: RuntimeLifecycle;
   /** Offline proxy-off release; online uses RuntimeLifecycle instead. */
   releaseSystemProxy?: () => Promise<void>;
@@ -84,6 +85,10 @@ export class SettingsService {
       candidate = validateSettingsCandidate(mergePatch(previous, patch));
     } catch (err) {
       throw new SettingsInputError((err as Error).message);
+    }
+
+    if (this.options.supervisor?.backend === "direct") {
+      requireServiceForTun(candidate.tun, "direct");
     }
 
     const restartRequired = candidate.daemonPort !== previous.daemonPort;
@@ -273,10 +278,13 @@ export class SettingsService {
             const result = await this.requireLifecycle().restart();
             if (opts.verifyTun && result.tunActive !== true) {
               const reason = result.tunActive === false ? "inactive" : "unverified";
-              const guidance = tunPrivilegeGuidance("activation-rolled-back", {
-                root: this.options.layout.root,
-                observation: reason,
-              });
+              const guidance =
+                this.options.supervisor?.backend === "service"
+                  ? "The previous settings were restored. Inspect Sash Service diagnostics before retrying."
+                  : tunPrivilegeGuidance("activation-rolled-back", {
+                      root: this.options.layout.root,
+                      observation: reason,
+                    });
               throw new TunActivationError(
                 reason,
                 reason === "inactive"

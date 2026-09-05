@@ -4,9 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { SashDaemonClient } from "./daemon-client.js";
-import type { RuntimeContext } from "./offline-mutation.js";
+import { type RuntimeContext, runOfflineMutation } from "./offline-mutation.js";
 import { sashLayout } from "./paths.js";
-import { resolveRuntimeOwner } from "./runtime-owner.js";
+import { ensureCore, resolveRuntimeOwner } from "./runtime-owner.js";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "./settings.js";
 
 describe("resolveRuntimeOwner", () => {
@@ -27,6 +27,78 @@ describe("resolveRuntimeOwner", () => {
 
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("blocks offline mutations when a service Core remains without a daemon", async () => {
+    let mutated = false;
+    await assert.rejects(
+      runOfflineMutation(
+        ctx,
+        "test orphan protection",
+        () => {
+          mutated = true;
+        },
+        {
+          serviceDiscovery: {
+            platform: "win32",
+            findHelper: () => "fake-helper",
+            runHelper: async () => ({
+              protocol: 1,
+              supported: true,
+              installed: true,
+              running: true,
+              compatible: true,
+              version: "0.1.0",
+              coreVersion: "v1.19.30",
+              root: fs.realpathSync(ctx.layout.root),
+              serviceInstance: "fake-boot",
+              generation: 1,
+              core: {
+                running: true,
+                pid: 12345,
+                healthy: true,
+                startedAt: new Date().toISOString(),
+              },
+            }),
+          },
+        },
+      ),
+      /Service Core is active/,
+    );
+    assert.equal(mutated, false);
+  });
+
+  it("uses the protected service Core without installing a user executable", async () => {
+    await ensureCore(ctx, {
+      platform: "win32",
+      findHelper: () => "fake-helper",
+      runHelper: async () => ({
+        protocol: 1,
+        supported: true,
+        installed: true,
+        running: true,
+        compatible: true,
+        version: "0.1.0",
+        coreVersion: "v1.19.30",
+        root: fs.realpathSync(ctx.layout.root),
+        serviceInstance: "fake-boot",
+        generation: 0,
+        core: { running: false },
+      }),
+    });
+    assert.equal(fs.existsSync(ctx.layout.coreExe), false);
+  });
+
+  it("refuses unavailable installed service instead of downloading direct Core", async () => {
+    await assert.rejects(
+      ensureCore(ctx, {
+        platform: "win32",
+        findHelper: () => "fake-helper",
+        runHelper: async () => ({ supported: true, installed: true, running: false }),
+      }),
+      /unavailable|incompatible/,
+    );
+    assert.equal(fs.existsSync(ctx.layout.coreExe), false);
   });
 
   it("constructs a daemon client from the observed healthy port", async () => {

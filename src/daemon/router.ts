@@ -5,9 +5,17 @@ import {
   isLoopbackHostHeader,
   isLoopbackOriginHeader,
 } from "../daemon-auth.js";
-import { type JsonObject, parseJsonObjectBody, sendError, sendJson } from "../daemon-http.js";
+import {
+  HttpError,
+  type JsonObject,
+  parseJsonObjectBody,
+  sendError,
+  sendJson,
+} from "../daemon-http.js";
 import { forwardHttpToCore } from "../daemon-proxy.js";
 import { serveStaticUi } from "../daemon-static.js";
+import { fetchWithRetry } from "../http.js";
+import { isPlainObject } from "../json-shape.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
 import { reloadCoreConfig, restartCore, startCore, stopCore } from "./handlers/core.js";
@@ -25,6 +33,7 @@ import {
   writeProfileContent,
 } from "./handlers/profiles.js";
 import { proxyStatus } from "./handlers/proxy.js";
+import { readServiceStatus } from "./handlers/service.js";
 import {
   patchSettings,
   readSettings,
@@ -75,6 +84,14 @@ export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
   const prefix = "/core/api";
   const suffix = target.pathname.slice(prefix.length);
   const upstreamPath = suffix ? `/${suffix.replace(/^\/+/, "")}` : "/";
+  let decoded = upstreamPath;
+  for (;;) {
+    if (decoded.replaceAll("\\", "/").split("/").includes("sash-service"))
+      throw new Error("The service control namespace is not exposed through the Core gateway");
+    const next = decodeURIComponent(decoded);
+    if (next === decoded) break;
+    decoded = next;
+  }
   return `${upstreamPath}${target.search}`;
 }
 
@@ -132,6 +149,12 @@ const CORE_API_PREFIX = "/core/api";
 /** The whole daemon HTTP surface, in matching order. */
 export function buildRoutes(): readonly RouteDef[] {
   return [
+    {
+      methods: ["GET"],
+      pattern: path("/sash/service"),
+      auth: "public",
+      handler: readServiceStatus,
+    },
     { methods: ["GET"], pattern: path("/sash/daemon/health"), auth: "public", handler: health },
     {
       methods: ["GET"],
@@ -262,14 +285,56 @@ export function buildRoutes(): readonly RouteDef[] {
   ];
 }
 
-function forwardToCore(
+async function forwardToCore(
   ctx: DaemonContext,
   req: IncomingMessage,
   res: ServerResponse,
   target: ParsedDaemonRequestTarget,
-): void {
-  const runtime = ctx.settings.runtime();
-  forwardHttpToCore(req, res, coreApiTarget(target), runtime.controller, runtime.secret);
+): Promise<void> {
+  const upstream = coreApiTarget(target);
+  const runtime = ctx.coreControllerEndpoint?.() ?? ctx.settings.runtime();
+  const upstreamPath = upstream.split("?")[0] ?? "/";
+  const segments = upstreamPath.split("/").map(decodeURIComponent);
+  if (
+    ctx.supervisor.backend === "service" &&
+    req.method?.toUpperCase() === "PUT" &&
+    /^\/+providers(?:\/|$)/.test(decodeURIComponent(upstreamPath).replaceAll("\\", "/"))
+  ) {
+    const body = await parseJsonObjectBody(req, 1024);
+    if (Object.keys(body).length || target.search)
+      throw new HttpError(400, "Provider refresh does not accept parameters");
+    const [, , kind, name, ...extra] = segments;
+    const refreshProviders = ctx.supervisor.refreshProviders?.bind(ctx.supervisor);
+    if (
+      segments[1] !== "providers" ||
+      (kind !== "proxies" && kind !== "rules") ||
+      !name ||
+      extra.some((part) => part !== "") ||
+      !refreshProviders
+    )
+      throw new HttpError(400, "Expected a named provider refresh");
+    await ctx.mutate("refresh service providers", async () => {
+      const response = await fetchWithRetry(`http://${runtime.controller}/providers/${kind}`, {
+        direct: true,
+        manualRedirect: true,
+        attempts: 1,
+        deadlineMs: 5000,
+        headers: { authorization: `Bearer ${runtime.secret}` },
+      });
+      const text = await response.text(1024 * 1024);
+      if (response.statusCode !== 200)
+        throw new HttpError(502, "Cannot query service Core providers");
+      const providers: unknown = JSON.parse(text);
+      if (!isPlainObject(providers) || !isPlainObject(providers.providers))
+        throw new HttpError(502, "Invalid service Core provider response");
+      if (!Object.hasOwn(providers.providers, name)) throw new HttpError(404, "Provider not found");
+      await refreshProviders();
+    });
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  forwardHttpToCore(req, res, upstream, runtime.controller, runtime.secret);
 }
 
 function serveUiIndexOrRedirect(

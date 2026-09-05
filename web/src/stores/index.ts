@@ -35,6 +35,7 @@ export {
 export type { StoredLogMessage, StoreState, ToastItem } from "./state.js";
 export {
   canToggleSystemProxy,
+  canToggleTun,
   errorText,
   isCoreReady,
   isCoreRunning,

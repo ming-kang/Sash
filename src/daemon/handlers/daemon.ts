@@ -1,6 +1,7 @@
 import type { DaemonStatus, HealthInfo, ShutdownResult } from "../../contracts.js";
 import { currentCoreVersion } from "../../core.js";
 import { publicSettings } from "../../settings.js";
+import type { CoreState } from "../../supervisor.js";
 import type { SystemProxyState } from "../../sysproxy.js";
 import type { DaemonContext } from "../context.js";
 import type { RouteRequest, RouteResponse } from "../router.js";
@@ -12,8 +13,18 @@ export function health(ctx: DaemonContext): RouteResponse {
 
 export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
   const settings = ctx.settings.committed();
-  const runtimeCore = await ctx.supervisor.status();
-  const installedVersion = currentCoreVersion(ctx.layout);
+  let runtimeCore: CoreState;
+  try {
+    runtimeCore = await ctx.supervisor.status();
+  } catch (err) {
+    if (ctx.supervisor.backend !== "service") throw err;
+    runtimeCore = {
+      running: null,
+      healthy: false,
+      queryError: "Sash Service Core state could not be verified",
+    };
+  }
+  const installedVersion = ctx.supervisor.coreVersion ?? currentCoreVersion(ctx.layout);
   const core =
     runtimeCore.version || !installedVersion
       ? runtimeCore

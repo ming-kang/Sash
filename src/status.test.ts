@@ -90,6 +90,7 @@ function dependencies(
       appliedKnown: true,
       stateKnown: true,
     }),
+    nativeServiceStatus: async () => ({ supported: false }),
     installedCoreVersion: () => "v1.2.3",
     activeProfile: () => null,
     hasUi: () => true,
@@ -424,4 +425,82 @@ describe("CLI runtime status observations", () => {
       true,
     );
   });
+});
+
+it("prefers protected service version over the user installation", async () => {
+  const status = await collectRuntimeStatus(
+    context,
+    dependencies({
+      nativeServiceStatus: async () => ({
+        supported: true,
+        installed: true,
+        coreVersion: "protected-v2",
+      }),
+    }),
+  );
+  assert.equal(status.core.installedVersion, "protected-v2");
+});
+
+it("does not substitute a stale local version when the service probe fails", async () => {
+  const status = await collectRuntimeStatus(
+    context,
+    dependencies({
+      nativeServiceStatus: async () => {
+        throw new Error("service unavailable");
+      },
+    }),
+  );
+  assert.equal(status.core.installedVersion, null);
+  assert.equal(status.daemon.running, true);
+  assert.equal(status.complete, false);
+  assert.match(status.queryError ?? "", /Service status query failed/);
+});
+
+it("a stopped daemon never implies an unqueryable service Core stopped", async () => {
+  const status = await collectRuntimeStatus(
+    context,
+    dependencies({
+      evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
+      nativeServiceStatus: async () => {
+        throw new Error("service unavailable");
+      },
+    }),
+  );
+  assert.equal(status.core.running, null);
+  assert.equal(status.tun.active, null);
+  assert.match(runtimeStatusHeadline(status).text, /Core status is unavailable/);
+});
+
+it("reports independently observed service Core after daemon exit", async () => {
+  const status = await collectRuntimeStatus(
+    context,
+    dependencies({
+      evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
+      nativeServiceStatus: async () => ({
+        supported: true,
+        installed: true,
+        coreVersion: "protected-v2",
+        core: { running: true, healthy: true, pid: 202, version: "protected-v2", tunActive: false },
+      }),
+    }),
+  );
+  assert.equal(status.core.running, true);
+  assert.equal(status.core.pid, 202);
+  assert.match(runtimeStatusHeadline(status).text, /service Core is running/);
+});
+
+it("service backend status failure does not invalidate the observed daemon health", async () => {
+  const status = await collectRuntimeStatus(
+    context,
+    dependencies({
+      nativeServiceStatus: async () => ({ supported: true, installed: true, running: false }),
+      queryDaemonStatus: async () => {
+        throw new Error("Service boot identity changed");
+      },
+    }),
+  );
+  assert.equal(status.daemon.state, "healthy");
+  assert.equal(status.core.running, null);
+  assert.equal(status.healthy, null);
+  assert.equal(status.complete, false);
 });

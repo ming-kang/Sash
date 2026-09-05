@@ -164,6 +164,8 @@ export const api = {
 
   getHealth: () => sash.health(),
   getStatus: () => sash.status(),
+  getServiceStatus: () => sash.serviceStatus(),
+  getSessionGeneration: (): number => sessionGeneration,
 
   enableSystemProxy: () => sash.patchSettings({ systemProxy: true }),
   disableSystemProxy: () => sash.patchSettings({ systemProxy: false }),

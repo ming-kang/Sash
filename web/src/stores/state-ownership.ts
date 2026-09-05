@@ -153,6 +153,7 @@ export type TunRuntimeState =
 
 export function tunRuntimeState(status: SashStatus | null): TunRuntimeState {
   const desired = status?.settings.tun ?? false;
+  if (status?.core.running === null) return desired ? "unverified" : "off";
   if (!status?.core.running) return desired ? "stopped" : "off";
   if (!status.core.healthy) return desired ? "unverified" : "off";
   if (status?.core.tunActive === true) return desired ? "active" : "unexpected-active";

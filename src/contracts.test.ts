@@ -14,6 +14,7 @@ import {
   parseShutdownResult,
   parseSystemProxyStatusResponse,
 } from "./contracts.js";
+import { parseServiceStatus } from "./service-client.js";
 
 const timestamp = "2026-01-02T03:04:05.000Z";
 
@@ -312,4 +313,48 @@ describe("daemon response contracts", () => {
     assert.equal(parseApiErrorBody({}), undefined);
     assert.equal(parseApiErrorBody("nope"), undefined);
   });
+});
+
+it("accepts explicit unobserved Core status but rejects malformed observations", () => {
+  const core = {
+    running: null,
+    healthy: false,
+    queryError: "Sash Service Core state could not be verified",
+  };
+  assert.deepEqual(parseDaemonStatus({ ...statusDocument(), core }).core, core);
+  for (const running of [undefined, "unknown", 0, {}, []]) {
+    assert.throws(
+      () => parseDaemonStatus({ ...statusDocument(), core: { running } }),
+      /core.running/,
+    );
+  }
+  assert.throws(() => parseDaemonStatus({ ...statusDocument(), core: {} }), /core.running/);
+  for (const queryError of [undefined, null, "", "  ", 1, {}, "x".repeat(301)]) {
+    assert.throws(
+      () => parseDaemonStatus({ ...statusDocument(), core: { ...core, queryError } }),
+      /core.queryError/,
+    );
+  }
+  assert.equal(
+    parseDaemonStatus({ ...statusDocument(), core: { running: null } }).core.running,
+    null,
+  );
+  assert.equal(
+    parseDaemonStatus({ ...statusDocument(), core: { ...core, queryError: "x".repeat(300) } }).core
+      .queryError?.length,
+    300,
+  );
+});
+
+it("does not admit null Core running state into the native service protocol", () => {
+  assert.throws(
+    () =>
+      parseServiceStatus({
+        supported: true,
+        installed: true,
+        running: true,
+        core: { running: null },
+      }),
+    /Invalid Core status/,
+  );
 });

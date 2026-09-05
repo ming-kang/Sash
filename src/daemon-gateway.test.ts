@@ -9,6 +9,153 @@ describe("daemon server", () => {
   const h = useDaemonTestHarness();
 
   describe("/core/api/* reverse proxy", () => {
+    it("routes HTTP and WebSockets through the runtime bridge, not user controller credentials", async () => {
+      const received: string[] = [];
+      h.mockCoreServer = http.createServer((req, res) => {
+        received.push(`${req.url} ${req.headers.authorization}`);
+        res.end("{}");
+      });
+      h.mockCoreServer.on("upgrade", (req, socket) => {
+        received.push(`${req.url} ${req.headers.authorization}`);
+        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      });
+      await new Promise<void>((resolve) => h.mockCoreServer?.listen(0, "127.0.0.1", resolve));
+      const address = h.mockCoreServer.address();
+      assert.ok(address && typeof address === "object");
+      const events: string[] = [];
+      await h.startServer({
+        supervisor: {
+          backend: "service",
+          isRunning: () => false,
+          status: async () => ({ running: false }),
+          ownedCoreSnapshot: () => undefined,
+          ownsCore: () => false,
+          start: async () => ({ pid: 1001 }),
+          restart: async () => ({ pid: 1002 }),
+          stop: async () => {
+            events.push("stop");
+          },
+          close: async () => {
+            events.push("bridge:close");
+          },
+          controllerEndpoint: () => ({
+            controller: `127.0.0.1:${address.port}`,
+            secret: "bridge-token",
+          }),
+        },
+      });
+      assert.equal((await h.apiRequest("/core/api/version")).statusCode, 200);
+      await h.rawWebSocketUpgrade("/core/api/logs", {
+        Authorization: `Bearer ${h.settings.daemonSecret}`,
+      });
+      assert.deepEqual(received, ["/version Bearer bridge-token", "/logs Bearer bridge-token"]);
+      await h.instance?.close();
+      assert.deepEqual(events, ["stop", "bridge:close"]);
+    });
+
+    it("refreshes only authenticated existing named service providers through the mutation queue", async () => {
+      const received: string[] = [];
+      let refreshes = 0;
+      let release: (() => void) | undefined;
+      let entered: (() => void) | undefined;
+      const refreshing = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      h.mockCoreServer = http.createServer((req, res) => {
+        received.push(`${req.method} ${req.url} ${req.headers.authorization}`);
+        res.end(JSON.stringify({ providers: { named: {} } }));
+      });
+      await new Promise<void>((resolve) => h.mockCoreServer?.listen(0, "127.0.0.1", resolve));
+      const address = h.mockCoreServer.address();
+      assert.ok(address && typeof address === "object");
+      const events: string[] = [];
+      await h.startServer({
+        supervisor: {
+          backend: "service",
+          coreVersion: "protected-v2",
+          isRunning: () => false,
+          status: async () => ({ running: false }),
+          ownedCoreSnapshot: () => undefined,
+          ownsCore: () => false,
+          start: async () => ({ pid: 1001 }),
+          restart: async () => ({ pid: 1002 }),
+          stop: async () => {
+            events.push("stop");
+          },
+          controllerEndpoint: () => ({
+            controller: `127.0.0.1:${address.port}`,
+            secret: "bridge-token",
+          }),
+          refreshProviders: async () => {
+            refreshes++;
+            if (refreshes === 1) {
+              entered?.();
+              await new Promise<void>((resolve) => {
+                release = resolve;
+              });
+            }
+            events.push("refresh");
+          },
+        },
+      });
+      const status = await h.apiRequest("/sash/daemon/status");
+      assert.equal((status.data as { core: { version: string } }).core.version, "protected-v2");
+      assert.equal(
+        (await h.apiRequest("/core/api/providers/proxies/named", { method: "PUT", token: "" }))
+          .statusCode,
+        401,
+      );
+      for (const [suffix, body, expected] of [
+        ["proxies/missing", undefined, 404],
+        ["rules/missing", undefined, 404],
+        ["proxies", undefined, 400],
+        ["proxies/named", { url: "https://attacker.invalid" }, 400],
+        ["proxies/named?all=1", undefined, 400],
+        ["proxies/named/extra", undefined, 400],
+      ] as const) {
+        assert.equal(
+          (await h.apiRequest(`/core/api/providers/${suffix}`, { method: "PUT", body })).statusCode,
+          expected,
+        );
+      }
+      for (const [rawBody, expected] of [
+        ["not JSON", 400],
+        ["x".repeat(1025), 413],
+      ] as const) {
+        assert.equal(
+          (await h.apiRequest("/core/api/providers/proxies/named", { method: "PUT", rawBody }))
+            .statusCode,
+          expected,
+        );
+      }
+      assert.equal(
+        (await h.apiRequest("/core/api/%70roviders%2fproxies/named", { method: "PUT" })).statusCode,
+        400,
+      );
+      assert.equal(refreshes, 0);
+      const first = h.apiRequest("/core/api/providers/proxies/named", { method: "PUT" });
+      await refreshing;
+      const stop = h.apiRequest("/sash/core/stop", { method: "POST" });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.deepEqual(events, [], "daemon mutations wait for provider publication");
+      release?.();
+      assert.equal((await first).statusCode, 204);
+      assert.equal((await stop).statusCode, 204);
+      assert.deepEqual(events, ["refresh", "stop"]);
+      assert.equal(
+        (await h.apiRequest("/core/api/providers/rules/named", { method: "PUT", body: {} }))
+          .statusCode,
+        204,
+      );
+      assert.equal(refreshes, 2);
+      assert.ok(
+        received.every((entry) =>
+          /^GET \/providers\/(proxies|rules) Bearer bridge-token$/.test(entry),
+        ),
+        "never forwards the raw privileged provider PUT",
+      );
+    });
+
     it("rejects every unauthenticated Core GET before opening an upstream request", async () => {
       let upstreamRequests = 0;
       h.mockCoreServer = http.createServer((_req, res) => {

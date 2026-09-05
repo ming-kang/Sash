@@ -58,7 +58,7 @@
           class="mode-button toggle-button"
           :class="{ active: tunOn }"
           :aria-pressed="tunOn"
-          :disabled="store.operations.networkSetting || !store.status"
+          :disabled="!canToggleTun"
           @click="applyNetToggle('tun', !tunOn)"
         >
           <span class="toggle-name">{{ t('overview.tun') }}</span>
@@ -174,6 +174,7 @@ import { locale, t } from "../i18n/index.js";
 import { navigate } from "../router.js";
 import {
   canToggleSystemProxy,
+  canToggleTun,
   errorText,
   isCoreReady,
   isSysProxyOn,

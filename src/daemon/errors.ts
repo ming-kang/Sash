@@ -1,4 +1,5 @@
 import type { ApiErrorCode } from "../contracts.js";
+import { ServiceRequiredError } from "../core-runtime.js";
 import { HttpError } from "../daemon-http.js";
 import { TunConfigError } from "../mihomo-config.js";
 import {
@@ -47,6 +48,8 @@ export function errorToHttp(err: unknown): HttpErrorMapping {
     };
   }
   const message = err instanceof Error ? err.message : String(err);
+  if (err instanceof ServiceRequiredError)
+    return { status: 409, code: "service_required", message };
   if (err instanceof ProfileNotFoundError) return { status: 404, code: "not_found", message };
   if (err instanceof ProfileInputError) return { status: 400, code: "invalid_input", message };
   if (err instanceof SettingsInputError || err instanceof TunConfigError) {

@@ -5,6 +5,7 @@ import {
   canSetSystemProxyTarget,
   clearCoreOwnedState,
   isCommittedDraftDirty,
+  isCoreHealthy,
   needsRecoveryRefresh,
   parseLogFrame,
   parseTrafficFrame,
@@ -21,7 +22,7 @@ import {
 function status(
   overrides: {
     daemonStartedAt?: string;
-    running?: boolean;
+    running?: boolean | null;
     healthy?: boolean;
     pid?: number;
     profileRevision?: number;
@@ -40,7 +41,7 @@ function status(
     },
     revisions: { profiles: overrides.profileRevision ?? 0 },
     core: {
-      running: overrides.running ?? true,
+      running: overrides.running === undefined ? true : overrides.running,
       healthy: overrides.healthy ?? true,
       pid: overrides.pid ?? 200,
       startedAt: "2026-01-01T00:00:01.000Z",
@@ -262,5 +263,15 @@ it("invalidates old TUN observations only when committed network settings change
       assert.equal(previous.core.tunActive, active);
       assert.equal(syncCommittedBooleanSetting(previous, key, false)?.core.tunActive, active);
     }
+  }
+});
+
+it("keeps an online daemon's unobserved Core unverified, never pending start", () => {
+  for (const desiredTun of [true, false]) {
+    const current = status({ running: null, healthy: false, desiredTun });
+    assert.equal(tunRuntimeState(current), desiredTun ? "unverified" : "off");
+    assert.equal(isCoreHealthy(current), false);
+    assert.equal(runtimeOwnerKey(current), null);
+    assert.equal(runtimeNoticeKind(true, false, false, null), null);
   }
 });

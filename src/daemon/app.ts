@@ -3,6 +3,7 @@ import { MihomoApi } from "../api.js";
 import type { CoreStartResult } from "../contracts.js";
 import { currentCoreVersion } from "../core.js";
 import { validateCoreConfigText } from "../core-config-validation.js";
+import { type CoreRuntime, requireServiceForTun } from "../core-runtime.js";
 import { pendingCoreUpdateVersion, readCoreUpdateTransaction } from "../core-update.js";
 import {
   completeCoordinatedCoreUpdateAfterStart,
@@ -28,8 +29,9 @@ import type { DaemonScheduler } from "./scheduler.js";
 export interface DaemonDeps {
   layout: SashLayout;
   settings: SashSettings;
-  supervisor?: CoreSupervisor;
+  supervisor?: CoreRuntime;
   systemProxy?: SystemProxyController;
+  runtimeFactory?: (settings: () => SashSettings) => CoreRuntime;
   token?: string;
   fetchProfileFn?: (url: string) => Promise<SubscriptionFetch>;
   validateConfigFn?: (generated: GeneratedConfig) => Promise<void> | void;
@@ -39,7 +41,7 @@ export interface DaemonDeps {
 
 export interface DaemonApp {
   context: DaemonContext;
-  supervisor: CoreSupervisor;
+  supervisor: CoreRuntime;
   lifecycle: RuntimeLifecycle;
   token: string;
 }
@@ -56,8 +58,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   let profileRevision = 0;
 
   let lifecycle: RuntimeLifecycle | undefined;
-  const supervisor =
+  const supervisor: CoreRuntime =
     deps.supervisor ??
+    deps.runtimeFactory?.(() => runtimeSettings) ??
     new CoreSupervisor({
       layout,
       settings: () => runtimeSettings,
@@ -77,14 +80,21 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     supervisor,
     systemProxy,
     settings: () => runtimeSettings,
-    coreUpdate: {
-      pending: () => readCoreUpdateTransaction(layout) !== undefined,
-      completeAfterStart: () => {
-        completeCoordinatedCoreUpdateAfterStart(layout);
-      },
-      rollbackAfterStartFailure: () => rollbackCoordinatedCoreUpdate(layout),
-    },
+    ...(supervisor.backend === "service"
+      ? {}
+      : {
+          coreUpdate: {
+            pending: () => readCoreUpdateTransaction(layout) !== undefined,
+            completeAfterStart: () => {
+              completeCoordinatedCoreUpdateAfterStart(layout);
+            },
+            rollbackAfterStartFailure: () => rollbackCoordinatedCoreUpdate(layout),
+          },
+        }),
   });
+
+  supervisor.onAvailabilityLoss?.((snapshot) => lifecycle.handleAvailabilityLoss(snapshot));
+  const coreControllerEndpoint = () => supervisor.controllerEndpoint?.() ?? runtimeSettings;
 
   const gate = new DaemonGate(mutations, async () => {
     const coreWasRunning = supervisor.isRunning();
@@ -99,18 +109,24 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     settings: () => committedSettings,
     ...(deps.fetchProfileFn ? { fetchProfile: deps.fetchProfileFn } : {}),
     validateConfig:
-      deps.validateConfigFn ?? ((generated) => validateCoreConfigText(generated.yaml, layout)),
+      deps.validateConfigFn ??
+      ((generated) =>
+        supervisor.validateConfig
+          ? supervisor.validateConfig(generated.yaml)
+          : validateCoreConfigText(generated.yaml, layout)),
     reloadConfig: async (configPath) => {
       if (!supervisor.isRunning()) return;
-      const api = new MihomoApi(runtimeSettings.controller, runtimeSettings.secret);
-      await api.reloadConfig(configPath);
+      const endpoint = coreControllerEndpoint();
+      const api = new MihomoApi(endpoint.controller, endpoint.secret);
+      if (supervisor.reloadConfig) await supervisor.reloadConfig(configPath);
+      else await api.reloadConfig(configPath);
       if (runtimeSettings.tun) {
         const active = await api.getTunActive().catch(() => undefined);
         if (active !== true) {
           const reason = active === false ? "inactive" : "unverified";
           throw new TunActivationError(
             reason,
-            `TUN is ${reason} after configuration reload. ${tunPrivilegeGuidance("runtime-inactive", { root: layout.root, observation: reason })}`,
+            `TUN is ${reason} after configuration reload. ${supervisor.backend === "service" ? "Inspect Sash Service diagnostics before retrying." : tunPrivilegeGuidance("runtime-inactive", { root: layout.root, observation: reason })}`,
           );
         }
       }
@@ -146,6 +162,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     });
 
   const startCore = async (): Promise<CoreStartResult> => {
+    if (supervisor.backend === "direct") requireServiceForTun(runtimeSettings.tun, "direct");
     const retryAfterPreparation = Symbol("retry Core start after preparation");
     for (;;) {
       let prepared: PreparedActiveReload | undefined;
@@ -179,6 +196,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     purpose: string,
     action: (prepared: PreparedActiveReload) => Promise<T>,
   ): Promise<T> => {
+    if (supervisor.backend === "direct") requireServiceForTun(runtimeSettings.tun, "direct");
     for (let attempt = 0; ; attempt += 1) {
       const prepared = await profiles.prepareActiveReload();
       try {
@@ -204,6 +222,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       runtime: () => runtimeSettings,
     },
     mutate,
+    coreControllerEndpoint,
     profileRevision: () => profileRevision,
     startCore,
     restartCore: () =>
