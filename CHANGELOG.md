@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- The test suite now passes on Linux and macOS as well as Windows-CI: TUN privilege-guidance assertions in the lifecycle and daemon settings tests follow the running platform's phrasing, and the logs follow test invokes the registered signal handler directly instead of emitting a process-wide signal that can terminate the shared test runner.
+
 ### Added
 
 - OIDC trusted-publishing release workflow (`.github/workflows/publish.yml`): manually dispatched, idempotent (an already-published version is verified through its registry provenance instead of failing), and re-verifies installation from the registry after publishing. Package smoke verification (`scripts/package-smoke.mjs`) now accepts an external install spec (tarball path or `name@version`) and resolves the Node-bundled npm CLI when run outside `npm run`.

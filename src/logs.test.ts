@@ -167,20 +167,19 @@ describe("followLogFile", () => {
     it(`removes signal listeners after ${signal} cancellation`, async () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-logs-signals-test-"));
       const previousHome = process.env.SASH_HOME;
-      const sigintListeners = process.listenerCount("SIGINT");
-      const sigtermListeners = process.listenerCount("SIGTERM");
+      const before = process.listeners(signal);
       process.env.SASH_HOME = root;
       try {
         const following = runLogs({ follow: true });
-        await waitFor(
-          () =>
-            process.listenerCount("SIGINT") === sigintListeners + 1 &&
-            process.listenerCount("SIGTERM") === sigtermListeners + 1,
-        );
-        process.emit(signal);
+        await waitFor(() => process.listenerCount(signal) === before.length + 1);
+        // Invoke the registered handler directly instead of emitting a process-wide
+        // signal: an emitted signal with no matching listener terminates the test
+        // process, which is not a risk worth taking inside a shared test runner.
+        const registered = process.listeners(signal).find((listener) => !before.includes(listener));
+        assert.ok(registered);
+        registered.call(process, signal);
         await following;
-        assert.equal(process.listenerCount("SIGINT"), sigintListeners);
-        assert.equal(process.listenerCount("SIGTERM"), sigtermListeners);
+        assert.equal(process.listenerCount(signal), before.length);
       } finally {
         if (previousHome === undefined) delete process.env.SASH_HOME;
         else process.env.SASH_HOME = previousHome;

@@ -231,10 +231,13 @@ describe("daemon server", () => {
       });
 
       assert.equal(res.statusCode, 500);
-      assert.match(
-        (res.data as { error: { message: string } }).error.message,
-        /TUN did not become active.*sash config set tun on.*sash restart/s,
-      );
+      const message = (res.data as { error: { message: string } }).error.message;
+      assert.match(message, /TUN did not become active.*sash config set tun on/s);
+      if (process.platform === "win32") {
+        assert.match(message, /PowerShell as Administrator and run "sash restart"/);
+      } else {
+        assert.match(message, /Restart Sash with root privileges.*command -v sash/s);
+      }
       assert.equal(restartCalls, 2);
       const raw = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8")) as { tun: boolean };
       assert.equal(raw.tun, false);
