@@ -75,7 +75,8 @@ Do not weaken these without explicit user approval:
 ## Changelog & Releasing
 
 - All notable changes go under the newest section in `CHANGELOG.md` (Keep a Changelog format). Released sections are immutable.
-- Version bumps and `npm publish --access public` happen only with explicit maintainer approval. `prepublishOnly` runs audit, tests, and build; never bypass it with `--ignore-scripts` or `--force`.
+- Releases publish through the manually dispatched OIDC trusted-publishing workflow (`.github/workflows/publish.yml`); follow `RELEASING.md`. The repository must not contain npm publishing tokens.
+- Version bumps and release dispatches happen only with explicit maintainer approval. Local `npm publish` runs `prepublishOnly` (audit, lint, tests, build, package smoke); never bypass it with `--ignore-scripts` or `--force`. The release workflow runs the same gates explicitly and publishes a pre-packed tarball, so no lifecycle scripts execute in the OIDC context.
 - After any release, verify the tarball installs and runs: `npm install -g @astralyn/sash@<version>` in an isolated environment, then `sash --help` and a `SASH_HOME`-isolated `sash start` / `status` / `stop` cycle.
 
 ## User Override

@@ -1,0 +1,187 @@
+name: Publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version to publish (for example, 0.1.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish @astralyn/sash
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install OIDC-capable npm
+        run: npm install --global npm@11.15.0 --ignore-scripts
+
+      - name: Verify release request
+        id: release
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Release workflow must run from main (got $GITHUB_REF)." >&2
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const version = process.env.RELEASE_VERSION;
+          if (!version || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
+            throw new Error(`Expected a stable numeric version such as 0.1.1, got ${version ?? "nothing"}.`);
+          }
+
+          const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+          const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+          const changelog = readFileSync("CHANGELOG.md", "utf8");
+
+          if (packageJson.name !== "@astralyn/sash") {
+            throw new Error(`Expected the root package to be @astralyn/sash, got ${packageJson.name}.`);
+          }
+          if (
+            packageJson.version !== version ||
+            packageLock.version !== version ||
+            packageLock.packages?.[""]?.version !== version
+          ) {
+            throw new Error(
+              `Release input ${version} must match package.json (${packageJson.version}) and package-lock.json (${packageLock.version}).`,
+            );
+          }
+          const releaseHeading = `## [${version}] - `;
+          const headingCount = changelog
+            .split("\n")
+            .filter((line) => line.startsWith(releaseHeading)).length;
+          if (headingCount !== 1) {
+            throw new Error(
+              `Expected exactly one CHANGELOG.md release heading for ${version}, found ${headingCount}.`,
+            );
+          }
+          NODE
+
+          if npm view "@astralyn/sash@$RELEASE_VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "@astralyn/sash@$RELEASE_VERSION is already published; its provenance must identify this commit before verification resumes."
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify source
+        run: |
+          npm run audit:prod
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Pack npm artifact
+        id: pack
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          package_dir="$RUNNER_TEMP/sash-package"
+          tarball="$package_dir/astralyn-sash-$RELEASE_VERSION.tgz"
+          mkdir -p "$package_dir"
+          npm pack --ignore-scripts --silent --pack-destination "$package_dir" >/dev/null
+          test -f "$tarball"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - name: Verify packed package installation
+        run: node scripts/package-smoke.mjs "${{ steps.pack.outputs.tarball }}"
+
+      - name: Verify existing registry provenance
+        if: steps.release.outputs.already_published == 'true'
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          node --input-type=module <<'NODE'
+          const packageName = "@astralyn/sash";
+          const encodedPackageName = encodeURIComponent(packageName);
+          const response = await fetch(
+            `https://registry.npmjs.org/-/npm/v1/attestations/${encodedPackageName}@${process.env.RELEASE_VERSION}`,
+          );
+          if (!response.ok) {
+            throw new Error(`Failed to load npm attestations: ${response.status} ${response.statusText}`);
+          }
+          const body = await response.json();
+          const provenance = body.attestations?.find(
+            (attestation) => attestation.predicateType === "https://slsa.dev/provenance/v1",
+          );
+          if (!provenance) {
+            throw new Error("Published package has no SLSA provenance attestation.");
+          }
+          const statement = JSON.parse(
+            Buffer.from(provenance.bundle.dsseEnvelope.payload, "base64url").toString("utf8"),
+          );
+          const source = statement.predicate?.buildDefinition?.resolvedDependencies?.find(
+            (dependency) => dependency.uri === "git+https://github.com/ming-kang/Sash@refs/heads/main",
+          );
+          const publishedCommit = source?.digest?.gitCommit;
+          if (publishedCommit !== process.env.GITHUB_SHA) {
+            throw new Error(
+              `Published provenance identifies commit ${publishedCommit ?? "unknown"}, not ${process.env.GITHUB_SHA}.`,
+            );
+          }
+          console.log(`Published provenance identifies commit ${publishedCommit}.`);
+          NODE
+
+      - name: Publish verified artifact
+        if: steps.release.outputs.already_published != 'true'
+        run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --provenance --registry=https://registry.npmjs.org
+
+      - name: Wait for registry metadata
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          for attempt in $(seq 1 12); do
+            published="$(npm view "@astralyn/sash@$RELEASE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
+            if [ "$published" = "$RELEASE_VERSION" ]; then
+              echo "Verified @astralyn/sash@$RELEASE_VERSION metadata on npm."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Published version was not visible on npm after two minutes." >&2
+          echo "If this release was staged, approve it on npmjs.com and dispatch this workflow again." >&2
+          exit 1
+
+      - name: Verify registry installation
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          for attempt in $(seq 1 6); do
+            if node scripts/package-smoke.mjs "@astralyn/sash@$RELEASE_VERSION"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 6 ]; then
+              echo "Registry installation attempt $attempt failed; retrying in 10 seconds."
+              sleep 10
+            fi
+          done
+          echo "Published package could not be installed and smoke-tested from npm." >&2
+          exit 1

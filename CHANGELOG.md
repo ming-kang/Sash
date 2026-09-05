@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- OIDC trusted-publishing release workflow (`.github/workflows/publish.yml`): manually dispatched, idempotent (an already-published version is verified through its registry provenance instead of failing), and re-verifies installation from the registry after publishing. Package smoke verification (`scripts/package-smoke.mjs`) now accepts an external install spec (tarball path or `name@version`) and resolves the Node-bundled npm CLI when run outside `npm run`.
+- `RELEASING.md` release runbook and Dependabot configuration for npm and GitHub Actions updates.
+
 ## [0.1.0] - 2026-09-05
 
 ### Added
