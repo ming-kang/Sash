@@ -13,6 +13,8 @@ The WebUI is a Vue 3 application built with Vite and bundled into `dist/ui/`. sa
 - Vite 6 builds the bundled dashboard on the declared Node.js 24 baseline.
 - CI runs lint, server/WebUI type checks, all tests, production builds and actual tarball pack/install/CLI/UI smoke on Windows, macOS and Linux with Node.js 24.
 
+The `cn-font-split` dependency has a scoped `koffi: 2.16.3` override, not a global override or Sash release-version bump. The [Koffi changelog](https://koffi.dev/changelog) documents Node.js 24.14+ teardown fixes relevant to the native font splitter. A local uncached build was validated; remote macOS CI is not yet confirmed. The temporary debug workflow/remote branch remains pending maintainer approval and remote confirmation; this is not a claim that all CI now passes.
+
 ---
 
 ## 2. Source Layout

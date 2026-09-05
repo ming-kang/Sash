@@ -8,7 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- The test suite now passes on Linux and macOS as well as Windows-CI: TUN privilege-guidance assertions in the lifecycle and daemon settings tests follow the running platform's phrasing, and the logs follow test invokes the registered signal handler directly instead of emitting a process-wide signal that can terminate the shared test runner.
+- Correct cross-platform TUN privilege-guidance assertions and invoke the logs test's registered signal handler directly instead of emitting a process-wide signal that can terminate the shared runner; these corrections do not establish that all remote CI passes.
+- Resolve native Windows log-watcher directories through realpath to avoid the libuv short-name (8.3 prefix) abort. Scope a Koffi `2.16.3` override to `cn-font-split` for upstream Node.js 24.14+ teardown fixes; local uncached build validated, remote macOS CI not yet confirmed.
 
 ### Added
 

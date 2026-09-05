@@ -119,6 +119,34 @@ describe("log file growth", () => {
 });
 
 describe("followLogFile", () => {
+  it("watches the native canonical directory when following an aliased path", async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-logs-alias-test-"));
+    const directory = path.join(root, "logs");
+    const alias = path.join(root, "alias");
+    const controller = new AbortController();
+    let following: Promise<void> | undefined;
+    try {
+      fs.mkdirSync(directory);
+      fs.symlinkSync(directory, alias, process.platform === "win32" ? "junction" : "dir");
+      const watch = t.mock.method(fs, "watch");
+      let output = "";
+      following = followLogFile(path.join(alias, "follow.log"), {
+        signal: controller.signal,
+        onChunk: (chunk) => {
+          output += chunk.toString("utf8");
+        },
+      });
+      assert.equal(watch.mock.callCount(), 1);
+      assert.equal(watch.mock.calls[0]?.arguments[0], fs.realpathSync.native(directory));
+      fs.writeFileSync(path.join(directory, "follow.log"), "created through alias\n");
+      await waitFor(() => output === "created through alias\n");
+    } finally {
+      controller.abort();
+      await following;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("waits for creation, follows append/truncate/rotation, and stops cleanly", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-logs-follow-test-"));
     const file = path.join(root, "logs", "follow.log");

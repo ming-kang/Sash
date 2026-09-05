@@ -241,7 +241,10 @@ export function followLogFile(file: string, options: FollowLogOptions): Promise<
     const installWatcher = (): void => {
       if (watcher || stopped) return;
       try {
-        const watched = fs.watch(path.dirname(file), (_event, filename) => {
+        // libuv can abort on Windows when an 8.3 directory prefix differs from
+        // the long path returned for an event (libuv/libuv#5010).
+        const directory = fs.realpathSync.native(path.dirname(file));
+        const watched = fs.watch(directory, (_event, filename) => {
           if (filename === null || filename.toString() === path.basename(file)) scheduleDrain();
         });
         watched.on("error", () => {

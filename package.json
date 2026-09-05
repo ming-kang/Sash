@@ -60,6 +60,11 @@
     "undici": "^7.29.0",
     "yaml": "^2.7.0"
   },
+  "overrides": {
+    "cn-font-split": {
+      "koffi": "2.16.3"
+    }
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",
     "@codemirror/legacy-modes": "^6.5.4",
