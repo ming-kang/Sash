@@ -12,7 +12,7 @@ Sash is a **network toolbox for developers and advanced users**. It installs, ru
 - **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
 - **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles from the dashboard
 - **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)
-- **TUN mode** — device-level traffic takeover (requires starting the whole Sash runtime with elevated privileges)
+- **TUN mode** — `sash tun on|off` or dashboard controls, with verified activation and rollback (requires an elevated Sash runtime)
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
 
 ## Requirements
@@ -48,6 +48,8 @@ sash web                   # open the web dashboard (profiles, nodes, system pro
 sash status                # runtime state, endpoints, and proxy status
 sash stop                  # restores prior proxy state, stops core and sashd
 ```
+
+TUN controls require an already responsive daemon; they never start or elevate it. After a failed enable rolls back, restart the **whole Sash runtime** elevated with the same data directory, then run `sash tun on` again. See [TUN setup and DNS policy](./docs/usage.md#4-tun-mode), including POSIX private-file ownership precautions. An active TUN listener is not proof of connectivity or complete traffic capture.
 
 ## Documentation
 

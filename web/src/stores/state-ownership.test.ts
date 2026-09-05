@@ -143,6 +143,16 @@ describe("frontend state ownership helpers", () => {
       "stopped",
     );
     assert.equal(tunRuntimeState(status({ tunActive: true })), "unexpected-active");
+    for (const tunActive of [true, false, undefined]) {
+      assert.equal(
+        tunRuntimeState(status({ desiredTun: true, healthy: false, tunActive })),
+        "unverified",
+      );
+      assert.equal(
+        tunRuntimeState(status({ desiredTun: false, tunActive })),
+        tunActive === true ? "unexpected-active" : "off",
+      );
+    }
   });
 
   it("keeps a manual delay across normal proxy snapshot replacement", () => {
@@ -241,4 +251,16 @@ describe("frontend state ownership helpers", () => {
     assert.equal(canSetSystemProxyTarget(stopped, true), false);
     assert.equal(canSetSystemProxyTarget(status(), true), true);
   });
+});
+
+it("invalidates old TUN observations only when committed network settings change", () => {
+  for (const active of [false, true]) {
+    for (const key of ["tun", "allow-lan"] as const) {
+      const previous = status({ tunActive: active });
+      const changed = syncCommittedBooleanSetting(previous, key, true);
+      assert.equal(changed?.core.tunActive, undefined);
+      assert.equal(previous.core.tunActive, active);
+      assert.equal(syncCommittedBooleanSetting(previous, key, false)?.core.tunActive, active);
+    }
+  }
 });

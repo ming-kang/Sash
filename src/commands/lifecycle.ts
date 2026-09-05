@@ -44,7 +44,7 @@ function reportTunState(ctx: RuntimeContext, result: CoreStartResult): void {
     );
   } else {
     log.warn(
-      `TUN was requested, but its runtime state could not be verified. ${tunPrivilegeGuidance("runtime-inactive", { root: ctx.layout.root })}`,
+      `TUN was requested, but its runtime state could not be verified. ${tunPrivilegeGuidance("runtime-inactive", { root: ctx.layout.root, observation: "unverified" })}`,
     );
   }
 }

@@ -1,10 +1,12 @@
 import { watch } from "vue";
+import type { SettingsWriteResult } from "../../../src/contracts.js";
 import { api } from "../api/index.js";
 import { currentRoute } from "../router.js";
 import type { SashStatus } from "../types/index.js";
 import { refreshConnections, refreshCoreSnapshot, refreshProxies } from "./core-actions.js";
 import {
   adoptDaemonStatus,
+  errorText,
   requests,
   runtimeOwnership,
   setProfiles,
@@ -48,18 +50,28 @@ async function refreshProfilesForStatus(
   }
 }
 
-type RuntimeRefreshResult = "full" | "status" | "stopped" | "degraded";
+type RuntimeRefreshResult = "full" | "status" | "stopped" | "degraded" | "superseded";
 
-async function refreshRuntime(forceSnapshot: boolean): Promise<RuntimeRefreshResult> {
-  const runtimeRequest = requests.begin("runtime");
-  const status = await api.getStatus();
-  if (!requests.isCurrent("runtime", runtimeRequest)) return "status";
+async function refreshRuntime(
+  forceSnapshot: boolean,
+  runtimeRequest = requests.begin("runtime"),
+  isActive: () => boolean = () => true,
+): Promise<RuntimeRefreshResult> {
+  const isCurrent = () => isActive() && requests.isCurrent("runtime", runtimeRequest);
+  let status: SashStatus;
+  try {
+    status = await api.getStatus();
+  } catch (error) {
+    if (!isCurrent()) return "superseded";
+    throw error;
+  }
+  if (!isCurrent()) return "superseded";
   adoptDaemonStatus(status);
 
   const profiles = refreshProfilesForStatus(status, runtimeRequest);
   if (!isCoreHealthy(status)) {
     await profiles;
-    return "stopped";
+    return !isCurrent() ? "superseded" : status.core.running ? "degraded" : "stopped";
   }
 
   const needsSnapshot =
@@ -69,11 +81,11 @@ async function refreshRuntime(forceSnapshot: boolean): Promise<RuntimeRefreshRes
     runtimeOwnership.snapshotProfileRevision !== status.revisions.profiles;
   if (!needsSnapshot) {
     await profiles;
-    return "status";
+    return isCurrent() ? "status" : "superseded";
   }
 
   const [, refreshed] = await Promise.all([profiles, refreshCoreSnapshot(status, runtimeRequest)]);
-  return refreshed ? "full" : "degraded";
+  return !isCurrent() ? "superseded" : refreshed ? "full" : "degraded";
 }
 
 export async function refreshRuntimeState(): Promise<void> {
@@ -92,6 +104,7 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
   let refreshWhenIdle = false;
   let timer: number | null = null;
   let cycle = 0;
+  let activeRequest = 0;
 
   const clearTimer = (): void => {
     if (timer === null) return;
@@ -110,9 +123,14 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
   const tick = async (): Promise<void> => {
     if (stopped || running) return;
     running = true;
+    const runtimeRequest = requests.begin("runtime");
+    activeRequest = runtimeRequest;
+    const isCurrent = () => !stopped && requests.isCurrent("runtime", runtimeRequest);
     try {
-      await api.initialize();
-      const result = await refreshStatus();
+      await api.initialize(isCurrent);
+      if (!isCurrent()) return;
+      const result = await refreshRuntime(false, runtimeRequest, () => !stopped);
+      if (!isCurrent()) return;
       cycle += 1;
       if (result === "status" && isCoreHealthy(store.status)) {
         // Connection dumps are large; only views that show them need fresh data.
@@ -122,8 +140,10 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
         if (cycle % 3 === 0) await refreshProxies().catch(() => undefined);
       }
     } catch {
-      api.clearSession();
-      markDaemonOffline();
+      if (isCurrent()) {
+        api.clearSession();
+        markDaemonOffline();
+      }
     } finally {
       running = false;
       if (!stopped) {
@@ -162,6 +182,7 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
   void tick();
   return () => {
     stopped = true;
+    if (running && requests.isCurrent("runtime", activeRequest)) requests.invalidate("runtime");
     refreshWhenIdle = false;
     clearTimer();
     stopRouteWatch();
@@ -169,8 +190,8 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
   };
 }
 
-export async function setSystemProxyEnabled(target: boolean): Promise<void> {
-  if (store.operations.systemProxy) return;
+export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {
+  if (store.operations.systemProxy) return false;
   if (!canSetSystemProxyTarget(store.status, target)) {
     throw new Error(
       target ? "Cannot enable system proxy: Core is not healthy" : "System proxy is already off",
@@ -179,32 +200,68 @@ export async function setSystemProxyEnabled(target: boolean): Promise<void> {
   store.operations = { ...store.operations, systemProxy: true };
   requests.invalidate("runtime");
   try {
-    if (target) await api.enableSystemProxy();
-    else await api.disableSystemProxy();
+    let result: SettingsWriteResult;
+    try {
+      result = target ? await api.enableSystemProxy() : await api.disableSystemProxy();
+    } catch (error) {
+      await refreshStatus().catch(() => undefined);
+      throw error;
+    }
     if (store.status) {
       store.status = {
         ...store.status,
+        settings: result.settings,
         systemProxy: {
           ...store.status.systemProxy,
-          desired: target,
-          applied: target,
+          desired: result.settings.systemProxy,
         },
       };
     }
-    await refreshStatus();
+    return await refreshStatus().then(
+      (result) => result !== "superseded" && result !== "degraded",
+      () => false,
+    );
   } finally {
     store.operations = { ...store.operations, systemProxy: false };
   }
 }
 
-export async function patchBooleanSetting(key: "allow-lan" | "tun", next: boolean): Promise<void> {
-  if (store.operations.networkSetting) return;
+export async function patchBooleanSetting(
+  key: "allow-lan" | "tun",
+  next: boolean,
+): Promise<boolean> {
+  if (store.operations.networkSetting) return false;
+  if (key === "tun") {
+    store.tunError = null;
+    runtimeOwnership.tunErrorDaemonStartedAt = null;
+  }
+  const adoptedBoot = runtimeOwnership.lastDaemonStartedAt;
+  const daemonBoot = api.getSessionDaemonStartedAt() ?? adoptedBoot;
   store.operations = { ...store.operations, networkSetting: true };
   requests.invalidate("runtime");
   try {
-    const result = await api.patchSettings(key === "tun" ? { tun: next } : { allowLan: next });
+    let result: SettingsWriteResult;
+    try {
+      result = await api.patchSettings(key === "tun" ? { tun: next } : { allowLan: next });
+    } catch (error) {
+      const sessionBoot = api.getSessionDaemonStartedAt();
+      if (
+        key === "tun" &&
+        (sessionBoot === null || sessionBoot === daemonBoot) &&
+        (runtimeOwnership.lastDaemonStartedAt === adoptedBoot ||
+          runtimeOwnership.lastDaemonStartedAt === daemonBoot)
+      ) {
+        store.tunError = errorText(error);
+        runtimeOwnership.tunErrorDaemonStartedAt = daemonBoot;
+      }
+      await refreshRuntimeState().catch(() => undefined);
+      throw error;
+    }
     store.status = syncCommittedBooleanSetting(store.status, key, next, result.settings);
-    await refreshRuntimeState();
+    return await refreshRuntime(true).then(
+      (result) => result !== "superseded" && result !== "degraded",
+      () => false,
+    );
   } finally {
     store.operations = { ...store.operations, networkSetting: false };
   }

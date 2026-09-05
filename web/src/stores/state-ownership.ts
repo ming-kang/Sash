@@ -10,12 +10,16 @@ export class RequestGenerations {
     return next;
   }
 
+  current(domain: string): number {
+    return this.values.get(domain) ?? 0;
+  }
+
   invalidate(domain: string): void {
     this.begin(domain);
   }
 
   isCurrent(domain: string, generation: number): boolean {
-    return this.values.get(domain) === generation;
+    return this.current(domain) === generation;
   }
 }
 
@@ -149,7 +153,8 @@ export type TunRuntimeState =
 
 export function tunRuntimeState(status: SashStatus | null): TunRuntimeState {
   const desired = status?.settings.tun ?? false;
-  if (!isCoreHealthy(status)) return desired ? "stopped" : "off";
+  if (!status?.core.running) return desired ? "stopped" : "off";
+  if (!status.core.healthy) return desired ? "unverified" : "off";
   if (status?.core.tunActive === true) return desired ? "active" : "unexpected-active";
   if (!desired) return "off";
   return status?.core.tunActive === false ? "inactive" : "unverified";
@@ -184,13 +189,17 @@ export function syncCommittedBooleanSetting(
   committed?: PublicSashSettings,
 ): SashStatus | null {
   if (!status) return null;
-  return {
-    ...status,
-    settings: committed ?? {
-      ...status.settings,
-      [key === "allow-lan" ? "allowLan" : "tun"]: value,
-    },
+  const settings = committed ?? {
+    ...status.settings,
+    [key === "allow-lan" ? "allowLan" : "tun"]: value,
   };
+  const core = { ...status.core };
+  if (settings.tun !== status.settings.tun || settings.allowLan !== status.settings.allowLan) {
+    // The saved change may have replaced Core. Until a new observation arrives,
+    // the previous child's TUN result must not describe the committed intent.
+    delete core.tunActive;
+  }
+  return { ...status, settings, core };
 }
 
 export async function runProfileMutationSequence<T>(

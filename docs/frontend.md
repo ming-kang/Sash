@@ -15,6 +15,8 @@ The WebUI is a Vue 3 application built with Vite and bundled into `dist/ui/`. sa
 
 The `cn-font-split` dependency has a scoped `koffi: 2.16.3` override, not a global override or Sash release-version bump. The [Koffi changelog](https://koffi.dev/changelog) documents Node.js 24.14+ teardown fixes relevant to the native font splitter. A local uncached build was validated; remote macOS CI is not yet confirmed. The temporary debug workflow/remote branch remains pending maintainer approval and remote confirmation; this is not a claim that all CI now passes.
 
+For deterministic TUN visual checks, build current UI assets, install Playwright Chromium and Firefox, then run `npx tsx scripts/tun-ui-verify.mts`. It serves static assets on an ephemeral loopback port and mocks all APIs/WebSockets: no real daemon or Core, TUN device, OS proxy or DNS changes. It checks both engines, desktop/mobile and light/dark states, committed toggles and failed/saved-but-unverified mutations, producing screenshots and a report in a temporary directory. This verifies presentation, not real TUN connectivity.
+
 ---
 
 ## 2. Source Layout
@@ -68,9 +70,9 @@ Canonical actions include:
 - runtime intent actions such as `setOutboundMode()` and `selectGroupProxy()`
 - `startRuntimePolling()`
 
-Polling is self-scheduling with `setTimeout` after the previous cycle completes. It slows to a 15-second interval while the page is hidden and refreshes immediately after returning to the foreground. Domain request generations discard responses made stale by a newer refresh or user mutation. Core-specific API calls are made only after status reports `running && healthy`.
+Polling is self-scheduling with `setTimeout` after the previous cycle completes. It slows to a 15-second interval while the page is hidden and refreshes immediately after returning to the foreground. Domain request generations discard both successful responses and resource errors made stale by a newer refresh or user mutation; old polls cannot overwrite a committed settings response. Core-specific API calls are made only after status reports `running && healthy`.
 
-Daemon reachability, profile revision and Core snapshots have separate ownership. A successful `/sash/status` keeps the daemon online even when a downstream Core gateway request returns 502. Profiles track their last fetched daemon revision independently and refresh on revision changes even while Core is stopped. A daemon restart resets that revision comparison.
+Daemon reachability, profile revision and Core snapshots have separate ownership. A successful `/sash/daemon/status` keeps the daemon online even when a downstream Core gateway request returns 502. Profiles track their last fetched daemon revision independently and refresh on revision changes even while Core is stopped. A daemon restart resets that revision comparison.
 
 The Core owner is the daemon boot plus Core PID/start time. A stopped/unhealthy Core or unreachable daemon clears proxy groups, rules, connections/totals and traffic rates/history. A same-owner Core API failure preserves the last complete configs/proxies/rules/connections snapshot, marks it degraded and retries; a changed owner clears the old snapshot before fetching, so failed replacement data cannot be shown under the new owner. Profile revision changes request a new snapshot without prematurely discarding same-owner data.
 
@@ -121,7 +123,7 @@ The controller secret is never available to browser code; sashd injects it serve
 
 ## 6. Interaction State
 
-- Settings derive mixed-port dirty state by comparing the draft with the last committed value, preserve a genuinely edited draft across polling, and expose an explicit reset action. Successful `allow-lan` and TUN responses commit the returned settings snapshot directly before any follow-up refresh. TUN controls separately derive active, inactive, unverified, pending-start and desired/runtime-mismatch presentation from `settings.tun` plus `core.tunActive`; failed online activation never advances the committed switch, and the returned error explains that the whole Sash daemon—not only its Core child—must be restarted with elevated privileges.
+- Settings derive mixed-port dirty state by comparing the draft with the last committed value, preserve a genuinely edited draft across polling, and expose an explicit reset action. Successful `allow-lan` and TUN responses commit the returned settings snapshot directly before any follow-up refresh. TUN controls separately derive active, inactive, unverified, pending-start and desired/runtime-mismatch presentation from committed `settings.tun` plus Core health and `core.tunActive`. A running unhealthy Core is unverified, not pending start; an active listener with desired off is an unexpected-active mismatch. Active is a listener report, not connectivity/DNS or all-traffic proof. Failed online activation never advances the committed switch; failure details persist inline rather than depending only on a transient toast. Guidance requires elevated full Sash restart with the same data root, followed by `sash tun on` after rolled-back enable. A successful mutation followed by unavailable refresh retains the committed switch and reports "saved; runtime verification unavailable" rather than pretending the save failed.
 - Logs receive monotonic IDs before entering the capped 600-row buffer, providing stable Vue keys and an update sequence even when length remains constant.
 - The global confirm service settles a previous pending Promise before opening another dialog; Escape, route changes and component unmount cancel the active confirmation.
 - The global banner distinguishes an unreachable daemon from a degraded same-owner Core snapshot and an unavailable new-owner snapshot.

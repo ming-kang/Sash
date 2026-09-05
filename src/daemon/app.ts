@@ -17,10 +17,11 @@ import {
 } from "../profile-service.js";
 import { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import { type SashSettings, saveSettings } from "../settings.js";
-import { SettingsService } from "../settings-service.js";
+import { SettingsService, TunActivationError } from "../settings-service.js";
 import { StateMutationQueue } from "../state-lock.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../system-proxy-manager.js";
+import { tunPrivilegeGuidance } from "../tun-guidance.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
 import type { DaemonScheduler } from "./scheduler.js";
 
@@ -103,6 +104,16 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       if (!supervisor.isRunning()) return;
       const api = new MihomoApi(runtimeSettings.controller, runtimeSettings.secret);
       await api.reloadConfig(configPath);
+      if (runtimeSettings.tun) {
+        const active = await api.getTunActive().catch(() => undefined);
+        if (active !== true) {
+          const reason = active === false ? "inactive" : "unverified";
+          throw new TunActivationError(
+            reason,
+            `TUN is ${reason} after configuration reload. ${tunPrivilegeGuidance("runtime-inactive", { root: layout.root, observation: reason })}`,
+          );
+        }
+      }
     },
     commit: mutate,
     onChange: () => {

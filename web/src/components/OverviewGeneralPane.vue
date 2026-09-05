@@ -63,10 +63,11 @@
         >
           <span class="toggle-name">{{ t('overview.tun') }}</span>
           <span class="toggle-state" :class="tunStateClass" :title="tunStatusBadge?.title">
-            {{ tunOn ? (tunStatusBadge?.text ?? t('common.on')) : t('common.off') }}
+            {{ tunStatusBadge?.text ?? (tunOn ? t('common.on') : t('common.off')) }}
           </span>
         </button>
       </div>
+      <TunFeedback />
     </section>
 
     <div class="general-list">
@@ -186,6 +187,7 @@ import {
 import type { OutboundMode } from "../types/index.js";
 import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 import Icon from "./Icon.vue";
+import TunFeedback from "./TunFeedback.vue";
 import TrafficChart from "./TrafficChart.vue";
 
 const refreshingSub = ref(false);
@@ -227,8 +229,9 @@ async function switchMode(mode: OutboundMode): Promise<void> {
 
 async function toggleSystemProxy(target: boolean): Promise<void> {
   try {
-    await setSystemProxyEnabled(target);
-    toast.success(t(target ? "toast.sysProxyOn" : "toast.sysProxyOff"));
+    const verified = await setSystemProxyEnabled(target);
+    if (verified) toast.success(t(target ? "toast.sysProxyOn" : "toast.sysProxyOff"));
+    else toast.info(t("toast.savedUnverified"));
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   }
@@ -236,10 +239,11 @@ async function toggleSystemProxy(target: boolean): Promise<void> {
 
 async function applyNetToggle(key: "allow-lan" | "tun", next: boolean): Promise<void> {
   try {
-    await patchBooleanSetting(key, next);
-    toast.success(t("toast.settingSaved"));
+    const verified = await patchBooleanSetting(key, next);
+    if (verified) toast.success(t("toast.settingSaved"));
+    else toast.info(t("toast.savedUnverified"));
   } catch (error) {
-    toast.error(t("toast.failed", { msg: errorText(error) }));
+    toast.error(key === "tun" ? t("toast.tunFailed") : t("toast.failed", { msg: errorText(error) }));
   }
 }
 

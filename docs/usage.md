@@ -12,7 +12,7 @@ sash web        # open the dashboard: download a subscription, pick nodes, toggl
 sash status
 ```
 
-Profiles, the system proxy and all runtime settings are managed from the web dashboard; the CLI covers lifecycle, logs and upgrades.
+Profiles, the system proxy and runtime settings are managed from the web dashboard; the CLI covers lifecycle, logs, upgrades and the focused `sash tun <on|off>` control.
 
 ---
 
@@ -27,6 +27,14 @@ Profiles, the system proxy and all runtime settings are managed from the web das
 | `sash restart` | Restart the whole runtime: the daemon exits through its maintenance boundary and a fresh daemon starts the core. |
 | `sash status [--json]` | Show daemon/core state, active profile, endpoints and system proxy state; incomplete observations exit with code 2. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | View core or daemon logs; `-f` follows new output. |
+
+### TUN Control
+
+| Command | Description |
+| :--- | :--- |
+| `sash tun <on\|off>` | Save desired TUN state through the verified, responsive daemon's `PATCH /sash/settings`, then report observed runtime state. |
+
+This command uses the same `SettingsService` as the WebUI. It never auto-starts the daemon/Core, elevates privileges or edits settings offline. A running daemon with Core stopped saves intent pending the next start. A successful save remains successful if the follow-up status refresh is unavailable; inspect `sash status` later. See [TUN Mode](#4-tun-mode) for setup and rollback behavior.
 
 ### Status JSON and exit codes
 
@@ -110,7 +118,7 @@ Profiles are managed from the WebUI Profiles page: download from a subscription 
 
 ### Settings
 
-Runtime settings (`mixed-port`, `tun`, `allow-lan`, `system-proxy`) are managed from the WebUI Settings page, and the entire `sash.json` can be edited as JSON from the same page ("Edit settings file"); invalid documents are rejected without touching the disk. `daemonSecret` changes apply immediately; `daemonPort` changes are saved but require a manual `sash restart` to rebind the listener.
+Runtime settings (`mixedPort`, `tun`, `allowLan`, `systemProxy`) are managed from the WebUI Settings page (`tun` also has a CLI control), and the entire `sash.json` can be edited as JSON from the same page ("Edit settings file"); invalid documents are rejected without touching the disk. `daemonSecret` changes apply immediately; `daemonPort` changes are saved but require a manual `sash restart` to rebind the listener.
 
 ### Maintenance & Upgrades
 
@@ -131,7 +139,7 @@ Core updates download and validate before shutdown, then use an authenticated ma
 | Key | Default | Description |
 | :--- | :--- | :--- |
 | `schemaVersion` | `1` | On-disk settings schema; managed by Sash. |
-| `mixedPort` | `7890` | Local HTTP/SOCKS5 mixed inbound port. The CLI key is `mixed-port`. |
+| `mixedPort` | `7890` | Local HTTP/SOCKS5 mixed inbound port. Change it from the dashboard. |
 | `controller` | `127.0.0.1:9090` | Internal controller listen address; only loopback hosts are accepted. |
 | `daemonPort` | `19090` | Daemon API and WebUI port. |
 | `secret` | *(random)* | Internal controller secret. It is never returned by the public status API. |
@@ -146,41 +154,78 @@ Installed core version metadata lives in `state/install.json`, not in `sash.json
 
 Malformed, future-version or unknown-field `sash.json` documents and malformed `profiles/index.json` files are rejected without being overwritten. Secrets cannot be blank or contain control characters, the controller must remain loopback-only, and the mixed, controller and daemon ports must all differ. Repair or move a damaged file explicitly instead of relying on silent defaults.
 
-Settings changes are prepared as an all-or-nothing candidate: active configuration is validated before settings/config publication, and a failed restart restores the previous candidate where possible. Turning the system proxy off persists the desired off state before OS cleanup; if cleanup fails, toggle the system proxy off again from the WebUI after resolving the OS error.
+Core-related settings/config changes are validated before publication and compensated on restart failure. A multi-key settings request is not wholly atomic: Core/settings changes can commit before a separate system-proxy transaction fails. Turning the system proxy off persists desired off before OS cleanup. An explicit `systemProxy: false` retries release even when desired state is already false; it never authorizes changing an unrelated proxy. If cleanup fails, toggle off again after resolving the OS error.
 
 ---
 
 ## 4. TUN Mode
 
-TUN requires the whole Sash daemon to run with elevated privileges. Stop the current daemon and save the setting while Sash is offline — toggle it in the WebUI Settings page before stopping, or set `"tun": true` in `sash.json` directly:
+### Privileges and activation
 
-```sh
-sash stop
-# ensure TUN is on (WebUI Settings page, or edit sash.json)
-```
+TUN requires the **whole Sash daemon** to run with elevated privileges. The CLI and WebUI do not elevate it; a dashboard Core-only restart cannot change daemon privileges. If an online enable fails, Sash rolls back the setting, generated config and prior runtime. Restart elevated **first**, using the same data root, then enable again.
 
-On Windows, open PowerShell as Administrator:
+On Windows, open PowerShell as Administrator under the **same Windows user**:
 
 ```powershell
-sash start
+# Only for a custom data root: copy its exact SASH_HOME into this shell first.
+# $env:SASH_HOME = 'C:\your\custom\Sash'
+sash restart
+sash tun on
+sash status
 ```
 
-The default `%LOCALAPPDATA%\Sash` data root remains the same when the current Windows user elevates. Only copy an explicitly customized `SASH_HOME` into the Administrator shell.
+Same-user elevation retains the default `%LOCALAPPDATA%\Sash` root. An explicitly customized `SASH_HOME` must be copied into the Administrator shell; do not silently switch instances.
 
-On macOS or Linux, `sudo` can change the default home directory. Read the current data root and pass it explicitly while starting Sash as root:
+On macOS or Linux, note the data root from `sash status` before elevation and pass it explicitly (`sudo` can change the default home):
 
 ```sh
-sash status  # note the printed data root
-sudo env SASH_HOME='<data root printed above>' "$(command -v sash)" start
+sudo env SASH_HOME='<data root>' "$(command -v sash)" restart
+sudo env SASH_HOME='<data root>' "$(command -v sash)" tun on
+sudo env SASH_HOME='<data root>' "$(command -v sash)" status
+# When finished:
+sudo env SASH_HOME='<data root>' "$(command -v sash)" stop
 ```
 
-While that elevated daemon is running on macOS or Linux, use the same `sudo` and `SASH_HOME` prefix for later lifecycle commands such as `status` or `stop`, so they target the same runtime and can read its protected state.
+Use the same privilege context and `SASH_HOME` for subsequent commands. Elevated writes can leave private settings, state and logs root-owned with mode `0600`; even after stopping, unelevated commands may no longer be able to read them. Stopping does not restore file ownership. Do not assume seamless unelevated access or weaken private-file permissions to work around this.
 
-If TUN was already saved as on, just start Sash elevated. Because a full `sash restart` replaces the daemon itself, running it from the elevated shell is equivalent to `sash stop` + `sash start` here; restarting only the Core from the dashboard does not elevate `sashd`.
+If desired TUN is already on, the elevated restart applies it; the subsequent `tun on` is idempotent. If Core is stopped but the daemon is responsive, `sash tun on` only saves intent for its next start. Normal `sash start` permits an ordinary non-TUN Core fallback with an inactive/unverified warning rather than treating controller readiness as TUN success. If elevated startup still reports inactive, inspect `sash logs --errors` in the same privilege context.
 
-Sash distinguishes the desired setting from the Core's actual runtime state: `sash status` reports `on (active)`, `on (inactive)`, `on (unverified)` or `on (runtime unknown)`, and `sash status --json` reports `tun.desired` separately from `tun.active` (`true`, `false` or `null`). Privilege guidance is shown only after a responsive, healthy running Core explicitly reports inactive or unverified TUN state.
+### Verification and rollback
 
-When a running Core is switched from TUN off to on, Sash reads back `tun.enable` from the Core before committing the setting. If the Core remains inactive or cannot be verified, the settings/config transaction and prior runtime are restored. An inactive result includes the platform-appropriate elevated `sash restart` instructions above. A TUN setting saved while the Core is stopped can only be verified on the next start; startup leaves the ordinary proxy Core available and reports any inactive or unverified TUN state explicitly. If an elevated start still leaves TUN inactive, inspect the Core error log.
+Desired state and runtime observation are separate: `sash status --json` reports `tun.desired` and `tun.active` (`true`, `false` or `null`). The dashboard distinguishes pending start, active, inactive, unverified (including a running but unhealthy Core), and unexpectedly active while desired off. A failed enable leaves the switch at the committed value and retains failure details inline; a successful save followed by an unavailable refresh is reported as saved, not rolled back.
+
+Every settings-driven restart with TUN desired on, and every active profile/config hot reload with TUN desired on, requires the Core to report `tun.enable: true`. Inactive or unverified results restore the previous settings/profile/config and runtime as applicable. Rollback failures are reported explicitly and require investigation. Ordinary startup remains the non-strict fallback path described above.
+
+**Active means the Core reports an active TUN listener.** It does not verify network reachability, DNS resolution, or that all device traffic passes through TUN.
+
+### Profile TUN and DNS policy
+
+Sash owns TUN `enable` from the boolean `tun` in `sash.json`, plus `auto-route: true`, `auto-detect-interface: true` and `dns-hijack: ["any:53"]`. The supported Core handles both TCP and UDP port 53 with `any:53`. The active profile may supply only these advanced TUN fields:
+
+| Profile key | Accepted value | If absent |
+| :--- | :--- | :--- |
+| `tun.stack` | `mixed`, `system`, or `gvisor` | `mixed` |
+| `tun.mtu` | Integer from `576` to `65535` | Omitted; Core default retained |
+| `tun.strict-route` | Boolean | Omitted; Core default retained |
+
+Other profile TUN fields are ignored. Invalid advanced values or a malformed TUN object are rejected when TUN is enabled.
+
+With TUN on, an existing profile DNS object is preserved, except a missing `dns.enable` is normalized to `true`. Explicit `enable: false`, a non-boolean enable value or a malformed DNS object fails before publication. If the profile has no DNS section, Sash generates:
+
+```yaml
+dns:
+  enable: true
+  ipv6: true # follows top-level ipv6; false when top-level ipv6 is false
+  enhanced-mode: redir-host
+  nameserver:
+    - https://cloudflare-dns.com/dns-query
+    - https://dns.google/dns-query
+  default-nameserver:
+    - 1.1.1.1
+    - 8.8.8.8
+```
+
+With TUN off, Sash makes no DNS changes. Sash adds neither a separate DNS listen socket nor OS DNS edits; existing profile DNS choices remain profile-owned.
 
 Do not enable TUN in automated smoke tests.
 

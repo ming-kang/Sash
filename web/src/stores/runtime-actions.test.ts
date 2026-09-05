@@ -3,8 +3,16 @@ import { describe, it } from "node:test";
 import { api } from "../api/index.js";
 import type { ProfileMeta, SashStatus } from "../types/index.js";
 import { refreshConnections } from "./core-actions.js";
-import { markDaemonOffline, refreshRuntimeState, refreshStatus } from "./runtime-actions.js";
-import { store } from "./state.js";
+import {
+  markDaemonOffline,
+  patchBooleanSetting,
+  refreshRuntimeState,
+  refreshStatus,
+  setSystemProxyEnabled,
+  startRuntimePolling,
+} from "./runtime-actions.js";
+import { adoptDaemonStatus, store } from "./state.js";
+import { tunRuntimeState } from "./state-ownership.js";
 
 function runtimeStatus(options: {
   daemonStartedAt: string;
@@ -265,3 +273,369 @@ describe("web runtime ownership", () => {
     }
   });
 });
+
+describe("network mutation outcomes", () => {
+  for (const kind of ["tun", "allow-lan", "systemProxy"] as const) {
+    it(`${kind}: preserves saved intent and observed proxy state when refresh fails`, async () => {
+      const originals = {
+        patchSettings: api.patchSettings,
+        enableSystemProxy: api.enableSystemProxy,
+        getStatus: api.getStatus,
+      };
+      const status = runtimeStatus({ daemonStartedAt: "mutation", profileRevision: 0 });
+      status.core.tunActive = false;
+      adoptDaemonStatus(status);
+      const settings = {
+        ...status.settings,
+        tun: kind === "tun",
+        allowLan: kind === "allow-lan",
+        systemProxy: kind === "systemProxy",
+      };
+      api.patchSettings = api.enableSystemProxy = async () => ({
+        settings,
+        restartRequired: false,
+      });
+      api.getStatus = async () => {
+        throw new Error("refresh failed");
+      };
+      try {
+        const verified =
+          kind === "systemProxy"
+            ? await setSystemProxyEnabled(true)
+            : await patchBooleanSetting(kind, true);
+        assert.equal(verified, false);
+        if (kind === "tun") assert.equal(tunRuntimeState(store.status), "unverified");
+        assert.deepEqual(store.status?.settings, settings);
+        assert.deepEqual(store.status?.systemProxy, {
+          ...status.systemProxy,
+          desired: settings.systemProxy,
+        });
+        assert.equal(store.operations.networkSetting, false);
+        assert.equal(store.operations.systemProxy, false);
+      } finally {
+        Object.assign(api, originals);
+        markDaemonOffline();
+      }
+    });
+
+    it(`${kind}: refreshes possible partial writes but preserves the original mutation error`, async () => {
+      const originals = {
+        patchSettings: api.patchSettings,
+        enableSystemProxy: api.enableSystemProxy,
+        getStatus: api.getStatus,
+      };
+      adoptDaemonStatus(runtimeStatus({ daemonStartedAt: "mutation-error", profileRevision: 0 }));
+      const failure = new Error("tun_inactive: enable rolled back; backend details");
+      let refreshes = 0;
+      api.patchSettings = api.enableSystemProxy = async () => {
+        throw failure;
+      };
+      api.getStatus = async () => {
+        refreshes += 1;
+        throw new Error("refresh failed");
+      };
+      try {
+        await assert.rejects(
+          kind === "systemProxy" ? setSystemProxyEnabled(true) : patchBooleanSetting(kind, true),
+          (error) => error === failure,
+        );
+        assert.equal(refreshes, 1);
+        assert.equal(store.status?.settings.tun, false);
+      } finally {
+        Object.assign(api, originals);
+        markDaemonOffline();
+      }
+    });
+  }
+});
+
+describe("stale polling failures", () => {
+  for (const phase of ["initialize", "status"] as const) {
+    for (const stopped of [false, true]) {
+      it(`ignores ${phase} failure after newer status (poll stopped: ${stopped})`, async () => {
+        const originals = {
+          initialize: api.initialize,
+          getStatus: api.getStatus,
+          getProfiles: api.getProfiles,
+          clearSession: api.clearSession,
+        };
+        const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+        const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+        Object.defineProperty(globalThis, "window", {
+          configurable: true,
+          value: { setTimeout: () => 1, clearTimeout: () => undefined },
+        });
+        Object.defineProperty(globalThis, "document", {
+          configurable: true,
+          value: {
+            hidden: false,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+          },
+        });
+        const pending = Promise.withResolvers<never>();
+        const entered = Promise.withResolvers<void>();
+        let clears = 0;
+        api.clearSession = () => {
+          clears += 1;
+        };
+        api.initialize = async () => {
+          if (phase === "initialize") {
+            entered.resolve();
+            return pending.promise;
+          }
+          return { token: "test", pid: 100, startedAt: "2026-01-01T00:00:00.000Z" };
+        };
+        api.getStatus = async () => {
+          entered.resolve();
+          return pending.promise;
+        };
+        api.getProfiles = async () => ({ activeId: null, profiles: [] });
+        const stop = startRuntimePolling();
+        try {
+          await entered.promise;
+          if (stopped) stop();
+          const latest = runtimeStatus({
+            daemonStartedAt: "newer",
+            profileRevision: 0,
+            running: false,
+            healthy: false,
+          });
+          api.getStatus = async () => latest;
+          await refreshStatus();
+          pending.reject(new Error("old failure"));
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          assert.equal(store.daemonOnline, true);
+          assert.equal(store.status, latest);
+          assert.equal(clears, 0);
+        } finally {
+          stop();
+          Object.assign(api, originals);
+          if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow);
+          else Reflect.deleteProperty(globalThis, "window");
+          if (oldDocument) Object.defineProperty(globalThis, "document", oldDocument);
+          else Reflect.deleteProperty(globalThis, "document");
+          markDaemonOffline();
+        }
+      });
+    }
+  }
+});
+
+it("keeps TUN intent committed while saving and preserves an unrelated system proxy", async () => {
+  const originals = {
+    patchSettings: api.patchSettings,
+    disableSystemProxy: api.disableSystemProxy,
+    getStatus: api.getStatus,
+  };
+  const status = runtimeStatus({ daemonStartedAt: "pending-toggle", profileRevision: 0 });
+  status.settings.systemProxy = true;
+  status.systemProxy.desired = true;
+  status.systemProxy.applied = true;
+  status.systemProxy.actual = { supported: true, enabled: true };
+  adoptDaemonStatus(status);
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof api.patchSettings>>>();
+  api.patchSettings = async () => pending.promise;
+  api.disableSystemProxy = async () => {
+    throw new Error("must not disable system proxy");
+  };
+  api.getStatus = async () => {
+    throw new Error("refresh unavailable");
+  };
+  try {
+    const saving = patchBooleanSetting("tun", true);
+    assert.equal(store.status?.settings.tun, false);
+    assert.equal(store.operations.networkSetting, true);
+    pending.resolve({ settings: { ...status.settings, tun: true }, restartRequired: false });
+    assert.equal(await saving, false);
+    assert.equal(store.status?.settings.tun, true);
+    assert.deepEqual(store.status?.systemProxy, status.systemProxy);
+  } finally {
+    Object.assign(api, originals);
+    markDaemonOffline();
+  }
+});
+
+it("resource requests do not supersede status and older resource failures cannot degrade newer data", async () => {
+  const originals = { getStatus: api.getStatus, getConnections: api.getConnections };
+  const status = runtimeStatus({ daemonStartedAt: "resource-order", profileRevision: 0 });
+  adoptDaemonStatus(status);
+  store.lastProfileRevision = 0;
+  store.coreSnapshotAvailable = true;
+  const old = Promise.withResolvers<Awaited<ReturnType<typeof api.getConnections>>>();
+  api.getConnections = async () => old.promise;
+  try {
+    const oldRequest = refreshConnections();
+    api.getConnections = async () => ({ connections: [], uploadTotal: 42, downloadTotal: 24 });
+    await refreshConnections();
+    old.reject(new Error("stale resource failure"));
+    await assert.rejects(oldRequest, /stale resource failure/);
+    assert.equal(store.connectionsUploadTotal, 42);
+    assert.equal(store.coreSnapshotError, null);
+
+    const pending = Promise.withResolvers<SashStatus>();
+    api.getStatus = async () => pending.promise;
+    const refreshing = refreshStatus();
+    await refreshConnections();
+    const stopped = runtimeStatus({
+      daemonStartedAt: "resource-order",
+      profileRevision: 0,
+      running: false,
+      healthy: false,
+    });
+    pending.resolve(stopped);
+    assert.equal(await refreshing, "stopped");
+    assert.equal(store.status, stopped);
+  } finally {
+    Object.assign(api, originals);
+    markDaemonOffline();
+  }
+});
+
+it("retains TUN recovery details through polling and failed refresh, clearing on retry or new boot", async () => {
+  const originals = {
+    patchSettings: api.patchSettings,
+    getStatus: api.getStatus,
+    getProfiles: api.getProfiles,
+  };
+  const status = runtimeStatus({
+    daemonStartedAt: "tun-feedback",
+    profileRevision: 0,
+    running: false,
+  });
+  adoptDaemonStatus(status);
+  const failure = new Error("TUN inactive. Original recovery guidance must remain intact.");
+  api.patchSettings = async () => {
+    throw failure;
+  };
+  api.getStatus = async () => {
+    throw new Error("refresh failed");
+  };
+  api.getProfiles = async () => ({ activeId: null, profiles: [] });
+  try {
+    await assert.rejects(patchBooleanSetting("tun", true), (error) => error === failure);
+    assert.equal(store.tunError, failure.message);
+    api.getStatus = async () => status;
+    await refreshStatus();
+    assert.equal(store.tunError, failure.message);
+    markDaemonOffline();
+    assert.equal(store.tunError, failure.message);
+    await refreshStatus();
+    assert.equal(store.tunError, failure.message);
+    api.patchSettings = async () => {
+      assert.equal(store.tunError, null, "retry clears before sending the request");
+      return { settings: status.settings, restartRequired: false };
+    };
+    await patchBooleanSetting("tun", false);
+    assert.equal(store.tunError, null);
+    store.tunError = failure.message;
+    api.patchSettings = async () => ({ settings: status.settings, restartRequired: false });
+    await patchBooleanSetting("allow-lan", false);
+    assert.equal(store.tunError, failure.message, "unrelated mutation preserves details");
+    adoptDaemonStatus({ ...status, daemon: { ...status.daemon, startedAt: "new-boot" } });
+    assert.equal(store.tunError, null);
+  } finally {
+    Object.assign(api, originals);
+    store.tunError = null;
+    markDaemonOffline();
+  }
+});
+
+it("retains boot B TUN guidance when polling authenticates B before its first status", async () => {
+  const originals = { getStatus: api.getStatus, getProfiles: api.getProfiles };
+  const originalFetch = globalThis.fetch;
+  const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { setTimeout: () => 1, clearTimeout: () => undefined },
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      hidden: false,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    },
+  });
+  const bootB = "2026-02-01T00:00:00.000Z";
+  const statusB = runtimeStatus({ daemonStartedAt: bootB, profileRevision: 0, running: false });
+  adoptDaemonStatus(runtimeStatus({ daemonStartedAt: "boot-a", profileRevision: 0 }));
+  const pending = Promise.withResolvers<SashStatus>();
+  const entered = Promise.withResolvers<void>();
+  api.getStatus = async () => {
+    entered.resolve();
+    return pending.promise;
+  };
+  api.getProfiles = async () => ({ activeId: null, profiles: [] });
+  const guidance = "TUN inactive. Restart with elevated privileges; original recovery details.";
+  globalThis.fetch = async (input, init) => {
+    if (String(input).endsWith("/health")) {
+      return Response.json({ token: "token-b", pid: 100, startedAt: bootB });
+    }
+    assert.equal(String(input), "/sash/settings");
+    assert.equal(new Headers(init?.headers).get("x-sash-token"), "token-b");
+    return new Response(guidance, { status: 409 });
+  };
+  const stop = startRuntimePolling();
+  try {
+    await entered.promise;
+    assert.equal(api.getSessionDaemonStartedAt(), bootB);
+    assert.equal(store.status?.daemon.startedAt, "boot-a");
+    api.getStatus = async () => statusB;
+    await assert.rejects(patchBooleanSetting("tun", true), { message: guidance });
+    assert.equal(store.status, statusB);
+    assert.equal(store.tunError, guidance);
+    pending.resolve(statusB);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(store.tunError, guidance);
+    await refreshStatus();
+    assert.equal(store.tunError, guidance);
+  } finally {
+    pending.resolve(statusB);
+    stop();
+    Object.assign(api, originals);
+    globalThis.fetch = originalFetch;
+    api.clearSession();
+    if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+    if (oldDocument) Object.defineProperty(globalThis, "document", oldDocument);
+    else Reflect.deleteProperty(globalThis, "document");
+    store.tunError = null;
+    markDaemonOffline();
+  }
+});
+
+for (const adoptB of [false, true]) {
+  it(`ignores delayed boot A TUN failure after B authentication (B status adopted: ${adoptB})`, async () => {
+    const originals = { patchSettings: api.patchSettings, getStatus: api.getStatus };
+    const originalFetch = globalThis.fetch;
+    const bootA = "2026-01-01T00:00:00.000Z";
+    const bootB = "2026-02-01T00:00:00.000Z";
+    const pending = Promise.withResolvers<never>();
+    const failure = new Error("Old A recovery details");
+    globalThis.fetch = async () => Response.json({ token: "token-a", pid: 100, startedAt: bootA });
+    api.patchSettings = async () => pending.promise;
+    api.getStatus = async () => {
+      throw new Error("temporarily offline");
+    };
+    try {
+      await api.initialize();
+      adoptDaemonStatus(runtimeStatus({ daemonStartedAt: bootA, profileRevision: 0 }));
+      const saving = patchBooleanSetting("tun", true);
+      globalThis.fetch = async () =>
+        Response.json({ token: "token-b", pid: 100, startedAt: bootB });
+      await api.initialize();
+      if (adoptB) adoptDaemonStatus(runtimeStatus({ daemonStartedAt: bootB, profileRevision: 0 }));
+      pending.reject(failure);
+      await assert.rejects(saving, (error) => error === failure);
+      assert.equal(store.tunError, null);
+      assert.equal(store.status?.daemon.startedAt, adoptB ? bootB : bootA);
+    } finally {
+      Object.assign(api, originals);
+      globalThis.fetch = originalFetch;
+      api.clearSession();
+      markDaemonOffline();
+    }
+  });
+}

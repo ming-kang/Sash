@@ -36,6 +36,7 @@ export interface StoreState {
   lastProfileRevision: number | null;
   coreSnapshotAvailable: boolean;
   coreSnapshotError: string | null;
+  tunError: string | null;
   mode: OutboundMode;
   traffic: {
     up: number;
@@ -72,12 +73,14 @@ interface RuntimeOwnershipState {
   observedOwner: string | null;
   snapshotProfileRevision: number | null;
   lastDaemonStartedAt: string | null;
+  tunErrorDaemonStartedAt: string | null;
 }
 
 export const runtimeOwnership: RuntimeOwnershipState = {
   observedOwner: null,
   snapshotProfileRevision: null,
   lastDaemonStartedAt: null,
+  tunErrorDaemonStartedAt: null,
 };
 
 // Shallow on purpose: collections (connections, rules, proxies, logs, traffic)
@@ -89,6 +92,7 @@ export const store = shallowReactive<StoreState>({
   lastProfileRevision: null,
   coreSnapshotAvailable: false,
   coreSnapshotError: null,
+  tunError: null,
   mode: "rule",
   traffic: {
     up: 0,
@@ -167,6 +171,13 @@ export function adoptDaemonStatus(status: SashStatus): void {
   if (runtimeOwnership.lastDaemonStartedAt !== status.daemon.startedAt) {
     requests.invalidate("profiles");
     store.lastProfileRevision = null;
+  }
+  if (
+    (runtimeOwnership.tunErrorDaemonStartedAt ?? runtimeOwnership.lastDaemonStartedAt) !==
+    status.daemon.startedAt
+  ) {
+    store.tunError = null;
+    runtimeOwnership.tunErrorDaemonStartedAt = null;
   }
   runtimeOwnership.lastDaemonStartedAt = status.daemon.startedAt;
   store.status = status;

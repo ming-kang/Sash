@@ -24,6 +24,8 @@ interface RequestOptions {
 }
 
 let controlToken = "";
+let sessionDaemonStartedAt: string | null = null;
+let sessionGeneration = 0;
 
 const sash = new SashClient({
   baseUrl: "",
@@ -135,20 +137,30 @@ function connectStream(
 }
 
 export const api = {
-  initialize: async (): Promise<HealthInfo> => {
+  initialize: async (isActive: () => boolean = () => true): Promise<HealthInfo> => {
+    const generation = ++sessionGeneration;
     try {
       const health = await sash.health();
-      controlToken = health.token;
+      if (isActive() && generation === sessionGeneration) {
+        controlToken = health.token;
+        sessionDaemonStartedAt = health.startedAt;
+      }
       return health;
     } catch (err) {
-      controlToken = "";
+      if (isActive() && generation === sessionGeneration) {
+        controlToken = "";
+        sessionDaemonStartedAt = null;
+      }
       throw err;
     }
   },
   clearSession: (): void => {
+    sessionGeneration += 1;
     controlToken = "";
+    sessionDaemonStartedAt = null;
   },
   hasSession: (): boolean => controlToken !== "",
+  getSessionDaemonStartedAt: (): string | null => sessionDaemonStartedAt,
 
   getHealth: () => sash.health(),
   getStatus: () => sash.status(),

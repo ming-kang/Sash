@@ -230,9 +230,10 @@ describe("daemon server", () => {
         body: { tun: true },
       });
 
-      assert.equal(res.statusCode, 500);
+      assert.equal(res.statusCode, 409);
+      assert.equal((res.data as { error: { code: string } }).error.code, "tun_inactive");
       const message = (res.data as { error: { message: string } }).error.message;
-      assert.match(message, /TUN did not become active.*sash config set tun on/s);
+      assert.match(message, /TUN did not become active.*sash tun on/s);
       if (process.platform === "win32") {
         assert.match(message, /PowerShell as Administrator and run "sash restart"/);
       } else {
@@ -242,6 +243,71 @@ describe("daemon server", () => {
       const raw = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8")) as { tun: boolean };
       assert.equal(raw.tun, false);
       assert.doesNotMatch(fs.readFileSync(h.layout.configFile, "utf8"), /^tun:/m);
+    });
+
+    for (const active of [true, undefined]) {
+      it(`handles online TUN observation ${String(active)} without confusing unknown with success`, async () => {
+        let restartCalls = 0;
+        const supervisor = {
+          isRunning: () => true,
+          restart: async () => {
+            restartCalls++;
+            return { pid: 1234, ...(active === undefined ? {} : { tunActive: active }) };
+          },
+          stop: async () => {},
+          cleanStaleCore: async () => {},
+        } as unknown as CoreSupervisor;
+        await h.startServer({ supervisor });
+        const res = await h.apiRequest("/sash/settings", {
+          method: "PATCH",
+          body: { tun: true },
+        });
+        assert.equal(res.statusCode, active === true ? 200 : 409);
+        if (active === undefined) {
+          assert.equal((res.data as { error: { code: string } }).error.code, "tun_unverified");
+        }
+        assert.equal(restartCalls, active === true ? 1 : 2);
+        const persisted = JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8")) as {
+          tun: boolean;
+        };
+        assert.equal(persisted.tun, active === true);
+      });
+    }
+
+    it("rejects incompatible profile DNS before publishing or restarting", async () => {
+      const profile: ProfileMeta = {
+        id: "1",
+        name: "DNS disabled",
+        url: "",
+        intervalHours: 0,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      fs.mkdirSync(h.layout.profilesDir, { recursive: true });
+      const source = "dns:\n  enable: false\nproxies: []\nrules: [MATCH,DIRECT]\n";
+      const profileFile = path.join(h.layout.profilesDir, "1.yaml");
+      fs.writeFileSync(profileFile, source);
+      saveProfiles({ activeId: "1", profiles: [profile] }, h.layout);
+      let restarts = 0;
+      await h.startServer({
+        supervisor: {
+          isRunning: () => true,
+          restart: async () => {
+            restarts++;
+            return { pid: 1234 };
+          },
+          stop: async () => {},
+          cleanStaleCore: async () => {},
+        } as unknown as CoreSupervisor,
+      });
+      const beforeSettings = fs.readFileSync(h.layout.settingsFile, "utf8");
+      const res = await h.apiRequest("/sash/settings", { method: "PATCH", body: { tun: true } });
+      assert.equal(res.statusCode, 400);
+      assert.equal((res.data as { error: { code: string } }).error.code, "invalid_input");
+      assert.equal(restarts, 0);
+      assert.equal(fs.readFileSync(h.layout.settingsFile, "utf8"), beforeSettings);
+      assert.equal(fs.readFileSync(profileFile, "utf8"), source);
+      assert.equal(fs.existsSync(h.layout.configFile), false);
     });
 
     it("keeps GET settings on the committed snapshot while candidate validation is delayed", async () => {

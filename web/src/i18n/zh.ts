@@ -176,20 +176,23 @@ export const zh = {
     allowLanTitle: "允许局域网连接",
     allowLanDesc: "接受来自局域网其他设备的代理请求",
     tunTitle: "TUN 模式（虚拟网卡）",
-    tunDesc: "透明接管系统全部流量，必须以管理员 / root 权限启动整个 Sash",
+    tunDesc:
+      "通过虚拟网卡路由受支持的流量，需要管理员 / root 权限。核心报告的状态不代表所有流量或 DNS 均已接管。若启用已回滚，请先在提权终端运行 sash restart，再重新启用。",
     tunStateActive: "已生效",
     tunStateInactive: "未生效",
     tunStateUnverified: "未核验",
     tunStateStopped: "待启动",
     tunStateUnexpected: "状态不一致",
     tunInactiveDesc:
-      "核心仍在运行，但 TUN 未实际启用；请先运行 sash stop，再从管理员 / root 终端运行 sash start；sash restart 不足以提升 sashd 权限；若已提权，请检查核心错误日志",
+      "核心报告 TUN 未启用。请检查核心错误日志；若为权限错误，请从管理员 / root 终端运行 sash restart，重启整个守护进程。若启用已回滚，请随后重新启用 TUN。网页“重启核心”无法提升守护进程权限。",
     tunUnverifiedDesc:
-      "TUN 已配置，但无法核验实际运行状态；请先运行 sash stop，再从管理员 / root 终端运行 sash start；若已提权，请检查核心错误日志",
-    tunUnexpectedDesc: "核心报告 TUN 已启用，但 Sash 设置为关闭",
+      "TUN 已配置，但无法获取核心报告的状态；这不代表权限不足。请检查核心健康状态和错误日志后重试。若为权限错误，请从管理员 / root 终端运行 sash restart；网页“重启核心”无法提升守护进程权限。",
+    tunUnexpectedDesc:
+      "核心报告 TUN 已启用，但已保存的设置为关闭。请检查核心日志并重启核心，重新应用已保存的设置。",
     coreTitle: "核心控制",
     restartTitle: "重启核心进程",
-    restartDesc: "重启核心子进程并重新应用配置，活动连接会中断",
+    restartDesc:
+      "仅重启核心子进程并重新应用配置，活动连接会中断；无法提升守护进程权限，提权请在管理员 / root 终端运行 sash restart。",
     restartBtn: "重启核心",
     restartConfirmTitle: "重启核心",
     restartConfirmMsg: "重启期间活动连接会中断，确定继续？",
@@ -215,6 +218,9 @@ export const zh = {
     profilesUpdateAllPartial: "{n} 个已更新，{f} 个失败",
     pasteFailed: "无法读取剪贴板",
     portSaved: "端口已更新，核心已重启",
+    tunFailed: "TUN 更改失败，请查看下方详情。",
+    dismissTunError: "关闭 TUN 错误详情",
+    savedUnverified: "设置已保存，但暂时无法核验运行状态。重试前请检查状态和日志。",
     settingSaved: "设置已更新",
     settingsSavedRestart: "设置已保存；daemonPort 变更需手动执行 sash restart 生效",
     coreRestarted: "核心已重启",

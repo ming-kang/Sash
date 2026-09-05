@@ -55,7 +55,12 @@ export async function runStatus(
   log.kv("tun", formatTunObservation(status));
   log.kv("core version", status.core.installedVersion || "(not installed)");
   if (shouldShowTunGuidance(status)) {
-    log.warn(tunPrivilegeGuidance("runtime-inactive", { root: status.paths.root }));
+    log.warn(
+      tunPrivilegeGuidance("runtime-inactive", {
+        root: status.paths.root,
+        observation: status.tun.active === false ? "inactive" : "unverified",
+      }),
+    );
   }
   markIncompleteObservation(status.complete);
 }

@@ -59,6 +59,8 @@ describe("minimal Vue behavior harness", () => {
 
     const { createApp, defineComponent, h, nextTick } = await import("vue");
     const { runtimeNotice, store } = await import("./stores/index.js");
+    const { tunStatusBadge } = await import("./composables/core-runtime.js");
+    const { t } = await import("./i18n/index.js");
     const original = {
       status: store.status,
       daemonOnline: store.daemonOnline,
@@ -70,32 +72,62 @@ describe("minimal Vue behavior harness", () => {
     const app = createApp(
       defineComponent({
         setup: () => () =>
-          h("div", { "data-notice": runtimeNotice.value ?? "none" }, runtimeNotice.value ?? "none"),
+          h("div", [
+            h(
+              "div",
+              { "data-notice": runtimeNotice.value ?? "none" },
+              runtimeNotice.value ?? "none",
+            ),
+            h(
+              "button",
+              { "aria-pressed": store.status?.settings.tun ?? false },
+              tunStatusBadge.value?.text ?? "off",
+            ),
+          ]),
       }),
     );
 
     try {
       app.mount(host as unknown as Element);
-      assert.equal(host.textContent, "none");
+      assert.equal(host.querySelector("[data-notice]")?.textContent, "none");
 
       store.daemonOnline = false;
       await nextTick();
-      assert.equal(host.textContent, "offline");
+      assert.equal(host.querySelector("[data-notice]")?.textContent, "offline");
 
       store.status = healthyStatus();
       store.daemonOnline = true;
       store.coreSnapshotAvailable = false;
       store.coreSnapshotError = "HTTP 502";
       await nextTick();
-      assert.equal(host.textContent, "coreUnavailable");
+      assert.equal(host.querySelector("[data-notice]")?.textContent, "coreUnavailable");
 
       store.coreSnapshotAvailable = true;
       await nextTick();
-      assert.equal(host.textContent, "coreDegraded");
+      assert.equal(host.querySelector("[data-notice]")?.textContent, "coreDegraded");
 
       store.coreSnapshotError = null;
       await nextTick();
-      assert.equal(host.textContent, "none");
+      assert.equal(host.querySelector("[data-notice]")?.textContent, "none");
+
+      for (const [desired, healthy, active, label] of [
+        [true, true, true, "settings.tunStateActive"],
+        [true, true, false, "settings.tunStateInactive"],
+        [true, true, undefined, "settings.tunStateUnverified"],
+        [true, false, undefined, "settings.tunStateUnverified"],
+        [false, true, true, "settings.tunStateUnexpected"],
+        [false, true, false, null],
+        [false, true, undefined, null],
+      ] as const) {
+        const status = healthyStatus();
+        status.settings.tun = desired;
+        status.core.healthy = healthy;
+        if (active !== undefined) status.core.tunActive = active;
+        store.status = status;
+        await nextTick();
+        assert.equal(host.querySelector("button")?.getAttribute("aria-pressed"), String(desired));
+        assert.equal(host.querySelector("button")?.textContent, label ? t(label) : "off");
+      }
     } finally {
       app.unmount();
       store.status = original.status;

@@ -20,6 +20,8 @@ export type ApiErrorCode =
   | "not_found"
   | "conflict"
   | "core_unhealthy"
+  | "tun_inactive"
+  | "tun_unverified"
   | "shutting_down"
   | "unauthorized"
   | "http"

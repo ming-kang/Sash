@@ -10,9 +10,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Correct cross-platform TUN privilege-guidance assertions and invoke the logs test's registered signal handler directly instead of emitting a process-wide signal that can terminate the shared runner; these corrections do not establish that all remote CI passes.
 - Resolve native Windows log-watcher directories through realpath to avoid the libuv short-name (8.3 prefix) abort. Scope a Koffi `2.16.3` override to `cn-font-split` for upstream Node.js 24.14+ teardown fixes; local uncached build validated, remote macOS CI not yet confirmed.
+- Verify active TUN after every settings-driven restart and profile/config hot reload when TUN is desired, with prior-state/runtime compensation on inactive or unverified results. API errors distinguish `409 tun_inactive`, `409 tun_unverified`, settings conflicts and invalid TUN/DNS candidates; incomplete rollback reports `500` details.
+- Retry ownership-safe system-proxy release for explicit `systemProxy: false` even when already desired off. Core/settings and proxy changes retain separate transaction boundaries, so multi-key requests can partially commit.
+- Keep WebUI TUN controls tied to committed intent, distinguish unhealthy/unverified and unexpectedly active states, preserve inline failure details, and report saved-but-refresh-unavailable separately. Reject stale polling responses and resource errors.
 
 ### Added
 
+- `sash tun <on|off>` changes intent through the verified responsive daemon's settings API without auto-start, elevation or offline edits; stopped Core intent remains pending start. Document elevated full restart followed by re-enable, including same-root and POSIX private-file ownership precautions.
+- Validated profile TUN `stack`, `mtu` and `strict-route` overrides alongside Sash-owned routing/DNS-hijack policy. TUN supplies enabled DNS defaults only when absent, normalizes missing DNS enable, preserves existing DNS choices and rejects incompatible disabled/malformed DNS before publication.
+- Deterministic dual-engine TUN WebUI mock verification in `scripts/tun-ui-verify.mts`, without starting a real Core or changing OS networking.
 - OIDC trusted-publishing release workflow (`.github/workflows/publish.yml`): manually dispatched, idempotent (an already-published version is verified through its registry provenance instead of failing), and re-verifies installation from the registry after publishing. Package smoke verification (`scripts/package-smoke.mjs`) now accepts an external install spec (tarball path or `name@version`) and resolves the Node-bundled npm CLI when run outside `npm run`.
 - `RELEASING.md` release runbook and Dependabot configuration for npm and GitHub Actions updates.
 

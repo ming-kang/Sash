@@ -402,10 +402,11 @@ export async function retainManagedStateTransaction(
         rollbackErrors.push(`journal: ${(clearErr as Error).message}`);
       }
     }
-    const suffix = rollbackErrors.length
-      ? `; managed-state transaction rollback failed: ${rollbackErrors.join("; ")}`
-      : "";
-    throw new Error(`${(err as Error).message}${suffix}`);
+    if (rollbackErrors.length === 0) throw err;
+    throw new Error(
+      `${(err as Error).message}; managed-state transaction rollback failed: ${rollbackErrors.join("; ")}`,
+      { cause: err },
+    );
   }
 }
 
@@ -496,9 +497,10 @@ export async function commitManagedStateTransaction(
         rollbackErrors.push(`journal: ${(clearErr as Error).message}`);
       }
     }
-    const suffix = rollbackErrors.length
-      ? `; managed-state transaction rollback failed: ${rollbackErrors.join("; ")}`
-      : "";
-    throw new Error(`${(err as Error).message}${suffix}`);
+    if (rollbackErrors.length === 0) throw err;
+    throw new Error(
+      `${(err as Error).message}; managed-state transaction rollback failed: ${rollbackErrors.join("; ")}`,
+      { cause: err },
+    );
   }
 }

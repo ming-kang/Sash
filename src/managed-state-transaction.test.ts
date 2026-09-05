@@ -184,6 +184,128 @@ describe("managed-state transaction journal", () => {
     assert.equal(fs.existsSync(layout.managedStateTransactionFile), true);
   });
 
+  for (const retained of [false, true]) {
+    for (const rollbackFails of [false, true]) {
+      it(`preserves publication errors and compensation details (retained=${retained}, rollbackFails=${rollbackFails})`, async () => {
+        fs.writeFileSync(layout.configFile, "old config");
+        const original = new TypeError("publish failed");
+        let writes = 0;
+        const files = {
+          ...defaultManagedStateFileOperations,
+          write: (file: string, data: string | Buffer) => {
+            if (file === layout.configFile) {
+              writes++;
+              if (writes === 1) throw original;
+              if (rollbackFails) throw new Error("restore failed");
+            }
+            defaultManagedStateFileOperations.write(file, data);
+          },
+        };
+        const transaction = {
+          config: { yaml: "new config", proxyCount: 0, source: "default" as const },
+        };
+        await assert.rejects(
+          retained
+            ? retainManagedStateTransaction(layout, transaction, files)
+            : commitManagedStateTransaction(layout, transaction, undefined, files),
+          (err: unknown) => {
+            if (rollbackFails) {
+              assert.ok(err instanceof Error);
+              assert.notEqual(err, original);
+              assert.equal(err.cause, original);
+              assert.match(
+                err.message,
+                /publish failed; managed-state transaction rollback failed: .*restore failed/,
+              );
+            } else {
+              assert.equal(err, original);
+              assert.ok(err instanceof TypeError);
+            }
+            return true;
+          },
+        );
+        assert.equal(writes, 2);
+        assert.equal(fs.readFileSync(layout.configFile, "utf8"), "old config");
+        assert.equal(fs.existsSync(layout.managedStateTransactionFile), rollbackFails);
+      });
+    }
+  }
+
+  for (const rollbackFails of [false, true]) {
+    it(`preserves runtime errors after config compensation (rollbackFails=${rollbackFails})`, async () => {
+      fs.writeFileSync(layout.configFile, "old config");
+      const original = new RangeError("runtime failed");
+      let reloads = 0;
+      await assert.rejects(
+        commitManagedStateTransaction(
+          layout,
+          {
+            config: { yaml: "new config", proxyCount: 0, source: "default" },
+            applyRuntime: async () => {
+              throw original;
+            },
+          },
+          async () => {
+            reloads++;
+            assert.equal(
+              fs.readFileSync(layout.configFile, "utf8"),
+              reloads === 1 ? "new config" : "old config",
+            );
+            if (reloads === 2 && rollbackFails) throw new Error("reload failed");
+          },
+        ),
+        (err: unknown) => {
+          if (rollbackFails) {
+            assert.ok(err instanceof Error);
+            assert.equal(err.cause, original);
+            assert.match(
+              err.message,
+              /runtime failed; managed-state transaction rollback failed: config rollback reload failed: reload failed/,
+            );
+          } else {
+            assert.equal(err, original);
+            assert.ok(err instanceof RangeError);
+          }
+          return true;
+        },
+      );
+      assert.equal(reloads, 2);
+      assert.equal(fs.readFileSync(layout.configFile, "utf8"), "old config");
+      assert.equal(fs.existsSync(layout.managedStateTransactionFile), rollbackFails);
+    });
+  }
+
+  it("retains the original cause when journal cleanup fails after compensation", async () => {
+    fs.writeFileSync(layout.configFile, "old config");
+    const original = new TypeError("runtime failed");
+    await assert.rejects(
+      commitManagedStateTransaction(
+        layout,
+        {
+          config: { yaml: "new config", proxyCount: 0, source: "default" },
+          applyRuntime: async () => {
+            fs.unlinkSync(layout.managedStateTransactionFile);
+            fs.mkdirSync(layout.managedStateTransactionFile);
+            throw original;
+          },
+        },
+        undefined,
+      ),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.notEqual(err, original);
+        assert.equal(err.cause, original);
+        assert.match(
+          err.message,
+          /runtime failed; managed-state transaction rollback failed: journal:/,
+        );
+        return true;
+      },
+    );
+    assert.equal(fs.readFileSync(layout.configFile, "utf8"), "old config");
+    assert.equal(fs.existsSync(layout.managedStateTransactionFile), true);
+  });
+
   it("removes its journal after a successful transaction", async () => {
     await commitManagedStateTransaction(
       layout,

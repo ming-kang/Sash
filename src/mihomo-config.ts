@@ -7,10 +7,19 @@ import type { SashSettings } from "./settings.js";
  * Generates mihomo's config.yaml.
  *
  * Sash owns a fixed set of operational keys (ports, controller, secret,
- * tun, allow-lan). Everything else — proxies, proxy-groups, rules, dns —
+ * tun, allow-lan), with validated profile overrides for stack, mtu, strict-route.
+ * Everything else — proxies, proxy-groups, rules, dns —
  * comes from the active local/remote profile or from a built-in DIRECT-only
- * default.
+ * default. TUN additionally requires enabled DNS and supplies DNS defaults only
+ * when the profile has no DNS configuration.
  */
+
+export class TunConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TunConfigError";
+  }
+}
 
 export interface GeneratedConfig {
   yaml: string;
@@ -353,7 +362,7 @@ export async function fetchSubscriptionProfile(url: string): Promise<Subscriptio
   };
 }
 
-/** Keys Sash always controls; user/subscription values for these are dropped. */
+/** Keys Sash controls; TUN's limited advanced overrides are reapplied after stripping. */
 const MANAGED_KEYS = new Set([
   "mixed-port",
   "port",
@@ -385,13 +394,72 @@ export function overlayManagedKeys(
   out["external-controller"] = settings.controller;
   out.secret = settings.secret;
   if (settings.tun) {
-    out.tun = {
+    if (!("dns" in base)) {
+      out.dns = {
+        enable: true,
+        ipv6: base.ipv6 !== false,
+        "enhanced-mode": "redir-host",
+        nameserver: ["https://cloudflare-dns.com/dns-query", "https://dns.google/dns-query"],
+        "default-nameserver": ["1.1.1.1", "8.8.8.8"],
+      };
+    } else {
+      const dns = base.dns;
+      if (typeof dns !== "object" || dns === null || Array.isArray(dns)) {
+        throw new TunConfigError(
+          "TUN requires a DNS configuration object. Fix profile DNS before using TUN or disable TUN.",
+        );
+      }
+      if ("enable" in dns && typeof dns.enable !== "boolean") {
+        throw new TunConfigError(
+          "Profile DNS enable must be a boolean. Set it to true before using TUN or disable TUN.",
+        );
+      }
+      if ("enable" in dns && dns.enable === false) {
+        throw new TunConfigError("Enable profile DNS before using TUN or disable TUN.");
+      }
+      if (!("enable" in dns)) out.dns = { ...dns, enable: true };
+    }
+    // Preserve the existing preset when fields are absent: mixed stack, with
+    // MTU and strict-route omitted to retain Core defaults and networking behavior.
+    const tun: Record<string, unknown> = {
       enable: true,
       stack: "mixed",
       "auto-route": true,
       "auto-detect-interface": true,
+      // In the pinned core, any:53 covers both TCP and UDP.
       "dns-hijack": ["any:53"],
     };
+    if ("tun" in base) {
+      const profileTun = base.tun;
+      if (typeof profileTun !== "object" || profileTun === null || Array.isArray(profileTun)) {
+        throw new TunConfigError(
+          "Profile TUN must be a configuration object. Fix profile TUN or disable TUN.",
+        );
+      }
+      if ("stack" in profileTun) {
+        if (
+          typeof profileTun.stack !== "string" ||
+          !["mixed", "system", "gvisor"].includes(profileTun.stack)
+        ) {
+          throw new TunConfigError("Profile TUN stack must be mixed, system, or gvisor.");
+        }
+        tun.stack = profileTun.stack;
+      }
+      if ("mtu" in profileTun) {
+        const mtu = profileTun.mtu;
+        if (typeof mtu !== "number" || !Number.isInteger(mtu) || mtu < 576 || mtu > 65535) {
+          throw new TunConfigError("Profile TUN mtu must be an integer from 576 to 65535.");
+        }
+        tun.mtu = mtu;
+      }
+      if ("strict-route" in profileTun) {
+        if (typeof profileTun["strict-route"] !== "boolean") {
+          throw new TunConfigError("Profile TUN strict-route must be a boolean.");
+        }
+        tun["strict-route"] = profileTun["strict-route"];
+      }
+    }
+    out.tun = tun;
   }
   return out;
 }

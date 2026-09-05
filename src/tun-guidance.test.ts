@@ -9,7 +9,7 @@ describe("tunPrivilegeGuidance", () => {
       root: "C:\\Users\\Asterin\\Sash",
     });
 
-    assert.match(message, /sash config set tun on/);
+    assert.match(message, /sash restart.*Then enable TUN again with "sash tun on"/);
     assert.match(message, /PowerShell as Administrator/);
     assert.match(message, /run "sash restart"/);
     assert.match(message, /If SASH_HOME was explicitly customized/);
@@ -25,7 +25,7 @@ describe("tunPrivilegeGuidance", () => {
 
     assert.match(message, /PowerShell as Administrator/);
     assert.match(message, /run "sash restart"/);
-    assert.doesNotMatch(message, /sash config set tun on/);
+    assert.doesNotMatch(message, /sash tun on/);
   });
 
   it("keeps non-Windows guidance platform-neutral", () => {
@@ -41,5 +41,19 @@ describe("tunPrivilegeGuidance", () => {
       ),
     );
     assert.doesNotMatch(message, /PowerShell/);
+    assert.match(message, /same elevated context and SASH_HOME.*private/);
+    assert.match(message, /Core-only restart.*cannot elevate/);
+    assert.match(message, /already elevated.*inspect the Core error log/);
+  });
+  it("does not diagnose an unverified observation as a privilege failure", () => {
+    const message = tunPrivilegeGuidance("activation-rolled-back", {
+      platform: "darwin",
+      root: "/tmp/Sash",
+      observation: "unverified",
+    });
+    assert.match(message, /does not establish a privilege failure/);
+    assert.match(message, /controller connectivity/);
+    assert.match(message, /restart.*Then enable TUN again with "sash tun on"/);
+    assert.doesNotMatch(message, /sash config set|chmod|chown/);
   });
 });

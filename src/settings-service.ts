@@ -13,6 +13,18 @@ import { tunPrivilegeGuidance } from "./tun-guidance.js";
 
 export class SettingsInputError extends Error {}
 
+export class SettingsConflictError extends Error {}
+
+export class TunActivationError extends Error {
+  constructor(
+    public readonly reason: "inactive" | "unverified",
+    message: string,
+  ) {
+    super(message);
+    this.name = "TunActivationError";
+  }
+}
+
 /** Enabling the system proxy requires a running, healthy Core. */
 export class CoreUnhealthyError extends Error {}
 
@@ -86,11 +98,11 @@ export class SettingsService {
       const staged: SashSettings = { ...candidate, systemProxy: previous.systemProxy };
       committed = coreChanged
         ? await this.commitCoreChange(previous, staged, {
-            verifyTun: candidate.tun && !previous.tun,
+            verifyTun: candidate.tun,
           })
         : await this.commitSettingsOnly(previous, staged);
     }
-    if (proxyChanged) {
+    if (proxyChanged || patch.systemProxy === false) {
       committed = await this.commitSystemProxy(committed, candidate);
     }
     return { settings: committed, restartRequired };
@@ -182,11 +194,13 @@ export class SettingsService {
         this.assertCurrent(previous);
         this.options.setRuntime(candidate);
         try {
-          await commitManagedStateTransaction(
-            this.options.layout,
-            { settings: candidate },
-            undefined,
-          );
+          if (!sameSettings(previous, candidate)) {
+            await commitManagedStateTransaction(
+              this.options.layout,
+              { settings: candidate },
+              undefined,
+            );
+          }
         } catch (err) {
           this.options.setRuntime(previous);
           throw err;
@@ -258,10 +272,16 @@ export class SettingsService {
             if (!wasRunning) return;
             const result = await this.requireLifecycle().restart();
             if (opts.verifyTun && result.tunActive !== true) {
-              throw new Error(
-                result.tunActive === false
-                  ? `TUN did not become active. ${tunPrivilegeGuidance("activation-rolled-back", { root: this.options.layout.root })}`
-                  : `TUN activation could not be verified through the Core controller. ${tunPrivilegeGuidance("activation-rolled-back", { root: this.options.layout.root })}`,
+              const reason = result.tunActive === false ? "inactive" : "unverified";
+              const guidance = tunPrivilegeGuidance("activation-rolled-back", {
+                root: this.options.layout.root,
+                observation: reason,
+              });
+              throw new TunActivationError(
+                reason,
+                reason === "inactive"
+                  ? `TUN did not become active. ${guidance}`
+                  : `TUN activation could not be verified through the Core controller. ${guidance}`,
               );
             }
           },
@@ -292,7 +312,7 @@ export class SettingsService {
         }
       }
       if (rollbackErrors.length)
-        throw new Error(`${(err as Error).message}; ${rollbackErrors.join("; ")}`);
+        throw new Error(`${(err as Error).message}; ${rollbackErrors.join("; ")}`, { cause: err });
       throw err;
     }
   }
@@ -305,7 +325,7 @@ export class SettingsService {
 
   private assertCurrent(previous: SashSettings): void {
     if (!sameSettings(this.options.getCommitted(), previous)) {
-      throw new Error("Settings changed while preparing configuration");
+      throw new SettingsConflictError("Settings changed while preparing configuration");
     }
   }
 }

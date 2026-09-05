@@ -50,12 +50,18 @@ export async function refreshCoreSnapshot(
 ): Promise<boolean> {
   if (runtimeOwnerKey(status) === null) return false;
 
+  const resourceRequests = ["connections", "proxies", "rules"].map(
+    (domain) => [domain, requests.begin(domain)] as const,
+  );
   const [configs, proxies, rules, connections] = await Promise.allSettled([
     api.getConfigs(),
     api.getProxies(),
     api.getRules(),
     api.getConnections(),
   ]);
+  if (resourceRequests.some(([domain, generation]) => !requests.isCurrent(domain, generation))) {
+    return false;
+  }
   if (
     configs.status === "rejected" ||
     proxies.status === "rejected" ||
@@ -91,23 +97,27 @@ export async function refreshCoreSnapshot(
 }
 
 async function refreshCoreResource<T>(
+  domain: string,
   fetch: () => Promise<T>,
   adopt: (result: T) => void,
 ): Promise<void> {
   const status = store.status;
   if (status === null || !isCoreHealthy(status)) return;
-  const runtimeRequest = requests.begin("runtime");
+  const runtimeRequest = requests.current("runtime");
+  const resourceRequest = requests.begin(domain);
   try {
     const result = await fetch();
-    if (coreRequestIsCurrent(status, runtimeRequest)) adopt(result);
+    if (requests.isCurrent(domain, resourceRequest) && coreRequestIsCurrent(status, runtimeRequest))
+      adopt(result);
   } catch (error) {
-    recordCoreSnapshotError(status, runtimeRequest, error);
+    if (requests.isCurrent(domain, resourceRequest))
+      recordCoreSnapshotError(status, runtimeRequest, error);
     throw error;
   }
 }
 
 export function refreshConnections(): Promise<void> {
-  return refreshCoreResource(api.getConnections, (connections) => {
+  return refreshCoreResource("connections", api.getConnections, (connections) => {
     store.connections = normalizeConnections(connections.connections);
     store.connectionsUploadTotal = connections.uploadTotal;
     store.connectionsDownloadTotal = connections.downloadTotal;
@@ -127,11 +137,11 @@ export async function closeAllConnections(): Promise<void> {
 }
 
 export function refreshProxies(): Promise<void> {
-  return refreshCoreResource(api.getProxies, (proxies) => setProxies(proxies.proxies));
+  return refreshCoreResource("proxies", api.getProxies, (proxies) => setProxies(proxies.proxies));
 }
 
 export function refreshRules(): Promise<void> {
-  return refreshCoreResource(api.getRules, (rules) => {
+  return refreshCoreResource("rules", api.getRules, (rules) => {
     store.rules = rules.rules;
   });
 }

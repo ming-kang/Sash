@@ -1,4 +1,11 @@
-import type { CoreStartResult, DaemonStatus, HealthInfo, ShutdownResult } from "./contracts.js";
+import type {
+  CoreStartResult,
+  DaemonStatus,
+  HealthInfo,
+  SettingsPatch,
+  SettingsWriteResult,
+  ShutdownResult,
+} from "./contracts.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 import { SashClient, type SashClientFetch } from "./sash-client.js";
 
@@ -58,6 +65,10 @@ export class SashDaemonClient {
 
   startCore(): Promise<CoreStartResult> {
     return this.client.startCore();
+  }
+
+  patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {
+    return this.client.patchSettings(patch);
   }
 
   maintenanceShutdown(): Promise<ShutdownResult> {

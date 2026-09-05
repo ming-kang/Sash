@@ -4,6 +4,45 @@ import { describe, it } from "node:test";
 import { SashDaemonClient } from "./daemon-client.js";
 
 describe("SashDaemonClient mutation requests", () => {
+  it("forwards a typed TUN patch through the authenticated direct client", async () => {
+    const settings = {
+      mixedPort: 17890,
+      controller: "127.0.0.1:19091",
+      tun: true,
+      allowLan: false,
+      daemonPort: 19092,
+      systemProxy: false,
+    };
+    let requests = 0;
+    const server = http.createServer(async (req, res) => {
+      requests++;
+      assert.equal(req.method, "PATCH");
+      assert.equal(req.url, "/sash/settings");
+      assert.equal(req.headers.authorization, "Bearer tun-secret");
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString("utf8")), { tun: true });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ settings, restartRequired: false }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    try {
+      assert.deepEqual(
+        await new SashDaemonClient(address.port, "tun-secret").patchSettings({ tun: true }),
+        {
+          settings,
+          restartRequired: false,
+        },
+      );
+      assert.equal(requests, 1);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("returns the typed maintenance shutdown snapshot", async () => {
     let authorization: string | undefined;
     const server = http.createServer((req, res) => {

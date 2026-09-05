@@ -179,20 +179,22 @@ export const en: Messages = {
     allowLanDesc: "Accept proxy requests from other devices on the LAN",
     tunTitle: "TUN Mode (Virtual NIC)",
     tunDesc:
-      "Transparently routes all system traffic; Sash must be started as Administrator / root",
+      "Routes supported traffic through a virtual NIC; requires Administrator / root. Core-reported state does not prove all traffic or DNS is routed. If enabling was rolled back, run sash restart in an elevated shell before enabling again.",
     tunStateActive: "Active",
     tunStateInactive: "Inactive",
     tunStateUnverified: "Unverified",
     tunStateStopped: "Pending start",
     tunStateUnexpected: "State mismatch",
     tunInactiveDesc:
-      "The Core is running without TUN. Run sash stop, then run sash start from an Administrator / root shell; sash restart is not enough. If Sash was already elevated, inspect the Core error log",
+      "The Core reports TUN inactive. Inspect the Core error log. For permission errors, run sash restart from an Administrator / root shell to restart the full daemon, then enable TUN again if it was rolled back. WebUI Restart core cannot elevate the daemon.",
     tunUnverifiedDesc:
-      "TUN is configured, but its runtime state could not be verified. Run sash stop, then run sash start from an Administrator / root shell; if Sash was already elevated, inspect the Core error log",
-    tunUnexpectedDesc: "The Core reports TUN active while the Sash setting is off",
+      "TUN is configured, but its Core-reported state is unavailable. This does not imply missing privileges. Check Core health and error logs, then retry. For permission errors, run sash restart from an Administrator / root shell; WebUI Restart core cannot elevate the daemon.",
+    tunUnexpectedDesc:
+      "The Core reports TUN active while the saved setting is off. Check Core logs and restart Core to re-apply the saved setting.",
     coreTitle: "Core Control",
     restartTitle: "Restart Core Process",
-    restartDesc: "Reboots the core child process and re-applies config; active connections drop",
+    restartDesc:
+      "Restarts only the Core child process and re-applies config; connections drop. Cannot elevate the daemon; use sash restart in an elevated shell for that.",
     restartBtn: "Restart core",
     restartConfirmTitle: "Restart core",
     restartConfirmMsg: "Active connections will be interrupted. Continue?",
@@ -218,6 +220,10 @@ export const en: Messages = {
     profilesUpdateAllPartial: "{n} updated, {f} failed",
     pasteFailed: "Cannot read the clipboard",
     portSaved: "Port updated, core restarted",
+    tunFailed: "TUN change failed. See details below.",
+    dismissTunError: "Dismiss TUN error",
+    savedUnverified:
+      "Setting saved; runtime verification unavailable. Check status and logs before retrying.",
     settingSaved: "Setting updated",
     settingsSavedRestart:
       "Settings saved; daemonPort changes take effect after a manual `sash restart`",

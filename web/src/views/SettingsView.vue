@@ -140,7 +140,7 @@
         <div class="setting-row caution-row">
           <div class="setting-info">
             <span class="setting-name">{{ t('settings.tunTitle') }}</span>
-            <span class="setting-desc">{{ tunDescription }}</span>
+            <span class="setting-desc" role="status">{{ tunDescription }}</span>
           </div>
           <div class="setting-action">
             <span
@@ -159,6 +159,7 @@
             />
           </div>
         </div>
+        <TunFeedback />
       </UiCard>
 
       <!-- Core control -->
@@ -227,6 +228,7 @@ import { api } from "../api/index.js";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import UiCard from "../components/UiCard.vue";
+import TunFeedback from "../components/TunFeedback.vue";
 import UiSwitch from "../components/UiSwitch.vue";
 import { coreVersion, tunStatusBadge, useCoreRestart } from "../composables/core-runtime.js";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
@@ -328,10 +330,11 @@ async function saveMixedPort(): Promise<void> {
 
 async function applyToggle(key: "allow-lan" | "tun", next: boolean): Promise<void> {
   try {
-    await patchBooleanSetting(key, next);
-    toast.success(t("toast.settingSaved"));
+    const verified = await patchBooleanSetting(key, next);
+    if (verified) toast.success(t("toast.settingSaved"));
+    else toast.info(t("toast.savedUnverified"));
   } catch (err) {
-    toast.error(t("toast.failed", { msg: errorText(err) }));
+    toast.error(key === "tun" ? t("toast.tunFailed") : t("toast.failed", { msg: errorText(err) }));
   }
 }
 

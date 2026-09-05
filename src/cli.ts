@@ -3,11 +3,12 @@ import "./node-version-guard.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Command, CommanderError, InvalidArgumentError } from "commander";
+import { Argument, Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
 import { runStatus } from "./commands/status.js";
+import { runTun } from "./commands/tun.js";
 import { runUpdate } from "./commands/update.js";
 import { runUpgrade } from "./commands/upgrade.js";
 import { runWeb } from "./commands/web.js";
@@ -69,6 +70,12 @@ program
   .description("show runtime state, versions, endpoints, and system proxy status")
   .option("--json", "output machine-readable JSON")
   .action(withCliErrors((opts: { json?: boolean }) => runStatus(opts)));
+
+program
+  .command("tun")
+  .description("set TUN on or off through the running daemon (does not start or elevate Core)")
+  .addArgument(new Argument("<on|off>", "desired TUN setting").choices(["on", "off"]))
+  .action(withCliErrors((target: "on" | "off") => runTun(target)));
 
 program
   .command("logs")
