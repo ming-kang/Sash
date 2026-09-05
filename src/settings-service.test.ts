@@ -493,7 +493,9 @@ describe("SettingsService", () => {
 
     await assert.rejects(
       () => service.apply({ tun: true }),
-      /TUN did not become active.*sash config set tun on.*sash restart/s,
+      process.platform === "win32"
+        ? /TUN did not become active.*sash config set tun on.*sash restart/s
+        : /TUN did not become active.*sash config set tun on.*command -v sash/s,
     );
 
     assert.equal(restartCalls, 2);
