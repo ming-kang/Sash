@@ -9,7 +9,7 @@ permissions:
 jobs:
   debug:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -19,23 +19,16 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Whole file
-        id: whole
+      - name: Full suite, default concurrency
         continue-on-error: true
-        run: node --import tsx --test src/logs.test.ts
-      - name: Growth suite only
+        run: node scripts/run-tests.mjs
+      - name: Full suite, serialized
         if: always()
         continue-on-error: true
-        run: node --import tsx --test "--test-name-pattern=log file growth" src/logs.test.ts
-      - name: Follow suite only
+        shell: bash
+        run: node --import tsx --test --test-concurrency=1 $(find src web/src -name '*.test.ts' | sort | tr '\n' ' ')
+      - name: Full suite, concurrency 2
         if: always()
         continue-on-error: true
-        run: node --import tsx --test "--test-name-pattern=followLogFile" src/logs.test.ts
-      - name: Signal suite only
-        if: always()
-        continue-on-error: true
-        run: node --import tsx --test "--test-name-pattern=signal listeners" src/logs.test.ts
-      - name: Whole file again, serialized
-        if: always()
-        continue-on-error: true
-        run: node --import tsx --test --test-concurrency=1 src/logs.test.ts
+        shell: bash
+        run: node --import tsx --test --test-concurrency=2 $(find src web/src -name '*.test.ts' | sort | tr '\n' ' ')
