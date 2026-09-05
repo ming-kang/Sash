@@ -103,7 +103,7 @@ function assertBuiltTree() {
     assets.some((file) => file.endsWith(".css")),
     "built UI has no CSS asset",
   );
-  for (const asset of assets) assertNonEmptyFile(path.join(assetsDir, asset));
+  for (const asset of walkFiles(assetsDir)) assertNonEmptyFile(path.join(assetsDir, asset));
 }
 
 function assertPackedFiles(files) {
