@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Start a stopped Core update from its already validated configuration before normal profile publication, preserving coordinated rollback until the health check succeeds. This also fixes first startup after installing Core with `sash update`.
 - Authorize dashboard HTTP and WebSocket control through private, single-use browser handoffs; keep credentials out of public health responses and preserve sessions across page refreshes.
 - Keep the recovery dashboard available when Core startup fails without authorizing competing starts from unknown runtime observations.
 - Fix native Windows log watching, clean font builds, temporary-directory aliases, private browser-handoff file checks and cross-platform test timing.

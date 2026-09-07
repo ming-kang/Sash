@@ -136,6 +136,12 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     });
 
   const startCore = async (): Promise<CoreStartResult> => {
+    if (readCoreUpdateTransaction(layout)) {
+      // The update already published its validated config and retains the old
+      // files for rollback. Start that exact candidate before ordinary profile
+      // publication can consume or replace the coordinated journal.
+      return mutate("start pending Core update", () => lifecycle.start());
+    }
     const retryAfterPreparation = Symbol("retry Core start after preparation");
     for (;;) {
       let prepared: PreparedActiveReload | undefined;
@@ -198,11 +204,13 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     profileRevision: () => profileRevision,
     startCore,
     restartCore: () =>
-      withPreparedReloadRetry("restart core", (prepared) =>
-        lifecycle.restart(async () => {
-          await commitPreparedReload(prepared, false);
-        }),
-      ),
+      readCoreUpdateTransaction(layout)
+        ? startCore()
+        : withPreparedReloadRetry("restart core", (prepared) =>
+            lifecycle.restart(async () => {
+              await commitPreparedReload(prepared, false);
+            }),
+          ),
     reloadCoreConfig: () =>
       withPreparedReloadRetry("reload core config", (prepared) =>
         commitPreparedReload(prepared, true),
