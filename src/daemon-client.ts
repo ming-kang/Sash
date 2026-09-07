@@ -5,6 +5,7 @@ import type {
   SettingsPatch,
   SettingsWriteResult,
   ShutdownResult,
+  WebBootstrapInfo,
 } from "./contracts.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 import { SashClient, type SashClientFetch } from "./sash-client.js";
@@ -49,6 +50,10 @@ export class SashDaemonClient {
 
   health(): Promise<HealthInfo> {
     return this.client.health();
+  }
+
+  createWebBootstrap(): Promise<WebBootstrapInfo> {
+    return this.client.createWebBootstrap();
   }
 
   async isReachable(): Promise<boolean> {

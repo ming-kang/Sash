@@ -127,15 +127,24 @@ describe("daemon server", () => {
       assert.equal("daemonSecret" in data.settings, false);
     });
 
-    it("rejects unauthenticated mutations and accepts the per-boot WebUI token", async () => {
+    it("rejects unauthenticated mutations and accepts a minted WebUI session token", async () => {
       const inst = await h.startServer();
       const denied = await h.apiRequest("/sash/core/start", { method: "POST", token: "" });
       assert.equal(denied.statusCode, 401);
 
-      const allowed = await h.apiRequest("/sash/settings", {
+      // The public per-boot health token is an identity nonce, not a credential.
+      const bootTokenDenied = await h.apiRequest("/sash/settings", {
         method: "PATCH",
         token: "",
         webToken: inst.token,
+        body: { systemProxy: false },
+      });
+      assert.equal(bootTokenDenied.statusCode, 401);
+
+      const allowed = await h.apiRequest("/sash/settings", {
+        method: "PATCH",
+        token: "",
+        webToken: await h.mintWebSession(),
         body: { systemProxy: false },
       });
       assert.equal(allowed.statusCode, 200);

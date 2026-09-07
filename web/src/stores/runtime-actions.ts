@@ -79,7 +79,13 @@ async function refreshProfilesForStatus(
   }
 }
 
-type RuntimeRefreshResult = "full" | "status" | "stopped" | "degraded" | "superseded";
+type RuntimeRefreshResult =
+  | "full"
+  | "status"
+  | "stopped"
+  | "degraded"
+  | "superseded"
+  | "unauthorized";
 
 async function refreshRuntime(
   forceSnapshot: boolean,
@@ -96,6 +102,11 @@ async function refreshRuntime(
   }
   if (!isCurrent()) return "superseded";
   adoptDaemonStatus(status);
+
+  if (!api.hasSession()) {
+    transitionRuntimeOwner(null);
+    return "unauthorized";
+  }
 
   const profiles = Promise.all([
     refreshProfilesForStatus(status, runtimeRequest),
@@ -173,7 +184,8 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
       }
     } catch {
       if (isCurrent()) {
-        api.clearSession();
+        // Session initialization and credential rejections own authorization;
+        // a failed status refresh alone does not revoke the private credential.
         markDaemonOffline();
       }
     } finally {
@@ -207,7 +219,11 @@ export function startRuntimePolling(intervalMs = 2000): () => void {
   // waiting out the polling interval on possibly stale rows.
   const stopRouteWatch = watch(currentRoute, (route) => {
     if (stopped) return;
-    if ((route === "connections" || route === "overview") && isCoreHealthy(store.status)) {
+    if (
+      api.hasSession() &&
+      (route === "connections" || route === "overview") &&
+      isCoreHealthy(store.status)
+    ) {
       void refreshConnections().catch(() => undefined);
     }
   });
@@ -250,7 +266,7 @@ export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {
       };
     }
     return await refreshStatus().then(
-      (result) => result !== "superseded" && result !== "degraded",
+      (result) => result !== "superseded" && result !== "degraded" && result !== "unauthorized",
       () => false,
     );
   } finally {
@@ -291,7 +307,7 @@ export async function patchBooleanSetting(
     }
     store.status = syncCommittedBooleanSetting(store.status, key, next, result.settings);
     return await refreshRuntime(true).then(
-      (result) => result !== "superseded" && result !== "degraded",
+      (result) => result !== "superseded" && result !== "degraded" && result !== "unauthorized",
       () => false,
     );
   } finally {

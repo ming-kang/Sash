@@ -255,6 +255,9 @@ export const zh = {
   },
   status: {
     offline: "无法连接 Sash 守护进程，正在自动重试…",
+    unauthorized: "此浏览器会话未授权，请运行 sash web 完成连接。",
+    connectTitle: "连接到 Sash",
+    connectDescription: "在使用 Sash 的终端中运行以下命令，浏览器将自动打开并连接面板。",
     coreDegraded: "核心数据刷新失败，暂时显示最后一次有效快照并自动重试…",
     coreUnavailable: "核心正在运行，但运行数据暂时不可用，正在自动重试…",
   },

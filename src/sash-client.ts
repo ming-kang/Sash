@@ -31,11 +31,15 @@ import {
   parseSettingsWriteResult,
   parseShutdownResult,
   parseSystemProxyStatusResponse,
+  parseWebBootstrapInfo,
+  parseWebSessionInfo,
   type SettingsFileContent,
   type SettingsPatch,
   type SettingsWriteResult,
   type ShutdownResult,
   type SystemProxyStatusResponse,
+  type WebBootstrapInfo,
+  type WebSessionInfo,
 } from "./contracts.js";
 import type { PublicSashSettings } from "./settings.js";
 
@@ -67,13 +71,15 @@ export type SashClientFetch = (
 export interface SashClientOptions {
   /** Origin or absolute base, e.g. "http://127.0.0.1:19090". Empty = same-origin. */
   baseUrl: string;
-  /** Resolves the credential before every request (the WebUI token arrives after health). */
+  /** Resolves the credential before every request (WebUI tokens arrive after authorization). */
   token?: () => string;
   /** Header carrying the credential; defaults to the CLI bearer. */
   tokenHeader?: "authorization" | "x-sash-token";
   fetchFn?: SashClientFetch;
   /** Default per-request deadline. */
   timeoutMs?: number;
+  /** Called when the daemon rejects the configured credential with 401. */
+  onUnauthorized?: (token: string) => void;
 }
 
 export interface SashRequestOptions {
@@ -82,6 +88,8 @@ export interface SashRequestOptions {
   timeoutMs?: number;
   /** Honored only by retry-capable fetch adapters (the Node daemon client). */
   attempts?: number;
+  /** Public credential exchanges must not send or invalidate a prior session. */
+  authenticate?: boolean;
 }
 
 const defaultFetch: SashClientFetch = async (url, init) => {
@@ -112,6 +120,7 @@ export class SashClient {
   private readonly tokenHeader: "authorization" | "x-sash-token";
   private readonly fetchFn: SashClientFetch;
   private readonly timeoutMs: number;
+  private readonly onUnauthorized?: (token: string) => void;
 
   constructor(options: SashClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -119,11 +128,12 @@ export class SashClient {
     this.tokenHeader = options.tokenHeader ?? "authorization";
     this.fetchFn = options.fetchFn ?? defaultFetch;
     this.timeoutMs = options.timeoutMs ?? 5_000;
+    if (options.onUnauthorized) this.onUnauthorized = options.onUnauthorized;
   }
 
   private async request(endpoint: string, options: SashRequestOptions = {}): Promise<unknown> {
     const headers: Record<string, string> = {};
-    const token = this.token?.() ?? "";
+    const token = options.authenticate === false ? "" : (this.token?.() ?? "");
     if (token) {
       if (this.tokenHeader === "x-sash-token") headers["X-Sash-Token"] = token;
       else headers.Authorization = `Bearer ${token}`;
@@ -153,6 +163,7 @@ export class SashClient {
       data = text;
     }
 
+    if (response.status === 401 && token) this.onUnauthorized?.(token);
     if (response.status < 200 || response.status >= 300) {
       const parsedError = parseApiErrorBody(data);
       const message =
@@ -170,7 +181,31 @@ export class SashClient {
 
   async health(): Promise<HealthInfo> {
     return parseHealthInfo(
-      await this.request("/sash/daemon/health", { timeoutMs: 2_000, attempts: 1 }),
+      await this.request("/sash/daemon/health", {
+        timeoutMs: 2_000,
+        attempts: 1,
+        authenticate: false,
+      }),
+    );
+  }
+
+  /** Authenticated CLI clients mint a one-time browser bootstrap token. */
+  async createWebBootstrap(): Promise<WebBootstrapInfo> {
+    return parseWebBootstrapInfo(
+      await this.request("/sash/web/bootstrap", { method: "POST", timeoutMs: 5_000 }),
+    );
+  }
+
+  /** Public exchange: redeem a one-time bootstrap token for a session token. */
+  async redeemWebBootstrap(token: string): Promise<WebSessionInfo> {
+    return parseWebSessionInfo(
+      await this.request("/sash/web/session", {
+        method: "POST",
+        body: { token },
+        timeoutMs: 5_000,
+        attempts: 1,
+        authenticate: false,
+      }),
     );
   }
 

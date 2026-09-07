@@ -4,7 +4,7 @@ import {
   WEB_SOCKET_AUTH_PROTOCOL,
   WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
 } from "../../../src/contracts.js";
-import { SashClient } from "../../../src/sash-client.js";
+import { SashApiError, SashClient } from "../../../src/sash-client.js";
 import { parseLogFrame, parseTrafficFrame } from "../stores/state-ownership.js";
 import type {
   ConfigsResponse,
@@ -16,6 +16,9 @@ import type {
   TrafficMessage,
 } from "../types/index.js";
 import { formatTime } from "../utils/format.js";
+import { webSession } from "./session.js";
+
+export { sessionReady } from "./session.js";
 
 interface RequestOptions {
   method?: string;
@@ -23,14 +26,11 @@ interface RequestOptions {
   response?: "json" | "void";
 }
 
-let controlToken = "";
-let sessionDaemonStartedAt: string | null = null;
-let sessionGeneration = 0;
-
 const sash = new SashClient({
   baseUrl: "",
-  token: () => controlToken,
+  token: webSession.token,
   tokenHeader: "x-sash-token",
+  onUnauthorized: webSession.reject,
 });
 
 /** Reverse-proxied Core API calls; daemon-owned /sash/* lives on the shared client. */
@@ -43,6 +43,8 @@ async function request(
   options: RequestOptions & { response: "void" },
 ): Promise<void>;
 async function request(endpoint: string, options: RequestOptions = {}): Promise<unknown> {
+  const controlToken = webSession.token();
+  if (!controlToken) throw new SashApiError(401, "unauthorized", "Run 'sash web' to connect.");
   const headers: Record<string, string> = {};
   if (controlToken) headers["X-Sash-Token"] = controlToken;
   let body: string | undefined;
@@ -58,6 +60,7 @@ async function request(endpoint: string, options: RequestOptions = {}): Promise<
   });
   const text = await res.text();
 
+  if (res.status === 401) webSession.reject(controlToken);
   if (!res.ok) {
     let message = text.slice(0, 300).trim();
     if (text) {
@@ -94,7 +97,7 @@ function connectStream(
 
   const scheduleReconnect = () => {
     onDisconnect?.();
-    if (closed || !controlToken || timer !== null) return;
+    if (closed || !webSession.token() || timer !== null) return;
     timer = window.setTimeout(() => {
       timer = null;
       connect();
@@ -102,7 +105,8 @@ function connectStream(
   };
 
   const connect = () => {
-    if (closed) return;
+    const controlToken = webSession.token();
+    if (closed || !controlToken) return;
     try {
       const protocols = controlToken
         ? [WEB_SOCKET_AUTH_PROTOCOL, `${WEB_SOCKET_TOKEN_PROTOCOL_PREFIX}${controlToken}`]
@@ -137,35 +141,16 @@ function connectStream(
 }
 
 export const api = {
-  initialize: async (isActive: () => boolean = () => true): Promise<HealthInfo> => {
-    const generation = ++sessionGeneration;
-    try {
-      const health = await sash.health();
-      if (isActive() && generation === sessionGeneration) {
-        controlToken = health.token;
-        sessionDaemonStartedAt = health.startedAt;
-      }
-      return health;
-    } catch (err) {
-      if (isActive() && generation === sessionGeneration) {
-        controlToken = "";
-        sessionDaemonStartedAt = null;
-      }
-      throw err;
-    }
-  },
-  clearSession: (): void => {
-    sessionGeneration += 1;
-    controlToken = "";
-    sessionDaemonStartedAt = null;
-  },
-  hasSession: (): boolean => controlToken !== "",
-  getSessionDaemonStartedAt: (): string | null => sessionDaemonStartedAt,
+  initialize: (isActive: () => boolean = () => true): Promise<HealthInfo> =>
+    webSession.initialize(sash, isActive),
+  clearSession: webSession.clear,
+  hasSession: (): boolean => webSession.token() !== "",
+  getSessionDaemonStartedAt: webSession.startedAt,
 
   getHealth: () => sash.health(),
   getStatus: () => sash.status(),
   getServiceStatus: () => sash.serviceStatus(),
-  getSessionGeneration: (): number => sessionGeneration,
+  getSessionGeneration: webSession.generation,
 
   enableSystemProxy: () => sash.patchSettings({ systemProxy: true }),
   disableSystemProxy: () => sash.patchSettings({ systemProxy: false }),

@@ -19,7 +19,13 @@ import { isPlainObject } from "../json-shape.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
 import { reloadCoreConfig, restartCore, startCore, stopCore } from "./handlers/core.js";
-import { daemonStatus, health, shutdownDaemon } from "./handlers/daemon.js";
+import {
+  createWebBootstrap,
+  daemonStatus,
+  health,
+  redeemWebBootstrap,
+  shutdownDaemon,
+} from "./handlers/daemon.js";
 import {
   activateProfile,
   addProfile,
@@ -99,7 +105,7 @@ export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
 /* Route table                                                             */
 /* ====================================================================== */
 
-/** public: no token. control: CLI bearer or WebUI boot token. gateway: same, then proxied to Core. */
+/** public: no credential. control: CLI bearer or WebUI session token. gateway: same, then proxied to Core. */
 export type RouteAuth = "public" | "control" | "gateway";
 
 export interface RouteRequest {
@@ -168,6 +174,20 @@ export function buildRoutes(): readonly RouteDef[] {
       auth: "control",
       handler: shutdownDaemon,
     },
+    {
+      methods: ["POST"],
+      pattern: path("/sash/web/bootstrap"),
+      auth: "control",
+      handler: createWebBootstrap,
+    },
+    // The bootstrap exchange itself is public: the one-time token in the
+    // request body is the credential being redeemed.
+    {
+      methods: ["POST"],
+      pattern: path("/sash/web/session"),
+      auth: "public",
+      handler: redeemWebBootstrap,
+    },
     { methods: ["POST"], pattern: path("/sash/core/start"), auth: "control", handler: startCore },
     { methods: ["POST"], pattern: path("/sash/core/stop"), auth: "control", handler: stopCore },
     {
@@ -202,12 +222,8 @@ export function buildRoutes(): readonly RouteDef[] {
       auth: "control",
       handler: writeSettingsFile,
     },
-    {
-      methods: ["GET", "POST"],
-      pattern: path("/sash/profiles"),
-      auth: "public",
-      handler: (ctx, req) => (req.method === "POST" ? addProfile(ctx, req) : listProfiles(ctx)),
-    },
+    { methods: ["GET"], pattern: path("/sash/profiles"), auth: "public", handler: listProfiles },
+    { methods: ["POST"], pattern: path("/sash/profiles"), auth: "control", handler: addProfile },
     {
       methods: ["POST"],
       pattern: path("/sash/profiles/import"),
@@ -473,7 +489,7 @@ export async function dispatch(
     requiresAuth &&
     !isControlRequestAuthorized(req, {
       daemonSecret: ctx.settings.committed().daemonSecret,
-      bootToken: ctx.token,
+      isSessionToken: (token) => ctx.webAuth.isSession(token),
     })
   ) {
     sendError(res, 401, "unauthorized", "Unauthorized control request");

@@ -16,7 +16,10 @@ function request(headers: IncomingMessage["headers"]): IncomingMessage {
 }
 
 describe("daemon control authorization", () => {
-  const opts = { daemonSecret: "persistent-secret", bootToken: "boot-token" };
+  const opts = {
+    daemonSecret: "persistent-secret",
+    isSessionToken: (token: string) => token === "session-token",
+  };
 
   it("accepts only loopback Host headers", () => {
     assert.equal(isLoopbackHostHeader("127.0.0.1:19090"), true);
@@ -42,12 +45,20 @@ describe("daemon control authorization", () => {
     assert.equal(isControlMutation("PATCH"), true);
   });
 
-  it("accepts the CLI bearer or WebUI boot token and rejects invalid credentials", () => {
+  it("accepts the CLI bearer or a WebUI session token and rejects invalid credentials", () => {
     assert.equal(
       isControlRequestAuthorized(request({ authorization: "Bearer persistent-secret" }), opts),
       true,
     );
-    assert.equal(isControlRequestAuthorized(request({ "x-sash-token": "boot-token" }), opts), true);
+    assert.equal(
+      isControlRequestAuthorized(request({ "x-sash-token": "session-token" }), opts),
+      true,
+    );
+    // The public per-boot health token never authorizes control requests.
+    assert.equal(
+      isControlRequestAuthorized(request({ "x-sash-token": "boot-token" }), opts),
+      false,
+    );
     assert.equal(
       isControlRequestAuthorized(request({ authorization: "Bearer wrong" }), opts),
       false,
@@ -55,10 +66,10 @@ describe("daemon control authorization", () => {
     assert.equal(isControlRequestAuthorized(request({}), opts), false);
   });
 
-  it("accepts WebSocket bearer/header auth or the private token subprotocol", () => {
+  it("accepts WebSocket bearer/header auth or the private session subprotocol", () => {
     assert.equal(
       isWebSocketRequestAuthorized(
-        request({ "sec-websocket-protocol": "chat, sash-token.boot-token" }),
+        request({ "sec-websocket-protocol": "chat, sash-token.session-token" }),
         opts,
       ),
       true,
@@ -72,11 +83,14 @@ describe("daemon control authorization", () => {
       false,
     );
     assert.equal(
-      coreWebSocketProtocols("sash, chat, sash-token.boot-token, telemetry"),
+      coreWebSocketProtocols("sash, chat, sash-token.session-token, telemetry"),
       "chat, telemetry",
     );
-    assert.equal(coreWebSocketProtocols("sash, sash-token.boot-token"), undefined);
-    assert.equal(webSocketAuthResponseProtocol("sash, sash-token.boot-token"), "sash");
-    assert.equal(webSocketAuthResponseProtocol("sash-token.boot-token"), "sash-token.boot-token");
+    assert.equal(coreWebSocketProtocols("sash, sash-token.session-token"), undefined);
+    assert.equal(webSocketAuthResponseProtocol("sash, sash-token.session-token"), "sash");
+    assert.equal(
+      webSocketAuthResponseProtocol("sash-token.session-token"),
+      "sash-token.session-token",
+    );
   });
 });

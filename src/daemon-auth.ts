@@ -39,17 +39,24 @@ export function isControlMutation(method: string): boolean {
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 }
 
-/** Accept the persistent CLI bearer or the per-boot same-origin WebUI token. */
+export interface ControlAuthorization {
+  daemonSecret: string;
+  /** Validates an in-memory WebUI session token issued via bootstrap exchange. */
+  isSessionToken: (token: string) => boolean;
+}
+
+/** Accept the persistent CLI bearer or a live WebUI session token. The public
+ * per-boot health token is an identity nonce only and never authorizes. */
 export function isControlRequestAuthorized(
   req: IncomingMessage,
-  opts: { daemonSecret: string; bootToken: string },
+  opts: ControlAuthorization,
 ): boolean {
   const authorization = firstHeader(req.headers.authorization);
   const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? "";
   if (bearer && opts.daemonSecret && secretsEqual(bearer, opts.daemonSecret)) return true;
 
   const webToken = firstHeader(req.headers["x-sash-token"]).trim();
-  return Boolean(webToken && secretsEqual(webToken, opts.bootToken));
+  return Boolean(webToken && opts.isSessionToken(webToken));
 }
 
 function webSocketProtocols(value: string | string[] | undefined): string[] {
@@ -59,16 +66,16 @@ function webSocketProtocols(value: string | string[] | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Browser WebSockets carry the per-boot token as a private subprotocol. */
+/** Browser WebSockets carry the session token as a private subprotocol. */
 export function isWebSocketRequestAuthorized(
   req: IncomingMessage,
-  opts: { daemonSecret: string; bootToken: string },
+  opts: ControlAuthorization,
 ): boolean {
   if (isControlRequestAuthorized(req, opts)) return true;
   return webSocketProtocols(req.headers["sec-websocket-protocol"]).some((protocol) => {
     if (!protocol.startsWith(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX)) return false;
     const token = protocol.slice(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX.length);
-    return Boolean(token && secretsEqual(token, opts.bootToken));
+    return opts.isSessionToken(token);
   });
 }
 

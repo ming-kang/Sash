@@ -9,6 +9,7 @@ import type { SettingsService } from "../settings-service.js";
 import type { StateMutationQueue } from "../state-lock.js";
 import type { SystemProxyController } from "../system-proxy-manager.js";
 import { ShuttingDownError } from "./errors.js";
+import type { WebAuthManager } from "./web-auth.js";
 
 /**
  * Admission gate plus idempotent cleanup for the daemon. Mutations are
@@ -61,8 +62,10 @@ export class DaemonGate {
 /** Services and domain actions shared by the daemon route handlers. */
 export interface DaemonContext {
   readonly layout: SashLayout;
+  /** Per-boot identity nonce reported by health; never authorizes requests. */
   readonly token: string;
   readonly startedAt: string;
+  readonly webAuth: WebAuthManager;
   readonly profiles: ProfileService;
   readonly settingsService: SettingsService;
   readonly lifecycle: RuntimeLifecycle;

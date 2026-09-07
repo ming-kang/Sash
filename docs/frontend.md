@@ -17,6 +17,8 @@ The `cn-font-split` dependency has a scoped `koffi: 2.16.3` override, not a glob
 
 For deterministic TUN visual checks, build current UI assets, install Playwright Chromium and Firefox, then run `npx tsx scripts/tun-ui-verify.mts`. It serves static assets on an ephemeral loopback port and mocks all APIs/WebSockets: no real daemon or Core, TUN device, OS proxy or DNS changes. It checks both engines, desktop/mobile and light/dark states, committed toggles and failed/saved-but-unverified mutations, producing screenshots and a report in a temporary directory. This verifies presentation, not real TUN connectivity.
 
+`npx tsx scripts/web-auth-ui-verify.mts` checks the real private-file/browser/daemon authorization exchange in both engines, including bare URLs, refresh, replay, daemon restart and reauthorization. It uses isolated temporary roots and ports, a fake Core and system proxy, and intercepts service discovery before any host SCM probe. Screenshots and a report remain in the OS temporary directory.
+
 ---
 
 ## 2. Source Layout
@@ -24,6 +26,7 @@ For deterministic TUN visual checks, build current UI assets, install Playwright
 ```text
 web/src/
 ├── api/index.ts                  typed REST client and WebSocket reconnect logic
+├── api/session.ts                bootstrap exchange and per-tab credential ownership
 ├── components/
 │   ├── AppSidebar.vue
 │   ├── ConfirmDialog.vue
@@ -38,6 +41,7 @@ web/src/
 ├── styles/main.css               design tokens and shared utility/component styles
 ├── types/index.ts                core-controller response types; daemon types are shared
 ├── views/
+│   ├── ConnectionView.vue        read-only browser authorization instructions
 │   ├── OverviewView.vue          status, traffic, modes and proxy groups
 │   ├── ProfilesView.vue          download/import/update/select/delete profiles
 │   ├── LogsView.vue
@@ -70,7 +74,7 @@ Canonical actions include:
 - runtime intent actions such as `setOutboundMode()` and `selectGroupProxy()`
 - `startRuntimePolling()`
 
-Polling is self-scheduling with `setTimeout` after the previous cycle completes. It slows to a 15-second interval while the page is hidden and refreshes immediately after returning to the foreground. Domain request generations discard both successful responses and resource errors made stale by a newer refresh or user mutation; old polls cannot overwrite a committed settings response. Core-specific API calls are made only after status reports `running && healthy`.
+Polling is self-scheduling with `setTimeout` after the previous cycle completes. It slows to a 15-second interval while the page is hidden and refreshes immediately after returning to the foreground. Domain request generations discard both successful responses and resource errors made stale by a newer refresh or user mutation; old polls cannot overwrite a committed settings response. Core-specific API calls require an authorized browser session and status reporting `running && healthy`.
 
 Daemon reachability, profile revision and Core snapshots have separate ownership. A successful `/sash/daemon/status` keeps the daemon online even when a downstream Core gateway request returns 502. Profiles track their last fetched daemon revision independently and refresh on revision changes even while Core is stopped. A daemon restart resets that revision comparison.
 
@@ -101,6 +105,8 @@ System proxy controls are target-state based: enabling requires a running, healt
 ---
 
 ## 5. API and Streaming
+
+`web/src/api/session.ts` consumes and immediately removes the one-time `sash web` fragment, then redeems it exactly once. Concurrent initialization shares that exchange. Private session credentials and their public daemon nonce are saved in `sessionStorage`, allowing a tab to reload without exposing credentials in ordinary URLs. Storage denial falls back to memory. Health remains public discovery only; a different boot nonce clears the stored session. Stale completions and old-token `401` responses cannot replace or revoke a newer authorization. Without authorization, the shell renders `ConnectionView`, continues public reachability/status polling and does not open Core streams or expose mutation controls.
 
 `web/src/api/index.ts`:
 

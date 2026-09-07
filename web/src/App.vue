@@ -6,23 +6,24 @@
       <main class="app-main">
         <Transition name="fade">
           <div
-            v-if="runtimeNotice"
+            v-if="bannerNotice"
             class="runtime-banner"
-            :class="runtimeNotice"
+            :class="bannerNotice"
             role="status"
             aria-live="polite"
             :title="store.coreSnapshotError ?? undefined"
           >
             <Icon name="alert" :size="13" />
-            <span>{{ t(`status.${runtimeNotice}`) }}</span>
+            <span>{{ t(`status.${bannerNotice}`) }}</span>
           </div>
         </Transition>
 
         <div
           class="page-container"
-          :class="[`page-${currentRoute}`, { 'has-runtime-banner': runtimeNotice }]"
+          :class="`page-${sessionReady ? currentRoute : 'connect'}`"
         >
-          <OverviewView v-if="currentRoute === 'overview'" />
+          <ConnectionView v-if="!sessionReady" />
+          <OverviewView v-else-if="currentRoute === 'overview'" />
           <ProfilesView v-else-if="currentRoute === 'profiles'" />
           <LogsView v-else-if="currentRoute === 'logs'" />
           <ConnectionsView v-else-if="currentRoute === 'connections'" />
@@ -38,8 +39,8 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, onUnmounted, watch } from "vue";
-import { api } from "./api/index.js";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, watch } from "vue";
+import { api, sessionReady } from "./api/index.js";
 import AppSidebar from "./components/AppSidebar.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import Icon from "./components/Icon.vue";
@@ -58,6 +59,11 @@ import {
 // OverviewView is the default route and stays in the entry chunk; the rest
 // load on first navigation (their chunks carry view-only deps like CodeMirror).
 import OverviewView from "./views/OverviewView.vue";
+import ConnectionView from "./views/ConnectionView.vue";
+
+const bannerNotice = computed(() =>
+  store.daemonOnline && !sessionReady.value ? "unauthorized" : runtimeNotice.value,
+);
 
 const ConnectionsView = defineAsyncComponent(() => import("./views/ConnectionsView.vue"));
 const LogsView = defineAsyncComponent(() => import("./views/LogsView.vue"));
@@ -98,7 +104,7 @@ function stopStreams(): void {
 
 watch(
   () =>
-    store.daemonOnline && isCoreReady.value && api.hasSession()
+    store.daemonOnline && isCoreReady.value && sessionReady.value
       ? store.runtimeGeneration
       : null,
   (generation) => {
@@ -119,7 +125,7 @@ watch(
   () =>
     store.daemonOnline &&
     isCoreReady.value &&
-    api.hasSession() &&
+    sessionReady.value &&
     currentRoute.value === "logs"
       ? store.runtimeGeneration
       : null,
@@ -168,12 +174,10 @@ onUnmounted(() => {
   background: var(--bg-app);
 }
 .runtime-banner {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
+  position: relative;
   z-index: 15;
   display: flex;
+  flex-shrink: 0;
   min-height: 30px;
   align-items: center;
   justify-content: center;
@@ -215,9 +219,6 @@ onUnmounted(() => {
   --page-gutter: 0px;
   padding: 0;
 }
-.page-container.has-runtime-banner {
-  padding-top: 30px;
-}
 .page-container.page-logs,
 .page-container.page-connections {
   --page-gutter: 0px;
@@ -258,9 +259,6 @@ onUnmounted(() => {
   }
   .page-container.page-logs {
     padding-bottom: 8px;
-  }
-  .page-container.has-runtime-banner {
-    padding-top: 0;
   }
 }
 

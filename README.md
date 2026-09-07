@@ -49,6 +49,8 @@ sash status                # runtime state, endpoints, and proxy status
 sash stop                  # restores prior proxy state, stops core and sashd
 ```
 
+Use `sash web` to authorize and open the dashboard. Opening its address directly shows connection instructions. Refreshing an authorized tab preserves access; after restarting Sash, run `sash web` again.
+
 On Windows, TUN requires the optional Sash Service, not an elevated daemon. Run `sash service install` in an Administrator PowerShell under the same user and `SASH_HOME`, then return to an ordinary shell for `sash start` and enable TUN in the dashboard. Installation stops the previous daemon/proxy and does not enable TUN or automatically restart the user daemon. See [service setup and TUN policy](./docs/usage.md#4-tun-mode). Non-Windows manual elevation remains supported; there is no `sash tun` command.
 
 Ordinary npm install/build/use requires no Go toolchain. For npm installations, the helper is downloaded separately from the matching official Sash GitHub release with mandatory asset-digest verification; neither helper nor Core binaries are bundled in npm. Source developers can use `npm run build:service` with Go 1.26.7; see the [native build guide](https://github.com/ming-kang/Sash/blob/main/service/README.md). An active TUN listener is not proof of connectivity or complete traffic capture.

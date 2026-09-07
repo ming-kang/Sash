@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { api } from "../api/index.js";
 import type { ProfileMeta, SashStatus } from "../types/index.js";
 import { refreshConnections } from "./core-actions.js";
@@ -13,6 +13,14 @@ import {
 } from "./runtime-actions.js";
 import { adoptDaemonStatus, store } from "./state.js";
 import { tunRuntimeState } from "./state-ownership.js";
+
+const originalHasSession = api.hasSession;
+beforeEach(() => {
+  api.hasSession = () => true;
+});
+afterEach(() => {
+  api.hasSession = originalHasSession;
+});
 
 function runtimeStatus(options: {
   daemonStartedAt: string;
@@ -62,6 +70,25 @@ function profile(name: string): ProfileMeta {
 }
 
 describe("web runtime ownership", () => {
+  it("keeps the daemon online without polling Core when browser authorization is absent", async () => {
+    const originals = { getStatus: api.getStatus, getConfigs: api.getConfigs };
+    const status = runtimeStatus({ daemonStartedAt: "read-only", profileRevision: 0 });
+    api.hasSession = () => false;
+    api.getStatus = async () => status;
+    api.getConfigs = async () => {
+      throw new Error("unauthorized Core poll");
+    };
+    try {
+      assert.equal(await refreshStatus(), "unauthorized");
+      assert.equal(store.daemonOnline, true);
+      assert.equal(store.status, status);
+      assert.equal(store.coreSnapshotError, null);
+      assert.equal(store.coreSnapshotAvailable, false);
+    } finally {
+      Object.assign(api, originals);
+      markDaemonOffline();
+    }
+  });
   it("forces a Core snapshot only for explicit runtime refreshes", async () => {
     const originals = {
       getStatus: api.getStatus,
@@ -546,10 +573,17 @@ it("retains boot B TUN guidance when polling authenticates B before its first st
   const originalFetch = globalThis.fetch;
   const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: { setTimeout: () => 1, clearTimeout: () => undefined },
-  });
+  const testWindow = {
+    setTimeout: () => 1,
+    clearTimeout: () => undefined,
+    location: { hash: `#boot=${"b".repeat(64)}`, pathname: "/ui/", search: "" },
+    history: {
+      replaceState: () => {
+        testWindow.location.hash = "#/";
+      },
+    },
+  };
+  Object.defineProperty(globalThis, "window", { configurable: true, value: testWindow });
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
@@ -570,11 +604,14 @@ it("retains boot B TUN guidance when polling authenticates B before its first st
   api.getProfiles = async () => ({ activeId: null, profiles: [] });
   const guidance = "TUN inactive. Restart with elevated privileges; original recovery details.";
   globalThis.fetch = async (input, init) => {
+    if (String(input).endsWith("/web/session")) {
+      return Response.json({ token: "session-b", daemonToken: "token-b" });
+    }
     if (String(input).endsWith("/health")) {
       return Response.json({ token: "token-b", pid: 100, startedAt: bootB });
     }
     assert.equal(String(input), "/sash/settings");
-    assert.equal(new Headers(init?.headers).get("x-sash-token"), "token-b");
+    assert.equal(new Headers(init?.headers).get("x-sash-token"), "session-b");
     return new Response(guidance, { status: 409 });
   };
   const stop = startRuntimePolling();

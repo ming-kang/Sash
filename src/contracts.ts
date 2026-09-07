@@ -52,9 +52,23 @@ export function parseApiErrorBody(value: unknown): { code: string; message: stri
 /* -------------------------------------------------------------------------- */
 
 export interface HealthInfo {
+  /** Per-boot identity nonce for daemon instance matching; never authorizes requests. */
   token: string;
   pid: number;
   startedAt: string;
+}
+
+/** One-time browser bootstrap capability minted by an authenticated CLI client. */
+export interface WebBootstrapInfo {
+  token: string;
+  expiresAt: string;
+}
+
+/** In-memory WebUI control session, valid until the daemon exits. */
+export interface WebSessionInfo {
+  token: string;
+  /** Public identity of the daemon that issued this credential. */
+  daemonToken: string;
 }
 
 export interface CoreStartResult {
@@ -410,6 +424,33 @@ export function parseHealthInfo(value: unknown): HealthInfo {
       required(source, "startedAt", contract, "startedAt"),
       contract,
       "startedAt",
+    ),
+  };
+}
+
+export function parseWebBootstrapInfo(value: unknown): WebBootstrapInfo {
+  const contract = "sashd web bootstrap";
+  const source = objectValue(value, contract, "response");
+  return {
+    token: stringValue(required(source, "token", contract, "token"), contract, "token", true),
+    expiresAt: timestampValue(
+      required(source, "expiresAt", contract, "expiresAt"),
+      contract,
+      "expiresAt",
+    ),
+  };
+}
+
+export function parseWebSessionInfo(value: unknown): WebSessionInfo {
+  const contract = "sashd web session";
+  const source = objectValue(value, contract, "response");
+  return {
+    token: stringValue(required(source, "token", contract, "token"), contract, "token", true),
+    daemonToken: stringValue(
+      required(source, "daemonToken", contract, "daemonToken"),
+      contract,
+      "daemonToken",
+      true,
     ),
   };
 }

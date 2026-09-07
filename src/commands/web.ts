@@ -1,6 +1,7 @@
 import { openInBrowser } from "../browser.js";
 import { log } from "../log.js";
 import { resolveRuntimeOwner } from "../runtime-owner.js";
+import { writeBootstrapFile } from "../web-bootstrap.js";
 import { runStart } from "./lifecycle.js";
 import { runtimeContext } from "./shared.js";
 
@@ -14,9 +15,14 @@ export interface WebCommandDeps {
   resolveRuntimeOwner?: typeof resolveRuntimeOwner;
   openInBrowser?: typeof openInBrowser;
   log?: Pick<typeof log, "info" | "warn" | "ok">;
+  writeBootstrap?: typeof writeBootstrapFile;
 }
 
-/** `sash web`: start if needed, or open the healthy daemon's recovery UI. */
+/**
+ * `sash web`: start if needed, then authorize this browser through a
+ * one-time bootstrap file. The bootstrap token never appears in logs,
+ * process arguments or the printed URL.
+ */
 export async function runWeb(
   opts: { noOpen?: boolean } = {},
   deps: WebCommandDeps = {},
@@ -63,6 +69,17 @@ export async function runWeb(
   }
 
   const url = dashboardUrl(owner.daemon.port);
+  if (opts.noOpen) {
+    logger.ok(`dashboard: ${url}`);
+    logger.info("run 'sash web' without --no-open to authorize a browser session");
+    return;
+  }
+
+  const bootstrap = await owner.client.createWebBootstrap();
+  const file = (deps.writeBootstrap ?? writeBootstrapFile)(ctx.layout, {
+    dashboardUrl: url,
+    ...bootstrap,
+  });
+  (deps.openInBrowser ?? openInBrowser)(file.fileUrl);
   logger.ok(`dashboard: ${url}`);
-  if (!opts.noOpen) (deps.openInBrowser ?? openInBrowser)(url);
 }

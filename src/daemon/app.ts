@@ -25,6 +25,7 @@ import { type SystemProxyController, SystemProxyManager } from "../system-proxy-
 import { tunPrivilegeGuidance } from "../tun-guidance.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
 import type { DaemonScheduler } from "./scheduler.js";
+import { WebAuthManager } from "./web-auth.js";
 
 export interface DaemonDeps {
   layout: SashLayout;
@@ -211,6 +212,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     layout,
     token,
     startedAt,
+    webAuth: new WebAuthManager(),
     profiles,
     settingsService,
     lifecycle,

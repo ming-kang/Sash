@@ -111,8 +111,10 @@ Sash does not blindly turn off an existing proxy. It stores a private ownership 
 
 | Command | Description |
 | :--- | :--- |
-| `sash web` | Open `http://127.0.0.1:19090/ui/`. |
-| `sash web --no-open` | Print the dashboard URL without opening a browser. |
+| `sash web` | Authorize this browser and open `http://127.0.0.1:19090/ui/`. |
+| `sash web --no-open` | Print the dashboard URL without opening or authorizing a browser. |
+
+Run `sash web` as the user who runs Sash, with the same `SASH_HOME`. It uses a private local handoff to authorize the browser automatically. A bare dashboard address shows a read-only connection page; it cannot obtain control access from public health information. The handoff expires after 90 seconds and works once. If it expires before the browser opens, rerun the command. An authorized tab can be refreshed, but a daemon restart requires a new `sash web` authorization. Browser storage restrictions keep the session in memory only, so those browsers also require authorization after a page reload.
 
 ### Profiles
 

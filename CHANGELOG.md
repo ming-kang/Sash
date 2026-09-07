@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Separate the public daemon health identity from control credentials and require authorization for profile creation. `sash web` now opens an owner-only, single-use browser handoff; HTTP/WebSocket control uses private sessions that expire on daemon restart. Preserve authorization across page refreshes and prevent stale request failures from revoking newer sessions.
 - Require patched Go 1.26.7 for the native helper instead of the initially tested 1.26.4 toolchain, addressing reachable standard-library findings reported by `govulncheck`.
 - Correct cross-platform TUN privilege-guidance assertions and invoke the logs test's registered signal handler directly instead of emitting a process-wide signal that can terminate the shared runner; these corrections do not establish that all remote CI passes.
 - Resolve native Windows log-watcher directories through realpath to avoid the libuv short-name (8.3 prefix) abort. Scope a Koffi `2.16.3` override to `cn-font-split` for upstream Node.js 24.14+ teardown fixes; local uncached build validated, remote macOS CI not yet confirmed.

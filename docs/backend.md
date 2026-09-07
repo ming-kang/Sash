@@ -25,6 +25,7 @@ In direct mode, Core remains a non-detached child of `sashd`. In Windows service
 - `src/daemon.ts`: public facade re-exporting the daemon surface.
 - `src/daemon/router.ts`: the single URLPattern route table plus match → auth → dispatch; `src/daemon/handlers/*` own the per-domain handlers, `src/daemon/errors.ts` maps domain errors onto the unified error envelope, and `src/daemon/context.ts` holds the shared `DaemonContext`/`DaemonGate`.
 - `src/daemon/app.ts`: service assembly around one mutation queue; `src/daemon/server.ts` owns the HTTP/WebSocket listeners and listener close; `src/daemon/scheduler.ts` owns profile auto-update timers; `src/daemon/entry.ts` is the production entrypoint.
+- `src/daemon/web-auth.ts`: bounded in-memory bootstrap/session credentials. `src/web-bootstrap.ts` writes the private browser handoff used by `sash web`.
 - `src/runtime-lifecycle.ts`: serialized Core/proxy state transitions.
 - `src/supervisor.ts`: child ownership, readiness probes and verified termination.
 - `src/daemon-lifecycle.ts`: daemon discovery, singleton startup, CLI shutdown and the maintenance boundary used by full restarts and Core updates.
@@ -110,7 +111,9 @@ There are exactly two HTTP namespaces plus the static dashboard. Every `/sash/*`
 
 | Endpoint | Method | Auth | Description |
 | :--- | :--- | :--- | :--- |
-| `/sash/daemon/health` | `GET` | public | Readiness, PID, start time and per-boot WebUI token. |
+| `/sash/daemon/health` | `GET` | public | Readiness, PID, start time and per-boot identity nonce; never a credential. |
+| `/sash/web/bootstrap` | `POST` | control | Mint a single-use browser handoff, returning `{token, expiresAt}`. |
+| `/sash/web/session` | `POST` | bootstrap body | Exchange `{token}` for a private browser session `{token, daemonToken}`. |
 | `/sash/daemon/status` | `GET` | public | Daemon/Core/proxy/public-settings snapshot; `core.tunActive` is the verified runtime TUN state when available, while proxy `appliedKnown`/`stateKnown` and `queryError` preserve OS observation uncertainty. |
 | `/sash/daemon/shutdown` | `POST` | control | Under the daemon mutation queue, snapshot whether Core was running, restore proxy/stop Core, return `{coreWasRunning}`, then close. Cleanup failure returns `500` and leaves the daemon available for retry. |
 | `/sash/core/start` | `POST` | control | Rebuild config, start and wait for readiness; returns `{pid, version?, tunActive?}`. |
@@ -158,11 +161,16 @@ Traffic/log streams are authenticated `GET` WebSocket upgrades under `/core/api/
 ## 4. Control-Request Security
 
 - The daemon listener binds only to `127.0.0.1`, rejects non-loopback Host headers, and only accepts loopback Core controller addresses.
-- State-changing methods and every HTTP Core-gateway route require the persistent CLI bearer or per-boot WebUI token. Any request carrying a non-loopback Origin header is rejected outright, regardless of method.
+- State-changing methods and every HTTP Core-gateway route require the persistent CLI bearer or a private WebUI session token. The sole mutation exception, `POST /sash/web/session`, validates its single-use bootstrap credential independently. Any request carrying a non-loopback Origin header is rejected outright, regardless of method.
 - WebSocket upgrades validate loopback Origin, authentication and route boundaries.
 - Public settings/status contracts omit controller and daemon secrets.
+- Public health's `token` identifies the daemon boot for lifecycle checks; HTTP and WebSocket authorization never accept it. JSON API responses use `Cache-Control: no-store`.
 - Controller and daemon clients use a direct dispatcher with normal TLS verification; proxy environment variables apply only to remote downloads.
 - Every managed runtime and OS/browser/package helper child removes GitHub/npm tokens, npm credential-file/auth variables and npm registry credentials. Fixed Windows/macOS system tools use trusted absolute paths; Linux desktop helpers are resolved only through absolute PATH entries.
+
+`sash web` authenticates with the CLI bearer to mint a 90-second, single-use bootstrap token. It writes an atomic HTML handoff in a new `<root>/temp/web-bootstrap-<expiry>-<random>/` directory: POSIX directories/files use `0700`/`0600`, and Windows directories are created with a protected owner-only DACL before writing credentials. Only the non-secret file URL reaches the browser launcher and only the ordinary dashboard address reaches CLI output. Expired handoff directories are cleaned on the next invocation; live handoffs survive concurrent invocations and browser cold starts.
+
+The document navigates to the dashboard with a fragment containing the bootstrap token. The frontend removes the fragment before making requests, then exchanges it for a session through the request body. The daemon stores only token hashes in memory, with at most 32 pending bootstraps and 256 sessions; oldest entries are evicted at capacity. Redemption consumes a token before issuing its session, and a restart invalidates both collections. The response's public `daemonToken` binds browser storage to the issuing boot. The persistent CLI bearer never enters the browser handoff.
 
 ---
 

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import type http from "node:http";
 import net from "node:net";
@@ -105,7 +106,7 @@ export class DaemonTestHarness {
     };
   }
 
-  async startServer(overrides: DaemonServerOverrides = {}): Promise<DaemonInstance> {
+  async startServer(overrides: DaemonServerOverrides = {}, port = 0): Promise<DaemonInstance> {
     const fakeSupervisor: CoreRuntime =
       overrides.supervisor ??
       ({
@@ -130,7 +131,7 @@ export class DaemonTestHarness {
     });
 
     await new Promise<void>((resolve, reject) => {
-      instance.server.listen(0, "127.0.0.1", resolve);
+      instance.server.listen(port, "127.0.0.1", resolve);
       instance.server.once("error", reject);
     });
 
@@ -177,6 +178,23 @@ export class DaemonTestHarness {
       data = text;
     }
     return { statusCode: response.statusCode, data };
+  }
+
+  /** Mint a real WebUI session token through the bootstrap exchange. */
+  async mintWebSession(): Promise<string> {
+    const bootstrap = await this.apiRequest("/sash/web/bootstrap", { method: "POST" });
+    assert.equal(bootstrap.statusCode, 200);
+    const bootstrapToken = (bootstrap.data as { token?: unknown }).token;
+    assert.equal(typeof bootstrapToken, "string");
+    const session = await this.apiRequest("/sash/web/session", {
+      method: "POST",
+      token: "",
+      body: { token: bootstrapToken },
+    });
+    assert.equal(session.statusCode, 200);
+    const sessionToken = (session.data as { token?: unknown }).token;
+    assert.equal(typeof sessionToken, "string");
+    return sessionToken as string;
   }
 
   rawHttpRequest(

@@ -205,12 +205,12 @@ describe("daemon server", () => {
       h.mockCorePort = typeof addr === "object" && addr ? addr.port : 0;
       h.settings.controller = `127.0.0.1:${h.mockCorePort}`;
 
-      const inst = await h.startServer();
+      await h.startServer();
 
-      // Call /core/api/version with the WebUI credential via sashd.
+      // Call /core/api/version with a WebUI session credential via sashd.
       const res = await h.apiRequest("/core/api/version", {
         token: "",
-        webToken: inst.token,
+        webToken: await h.mintWebSession(),
       });
       assert.equal(res.statusCode, 200);
       assert.equal(receivedPath, "/version");
@@ -345,10 +345,10 @@ describe("daemon server", () => {
       h.mockCorePort = typeof address === "object" && address ? address.port : 0;
       h.settings.controller = `127.0.0.1:${h.mockCorePort}`;
 
-      const inst = await h.startServer();
+      await h.startServer();
       const response = await h.rawWebSocketUpgrade("/core/api/logs?level=info", {
         Origin: `http://127.0.0.1:${h.boundPort}`,
-        "Sec-WebSocket-Protocol": `sash, sash-token.${inst.token}`,
+        "Sec-WebSocket-Protocol": `sash, sash-token.${await h.mintWebSession()}`,
       });
 
       assert.match(response, /^HTTP\/1\.1 101 Switching Protocols/);

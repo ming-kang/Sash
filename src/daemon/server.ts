@@ -72,7 +72,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     if (
       !isWebSocketRequestAuthorized(req, {
         daemonSecret: context.settings.committed().daemonSecret,
-        bootToken: context.token,
+        isSessionToken: (token) => context.webAuth.isSession(token),
       })
     ) {
       rejectUpgrade(socket, 401, "Unauthorized WebSocket request");

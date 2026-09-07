@@ -11,6 +11,7 @@ const originals = { ...api };
 let status: SashStatus;
 beforeEach(() => {
   markDaemonOffline();
+  api.hasSession = () => true;
   status = {
     daemon: { pid: 10, startedAt: "2026-01-01T00:00:00.000Z", port: 29192 },
     core: { running: false },

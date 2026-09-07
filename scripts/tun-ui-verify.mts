@@ -208,6 +208,9 @@ try {
                   ({ theme }) => {
                     localStorage.setItem("sash.locale", "en");
                     localStorage.setItem("sash.theme", theme);
+                    sessionStorage.setItem("sash.control-token", JSON.stringify({
+                      token: "isolated-ui-session", daemonToken: "isolated-ui-fixture",
+                    }));
                   },
                   { theme },
                 );
@@ -250,6 +253,9 @@ try {
                     const request = route.request();
                     const url = new URL(request.url());
                     const key = `${request.method()} ${url.pathname}`;
+                    if (url.pathname.startsWith("/core/api/") || request.method() === "PATCH") {
+                      assert.equal(request.headers()["x-sash-token"], "isolated-ui-session");
+                    }
                     const json = (body: unknown, code = 200) =>
                       route.fulfill({
                         status: code,

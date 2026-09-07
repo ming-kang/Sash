@@ -104,6 +104,7 @@ export function sendJson(res: ServerResponse, statusCode: number, data: unknown)
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
   });
   res.end(body);
 }

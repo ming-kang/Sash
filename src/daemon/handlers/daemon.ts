@@ -1,5 +1,12 @@
-import type { DaemonStatus, HealthInfo, ShutdownResult } from "../../contracts.js";
+import type {
+  DaemonStatus,
+  HealthInfo,
+  ShutdownResult,
+  WebBootstrapInfo,
+  WebSessionInfo,
+} from "../../contracts.js";
 import { currentCoreVersion } from "../../core.js";
+import { HttpError } from "../../daemon-http.js";
 import { publicSettings } from "../../settings.js";
 import type { CoreState } from "../../supervisor.js";
 import type { SystemProxyState } from "../../sysproxy.js";
@@ -7,8 +14,31 @@ import type { DaemonContext } from "../context.js";
 import type { RouteRequest, RouteResponse } from "../router.js";
 
 export function health(ctx: DaemonContext): RouteResponse {
+  // The token is a per-boot identity nonce for daemon instance matching. It
+  // is deliberately not a credential: control requests require the CLI
+  // bearer or a WebUI session token from the bootstrap exchange below.
   const body: HealthInfo = { token: ctx.token, pid: process.pid, startedAt: ctx.startedAt };
   return { status: 200, json: body };
+}
+
+/** Authenticated CLI clients mint a one-time bootstrap token for `sash web`. */
+export function createWebBootstrap(ctx: DaemonContext): RouteResponse {
+  const bootstrap = ctx.webAuth.createBootstrap();
+  const body: WebBootstrapInfo = { token: bootstrap.token, expiresAt: bootstrap.expiresAt };
+  return { status: 200, json: body };
+}
+
+/** Public exchange: a valid one-time bootstrap token becomes a session token. */
+export async function redeemWebBootstrap(
+  ctx: DaemonContext,
+  req: RouteRequest,
+): Promise<RouteResponse> {
+  const body = await req.readJson(1024);
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  const session = ctx.webAuth.redeemBootstrap(token);
+  if (!session) throw new HttpError(401, "Invalid or expired bootstrap token");
+  const response: WebSessionInfo = { token: session, daemonToken: ctx.token };
+  return { status: 200, json: response };
 }
 
 export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {

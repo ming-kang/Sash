@@ -264,6 +264,10 @@ export const en: Messages = {
   },
   status: {
     offline: "Sash daemon unreachable, retrying automatically…",
+    unauthorized: "This browser session is not authorized. Run 'sash web' to connect.",
+    connectTitle: "Connect to Sash",
+    connectDescription:
+      "Run this command in the terminal where you use Sash. It opens and authorizes the dashboard in your browser.",
     coreDegraded: "Core data refresh failed; showing the last valid snapshot while retrying…",
     coreUnavailable: "Core is running, but runtime data is temporarily unavailable; retrying…",
   },
