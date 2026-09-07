@@ -1,6 +1,4 @@
 import type { SettingsPatch } from "./contracts.js";
-import type { CoreRuntime } from "./core-runtime.js";
-import { requireServiceForTun } from "./core-runtime.js";
 import { commitManagedStateTransaction } from "./managed-state-transaction.js";
 import type { SashLayout } from "./paths.js";
 import {
@@ -10,21 +8,11 @@ import {
 } from "./profile-service.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { type SashSettings, sameSettings, validateSettingsCandidate } from "./settings.js";
-import { tunPrivilegeGuidance } from "./tun-guidance.js";
+import type { CoreSupervisor } from "./supervisor.js";
 
 export class SettingsInputError extends Error {}
 
 export class SettingsConflictError extends Error {}
-
-export class TunActivationError extends Error {
-  constructor(
-    public readonly reason: "inactive" | "unverified",
-    message: string,
-  ) {
-    super(message);
-    this.name = "TunActivationError";
-  }
-}
 
 /** Enabling the system proxy requires a running, healthy Core. */
 export class CoreUnhealthyError extends Error {}
@@ -52,14 +40,14 @@ export interface SettingsServiceOptions {
   setCommitted: (settings: SashSettings) => void;
   setRuntime: (settings: SashSettings) => void;
   profiles: ProfileService;
-  supervisor?: CoreRuntime;
+  supervisor?: CoreSupervisor;
   lifecycle?: RuntimeLifecycle;
   /** Offline proxy-off release; online uses RuntimeLifecycle instead. */
   releaseSystemProxy?: () => Promise<void>;
   commit: SettingsCommitBoundary;
 }
 
-const CORE_SETTING_KEYS = ["mixedPort", "controller", "secret", "tun", "allowLan"] as const;
+const CORE_SETTING_KEYS = ["mixedPort", "controller", "secret", "allowLan"] as const;
 
 /**
  * Applies a partial settings patch as immutable candidates. Rendering, remote
@@ -87,10 +75,6 @@ export class SettingsService {
       throw new SettingsInputError((err as Error).message);
     }
 
-    if (this.options.supervisor?.backend === "direct") {
-      requireServiceForTun(candidate.tun, "direct");
-    }
-
     const restartRequired = candidate.daemonPort !== previous.daemonPort;
     const proxyChanged = candidate.systemProxy !== previous.systemProxy;
     const coreChanged = CORE_SETTING_KEYS.some((key) => candidate[key] !== previous[key]);
@@ -102,9 +86,7 @@ export class SettingsService {
       // in this transaction so a failed proxy enable never persists desired=true.
       const staged: SashSettings = { ...candidate, systemProxy: previous.systemProxy };
       committed = coreChanged
-        ? await this.commitCoreChange(previous, staged, {
-            verifyTun: candidate.tun,
-          })
+        ? await this.commitCoreChange(previous, staged)
         : await this.commitSettingsOnly(previous, staged);
     }
     if (proxyChanged || patch.systemProxy === false) {
@@ -158,7 +140,6 @@ export class SettingsService {
   private async commitCoreChange(
     previous: SashSettings,
     candidate: SashSettings,
-    opts: { verifyTun: boolean },
   ): Promise<SashSettings> {
     for (let attempt = 0; ; attempt += 1) {
       const prepared = await this.options.profiles.prepareActiveConfig(candidate, previous);
@@ -172,7 +153,7 @@ export class SettingsService {
               prepared,
               async (publication) => {
                 callbackEntered = true;
-                return this.commitCoreSettings(previous, candidate, opts, publication);
+                return this.commitCoreSettings(previous, candidate, publication);
               },
             );
           } catch (err) {
@@ -252,7 +233,6 @@ export class SettingsService {
   private async commitCoreSettings(
     previous: SashSettings,
     candidate: SashSettings,
-    opts: { verifyTun: boolean },
     publication: PreparedActivePublication,
   ): Promise<SashSettings> {
     const wasRunning = this.options.supervisor?.isRunning() ?? false;
@@ -275,23 +255,7 @@ export class SettingsService {
           reloadRuntime: false,
           applyRuntime: async () => {
             if (!wasRunning) return;
-            const result = await this.requireLifecycle().restart();
-            if (opts.verifyTun && result.tunActive !== true) {
-              const reason = result.tunActive === false ? "inactive" : "unverified";
-              const guidance =
-                this.options.supervisor?.backend === "service"
-                  ? "The previous settings were restored. Inspect Sash Service diagnostics before retrying."
-                  : tunPrivilegeGuidance("activation-rolled-back", {
-                      root: this.options.layout.root,
-                      observation: reason,
-                    });
-              throw new TunActivationError(
-                reason,
-                reason === "inactive"
-                  ? `TUN did not become active. ${guidance}`
-                  : `TUN activation could not be verified through the Core controller. ${guidance}`,
-              );
-            }
+            await this.requireLifecycle().restart();
           },
         },
         undefined,

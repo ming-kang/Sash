@@ -36,13 +36,13 @@ describe("offline mutation coordination", () => {
 
     await runOfflineMutation(ctx, "test merged settings", () => {
       assert.equal(ctx.settings.allowLan, true);
-      ctx.settings.tun = true;
+      ctx.settings.mixedPort = 18899;
       saveSettings(ctx.settings, ctx.layout);
     });
 
     const persisted = loadSettings(ctx.layout);
     assert.equal(persisted.allowLan, true);
-    assert.equal(persisted.tun, true);
+    assert.equal(persisted.mixedPort, 18899);
   });
 
   it("recovers a profile journal after ownership verification before the action reads profiles", async () => {

@@ -16,7 +16,7 @@ export interface SashSettings {
   controller: string;
   /** API secret for the external-controller. */
   secret: string;
-  /** Enable TUN inbound in the generated config (requires admin/root). */
+  /** Legacy compatibility field; this release keeps TUN disabled. */
   tun: boolean;
   /** allow-lan toggle for the generated config. */
   allowLan: boolean;
@@ -281,6 +281,9 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
     file,
     parseBoolean,
   );
+  if (tun.value && !allowMissing) {
+    throw invalidSettings(file, "TUN is unavailable in this release; tun must be false");
+  }
   const daemonPort = readRequiredField(
     document,
     "daemonPort",
@@ -314,6 +317,7 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
     controller.value !== document.controller ||
     secret.missing ||
     tun.missing ||
+    tun.value ||
     allowLan.missing ||
     daemonPort.missing ||
     daemonSecret.missing ||
@@ -338,7 +342,7 @@ function parseSettings(document: unknown, file: string, allowMissing: boolean): 
     mixedPort: mixedPort.value,
     controller: controller.value,
     secret: normalizedSecret,
-    tun: tun.value,
+    tun: false,
     allowLan: allowLan.value,
     daemonPort: daemonPort.value,
     daemonSecret: normalizedDaemonSecret,

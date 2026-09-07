@@ -26,16 +26,15 @@ export {
 } from "./profile-actions.js";
 export {
   markDaemonOffline,
-  patchBooleanSetting,
   refreshRuntimeState,
   refreshStatus,
+  setAllowLan,
   setSystemProxyEnabled,
   startRuntimePolling,
 } from "./runtime-actions.js";
 export type { StoredLogMessage, StoreState, ToastItem } from "./state.js";
 export {
   canToggleSystemProxy,
-  canToggleTun,
   errorText,
   isCoreReady,
   isCoreRunning,
@@ -43,7 +42,6 @@ export {
   runtimeNotice,
   setProfiles,
   store,
-  tunRuntime,
 } from "./state.js";
 export { addLog, addTraffic, clearLogs, flushLogs } from "./telemetry.js";
 export { dismissToast, pushToast, toast } from "./toast.js";

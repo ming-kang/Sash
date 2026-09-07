@@ -15,12 +15,7 @@ import {
 } from "./profiles.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { DEFAULT_SETTINGS, loadSettings, type SashSettings, saveSettings } from "./settings.js";
-import {
-  CoreUnhealthyError,
-  SettingsConflictError,
-  SettingsService,
-  TunActivationError,
-} from "./settings-service.js";
+import { CoreUnhealthyError, SettingsConflictError, SettingsService } from "./settings-service.js";
 import type { CoreSupervisor } from "./supervisor.js";
 
 function seedActiveRemote(layout: SashLayout, url: string): ProfileMeta {
@@ -476,7 +471,7 @@ describe("SettingsService", () => {
     assert.doesNotMatch(fs.readFileSync(layout.configFile, "utf8"), /allow-lan: true/);
   });
 
-  it("rolls back an online TUN enable when the Core remains inactive", async () => {
+  it("rejects TUN enable before changing settings or restarting Core", async () => {
     let committed = saveSettings(initialSettings(), layout);
     let runtime = committed;
     let restartCalls = 0;
@@ -505,18 +500,13 @@ describe("SettingsService", () => {
       commit: async (_purpose, action) => action(),
     });
 
-    await assert.rejects(
-      () => service.apply({ tun: true }),
-      process.platform === "win32"
-        ? /TUN did not become active.*sash service install.*dashboard/s
-        : /TUN did not become active.*command -v sash.*dashboard/s,
-    );
+    await assert.rejects(() => service.apply({ tun: true }), /TUN is unavailable/);
 
-    assert.equal(restartCalls, 2);
+    assert.equal(restartCalls, 0);
     assert.equal(runtime.tun, false);
     assert.equal(committed.tun, false);
     assert.equal(loadSettings(layout).tun, false);
-    assert.doesNotMatch(fs.readFileSync(layout.configFile, "utf8"), /^tun:/m);
+    assert.equal(fs.existsSync(layout.configFile), false);
   });
 
   it("disables system proxy even when the profile index is corrupt", async () => {
@@ -743,127 +733,6 @@ describe("SettingsService", () => {
         assert.equal(fs.existsSync(layout.configFile), false);
       });
     }
-  }
-
-  for (const patch of [{ tun: true }, { mixedPort: 18888 }, { allowLan: true }]) {
-    for (const tunActive of [true, false, undefined]) {
-      it(`verifies TUN on settings restart ${JSON.stringify(patch)} observed=${tunActive}`, async () => {
-        let committed = saveSettings({ ...initialSettings(), tun: !("tun" in patch) }, layout);
-        const previous = { ...committed };
-        let runtime = committed;
-        let restarts = 0;
-        const service = new SettingsService({
-          layout,
-          getCommitted: () => committed,
-          setCommitted: (next) => {
-            committed = next;
-          },
-          setRuntime: (next) => {
-            runtime = next;
-          },
-          profiles: new ProfileService({ layout, settings: () => committed }),
-          supervisor: { isRunning: () => true } as unknown as CoreSupervisor,
-          lifecycle: {
-            restart: async () => {
-              restarts++;
-              return { pid: 1234, ...(tunActive !== undefined ? { tunActive } : {}) };
-            },
-          } as unknown as RuntimeLifecycle,
-          commit: async (_purpose, action) => action(),
-        });
-        if (tunActive === true) {
-          await service.apply(patch);
-          assert.deepEqual(committed, { ...previous, ...patch });
-          assert.equal(restarts, 1);
-        } else {
-          await assert.rejects(service.apply(patch), (err: unknown) => {
-            assert.ok(err instanceof TunActivationError);
-            assert.equal(err.reason, tunActive === false ? "inactive" : "unverified");
-            assert.equal(errorToHttp(err).status, 409);
-            assert.equal(
-              errorToHttp(err).code,
-              tunActive === false ? "tun_inactive" : "tun_unverified",
-            );
-            return true;
-          });
-          assert.deepEqual(committed, previous);
-          assert.equal(restarts, 2);
-        }
-        assert.deepEqual(runtime, committed);
-        assert.deepEqual(loadSettings(layout), committed);
-      });
-    }
-  }
-
-  it("persists stopped-core TUN intent without starting Core", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: () => {},
-      profiles: new ProfileService({ layout, settings: () => committed }),
-      supervisor: { isRunning: () => false } as unknown as CoreSupervisor,
-      lifecycle: {
-        restart: async () => {
-          assert.fail("must not restart");
-        },
-      } as unknown as RuntimeLifecycle,
-      commit: async (_purpose, action) => action(),
-    });
-    await service.apply({ tun: true });
-    assert.equal(loadSettings(layout).tun, true);
-  });
-
-  for (const failure of ["runtime", "config", "persistence"]) {
-    it(`retains ${failure} rollback failure as a server error`, async () => {
-      let committed = saveSettings(initialSettings(), layout);
-      let restarts = 0;
-      const profiles = new ProfileService({ layout, settings: () => committed });
-      if (failure === "config") {
-        profiles.commitPreparedActiveReload = async () => {
-          throw new Error("config compensation failed");
-        };
-      }
-      const service = new SettingsService({
-        layout,
-        getCommitted: () => committed,
-        setCommitted: (next) => {
-          committed = next;
-        },
-        setRuntime: () => {},
-        profiles,
-        supervisor: { isRunning: () => true } as unknown as CoreSupervisor,
-        lifecycle: {
-          restart: async () => {
-            restarts++;
-            if (restarts === 2 && failure === "runtime")
-              throw new Error("runtime compensation failed");
-            if (restarts === 1 && failure === "persistence") {
-              fs.unlinkSync(layout.settingsFile);
-              fs.mkdirSync(layout.settingsFile);
-            }
-            return { pid: 1234, tunActive: false };
-          },
-        } as unknown as RuntimeLifecycle,
-        commit: async (_purpose, action) => action(),
-      });
-      await assert.rejects(service.apply({ tun: true }), (err: unknown) => {
-        assert.ok(err instanceof Error);
-        assert.equal(err instanceof TunActivationError, false);
-        assert.match(err.message, /TUN did not become active/);
-        assert.match(err.message, /rollback failed/);
-        assert.equal(errorToHttp(err).status, 500);
-        assert.ok(err.cause instanceof Error);
-        const original = failure === "persistence" ? err.cause.cause : err.cause;
-        assert.ok(original instanceof TunActivationError);
-        assert.equal(original.reason, "inactive");
-        return true;
-      });
-      assert.equal(committed.tun, false);
-    });
   }
 
   it("maps a stale settings snapshot to a conflict without publishing", async () => {

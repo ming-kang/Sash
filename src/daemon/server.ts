@@ -1,7 +1,6 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
-import type { CoreRuntime } from "../core-runtime.js";
 import {
   isLoopbackHostHeader,
   isLoopbackOriginHeader,
@@ -9,6 +8,7 @@ import {
 } from "../daemon-auth.js";
 import { forwardWsToCore } from "../daemon-proxy.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
+import type { CoreSupervisor } from "../supervisor.js";
 import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
 import {
   buildRoutes,
@@ -20,7 +20,7 @@ import { startProfileUpdateScheduler } from "./scheduler.js";
 
 export interface DaemonInstance {
   server: Server;
-  supervisor: CoreRuntime;
+  supervisor: CoreSupervisor;
   lifecycle: RuntimeLifecycle;
   token: string;
   port: number;
@@ -100,7 +100,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    const runtime = context.coreControllerEndpoint?.() ?? context.settings.runtime();
+    const runtime = context.settings.runtime();
     forwardWsToCore(req, socket, head, route.target, runtime.controller, runtime.secret);
   };
 

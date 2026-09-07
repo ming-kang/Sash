@@ -48,26 +48,12 @@
           :class="{ active: allowLanOn }"
           :aria-pressed="allowLanOn"
           :disabled="store.operations.networkSetting || !store.status"
-          @click="applyNetToggle('allow-lan', !allowLanOn)"
+          @click="toggleAllowLan(!allowLanOn)"
         >
           <span class="toggle-name">{{ t('overview.lan') }}</span>
           <span class="toggle-state">{{ allowLanOn ? t('common.on') : t('common.off') }}</span>
         </button>
-        <button
-          type="button"
-          class="mode-button toggle-button"
-          :class="{ active: tunOn }"
-          :aria-pressed="tunOn"
-          :disabled="!canToggleTun"
-          @click="applyNetToggle('tun', !tunOn)"
-        >
-          <span class="toggle-name">{{ t('overview.tun') }}</span>
-          <span class="toggle-state" :class="tunStateClass" :title="tunStatusBadge?.title">
-            {{ tunStatusBadge?.text ?? (tunOn ? t('common.on') : t('common.off')) }}
-          </span>
-        </button>
       </div>
-      <TunFeedback />
     </section>
 
     <div class="general-list">
@@ -169,16 +155,15 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { coreVersion, tunStatusBadge } from "../composables/core-runtime.js";
+import { coreVersion } from "../composables/core-runtime.js";
 import { locale, t } from "../i18n/index.js";
 import { navigate } from "../router.js";
 import {
   canToggleSystemProxy,
-  canToggleTun,
   errorText,
   isCoreReady,
   isSysProxyOn,
-  patchBooleanSetting,
+  setAllowLan,
   setOutboundMode,
   setSystemProxyEnabled,
   store,
@@ -188,20 +173,12 @@ import {
 import type { OutboundMode } from "../types/index.js";
 import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 import Icon from "./Icon.vue";
-import TunFeedback from "./TunFeedback.vue";
 import TrafficChart from "./TrafficChart.vue";
 
 const refreshingSub = ref(false);
 const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
 const activeProfile = computed(() => store.status?.activeProfile ?? null);
 const allowLanOn = computed(() => store.status?.settings.allowLan ?? false);
-const tunOn = computed(() => store.status?.settings.tun ?? false);
-const tunStateClass = computed(() => {
-  const name = tunStatusBadge.value?.className;
-  if (name === "badge-success") return "state-ok";
-  if (name === "badge-warning" || name === "badge-danger") return "state-warn";
-  return undefined;
-});
 const totalNodes = computed(
   () =>
     Object.values(store.proxies).filter(
@@ -232,19 +209,19 @@ async function toggleSystemProxy(target: boolean): Promise<void> {
   try {
     const verified = await setSystemProxyEnabled(target);
     if (verified) toast.success(t(target ? "toast.sysProxyOn" : "toast.sysProxyOff"));
-    else toast.info(t("toast.savedUnverified"));
+    else toast.info(t("toast.settingSavedUnverified"));
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   }
 }
 
-async function applyNetToggle(key: "allow-lan" | "tun", next: boolean): Promise<void> {
+async function toggleAllowLan(next: boolean): Promise<void> {
   try {
-    const verified = await patchBooleanSetting(key, next);
+    const verified = await setAllowLan(next);
     if (verified) toast.success(t("toast.settingSaved"));
-    else toast.info(t("toast.savedUnverified"));
+    else toast.info(t("toast.settingSavedUnverified"));
   } catch (error) {
-    toast.error(key === "tun" ? t("toast.tunFailed") : t("toast.failed", { msg: errorText(error) }));
+    toast.error(t("toast.failed", { msg: errorText(error) }));
   }
 }
 
@@ -384,6 +361,7 @@ async function refreshActiveProfile(): Promise<void> {
   white-space: nowrap;
 }
 .toggle-switcher {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 13px;
   padding-top: 13px;
   border-top: 1px solid var(--border);
@@ -402,12 +380,6 @@ async function refreshActiveProfile(): Promise<void> {
 }
 .toggle-button.active .toggle-state {
   color: inherit;
-}
-.toggle-button:not(.active) .toggle-state.state-ok {
-  color: var(--success);
-}
-.toggle-button:not(.active) .toggle-state.state-warn {
-  color: var(--warning);
 }
 .general-list {
   background: var(--bg-app);

@@ -1,8 +1,6 @@
-import type { CoreStartResult } from "../contracts.js";
 import type { DaemonMaintenanceDeps } from "../daemon-lifecycle.js";
 import { log } from "../log.js";
 import { ensureRunning, restartRuntime, stopRuntime } from "../runtime-owner.js";
-import { tunPrivilegeGuidance } from "../tun-guidance.js";
 import { type RuntimeContext, runtimeContext } from "./shared.js";
 
 export async function runStart(): Promise<void> {
@@ -10,7 +8,6 @@ export async function runStart(): Promise<void> {
   const { owner, result } = await ensureRunning(ctx);
   log.ok(`core started (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`);
   printEndpoints(ctx, owner.daemon.port);
-  reportTunState(ctx, result);
   if (ctx.settings.systemProxy) log.ok("system proxy enabled");
 }
 
@@ -31,22 +28,6 @@ export async function runRestart(deps: DaemonMaintenanceDeps = {}): Promise<void
   log.ok(`sashd ${verb} (PID=${daemonPid})`);
   log.ok(`core ${verb} (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`);
   printEndpoints(ctx, owner.daemon.port);
-  reportTunState(ctx, result);
-}
-
-function reportTunState(ctx: RuntimeContext, result: CoreStartResult): void {
-  if (!ctx.settings.tun) return;
-  if (result.tunActive === true) {
-    log.ok("TUN active");
-  } else if (result.tunActive === false) {
-    log.warn(
-      `TUN was requested but is inactive; the core remains available without TUN. ${tunPrivilegeGuidance("runtime-inactive", { root: ctx.layout.root })}`,
-    );
-  } else {
-    log.warn(
-      `TUN was requested, but its runtime state could not be verified. ${tunPrivilegeGuidance("runtime-inactive", { root: ctx.layout.root, observation: "unverified" })}`,
-    );
-  }
 }
 
 export function printEndpoints(ctx: RuntimeContext, daemonPort: number): void {

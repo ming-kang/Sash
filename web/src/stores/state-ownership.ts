@@ -4,14 +4,14 @@ import type { LogMessage, ProxyItem, SashStatus, TrafficMessage } from "../types
 export class RequestGenerations {
   private readonly values = new Map<string, number>();
 
+  current(domain: string): number {
+    return this.values.get(domain) ?? 0;
+  }
+
   begin(domain: string): number {
     const next = (this.values.get(domain) ?? 0) + 1;
     this.values.set(domain, next);
     return next;
-  }
-
-  current(domain: string): number {
-    return this.values.get(domain) ?? 0;
   }
 
   invalidate(domain: string): void {
@@ -143,24 +143,6 @@ export function parseLogFrame(value: unknown): LogMessage | null {
   return { type: frame.type as LogMessage["type"], payload: frame.payload };
 }
 
-export type TunRuntimeState =
-  | "off"
-  | "stopped"
-  | "active"
-  | "inactive"
-  | "unverified"
-  | "unexpected-active";
-
-export function tunRuntimeState(status: SashStatus | null): TunRuntimeState {
-  const desired = status?.settings.tun ?? false;
-  if (status?.core.running === null) return desired ? "unverified" : "off";
-  if (!status?.core.running) return desired ? "stopped" : "off";
-  if (!status.core.healthy) return desired ? "unverified" : "off";
-  if (status?.core.tunActive === true) return desired ? "active" : "unexpected-active";
-  if (!desired) return "off";
-  return status?.core.tunActive === false ? "inactive" : "unverified";
-}
-
 export function systemProxyNeedsDisable(status: SashStatus | null): boolean {
   return Boolean(
     status?.systemProxy.desired ||
@@ -183,23 +165,18 @@ export function resolvedProxyDelay(
   return proxies[name]?.history?.at(-1)?.delay;
 }
 
-export function syncCommittedBooleanSetting(
+export function syncCommittedAllowLan(
   status: SashStatus | null,
-  key: "allow-lan" | "tun",
   value: boolean,
   committed?: PublicSashSettings,
 ): SashStatus | null {
   if (!status) return null;
   const settings = committed ?? {
     ...status.settings,
-    [key === "allow-lan" ? "allowLan" : "tun"]: value,
+    allowLan: value,
   };
   const core = { ...status.core };
-  if (settings.tun !== status.settings.tun || settings.allowLan !== status.settings.allowLan) {
-    // The saved change may have replaced Core. Until a new observation arrives,
-    // the previous child's TUN result must not describe the committed intent.
-    delete core.tunActive;
-  }
+  if (settings.allowLan !== status.settings.allowLan) delete core.tunActive;
   return { ...status, settings, core };
 }
 

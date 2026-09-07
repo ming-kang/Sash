@@ -1,7 +1,7 @@
 {
   "name": "@astralyn/sash",
   "version": "0.1.0",
-  "description": "A lightweight command-line companion for a rule-based network core and its web dashboard. For developers and advanced users.",
+  "description": "A network toolbox for developers, learning, and research, with a command-line companion and built-in web dashboard.",
   "license": "MIT",
   "author": "ming-kang",
   "type": "module",
@@ -17,11 +17,6 @@
   ],
   "scripts": {
     "clean:build": "node scripts/clean-build.mjs",
-    "build:service": "node scripts/build-service.mjs",
-    "test:service": "cd service && go test -mod=readonly ./...",
-    "test:service-vm-guard": "node --test scripts/service-vm-smoke.test.mjs",
-    "check:service": "cd service && go vet -mod=readonly ./...",
-    "audit:service": "cd service && go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...",
     "build:ui": "node scripts/build-ui.mjs",
     "build": "npm run clean:build && tsc -p tsconfig.build.json && npm run build:ui",
     "dev": "tsx src/cli.ts",
@@ -52,8 +47,7 @@
     "network",
     "toolbox",
     "rules",
-    "dashboard",
-    "tun"
+    "dashboard"
   ],
   "publishConfig": {
     "access": "public"

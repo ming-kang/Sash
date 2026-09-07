@@ -343,7 +343,7 @@ export async function ensureDaemon(
 
 export interface MaintenanceDaemonClient {
   maintenanceShutdown(): Promise<{ ok: true; coreWasRunning: boolean }>;
-  status?(): Promise<{ core: { running: boolean | null } }>;
+  status?(): Promise<{ core: { running: boolean } }>;
   shutdown?(): Promise<void>;
 }
 
@@ -396,9 +396,6 @@ export async function prepareDaemonMaintenance(
     }
     log.warn("legacy sashd detected; using the pre-maintenance compatibility path");
     const coreWasRunning = (await client.status()).core.running;
-    if (coreWasRunning === null) {
-      throw new Error("Legacy Core state could not be verified before maintenance shutdown");
-    }
     await client.shutdown();
     await (deps.waitForDaemonExit ?? waitForDaemonExit)(daemonState.pid, 20_000);
     return { daemonWasRunning: true, legacyDaemon: true, coreWasRunning };
@@ -494,7 +491,7 @@ export async function stopDaemonFromCli(
         const actual = status.systemProxy.actual;
         if (
           status.daemon.pid !== pid ||
-          status.core.running !== false ||
+          status.core.running ||
           status.systemProxy.applied ||
           !actual ||
           actual.enabled ||

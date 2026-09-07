@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { requireServiceForTun, ServiceRequiredError } from "../core-runtime.js";
-import { errorToHttp } from "./errors.js";
 import {
   buildRoutes,
   coreApiTarget,
@@ -150,20 +148,6 @@ describe("daemon HTTP route matching", () => {
     assert.equal(matchRoute(routes, "GET", "/version").kind, "notFound");
   });
 
-  it("never exposes reserved service control through HTTP or WebSocket targets", () => {
-    for (const raw of [
-      "/core/api/sash-service/start",
-      "/core/api/%73ash-service/status",
-      "/core/api/sash-service%2Fstop",
-      "/core/api/%2573ash-service/status",
-      "/core/api/%252573ash-service%252fstatus",
-      "/core/api/sash-service%5cstatus",
-    ]) {
-      assert.throws(() => coreApiTarget(target(raw)), /control namespace/);
-      assert.throws(() => matchWebSocketUpgrade(routes, "GET", target(raw)), /control namespace/);
-    }
-  });
-
   it("builds one canonical Core target with a query exactly once", () => {
     assert.equal(coreApiTarget(target("/core/api?x=1")), "/?x=1");
     assert.equal(coreApiTarget(target("/core/api///?x=1")), "/?x=1");
@@ -197,14 +181,4 @@ describe("daemon WebSocket route matching", () => {
       kind: "notFound",
     });
   });
-});
-
-it("maps the Windows direct TUN service requirement to a conflict", () => {
-  assert.throws(() => requireServiceForTun(true, "direct", "win32"), ServiceRequiredError);
-  assert.doesNotThrow(() => requireServiceForTun(false, "direct", "win32"));
-  assert.doesNotThrow(() => requireServiceForTun(true, "service", "win32"));
-  assert.doesNotThrow(() => requireServiceForTun(true, "direct", "linux"));
-  const mapped = errorToHttp(new ServiceRequiredError());
-  assert.equal(mapped.status, 409);
-  assert.equal(mapped.code, "service_required");
 });

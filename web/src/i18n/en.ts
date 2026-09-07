@@ -1,34 +1,6 @@
 import type { Messages } from "./zh.js";
 
 export const en: Messages = {
-  service: {
-    title: "Windows Core service",
-    unknown: "Status unknown",
-    "not-installed": "Not installed",
-    ready: "Ready",
-    unavailable: "Unavailable",
-    incompatible: "Incompatible",
-    "root-mismatch": "Enrollment conflict",
-    ownership:
-      "The service owns privileged Core children. Keep the Sash user daemon in ordinary PowerShell; this page never installs, elevates, or starts the service.",
-    nativeVersion: "Service version",
-    adminInstall:
-      "Installation only: in Administrator PowerShell as the same Windows user, with the same SASH_HOME:",
-    normalStart:
-      "Then in ordinary PowerShell with the same SASH_HOME, start Sash and enable TUN in the dashboard:",
-    guidance: {
-      unknown:
-        "Service status could not be verified. Check the CLI status before enabling Windows TUN.",
-      "not-installed":
-        "Windows TUN requires the Core service. Other network controls remain available.",
-      unavailable:
-        "The service cannot be reached. Inspect its status and repair it from Administrator PowerShell; no direct fallback will be used.",
-      incompatible:
-        "Update or repair the service with a matching Sash release from Administrator PowerShell. No direct fallback will be used.",
-      "root-mismatch":
-        "Use the enrolled Windows user and SASH_HOME. Do not take over another enrollment; ask its owner to uninstall first.",
-    },
-  },
   app: {
     coreRunning: "Core running",
     coreStopped: "Core stopped",
@@ -112,7 +84,6 @@ export const en: Messages = {
     controller: "Controller",
     daemonPort: "Daemon Port",
     lan: "LAN Access",
-    tun: "TUN Mode",
     switchesTitle: "Network switches",
   },
   proxies: {
@@ -205,24 +176,9 @@ export const en: Messages = {
     mixedPortDesc: "Local HTTP / SOCKS5 mixed inbound port (default 7890; core restarts on save)",
     allowLanTitle: "Allow LAN Connections",
     allowLanDesc: "Accept proxy requests from other devices on the LAN",
-    tunTitle: "TUN Mode (Virtual NIC)",
-    tunDesc:
-      "Routes supported traffic through a virtual NIC. Windows requires the Core service; install it from Administrator PowerShell, then run Sash normally. On POSIX, use the existing manual root flow. Core state does not prove all traffic or DNS is routed.",
-    tunStateActive: "Active",
-    tunStateInactive: "Inactive",
-    tunStateUnverified: "Unverified",
-    tunStateStopped: "Pending start",
-    tunStateUnexpected: "State mismatch",
-    tunInactiveDesc:
-      "The Core reports TUN inactive. Inspect Core logs and service status on Windows; do not elevate the user daemon. On POSIX, restart Sash as root using the same data directory, then enable TUN again if rolled back.",
-    tunUnverifiedDesc:
-      "TUN is configured but its runtime state is unavailable. This does not imply missing privileges. Check Core health, logs, and Windows service status before retrying.",
-    tunUnexpectedDesc:
-      "The Core reports TUN active while the saved setting is off. Check Core logs and restart Core to re-apply the saved setting.",
     coreTitle: "Core Control",
     restartTitle: "Restart Core Process",
-    restartDesc:
-      "Restarts Core and reapplies config; connections drop. In Windows service mode, the service owns Core children and the user daemon stays unprivileged.",
+    restartDesc: "Reboots the core child process and re-applies config; active connections drop",
     restartBtn: "Restart core",
     restartConfirmTitle: "Restart core",
     restartConfirmMsg: "Active connections will be interrupted. Continue?",
@@ -248,11 +204,8 @@ export const en: Messages = {
     profilesUpdateAllPartial: "{n} updated, {f} failed",
     pasteFailed: "Cannot read the clipboard",
     portSaved: "Port updated, core restarted",
-    tunFailed: "TUN change failed. See details below.",
-    dismissTunError: "Dismiss TUN error",
-    savedUnverified:
-      "Setting saved; runtime verification unavailable. Check status and logs before retrying.",
     settingSaved: "Setting updated",
+    settingSavedUnverified: "Setting saved; runtime refresh is temporarily unavailable",
     settingsSavedRestart:
       "Settings saved; daemonPort changes take effect after a manual `sash restart`",
     coreRestarted: "Core restarted",

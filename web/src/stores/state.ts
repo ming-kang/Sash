@@ -1,5 +1,4 @@
 import { computed, shallowReactive } from "vue";
-import type { PublicServiceStatus } from "../../../src/contracts.js";
 import type {
   ConnectionItem,
   LogMessage,
@@ -18,7 +17,6 @@ import {
   runtimeNoticeKind,
   runtimeOwnerKey,
   systemProxyNeedsDisable,
-  tunRuntimeState,
 } from "./state-ownership.js";
 
 export interface ToastItem {
@@ -33,13 +31,10 @@ export interface StoredLogMessage extends LogMessage {
 
 export interface StoreState {
   status: SashStatus | null;
-  serviceStatus: PublicServiceStatus | null;
-  serviceCheckedAt: number;
   daemonOnline: boolean;
   lastProfileRevision: number | null;
   coreSnapshotAvailable: boolean;
   coreSnapshotError: string | null;
-  tunError: string | null;
   mode: OutboundMode;
   traffic: {
     up: number;
@@ -76,14 +71,12 @@ interface RuntimeOwnershipState {
   observedOwner: string | null;
   snapshotProfileRevision: number | null;
   lastDaemonStartedAt: string | null;
-  tunErrorDaemonStartedAt: string | null;
 }
 
 export const runtimeOwnership: RuntimeOwnershipState = {
   observedOwner: null,
   snapshotProfileRevision: null,
   lastDaemonStartedAt: null,
-  tunErrorDaemonStartedAt: null,
 };
 
 // Shallow on purpose: collections (connections, rules, proxies, logs, traffic)
@@ -91,13 +84,10 @@ export const runtimeOwnership: RuntimeOwnershipState = {
 // in place. Deep proxies would wrap every nested object on every poll cycle.
 export const store = shallowReactive<StoreState>({
   status: null,
-  serviceStatus: null,
-  serviceCheckedAt: 0,
   daemonOnline: true,
   lastProfileRevision: null,
   coreSnapshotAvailable: false,
   coreSnapshotError: null,
-  tunError: null,
   mode: "rule",
   traffic: {
     up: 0,
@@ -130,15 +120,6 @@ export const store = shallowReactive<StoreState>({
 export const isSysProxyOn = computed(() => systemProxyNeedsDisable(store.status));
 export const isCoreRunning = computed(() => store.status?.core.running ?? false);
 export const isCoreReady = computed(() => isCoreHealthy(store.status));
-export const canToggleTun = computed(
-  () =>
-    !store.operations.networkSetting &&
-    store.status !== null &&
-    (store.status.settings.tun ||
-      !store.serviceStatus?.supported ||
-      store.serviceStatus.state === "ready"),
-);
-export const tunRuntime = computed(() => tunRuntimeState(store.status));
 export const runtimeNotice = computed(() =>
   runtimeNoticeKind(
     store.daemonOnline,
@@ -182,18 +163,8 @@ export function transitionRuntimeOwner(status: SashStatus | null): void {
 
 export function adoptDaemonStatus(status: SashStatus): void {
   if (runtimeOwnership.lastDaemonStartedAt !== status.daemon.startedAt) {
-    store.serviceStatus = null;
-    store.serviceCheckedAt = 0;
-    requests.invalidate("service");
     requests.invalidate("profiles");
     store.lastProfileRevision = null;
-  }
-  if (
-    (runtimeOwnership.tunErrorDaemonStartedAt ?? runtimeOwnership.lastDaemonStartedAt) !==
-    status.daemon.startedAt
-  ) {
-    store.tunError = null;
-    runtimeOwnership.tunErrorDaemonStartedAt = null;
   }
   runtimeOwnership.lastDaemonStartedAt = status.daemon.startedAt;
   store.status = status;

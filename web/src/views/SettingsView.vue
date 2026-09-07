@@ -137,32 +137,7 @@
           </div>
         </div>
 
-        <div class="setting-row caution-row">
-          <div class="setting-info">
-            <span class="setting-name">{{ t('settings.tunTitle') }}</span>
-            <span class="setting-desc" role="status">{{ tunDescription }}</span>
-          </div>
-          <div class="setting-action">
-            <span
-              v-if="tunStatusBadge"
-              class="badge"
-              :class="tunStatusBadge.className"
-              :title="tunStatusBadge.title"
-            >
-              {{ tunStatusBadge.text }}
-            </span>
-            <UiSwitch
-              :model-value="store.status?.settings.tun ?? false"
-              :label="t('settings.tunTitle')"
-              :disabled="!canToggleTun"
-              @update:model-value="toggleTun"
-            />
-          </div>
-        </div>
-        <TunFeedback />
       </UiCard>
-
-      <ServiceCard />
 
       <!-- Core control -->
       <UiCard :title="t('settings.coreTitle')" class="settings-card">
@@ -227,22 +202,18 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { api } from "../api/index.js";
-import ServiceCard from "../components/ServiceCard.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import UiCard from "../components/UiCard.vue";
-import TunFeedback from "../components/TunFeedback.vue";
 import UiSwitch from "../components/UiSwitch.vue";
-import { coreVersion, tunStatusBadge, useCoreRestart } from "../composables/core-runtime.js";
+import { coreVersion, useCoreRestart } from "../composables/core-runtime.js";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
 import {
-  canToggleTun,
   errorText,
-  patchBooleanSetting,
+  setAllowLan,
   refreshRuntimeState,
   store,
   toast,
-  tunRuntime,
 } from "../stores/index.js";
 import {
   isCommittedDraftDirty,
@@ -290,19 +261,6 @@ const portValid = computed(
     portDirty.value,
 );
 
-const tunDescription = computed(() => {
-  switch (tunRuntime.value) {
-    case "inactive":
-      return t("settings.tunInactiveDesc");
-    case "unverified":
-      return t("settings.tunUnverifiedDesc");
-    case "unexpected-active":
-      return t("settings.tunUnexpectedDesc");
-    default:
-      return t("settings.tunDesc");
-  }
-});
-
 function switchTheme(next: Theme): void {
   if (next !== theme.value) setTheme(next);
 }
@@ -332,22 +290,14 @@ async function saveMixedPort(): Promise<void> {
   }
 }
 
-async function applyToggle(key: "allow-lan" | "tun", next: boolean): Promise<void> {
+async function toggleAllowLan(next: boolean): Promise<void> {
   try {
-    const verified = await patchBooleanSetting(key, next);
+    const verified = await setAllowLan(next);
     if (verified) toast.success(t("toast.settingSaved"));
-    else toast.info(t("toast.savedUnverified"));
+    else toast.info(t("toast.settingSavedUnverified"));
   } catch (err) {
-    toast.error(key === "tun" ? t("toast.tunFailed") : t("toast.failed", { msg: errorText(err) }));
+    toast.error(t("toast.failed", { msg: errorText(err) }));
   }
-}
-
-function toggleAllowLan(next: boolean): void {
-  void applyToggle("allow-lan", next);
-}
-
-function toggleTun(next: boolean): void {
-  void applyToggle("tun", next);
 }
 
 async function reloadConfig(): Promise<void> {
@@ -418,9 +368,6 @@ async function reloadConfig(): Promise<void> {
 .setting-row:hover {
   background: var(--general-row-hover);
   border-radius: 3px;
-}
-.caution-row .setting-name {
-  color: var(--warning);
 }
 .danger-row .setting-name {
   color: var(--danger);

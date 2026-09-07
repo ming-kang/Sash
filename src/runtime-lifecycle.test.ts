@@ -309,36 +309,3 @@ describe("RuntimeLifecycle", () => {
     assert.equal(runtime.proxyApplied(), false);
   });
 });
-
-describe("service availability loss", () => {
-  it("releases proxy but preserves uncertain Core ownership", async () => {
-    const runtime = createRuntime(true);
-    await runtime.lifecycle.start();
-    runtime.events.length = 0;
-    await runtime.lifecycle.handleAvailabilityLoss({ pid: 1001, generation: 1 });
-    assert.deepEqual(runtime.events, ["proxy:release"]);
-    assert.equal(runtime.running(), true);
-    assert.equal(runtime.lifecycle.state().phase, "failed");
-  });
-
-  it("ignores a stale service generation", async () => {
-    const runtime = createRuntime(true);
-    await runtime.lifecycle.start();
-    await runtime.lifecycle.restart();
-    runtime.events.length = 0;
-    await runtime.lifecycle.handleAvailabilityLoss({ pid: 1001, generation: 1 });
-    assert.deepEqual(runtime.events, []);
-    assert.equal(runtime.proxyApplied(), true);
-  });
-
-  it("retries failed proxy release without stopping an uncertain Core", async () => {
-    const runtime = createRuntime(true);
-    await runtime.lifecycle.start();
-    runtime.events.length = 0;
-    runtime.setProxyFailure(new Error("proxy unavailable"));
-    await assert.rejects(runtime.lifecycle.handleAvailabilityLoss(), /proxy unavailable/);
-    assert.deepEqual(runtime.events, ["proxy:release", "proxy:release", "proxy:release"]);
-    assert.equal(runtime.running(), true);
-    assert.equal(runtime.lifecycle.state().phase, "failed");
-  });
-});

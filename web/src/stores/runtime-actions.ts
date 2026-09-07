@@ -6,7 +6,6 @@ import type { SashStatus } from "../types/index.js";
 import { refreshConnections, refreshCoreSnapshot, refreshProxies } from "./core-actions.js";
 import {
   adoptDaemonStatus,
-  errorText,
   requests,
   runtimeOwnership,
   setProfiles,
@@ -16,7 +15,7 @@ import {
 import {
   canSetSystemProxyTarget,
   isCoreHealthy,
-  syncCommittedBooleanSetting,
+  syncCommittedAllowLan,
 } from "./state-ownership.js";
 
 export function markDaemonOffline(): void {
@@ -25,35 +24,6 @@ export function markDaemonOffline(): void {
   transitionRuntimeOwner(null);
   store.daemonOnline = false;
   store.status = null;
-  store.serviceStatus = null;
-  store.serviceCheckedAt = 0;
-  requests.invalidate("service");
-}
-
-async function refreshServiceForStatus(
-  status: SashStatus,
-  isCurrent: () => boolean,
-): Promise<void> {
-  if (Date.now() - store.serviceCheckedAt < 5000) return;
-  const request = requests.begin("service");
-  const session = api.getSessionGeneration();
-  const current = () =>
-    isCurrent() &&
-    requests.isCurrent("service", request) &&
-    session === api.getSessionGeneration() &&
-    store.status?.daemon.startedAt === status.daemon.startedAt;
-  try {
-    const service = await api.getServiceStatus();
-    if (current()) {
-      store.serviceStatus = service;
-      store.serviceCheckedAt = Date.now();
-    }
-  } catch {
-    if (current()) {
-      store.serviceStatus = null;
-      store.serviceCheckedAt = Date.now();
-    }
-  }
 }
 
 async function refreshProfilesForStatus(
@@ -108,10 +78,7 @@ async function refreshRuntime(
     return "unauthorized";
   }
 
-  const profiles = Promise.all([
-    refreshProfilesForStatus(status, runtimeRequest),
-    refreshServiceForStatus(status, isCurrent),
-  ]);
+  const profiles = refreshProfilesForStatus(status, runtimeRequest);
   if (!isCoreHealthy(status)) {
     await profiles;
     return !isCurrent() ? "superseded" : status.core.running ? "degraded" : "stopped";
@@ -274,38 +241,19 @@ export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {
   }
 }
 
-export async function patchBooleanSetting(
-  key: "allow-lan" | "tun",
-  next: boolean,
-): Promise<boolean> {
+export async function setAllowLan(next: boolean): Promise<boolean> {
   if (store.operations.networkSetting) return false;
-  if (key === "tun") {
-    store.tunError = null;
-    runtimeOwnership.tunErrorDaemonStartedAt = null;
-  }
-  const adoptedBoot = runtimeOwnership.lastDaemonStartedAt;
-  const daemonBoot = api.getSessionDaemonStartedAt() ?? adoptedBoot;
   store.operations = { ...store.operations, networkSetting: true };
   requests.invalidate("runtime");
   try {
     let result: SettingsWriteResult;
     try {
-      result = await api.patchSettings(key === "tun" ? { tun: next } : { allowLan: next });
+      result = await api.patchSettings({ allowLan: next });
     } catch (error) {
-      const sessionBoot = api.getSessionDaemonStartedAt();
-      if (
-        key === "tun" &&
-        (sessionBoot === null || sessionBoot === daemonBoot) &&
-        (runtimeOwnership.lastDaemonStartedAt === adoptedBoot ||
-          runtimeOwnership.lastDaemonStartedAt === daemonBoot)
-      ) {
-        store.tunError = errorText(error);
-        runtimeOwnership.tunErrorDaemonStartedAt = daemonBoot;
-      }
       await refreshRuntimeState().catch(() => undefined);
       throw error;
     }
-    store.status = syncCommittedBooleanSetting(store.status, key, next, result.settings);
+    store.status = syncCommittedAllowLan(store.status, next, result.settings);
     return await refreshRuntime(true).then(
       (result) => result !== "superseded" && result !== "degraded" && result !== "unauthorized",
       () => false,

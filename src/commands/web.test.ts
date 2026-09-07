@@ -42,7 +42,7 @@ function fixture(running: boolean | null | Error) {
   const deps: WebCommandDeps = {
     runtimeContext: () => ({
       layout: sashLayout(path.join(os.tmpdir(), "sash-web-injected-no-io")),
-      settings: { ...DEFAULT_SETTINGS, daemonPort: 29193, tun: true },
+      settings: { ...DEFAULT_SETTINGS, daemonPort: 29193 },
     }),
     resolveRuntimeOwner: async () => {
       events.push("resolve");
@@ -78,12 +78,12 @@ function assertTokenOnlyInBootstrap(events: string[], logged: string[]): void {
   }
 }
 
-test("known stopped Core attempts start and opens healthy recovery UI on service-required failure", async () => {
+test("known stopped Core attempts start and opens healthy recovery UI on invalid profile", async () => {
   for (const noOpen of [false, true]) {
     const f = fixture(false);
     f.deps.runStart = async () => {
       f.events.push("start");
-      throw new Error("Windows TUN requires the service");
+      throw new Error("Active profile is invalid");
     };
     await runWeb({ noOpen }, f.deps);
     assert.deepEqual(f.events, [
@@ -94,10 +94,7 @@ test("known stopped Core attempts start and opens healthy recovery UI on service
         ? [`bootstrap http://127.0.0.1:29193/ui/ ${BOOTSTRAP_TOKEN}`, `open ${BOOTSTRAP_FILE_URL}`]
         : []),
     ]);
-    assert.match(
-      f.warnings.join("\n"),
-      /Core startup failed.*recovery.*Windows TUN requires the service/,
-    );
+    assert.match(f.warnings.join("\n"), /Core startup failed.*recovery.*Active profile is invalid/);
     assert.deepEqual(f.successes, ["dashboard: http://127.0.0.1:29193/ui/"]);
     assertTokenOnlyInBootstrap(f.events, [...f.successes, ...f.warnings, ...f.infos]);
   }

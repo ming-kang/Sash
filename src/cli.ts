@@ -7,7 +7,6 @@ import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
-import { runServiceInstall, runServiceStatus, runServiceUninstall } from "./commands/service.js";
 import { runStatus } from "./commands/status.js";
 import { runUpdate } from "./commands/update.js";
 import { runUpgrade } from "./commands/upgrade.js";
@@ -70,27 +69,6 @@ program
   .description("show runtime state, versions, endpoints, and system proxy status")
   .option("--json", "output machine-readable JSON")
   .action(withCliErrors((opts: { json?: boolean }) => runStatus(opts)));
-
-const service = program
-  .command("service")
-  .description("manage the Windows Core service (installation requires Administrator)");
-service
-  .command("install")
-  .description("install or repair the Core service from an Administrator PowerShell")
-  .option("--core-version <tag>", "install a specific Core version")
-  .option("--helper <path>", "use a locally built service helper")
-  .action(
-    withCliErrors((opts: { coreVersion?: string; helper?: string }) => runServiceInstall(opts)),
-  );
-service
-  .command("status")
-  .description("show service availability without starting Core")
-  .option("--json", "output machine-readable JSON")
-  .action(withCliErrors((opts: { json?: boolean }) => runServiceStatus(opts)));
-service
-  .command("uninstall")
-  .description("uninstall the Core service from an Administrator PowerShell")
-  .action(withCliErrors(() => runServiceUninstall()));
 
 program
   .command("logs")

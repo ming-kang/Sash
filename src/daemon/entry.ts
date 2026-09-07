@@ -56,21 +56,7 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
       return loaded;
     });
 
-    let runtimeSettings = () => settings;
-    const { createServiceRuntime } = await import("../service-runtime.js");
-    const service = await createServiceRuntime(layout, () => runtimeSettings());
-    const instance = createDaemonServer({
-      layout,
-      settings,
-      ...(service
-        ? {
-            runtimeFactory: (getSettings) => {
-              runtimeSettings = getSettings;
-              return service;
-            },
-          }
-        : {}),
-    });
+    const instance = createDaemonServer({ layout, settings });
     const serverClosed = new Promise<void>((resolve) => instance.server.once("close", resolve));
 
     const port = settings.daemonPort;

@@ -11,11 +11,6 @@ import type { SashLayout } from "./paths.js";
 import { isProcessAlive, readPidRecord } from "./process.js";
 import { migrateProfileState } from "./profile-migration.js";
 import { type RuntimeRecoveryDeps, reconcileOrphanedRuntime } from "./runtime-recovery.js";
-import {
-  inspectService,
-  requireActiveService,
-  type ServiceDiscoveryDeps,
-} from "./service-client.js";
 import { loadSettings, type SashSettings } from "./settings.js";
 import { withStateLock } from "./state-lock.js";
 
@@ -33,7 +28,6 @@ export interface OfflineRuntimeReconciliation {
 
 export interface OfflineMutationOptions {
   reconcileRuntime?: OfflineRuntimeReconciliation;
-  serviceDiscovery?: ServiceDiscoveryDeps;
   /** Only the explicit forced Core update may preserve an inconsistent pair for journaled repair. */
   allowInconsistentCore?: "force-update";
   migrateProfiles?: boolean;
@@ -63,18 +57,6 @@ export async function runOfflineMutation<T>(
 
     const reconciliation = options.reconcileRuntime;
     if (!reconciliation) {
-      const service = await inspectService(ctx.layout, options.serviceDiscovery);
-      if (service.installed) requireActiveService(service, ctx.layout);
-      if (service.installed && service.core?.running !== false) {
-        throw new Error(
-          "Service Core is active or ownership is uncertain without sashd; run `sash stop` before modifying state",
-        );
-      }
-      if (service.installed && options.allowInconsistentCore === "force-update") {
-        throw new Error(
-          "Service-backed Core updates require an explicit elevated administrative refresh",
-        );
-      }
       const core = readPidRecord(ctx.layout.pidFile);
       if (!core && fs.existsSync(ctx.layout.pidFile)) {
         throw new Error(

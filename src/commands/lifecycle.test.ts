@@ -65,7 +65,7 @@ describe("lifecycle commands", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
       daemonPort: configuredPort,
-      tun: true,
+      tun: false,
       secret: "test-core-secret",
       daemonSecret: "test-daemon-secret",
     };
@@ -110,15 +110,7 @@ describe("lifecycle commands", () => {
       ),
       false,
     );
-    assert.match(warnings.join("\n"), /TUN was requested but is inactive/);
-    if (process.platform === "win32") {
-      assert.match(
-        warnings.join("\n"),
-        /PowerShell as Administrator and run "sash service install"/,
-      );
-    } else {
-      assert.match(warnings.join("\n"), /Restart Sash with root privileges.*command -v sash/s);
-    }
+    assert.deepEqual(warnings, []);
   });
 
   it("restarts through the daemon maintenance boundary and resumes the Core", async () => {

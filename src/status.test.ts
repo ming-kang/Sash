@@ -9,13 +9,11 @@ import { sashLayout } from "./paths.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import {
   collectRuntimeStatus,
-  formatTunObservation,
   markIncompleteObservation,
   resolveObservedSystemProxy,
   runtimeStatusHeadline,
   type StatusObservationContext,
   type StatusObservationDependencies,
-  shouldShowTunGuidance,
 } from "./status.js";
 
 const context: StatusObservationContext = {
@@ -25,7 +23,7 @@ const context: StatusObservationContext = {
     secret: "core-secret",
     daemonSecret: "daemon-secret",
     systemProxy: true,
-    tun: true,
+    tun: false,
   },
 };
 
@@ -55,7 +53,7 @@ function statusResponse(
     settings: {
       mixedPort: 17890,
       controller: "127.0.0.1:9090",
-      tun: true,
+      tun: false,
       allowLan: false,
       daemonPort: 19090,
       systemProxy: true,
@@ -90,7 +88,6 @@ function dependencies(
       appliedKnown: true,
       stateKnown: true,
     }),
-    nativeServiceStatus: async () => ({ supported: false }),
     installedCoreVersion: () => "v1.2.3",
     activeProfile: () => null,
     hasUi: () => true,
@@ -221,9 +218,7 @@ describe("CLI runtime status observations", () => {
       version: "v1.2.3",
       installedVersion: "v1.2.3",
     });
-    assert.deepEqual(status.tun, { desired: true, active: false });
-    assert.equal(formatTunObservation(status), "on (inactive)");
-    assert.equal(shouldShowTunGuidance(status), true);
+    assert.deepEqual(status.tun, { desired: false, active: false });
     assert.equal(runtimeStatusHeadline(status).level, "ok");
 
     await captureConsole(() => runStatus({ json: true }, async () => status));
@@ -281,8 +276,6 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.core.running, false);
     assert.equal(status.core.healthy, false);
     assert.equal(status.tun.active, false);
-    assert.equal(formatTunObservation(status), "on (core stopped)");
-    assert.equal(shouldShowTunGuidance(status), false);
     assert.equal(runtimeStatusHeadline(status).level, "info");
   });
 
@@ -306,12 +299,6 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.core.running, null);
     assert.equal(status.core.healthy, null);
     assert.equal(status.systemProxy.daemonApplied, null);
-    assert.equal(formatTunObservation(status), "on (runtime unknown)");
-    assert.equal(
-      formatTunObservation({ ...status, tun: { desired: false, active: null } }),
-      "off (runtime unknown)",
-    );
-    assert.equal(shouldShowTunGuidance(status), false);
     assert.equal(runtimeStatusHeadline(status).level, "warn");
   });
 
@@ -368,7 +355,6 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.core.running, true);
     assert.equal(status.core.healthy, false);
     assert.match(status.queryError ?? "", /health probe failed/);
-    assert.equal(shouldShowTunGuidance(status), false);
     assert.equal(runtimeStatusHeadline(status).level, "warn");
   });
 
@@ -425,82 +411,4 @@ describe("CLI runtime status observations", () => {
       true,
     );
   });
-});
-
-it("prefers protected service version over the user installation", async () => {
-  const status = await collectRuntimeStatus(
-    context,
-    dependencies({
-      nativeServiceStatus: async () => ({
-        supported: true,
-        installed: true,
-        coreVersion: "protected-v2",
-      }),
-    }),
-  );
-  assert.equal(status.core.installedVersion, "protected-v2");
-});
-
-it("does not substitute a stale local version when the service probe fails", async () => {
-  const status = await collectRuntimeStatus(
-    context,
-    dependencies({
-      nativeServiceStatus: async () => {
-        throw new Error("service unavailable");
-      },
-    }),
-  );
-  assert.equal(status.core.installedVersion, null);
-  assert.equal(status.daemon.running, true);
-  assert.equal(status.complete, false);
-  assert.match(status.queryError ?? "", /Service status query failed/);
-});
-
-it("a stopped daemon never implies an unqueryable service Core stopped", async () => {
-  const status = await collectRuntimeStatus(
-    context,
-    dependencies({
-      evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
-      nativeServiceStatus: async () => {
-        throw new Error("service unavailable");
-      },
-    }),
-  );
-  assert.equal(status.core.running, null);
-  assert.equal(status.tun.active, null);
-  assert.match(runtimeStatusHeadline(status).text, /Core status is unavailable/);
-});
-
-it("reports independently observed service Core after daemon exit", async () => {
-  const status = await collectRuntimeStatus(
-    context,
-    dependencies({
-      evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
-      nativeServiceStatus: async () => ({
-        supported: true,
-        installed: true,
-        coreVersion: "protected-v2",
-        core: { running: true, healthy: true, pid: 202, version: "protected-v2", tunActive: false },
-      }),
-    }),
-  );
-  assert.equal(status.core.running, true);
-  assert.equal(status.core.pid, 202);
-  assert.match(runtimeStatusHeadline(status).text, /service Core is running/);
-});
-
-it("service backend status failure does not invalidate the observed daemon health", async () => {
-  const status = await collectRuntimeStatus(
-    context,
-    dependencies({
-      nativeServiceStatus: async () => ({ supported: true, installed: true, running: false }),
-      queryDaemonStatus: async () => {
-        throw new Error("Service boot identity changed");
-      },
-    }),
-  );
-  assert.equal(status.daemon.state, "healthy");
-  assert.equal(status.core.running, null);
-  assert.equal(status.healthy, null);
-  assert.equal(status.complete, false);
 });

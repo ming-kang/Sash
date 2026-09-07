@@ -104,48 +104,6 @@ describe("profile migrations", () => {
     assert.equal(fs.readFileSync(layout.configFile, "utf8"), generated);
   });
 
-  it("does not import the historical DNS-less DIRECT-only default", async () => {
-    const historical = `mode: rule
-log-level: info
-ipv6: true
-proxies: []
-proxy-groups:
-  - name: PROXY
-    type: select
-    proxies:
-      - DIRECT
-rules:
-  - MATCH,PROXY
-mixed-port: 7890
-allow-lan: false
-external-controller: 127.0.0.1:9090
-secret: historical-secret
-tun:
-  enable: true
-  stack: mixed
-  auto-route: true
-  auto-detect-interface: true
-  dns-hijack:
-    - any:53
-`;
-    fs.writeFileSync(layout.configFile, historical);
-
-    assert.equal(await migrateUnmanagedConfig(layout), false);
-    assert.equal(fs.existsSync(layout.profilesIndexFile), false);
-    assert.equal(fs.readFileSync(layout.configFile, "utf8"), historical);
-  });
-
-  it("does not import the generated TUN default with DNS but no meaningful routing content", async () => {
-    const generated = renderConfig(buildDefaultConfig(), settings({ tun: true }), "default").yaml;
-    assert.match(generated, /dns:\n/);
-    assert.match(generated, /tun:\n/);
-    fs.writeFileSync(layout.configFile, generated);
-
-    assert.equal(await migrateUnmanagedConfig(layout), false);
-    assert.equal(fs.existsSync(layout.profilesIndexFile), false);
-    assert.equal(fs.readFileSync(layout.configFile, "utf8"), generated);
-  });
-
   it("is idempotent after a successful import", async () => {
     fs.writeFileSync(layout.configFile, USER_CONFIG);
     assert.equal(await migrateUnmanagedConfig(layout), true);

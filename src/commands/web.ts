@@ -51,7 +51,7 @@ export async function runWeb(
       started = true;
     } catch (error) {
       // Startup can leave a healthy daemon serving recovery settings even when
-      // Core cannot start (for example, desired TUN after service removal).
+      // Core cannot start (for example, an invalid active profile).
       try {
         owner = await resolve(ctx);
       } catch {

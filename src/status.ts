@@ -8,7 +8,6 @@ import {
 } from "./daemon-lifecycle.js";
 import type { SashLayout } from "./paths.js";
 import { ProfileService } from "./profile-service.js";
-import { inspectService, type ServiceStatus } from "./service-client.js";
 import type { SashSettings } from "./settings.js";
 import type { SystemProxyState } from "./sysproxy.js";
 import { type SystemProxyInspection, SystemProxyManager } from "./system-proxy-manager.js";
@@ -83,7 +82,6 @@ export interface StatusObservationDependencies {
     daemon: DaemonHealthyInfo,
   ) => Promise<DaemonStatus>;
   inspectSystemProxy?: (context: StatusObservationContext) => Promise<SystemProxyInspection>;
-  nativeServiceStatus?: (context: StatusObservationContext) => Promise<ServiceStatus>;
   installedCoreVersion?: (context: StatusObservationContext) => string;
   activeProfile?: (
     context: StatusObservationContext,
@@ -232,21 +230,9 @@ export async function collectRuntimeStatus(
   const errors: string[] = [];
   const daemonState = await evaluate(context, dependencies);
   let daemon = daemonObservation(daemonState);
-  let installedVersion = dependencies.installedCoreVersion
+  const installedVersion = dependencies.installedCoreVersion
     ? dependencies.installedCoreVersion(context)
     : currentCoreVersion(context.layout);
-  let service: ServiceStatus | undefined;
-  let serviceQueryFailed = false;
-  try {
-    service = await (dependencies.nativeServiceStatus
-      ? dependencies.nativeServiceStatus(context)
-      : inspectService(context.layout));
-    if (service.supported && service.installed) installedVersion = service.coreVersion ?? "";
-  } catch (err) {
-    installedVersion = "";
-    serviceQueryFailed = true;
-    addError(errors, `Service status query failed: ${errorText(err)}`);
-  }
   const profile = dependencies.activeProfile
     ? dependencies.activeProfile(context)
     : new ProfileService({
@@ -254,24 +240,11 @@ export async function collectRuntimeStatus(
         settings: () => context.settings,
       }).active();
 
-  // A stopped daemon does not prove the independent service Core is stopped.
-  const unknownCore = daemonState.running || serviceQueryFailed || service?.installed === true;
-  let coreRunning: boolean | null = unknownCore ? null : false;
-  let coreHealthy: boolean | null = unknownCore ? null : false;
+  let coreRunning: boolean | null = daemonState.running ? null : false;
+  let coreHealthy: boolean | null = daemonState.running ? null : false;
   let corePid: number | null = null;
   let coreVersion: string | null = null;
-  let tunActive: boolean | null = unknownCore ? null : false;
-  if (!daemonState.running && service?.installed) {
-    if (service.core) {
-      coreRunning = service.core.running;
-      coreHealthy = service.core.running ? (service.core.healthy ?? null) : false;
-      corePid = service.core.pid ?? null;
-      coreVersion = service.core.version ?? null;
-      tunActive = service.core.running ? (service.core.tunActive ?? null) : false;
-    } else {
-      addError(errors, "Service Core state is unavailable");
-    }
-  }
+  let tunActive: boolean | null = daemonState.running ? null : false;
   let desiredProxy = context.settings.systemProxy;
   let proxySource: SystemProxyObservationSource | undefined;
   let queriedDaemon = false;
@@ -291,7 +264,7 @@ export async function collectRuntimeStatus(
       };
 
       if (typeof status.core.running !== "boolean") {
-        addError(errors, status.core.queryError ?? "Core running state is unavailable");
+        addError(errors, "Core running state is unavailable");
       } else if (!status.core.running) {
         coreRunning = false;
         coreHealthy = false;
@@ -312,9 +285,7 @@ export async function collectRuntimeStatus(
         if (tunActive === null) addError(errors, "Core TUN state is unavailable");
       }
     } catch (err) {
-      // The daemon health endpoint was independently verified. A failed service
-      // backend observation is not evidence that sashd died or may be killed.
-      if (!service?.installed) daemon = daemonObservation(daemonState, "unhealthy");
+      daemon = daemonObservation(daemonState, "unhealthy");
       addError(errors, `Daemon status query failed: ${errorText(err)}`);
     }
   } else if (daemonState.running) {
@@ -379,16 +350,7 @@ export async function collectRuntimeStatus(
 export type StatusHeadline = { level: "info" | "ok" | "warn"; text: string };
 
 export function runtimeStatusHeadline(status: CliRuntimeStatus): StatusHeadline {
-  if (status.daemon.state === "stopped") {
-    if (status.core.running !== false)
-      return {
-        level: "warn",
-        text: status.core.running
-          ? "sashd is not running; service Core is running"
-          : "sashd is not running; service Core status is unavailable",
-      };
-    return { level: "info", text: "sash is not running" };
-  }
+  if (status.daemon.state === "stopped") return { level: "info", text: "sash is not running" };
   if (status.daemon.state === "unhealthy" || status.core.running === null) {
     const owner = status.daemon.pid === null ? "" : ` (PID=${status.daemon.pid})`;
     return {
@@ -413,29 +375,6 @@ export function runtimeStatusHeadline(status: CliRuntimeStatus): StatusHeadline 
     level: "ok",
     text: `sashd running (PID=${status.daemon.pid}), core stopped`,
   };
-}
-
-export function formatTunObservation(status: CliRuntimeStatus): string {
-  if (!status.tun.desired) {
-    if (status.tun.active === true) return "off (runtime active)";
-    return status.tun.active === null && status.core.running !== false
-      ? "off (runtime unknown)"
-      : "off";
-  }
-  if (status.core.running === false) return "on (core stopped)";
-  if (status.core.running === null) return "on (runtime unknown)";
-  if (status.tun.active === true) return "on (active)";
-  if (status.tun.active === false) return "on (inactive)";
-  return "on (unverified)";
-}
-
-export function shouldShowTunGuidance(status: CliRuntimeStatus): boolean {
-  return (
-    status.tun.desired &&
-    status.core.running === true &&
-    status.core.healthy === true &&
-    status.tun.active !== true
-  );
 }
 
 export function formatObservedProxy(state: CliObservedSystemProxy): string {

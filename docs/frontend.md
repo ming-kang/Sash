@@ -13,13 +13,11 @@ The WebUI is a Vue 3 application built with Vite and bundled into `dist/ui/`. sa
 - Vite 6 builds the bundled dashboard on the declared Node.js 24 baseline.
 - CI runs lint, server/WebUI type checks, all tests, production builds and actual tarball pack/install/CLI/UI smoke on Windows, macOS and Linux with Node.js 24.
 
-The `cn-font-split` dependency has a scoped `koffi: 2.16.3` override, not a global override or Sash release-version bump. The [Koffi changelog](https://koffi.dev/changelog) documents Node.js 24.14+ teardown fixes relevant to the native font splitter. A local uncached build was validated; remote macOS CI is not yet confirmed. The temporary debug workflow/remote branch remains pending maintainer approval and remote confirmation; this is not a claim that all CI now passes.
+The `cn-font-split` dependency has a scoped `koffi: 2.16.3` override. The [Koffi changelog](https://koffi.dev/changelog) documents Node.js 24.14+ teardown fixes relevant to the native font splitter.
 
 Workflows using `npm ci --ignore-scripts` explicitly initialize the tested native font subsetter with `node node_modules/cn-font-split/dist/cli.js i default@7.6.8` before building. The npm wrapper and native subsetter have separate versions; 7.6.8 is the native release used by the validated builds. This runs the selected build tool directly while keeping automatic dependency lifecycle hooks disabled.
 
-For deterministic TUN visual checks, build current UI assets, install Playwright Chromium and Firefox, then run `npx tsx scripts/tun-ui-verify.mts`. It serves static assets on an ephemeral loopback port and mocks all APIs/WebSockets: no real daemon or Core, TUN device, OS proxy or DNS changes. It checks both engines, desktop/mobile and light/dark states, committed toggles and failed/saved-but-unverified mutations, producing screenshots and a report in a temporary directory. This verifies presentation, not real TUN connectivity.
-
-`npx tsx scripts/web-auth-ui-verify.mts` checks the real private-file/browser/daemon authorization exchange in both engines, including bare URLs, refresh, replay, daemon restart and reauthorization. It uses isolated temporary roots and ports, a fake Core and system proxy, and intercepts service discovery before any host SCM probe. Screenshots and a report remain in the OS temporary directory.
+`npx tsx scripts/web-auth-ui-verify.mts` checks the real private-file/browser/daemon authorization exchange in both engines, including bare URLs, refresh, replay, daemon restart, reauthorization and the Settings/Overview layouts without TUN controls. It uses isolated temporary roots and ports, a fake Core and system proxy. Screenshots and a report remain in the OS temporary directory.
 
 ---
 
@@ -131,15 +129,7 @@ The controller secret is never available to browser code; sashd injects it serve
 
 ## 6. Interaction State
 
-- Settings derive mixed-port dirty state by comparing the draft with the last committed value, preserve a genuinely edited draft across polling, and expose an explicit reset action. Successful `allow-lan` and TUN responses commit the returned settings snapshot directly before any follow-up refresh. TUN controls separately derive active, inactive, unverified, pending-start and desired/runtime-mismatch presentation from committed `settings.tun` plus Core health and `core.tunActive`. A running unhealthy Core is unverified, not pending start; an active listener with desired off is an unexpected-active mismatch. Active is a listener report, not connectivity/DNS or all-traffic proof. Failed online activation never advances the committed switch; failure details persist inline rather than depending only on a transient toast. Windows guidance requires explicit same-user service installation, then ordinary-user start and dashboard enable; it never suggests an elevated daemon or removed CLI TUN command. Non-Windows guidance retains manual elevated full restart with the same data root before dashboard retry. A successful mutation followed by unavailable refresh retains the committed switch and reports "saved; runtime verification unavailable" rather than pretending the save failed.
+- Settings derive mixed-port dirty state from the committed value, preserve edited drafts across polling and offer reset. LAN and system-proxy mutations immediately adopt the committed response. If the subsequent runtime refresh fails, the UI reports that settings were saved and verification is temporarily unavailable. TUN controls and service administration are outside the 0.1.1 dashboard.
 - Logs receive monotonic IDs before entering the capped 600-row buffer, providing stable Vue keys and an update sequence even when length remains constant.
 - The global confirm service settles a previous pending Promise before opening another dialog; Escape, route changes and component unmount cancel the active confirmation.
 - The global banner distinguishes an unreachable daemon from a degraded same-owner Core snapshot and an unavailable new-owner snapshot.
-
-## 7. Service Mode Presentation
-
-Settings includes a service card backed by `GET /sash/service`, showing support, `not-installed`, `ready`, `unavailable`, `incompatible` or `root-mismatch`, optional helper/Core versions and diagnostic guidance. Installation/removal are explicit administrative CLI operations, not browser elevation. Windows TUN enable is available only for a ready service and healthy Core; ready alone does not prove Core/TUN is running. Other platforms retain manual elevation guidance.
-
-A successful daemon status with `core.running: null` and `core.queryError` keeps daemon reachability separate from unavailable service Core observation. Present this as unobserved/unverified, not daemon offline or confirmed stopped; do not stream or mutate against an unverified Core snapshot. Desired TUN remains committed intent, including after administrative uninstall. Turning it off before uninstall avoids the next direct start failing service-required; an offline daemon cannot accept the dashboard setting change (see the [operations flow](./usage.md#service-status-updates-and-removal)).
-
-The service's private controller is never exposed to the WebUI. Sash's native bridge forwards allowed telemetry and deliberate mutations only; raw Core config/file-provider reload and upgrade routes are disabled. Profile/settings operations use the safe protected bundle publisher instead. Service Core file diagnostics are private; the healthy-Core WebSocket log stream is distinct from `sash logs` file selection.

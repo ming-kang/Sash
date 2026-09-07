@@ -1,7 +1,6 @@
 import type { CoreStartResult } from "./contracts.js";
-import type { CoreRuntime } from "./core-runtime.js";
 import type { SashSettings } from "./settings.js";
-import type { CoreOwnershipSnapshot } from "./supervisor.js";
+import type { CoreOwnershipSnapshot, CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
 
 export type RuntimePhase =
@@ -19,7 +18,7 @@ export interface CoreUpdateStartupController {
 }
 
 export interface RuntimeLifecycleOptions {
-  supervisor: CoreRuntime;
+  supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
   settings: () => SashSettings;
   coreUpdate?: CoreUpdateStartupController;
@@ -42,7 +41,7 @@ function sleep(ms: number): Promise<void> {
  * applied after the Core has passed its readiness probe.
  */
 export class RuntimeLifecycle {
-  private readonly supervisor: CoreRuntime;
+  private readonly supervisor: CoreSupervisor;
   private readonly systemProxy: SystemProxyController;
   private readonly getSettings: () => SashSettings;
   private readonly coreUpdate?: CoreUpdateStartupController;
@@ -107,37 +106,8 @@ export class RuntimeLifecycle {
     });
   }
 
-  handleAvailabilityLoss(snapshot?: CoreOwnershipSnapshot): Promise<void> {
-    const generation = this.generation;
-    return this.enqueue(async () => {
-      if (generation !== this.generation) return;
-      const current = this.supervisor.ownedCoreSnapshot();
-      if (
-        snapshot &&
-        current &&
-        (snapshot.pid !== current.pid || snapshot.generation !== current.generation)
-      )
-        return;
-      this.phase = "failed";
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await this.systemProxy.release();
-          return;
-        } catch (err) {
-          lastError = err;
-          if (attempt < 2) await sleep(250 * (attempt + 1));
-        }
-      }
-      throw lastError;
-    });
-  }
-
   close(): Promise<void> {
-    return this.enqueue(async () => {
-      await this.stopUnlocked();
-      await this.supervisor.close?.();
-    });
+    return this.enqueue(() => this.stopUnlocked());
   }
 
   private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -266,8 +236,8 @@ export class RuntimeLifecycle {
   private async applyProxyToHealthyOwnedCoreUnlocked(port: number): Promise<void> {
     const ownership = await this.requireHealthyOwnedCoreUnlocked();
     await this.systemProxy.apply({ port });
-    const coreAfterApply = await this.supervisor.status().catch(() => undefined);
-    if (coreAfterApply?.running && coreAfterApply.healthy && this.supervisor.ownsCore(ownership)) {
+    const coreAfterApply = await this.supervisor.status();
+    if (coreAfterApply.running && coreAfterApply.healthy && this.supervisor.ownsCore(ownership)) {
       return;
     }
 

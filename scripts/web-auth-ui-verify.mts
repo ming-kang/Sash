@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { chromium, firefox, type Page } from "playwright";
 import { runWeb } from "../src/commands/web.js";
-import type { CoreRuntime } from "../src/core-runtime.js";
+import type { CoreSupervisor } from "../src/supervisor.js";
 import { SashDaemonClient } from "../src/daemon-client.js";
 import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
 import { writeBootstrapFile } from "../src/web-bootstrap.js";
@@ -24,8 +24,7 @@ const results: string[] = [];
 const versions: Record<string, string> = {};
 const credentials = new Set([h.settings.daemonSecret, h.settings.secret]);
 const coreSockets = new Set<Duplex>();
-const supervisor: CoreRuntime = {
-  backend: "direct",
+const supervisor = {
   isRunning: () => true,
   ownedCoreSnapshot: () => undefined,
   ownsCore: () => false,
@@ -39,7 +38,8 @@ const supervisor: CoreRuntime = {
   start: async () => ({ pid: 12346 }),
   restart: async () => ({ pid: 12346 }),
   stop: async () => {},
-};
+  cleanStaleCore: async () => {},
+} as unknown as CoreSupervisor;
 
 h.mockCoreServer = http.createServer((req, res) => {
   if (req.headers.authorization !== `Bearer ${h.settings.secret}` || req.headers["x-sash-token"]) {
@@ -194,12 +194,6 @@ try {
               if (url.origin !== origin) {
                 violations.push("Unexpected external browser request");
                 await route.abort();
-              } else if (url.pathname === "/sash/service") {
-                // Avoid probing the host's actual SCM registration.
-                await route.fulfill({
-                  contentType: "application/json",
-                  body: JSON.stringify({ supported: false, state: "not-installed" }),
-                });
               } else if (url.pathname === "/sash/daemon/status" && failNextStatus) {
                 failNextStatus = false;
                 await route.fulfill({
@@ -264,7 +258,17 @@ try {
               ).status;
             });
             assert.equal(allowed, 200);
+            assert.equal(await page.getByRole("button", { name: /TUN/ }).count(), 0);
+            assert.equal(await page.locator(".toggle-switcher button").count(), 2);
             await capture(page, `${name}-authorized`);
+
+            await page.goto(`${origin}/ui/#/settings`);
+            await page.locator(".settings-grid").waitFor();
+            assert.equal(await page.getByRole("switch").count(), 1);
+            assert.equal(await page.getByRole("switch", { name: /TUN/ }).count(), 0);
+            await capture(page, `${name}-settings`);
+            await page.goto(`${origin}/ui/#/`);
+            await page.locator(".page-overview").waitFor();
 
             await page.reload();
             await page.locator(".page-overview").waitFor();

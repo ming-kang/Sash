@@ -47,19 +47,6 @@ Sash embeds selected Remix Icon components as functional interface symbols. They
 
 The dashboard embeds this font for its UI typography. Redistribution and subsetting are permitted under the OFL 1.1; the font software remains the work of its authors and is not sold on its own.
 
-## Separately distributed Windows helper
-
-The optional `sash-service.exe` is independently implemented in `service/` under MIT (`service/LICENSE`). It is built separately and distributed as official Sash release assets, not embedded in the npm tarball. No GPL-licensed reference-project code is copied into this helper.
-
-| Component | Version | License / source notice |
-| :--- | :--- | :--- |
-| Sash Service | Matches the Sash package | MIT, `service/LICENSE`, Copyright (c) 2026 ming-kang |
-| `github.com/Microsoft/go-winio` | 0.6.2 | MIT, `service/LICENSE.go-winio`, Copyright (c) 2015 Microsoft |
-| `golang.org/x/sys` | 0.47.0 | BSD-3-Clause, `service/LICENSE.x-sys`, Copyright 2009 The Go Authors |
-| Go runtime / standard library | Release build toolchain 1.26.7 | BSD-3-Clause, Copyright 2009 The Go Authors; identical terms and attribution to the included `service/LICENSE.x-sys` |
-
-`npm run build:service` copies these license files beside each executable and combines their complete texts in `sash-service-LICENSE.txt`. Distribution must include that file and `sash-service-NOTICE.txt`; the artifact workflow attaches both alongside the two architecture-specific executables and `sash-service-SHA256SUMS.txt`. The source license files can be found in the [native source directory](https://github.com/ming-kang/Sash/tree/main/service). These helpers are not claimed to be Authenticode-signed. Release asset SHA-256 verification is a separate download-integrity check, not a code-signing claim.
-
 ## Runtime-downloaded Core
 
 The upstream Core is not embedded in the Sash source tree or npm tarball. Sash downloads an unmodified release artifact at runtime from the upstream release project identified in the README attribution section.

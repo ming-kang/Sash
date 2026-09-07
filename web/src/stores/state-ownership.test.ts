@@ -5,7 +5,6 @@ import {
   canSetSystemProxyTarget,
   clearCoreOwnedState,
   isCommittedDraftDirty,
-  isCoreHealthy,
   needsRecoveryRefresh,
   parseLogFrame,
   parseTrafficFrame,
@@ -15,22 +14,19 @@ import {
   runProfileMutationSequence,
   runtimeNoticeKind,
   runtimeOwnerKey,
-  syncCommittedBooleanSetting,
-  tunRuntimeState,
+  syncCommittedAllowLan,
 } from "./state-ownership.js";
 
 function status(
   overrides: {
     daemonStartedAt?: string;
-    running?: boolean | null;
+    running?: boolean;
     healthy?: boolean;
     pid?: number;
     profileRevision?: number;
     desiredProxy?: boolean;
     appliedProxy?: boolean;
     actualProxy?: boolean;
-    desiredTun?: boolean;
-    tunActive?: boolean;
   } = {},
 ): SashStatus {
   return {
@@ -41,11 +37,10 @@ function status(
     },
     revisions: { profiles: overrides.profileRevision ?? 0 },
     core: {
-      running: overrides.running === undefined ? true : overrides.running,
+      running: overrides.running ?? true,
       healthy: overrides.healthy ?? true,
       pid: overrides.pid ?? 200,
       startedAt: "2026-01-01T00:00:01.000Z",
-      ...(overrides.tunActive !== undefined ? { tunActive: overrides.tunActive } : {}),
     },
     systemProxy: {
       desired: overrides.desiredProxy ?? false,
@@ -57,7 +52,7 @@ function status(
     settings: {
       mixedPort: 17890,
       controller: "127.0.0.1:9090",
-      tun: overrides.desiredTun ?? false,
+      tun: false,
       allowLan: false,
       daemonPort: 19090,
       systemProxy: false,
@@ -134,28 +129,6 @@ describe("frontend state ownership helpers", () => {
     assert.equal(runtimeOwnerKey(current), runtimeOwnerKey(revised));
   });
 
-  it("distinguishes desired TUN state from the actual Core runtime", () => {
-    assert.equal(tunRuntimeState(status()), "off");
-    assert.equal(tunRuntimeState(status({ desiredTun: true, tunActive: true })), "active");
-    assert.equal(tunRuntimeState(status({ desiredTun: true, tunActive: false })), "inactive");
-    assert.equal(tunRuntimeState(status({ desiredTun: true })), "unverified");
-    assert.equal(
-      tunRuntimeState(status({ desiredTun: true, running: false, healthy: false })),
-      "stopped",
-    );
-    assert.equal(tunRuntimeState(status({ tunActive: true })), "unexpected-active");
-    for (const tunActive of [true, false, undefined]) {
-      assert.equal(
-        tunRuntimeState(status({ desiredTun: true, healthy: false, tunActive })),
-        "unverified",
-      );
-      assert.equal(
-        tunRuntimeState(status({ desiredTun: false, tunActive })),
-        tunActive === true ? "unexpected-active" : "off",
-      );
-    }
-  });
-
   it("keeps a manual delay across normal proxy snapshot replacement", () => {
     const manual = { node: 42 };
     const initial = {
@@ -182,7 +155,7 @@ describe("frontend state ownership helpers", () => {
 
   it("synchronizes a successfully committed settings toggle immediately", () => {
     const previous = status();
-    const next = syncCommittedBooleanSetting(previous, "allow-lan", true);
+    const next = syncCommittedAllowLan(previous, true);
 
     assert.equal(previous.settings.allowLan, false);
     assert.equal(next?.settings.allowLan, true);
@@ -252,26 +225,4 @@ describe("frontend state ownership helpers", () => {
     assert.equal(canSetSystemProxyTarget(stopped, true), false);
     assert.equal(canSetSystemProxyTarget(status(), true), true);
   });
-});
-
-it("invalidates old TUN observations only when committed network settings change", () => {
-  for (const active of [false, true]) {
-    for (const key of ["tun", "allow-lan"] as const) {
-      const previous = status({ tunActive: active });
-      const changed = syncCommittedBooleanSetting(previous, key, true);
-      assert.equal(changed?.core.tunActive, undefined);
-      assert.equal(previous.core.tunActive, active);
-      assert.equal(syncCommittedBooleanSetting(previous, key, false)?.core.tunActive, active);
-    }
-  }
-});
-
-it("keeps an online daemon's unobserved Core unverified, never pending start", () => {
-  for (const desiredTun of [true, false]) {
-    const current = status({ running: null, healthy: false, desiredTun });
-    assert.equal(tunRuntimeState(current), desiredTun ? "unverified" : "off");
-    assert.equal(isCoreHealthy(current), false);
-    assert.equal(runtimeOwnerKey(current), null);
-    assert.equal(runtimeNoticeKind(true, false, false, null), null);
-  }
 });

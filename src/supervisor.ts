@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { MihomoApi } from "./api.js";
-import { requireServiceForTun } from "./core-runtime.js";
 import { containsCoreVersionToken } from "./core-version.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
 import type { SashLayout } from "./paths.js";
@@ -21,9 +20,7 @@ import {
 import type { SashSettings } from "./settings.js";
 
 export interface CoreState {
-  /** Null when the runtime could not be observed. */
-  running: boolean | null;
-  queryError?: string;
+  running: boolean;
   pid?: number;
   startedAt?: string;
   healthy?: boolean;
@@ -65,7 +62,6 @@ function managedPathsMatch(a: string, b: string): boolean {
  * sashd holds its handle, monitors exit events, and cleans up state on exit.
  */
 export class CoreSupervisor {
-  readonly backend = "direct" as const;
   private child: ChildProcess | null = null;
   private readonly pidRecordOwners = new WeakSet<ChildProcess>();
   private childStartedAt: string | undefined;
@@ -159,7 +155,6 @@ export class CoreSupervisor {
   }
 
   async start(): Promise<{ pid: number; version?: string; tunActive?: boolean }> {
-    requireServiceForTun(this.getSettings().tun, this.backend);
     if (this.child && this.isAlive(this.child.pid ?? -1)) {
       throw new Error(`Core is already running (PID=${this.child.pid})`);
     }

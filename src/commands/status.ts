@@ -3,12 +3,9 @@ import {
   type CliRuntimeStatus,
   collectRuntimeStatus,
   formatObservedProxy,
-  formatTunObservation,
   markIncompleteObservation,
   runtimeStatusHeadline,
-  shouldShowTunGuidance,
 } from "../status.js";
-import { tunPrivilegeGuidance } from "../tun-guidance.js";
 import { runtimeContext } from "./shared.js";
 
 export type RuntimeStatusCollector = () => Promise<CliRuntimeStatus>;
@@ -52,15 +49,6 @@ export async function runStatus(
       ? `${status.activeProfile.name} (${status.activeProfile.url || "local file"})`
       : "(none)",
   );
-  log.kv("tun", formatTunObservation(status));
   log.kv("core version", status.core.installedVersion || "(not installed)");
-  if (shouldShowTunGuidance(status)) {
-    log.warn(
-      tunPrivilegeGuidance("runtime-inactive", {
-        root: status.paths.root,
-        observation: status.tun.active === false ? "inactive" : "unverified",
-      }),
-    );
-  }
   markIncompleteObservation(status.complete);
 }

@@ -32,7 +32,10 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
+      - name: Install dependencies and native font subsetter
+        run: |
+          npm ci
+          node node_modules/cn-font-split/dist/cli.js i default@7.6.8
       - run: npm run lint
       - run: npm test
       - run: npm run build

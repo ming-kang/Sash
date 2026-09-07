@@ -69,6 +69,21 @@ describe("settings", () => {
   });
 
   describe("loadSettings", () => {
+    it("migrates a valid legacy TUN setting to off without changing other settings", () => {
+      const legacy = completeSettings({ tun: true, mixedPort: 17891, allowLan: true });
+      writeSettingsText(JSON.stringify(legacy));
+
+      const loaded = loadSettings(layout);
+      assert.deepEqual(loaded, { ...legacy, tun: false });
+      assert.deepEqual(JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")), loaded);
+      assert.deepEqual(loadSettings(layout), loaded);
+    });
+
+    it("does not rewrite an invalid legacy document while disabling TUN", () => {
+      const text = JSON.stringify(completeSettings({ tun: true, daemonPort: 0 }));
+      assertLoadRejectsWithoutOverwrite(text, /daemonPort must be an integer/);
+    });
+
     it("generates and persists a secret on first load, returning the same secret on subsequent loads", () => {
       assert.equal(fs.existsSync(layout.settingsFile), false);
 
@@ -301,11 +316,11 @@ describe("settings", () => {
       const settings = { ...DEFAULT_SETTINGS, secret: "core", daemonSecret: "daemon" };
       const candidate = validateSettingsCandidate({
         ...settings,
-        tun: true,
+        allowLan: true,
         controller: " LOCALHOST:9091 ",
       });
-      assert.equal(settings.tun, false);
-      assert.equal(candidate.tun, true);
+      assert.equal(settings.allowLan, false);
+      assert.equal(candidate.allowLan, true);
       assert.equal(candidate.controller, "localhost:9091");
     });
 
@@ -383,7 +398,7 @@ describe("settings", () => {
         mixedPort: 10808,
         controller: "127.0.0.1:9999",
         secret: "custom-secret-key-12345",
-        tun: true,
+        tun: false,
         allowLan: true,
         daemonPort: 27890,
         daemonSecret: "custom-daemon-secret-67890",
@@ -415,6 +430,9 @@ describe("settings", () => {
         mixedPort: 17890,
       } as unknown as SashSettings;
       assert.throws(() => saveSettings(incomplete, layout), /schemaVersion is required/);
+      assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), original);
+
+      assert.throws(() => saveSettings({ ...valid, tun: true }, layout), /TUN is unavailable/);
       assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), original);
 
       const invalid = {

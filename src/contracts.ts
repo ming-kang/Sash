@@ -20,9 +20,6 @@ export type ApiErrorCode =
   | "not_found"
   | "conflict"
   | "core_unhealthy"
-  | "service_required"
-  | "tun_inactive"
-  | "tun_unverified"
   | "shutting_down"
   | "unauthorized"
   | "http"
@@ -296,16 +293,12 @@ function parseCoreState(value: unknown, contract: string): CoreState {
   const tunActive = Object.hasOwn(source, "tunActive")
     ? booleanValue(source.tunActive, contract, "core.tunActive")
     : undefined;
-  const running = required(source, "running", contract, "core.running");
-  const queryError = Object.hasOwn(source, "queryError")
-    ? stringValue(source.queryError, contract, "core.queryError", true)
-    : undefined;
-  if (queryError !== undefined && queryError.length > 300) {
-    invalid(contract, "core.queryError", "at most 300 characters");
-  }
   return {
-    running: running === null ? null : booleanValue(running, contract, "core.running"),
-    ...(queryError !== undefined ? { queryError } : {}),
+    running: booleanValue(
+      required(source, "running", contract, "core.running"),
+      contract,
+      "core.running",
+    ),
     ...(pid !== undefined ? { pid } : {}),
     ...(startedAt !== undefined ? { startedAt } : {}),
     ...(healthy !== undefined ? { healthy } : {}),
@@ -811,44 +804,5 @@ export function parseDaemonStatus(value: unknown): DaemonStatus {
     },
     settings: parsePublicSettings(required(source, "settings", contract, "settings")),
     activeProfile,
-  };
-}
-
-/** Public, browser-safe service observation. No enrollment roots or credentials. */
-export interface PublicServiceStatus {
-  supported: boolean;
-  state: "not-installed" | "ready" | "unavailable" | "incompatible" | "root-mismatch";
-  version?: string;
-  coreVersion?: string;
-  message?: string;
-}
-
-export function parsePublicServiceStatus(value: unknown): PublicServiceStatus {
-  const contract = "sashd service";
-  const source = objectValue(value, contract, "response");
-  const supported = booleanValue(
-    required(source, "supported", contract, "supported"),
-    contract,
-    "supported",
-  );
-  const state = required(source, "state", contract, "state");
-  if (
-    state !== "not-installed" &&
-    state !== "ready" &&
-    state !== "unavailable" &&
-    state !== "incompatible" &&
-    state !== "root-mismatch"
-  ) {
-    invalid(contract, "state", "a known service state");
-  }
-  const version = optionalString(source, "version", contract, "version");
-  const coreVersion = optionalString(source, "coreVersion", contract, "coreVersion");
-  const message = optionalString(source, "message", contract, "message");
-  return {
-    supported,
-    state,
-    ...(version !== undefined ? { version } : {}),
-    ...(coreVersion !== undefined ? { coreVersion } : {}),
-    ...(message !== undefined ? { message } : {}),
   };
 }
