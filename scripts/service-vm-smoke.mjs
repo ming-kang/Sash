@@ -96,7 +96,7 @@ async function main() {
     });
   const ps = (script) =>
     run(
-      path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      "pwsh.exe",
       [
         "-NoLogo",
         "-NoProfile",
@@ -104,7 +104,7 @@ async function main() {
         "-EncodedCommand",
         Buffer.from(`$ErrorActionPreference='Stop'; ${script}`, "utf16le").toString("base64"),
       ],
-      30000,
+      60000,
     );
   const helper = path.join(repo, ".native", "windows-amd64", "sash-service.exe");
   const launcher = path.join(repo, ".native", "service-vm-runner.exe");
@@ -125,6 +125,7 @@ async function main() {
     assert.equal(settings.allowLan, false);
   };
   try {
+    phase = "preflight-host";
     const info = JSON.parse(
       await ps(`
       $i=[Security.Principal.WindowsIdentity]::GetCurrent();
@@ -132,15 +133,22 @@ async function main() {
       $machine=Get-CimInstance Win32_ComputerSystem;
       if ($machine.Manufacturer -ne 'Microsoft Corporation' -or $machine.Model -ne 'Virtual Machine') { throw 'Expected hosted Microsoft VM' }
       $pf=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles);
-      if (Get-Service -Name SashService -ErrorAction SilentlyContinue) { throw 'Existing service forbidden' }
-      if (Get-ChildItem -LiteralPath $pf -Filter 'SashService*' -Force) { throw 'Existing protected root/stage forbidden' }
-      $default=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'Sash';
-      if (Test-Path -LiteralPath $default) { throw 'Existing user root forbidden' }
-      if (Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(sash|sashd|sash-service|mihomo|core)(\\.exe)?$' -or ($_.Name -eq 'node.exe' -and $_.CommandLine -match '(sashd|daemon-entry|[\\\\/]dist[\\\\/]cli\\.js|[\\\\/]src[\\\\/]cli\\.ts)') }) { throw 'Possible active user instance' }
       @{sid=$i.User.Value; protectedRoot=(Join-Path $pf 'SashService')} | ConvertTo-Json -Compress
     `),
     );
     assert.match(info.sid, /^S-1-5-21-\d+-\d+-\d+-\d+$/);
+    phase = "preflight-installation";
+    await ps(`
+      $pf=[Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles);
+      if (Get-Service -Name SashService -ErrorAction SilentlyContinue) { throw 'Existing service forbidden' }
+      if (Get-ChildItem -LiteralPath $pf -Filter 'SashService*' -Force) { throw 'Existing protected root/stage forbidden' }
+      $default=Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'Sash';
+      if (Test-Path -LiteralPath $default) { throw 'Existing user root forbidden' }
+    `);
+    phase = "preflight-processes";
+    await ps(`
+      if (Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(sash|sashd|sash-service|mihomo|core)(\\.exe)?$' -or ($_.Name -eq 'node.exe' -and $_.CommandLine -match '(sashd|daemon-entry|[\\\\/]dist[\\\\/]cli\\.js|[\\\\/]src[\\\\/]cli\\.ts)') }) { throw 'Possible active user instance' }
+    `);
     // Proof precedes root allocation and installation. No elevated fallback or silent skip.
     phase = "ordinary-token-proof (requires same-SID UAC linked token; no elevated fallback)";
     await run(launcher, [process.execPath, "--version"]);

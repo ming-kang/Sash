@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sash-package-smoke-"));
+const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "sash-package-smoke-")));
 
 function sanitizedEnv(extra = {}) {
   const env = { ...process.env, ...extra };
