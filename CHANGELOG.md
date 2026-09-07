@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Prepare an opt-in acknowledged disposable GitHub-hosted Windows VM service acceptance workflow, isolated private-root harness, host-safe guard tests and test-only same-SID unelevated linked-token launcher. Checks would cover verified Core installation, idle service, ordinary CLI/gateway lifecycle, stopped-host repair and uninstall with TUN off; VM execution and ordinary-user proof remain pending.
+
 - Optional Windows Sash Service: independently implemented Go helper owns privileged Core as SYSTEM while the daemon, profiles, settings and system-proxy ownership remain user-owned. Explicit same-user administrative install/uninstall and service-mode `sash update [--version V]` use protected staging and retain Core rollback until a healthy managed start; no auto-UAC or automatic Core/TUN start at install or boot.
 - SID-authenticated native bridge and session/generation-based Core ownership, private controller credentials, bounded independently validated configuration bundles, unprivileged provider refresh and digest-verified geodata cache. Raw Core config replacement and upgrade routes are denied in service mode.
 - `sash service status`, service status API and dashboard card distinguish not-installed, ready, unavailable, incompatible and root mismatch. Service probe failures preserve `core.running: null` with query diagnostics without marking a reachable daemon offline.

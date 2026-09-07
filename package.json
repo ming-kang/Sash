@@ -19,6 +19,7 @@
     "clean:build": "node scripts/clean-build.mjs",
     "build:service": "node scripts/build-service.mjs",
     "test:service": "cd service && go test -mod=readonly ./...",
+    "test:service-vm-guard": "node --test scripts/service-vm-smoke.test.mjs",
     "check:service": "cd service && go vet -mod=readonly ./...",
     "audit:service": "cd service && go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...",
     "build:ui": "node scripts/build-ui.mjs",

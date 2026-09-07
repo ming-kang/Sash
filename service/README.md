@@ -77,3 +77,19 @@ sash web
 Only then enable TUN in the dashboard. Windows direct-mode TUN is rejected; elevating the whole daemon is not a fallback. Install/repair/update use protected sibling maintenance staging to avoid overwriting the executing helper, restore owned proxy state and stop the previous daemon, and return without elevated daemon respawn. The idle service does not automatically start Core/TUN at installation or boot.
 
 Real administrator install/repair/uninstall, interrupted-first-install recovery, update rollback, SCM boot lifecycle, cross-user/root rejection and TUN routing/DNS/network behavior require separate maintainer-approved testing in an isolated Windows VM. These remain pending; native fixture/build success is not a claim that these scenarios or all-platform CI passed. Never enable real TUN in automated smoke tests. See the operations guide for uninstall with preserved desired TUN and for service-private Core log limitations.
+
+## Opt-in disposable VM acceptance
+
+The prepared `.github/workflows/service-smoke.yml` requires a maintainer's manual dispatch and exact acknowledgement `I_ACKNOWLEDGE_DISPOSABLE_WINDOWS_VM_SERVICE_TEST`. Never invoke its harness on a workstation, self-hosted runner or existing Sash installation; never spoof hosted-runner environment variables. It builds the package and Go 1.26.7 helper, uses verified upstream Core staging, and would exercise administrator install/idle status, genuinely unelevated same-SID source CLI start/status/configs gateway/restart/stop, stopped-host repair and verified uninstall. TUN, system proxy and LAN access remain off. No secrets or private data/log artifacts are uploaded.
+
+Safe host-only checks:
+
+```sh
+npm run test:service-vm-guard
+# Windows-target build/vet only; these do not execute the launcher or touch SCM:
+cd service
+go build -mod=readonly -trimpath -buildvcs=false -o ../.native/service-vm-runner.exe ../scripts/service-vm-runner_windows.go
+go vet -mod=readonly ../scripts/service-vm-runner_windows.go
+```
+
+The test-only launcher requires a usable unelevated UAC linked token and verifies the child token is non-administrator and has the enrolling SID. Hosted images without that token fail clearly before installation, never silently substitute an elevated client. No restricted-token fallback is implemented. This VM acceptance has **not been run**; ordinary-user proof remains pending. See the [acceptance contract and limitations](../docs/service-protocol.md#disposable-vm-acceptance-prepared-not-executed). `scripts/`, `.native/` and the launcher are excluded from the production npm tarball.
