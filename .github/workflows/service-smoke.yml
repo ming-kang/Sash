@@ -48,6 +48,8 @@ jobs:
         run: |
           npm ci --ignore-scripts
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node node_modules/cn-font-split/dist/cli.js i default@7.6.8
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:service-vm-guard
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run build

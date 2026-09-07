@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,7 +23,7 @@ function response(data: string | Buffer, statusCode = 200, location?: string): F
   };
 }
 async function temp(t: test.TestContext): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "sash-bundle-"));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "sash-bundle-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }

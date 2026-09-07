@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Canonicalize service-test roots on hosts with temporary-directory aliases, respect the creating token's Windows file owner while still enforcing user-only read access, and allow shared-runner filesystem latency in the asynchronous-lock test.
+- Initialize the tested native font subsetter explicitly in clean VM and publishing builds that disable npm dependency installation hooks.
 - Separate the public daemon health identity from control credentials and require authorization for profile creation. `sash web` now opens an owner-only, single-use browser handoff; HTTP/WebSocket control uses private sessions that expire on daemon restart. Preserve authorization across page refreshes and prevent stale request failures from revoking newer sessions.
 - Require patched Go 1.26.7 for the native helper instead of the initially tested 1.26.4 toolchain, addressing reachable standard-library findings reported by `govulncheck`.
 - Correct cross-platform TUN privilege-guidance assertions and invoke the logs test's registered signal handler directly instead of emitting a process-wide signal that can terminate the shared runner; these corrections do not establish that all remote CI passes.

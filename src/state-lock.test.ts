@@ -59,7 +59,9 @@ describe("state locks", () => {
     const owner = acquireStateLockSync(lockFile, { purpose: "sync owner" });
     const pending = acquireStateLock(lockFile, {
       purpose: "async owner",
-      timeoutMs: 500,
+      // The assertion concerns yielding to the owner's setImmediate, not host
+      // filesystem latency. Shared Windows runners can take over 500 ms here.
+      timeoutMs: 5000,
       pollMs: 10,
     });
 

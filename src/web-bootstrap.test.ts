@@ -55,11 +55,18 @@ it("hands off through a private document while keeping the launch URL credential
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        `$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $acl=[IO.File]::GetAccessControl($p); $rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])); @{owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value; sid=$sid; readers=@($rules | Where-Object AccessControlType -eq Allow | ForEach-Object {$_.IdentityReference.Value})} | ConvertTo-Json -Compress`,
+        `$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); $identity=[Security.Principal.WindowsIdentity]::GetCurrent(); $acl=[IO.File]::GetAccessControl($p); $rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])); @{owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value; tokenOwner=$identity.Owner.Value; sid=$identity.User.Value; readers=@($rules | Where-Object AccessControlType -eq Allow | ForEach-Object {$_.IdentityReference.Value})} | ConvertTo-Json -Compress`,
       ],
     );
-    const acl = JSON.parse(result) as { owner: string; sid: string; readers: string[] };
-    assert.equal(acl.owner, acl.sid);
+    const acl = JSON.parse(result) as {
+      owner: string;
+      tokenOwner: string;
+      sid: string;
+      readers: string[];
+    };
+    // An elevated token may assign Administrators as the file owner; the
+    // protected directory still grants read access only to this user's SID.
+    assert.equal(acl.owner, acl.tokenOwner);
     assert.deepEqual(acl.readers, [acl.sid]);
   } else {
     assert.equal(fs.statSync(file.filePath).mode & 0o777, 0o600);

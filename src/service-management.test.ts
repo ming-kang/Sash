@@ -16,12 +16,14 @@ import {
 import { DEFAULT_SETTINGS } from "./settings.js";
 
 function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-management-test-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "sash-management-test-")));
   const ctx: RuntimeContext = {
     layout: sashLayout(root),
     settings: { ...DEFAULT_SETTINGS, tun: true },
   };
-  const programFiles = fs.mkdtempSync(path.join(os.tmpdir(), "sash-program-files-test-"));
+  const programFiles = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "sash-program-files-test-")),
+  );
   const events: string[] = [];
   let installed = true;
   const deps: ServiceManagementDeps = {
