@@ -29,6 +29,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
+## SortableJS
+
+- Package: `sortablejs` 1.15.7
+- Project: <https://github.com/SortableJS/Sortable>
+- License: MIT (permission and warranty terms reproduced above)
+- Copyright: Copyright (c) 2019 All contributors to Sortable
+
+The profile page embeds SortableJS for mouse and touch drag ordering.
+
 ## Remix Icon
 
 - Package: `@remixicon/vue` 4.9.0

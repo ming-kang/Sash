@@ -20,6 +20,7 @@ export {
   importProfile,
   refreshProfiles,
   renameProfile,
+  reorderProfiles,
   updateAllProfiles,
   updateProfile,
   writeProfileContent,

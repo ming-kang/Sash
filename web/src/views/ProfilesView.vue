@@ -70,12 +70,28 @@
       />
     </div>
 
-    <div v-else class="profiles-grid" :aria-busy="profileBusy">
+    <p v-if="profiles.length > 1" id="profile-order-hint" class="profile-order-hint">
+      {{ chosenId ? t('profiles.reorderDropHint') : t('profiles.reorderHint') }}
+    </p>
+    <div
+      v-if="profiles.length > 0"
+      ref="profilesGrid"
+      class="profiles-grid"
+      :aria-busy="profileBusy"
+      @pointerdown.capture="onPointerdown"
+      @click.capture="onClick"
+      @contextmenu="chosenId && $event.preventDefault()"
+    >
       <article
         v-for="p in profiles"
         :key="p.id"
+        :data-id="p.id"
         class="profile-card"
-        :class="{ active: p.id === store.activeProfileId, busy: profileBusy }"
+        :class="{
+          active: p.id === store.activeProfileId,
+          busy: profileBusy,
+          'profile-chosen': chosenId === p.id,
+        }"
       >
         <div
           class="profile-card-main"
@@ -83,10 +99,13 @@
           tabindex="0"
           :aria-current="p.id === store.activeProfileId ? 'true' : undefined"
           :aria-disabled="profileBusy || p.id === store.activeProfileId"
+          :aria-describedby="profiles.length > 1 ? 'profile-order-hint' : undefined"
+          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
           :title="p.id === store.activeProfileId ? undefined : t('profiles.clickToUse')"
           @click="selectProfile(p)"
           @keydown.enter.prevent="selectProfile(p)"
           @keydown.space.prevent="selectProfile(p)"
+          @keydown="moveWithKeyboard($event, p.id)"
         >
           <div class="profile-name-row">
             <span class="profile-name" :title="p.name">{{ p.name }}</span>
@@ -187,6 +206,7 @@ import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import ProfileRenameDialog from "../components/ProfileRenameDialog.vue";
+import { useProfileOrder } from "../composables/profile-order.js";
 import { locale, t } from "../i18n/index.js";
 import {
   activateProfile,
@@ -217,9 +237,15 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const editorProfile = ref<ProfileMeta | null>(null);
 const renameTarget = ref<ProfileMeta | null>(null);
 
-const profiles = computed(() => store.profiles);
+const profilesGrid = ref<HTMLElement | null>(null);
+const { profiles, chosenId, busy: orderBusy, onPointerdown, onClick, moveWithKeyboard } =
+  useProfileOrder(
+    profilesGrid,
+    computed(() => store.profiles),
+    computed(() => store.operations.profileMutation),
+  );
 const hasRemote = computed(() => store.profiles.some((p) => p.url !== ""));
-const profileBusy = computed(() => store.operations.profileMutation);
+const profileBusy = computed(() => store.operations.profileMutation || orderBusy.value);
 
 function sourceLabel(p: ProfileMeta): string {
   if (!p.url) return t("profiles.localFile");
@@ -423,12 +449,16 @@ async function pasteFromClipboard(): Promise<void> {
   gap: 10px 12px;
   padding: 0 34px 44px;
 }
+.profile-order-hint {
+  margin: 0 34px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
 .profile-card {
   position: relative;
-  display: block;
+  display: flex;
   min-width: 0;
   min-height: 72px;
-  padding: 10px 8px 10px 15px;
   overflow: hidden;
   cursor: pointer;
   background: var(--bg-panel);
@@ -445,6 +475,7 @@ async function pasteFromClipboard(): Promise<void> {
   border-radius: 0 var(--radius-full) var(--radius-full) 0;
   content: "";
   background: var(--border-strong);
+  pointer-events: none;
 }
 .profile-card:hover {
   background: var(--bg-hover);
@@ -462,12 +493,29 @@ async function pasteFromClipboard(): Promise<void> {
   cursor: wait;
 }
 .profile-card-main {
+  flex: 1;
   min-width: 0;
+  padding: 10px 8px 10px 15px;
   border-radius: var(--radius-sm);
   outline: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .profile-card-main:focus-visible {
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  box-shadow: inset 0 0 0 3px var(--accent-ring);
+}
+.profile-card.profile-chosen {
+  border-color: var(--accent);
+  cursor: grabbing;
+}
+.profile-card.profile-placeholder {
+  opacity: 0.35;
+}
+.profile-card.profile-drag-ghost {
+  box-shadow: var(--shadow-pop);
+  opacity: 0.95 !important;
+  pointer-events: none;
+  cursor: grabbing;
 }
 .profile-name-row {
   display: flex;
@@ -570,6 +618,10 @@ async function pasteFromClipboard(): Promise<void> {
     margin-right: 16px;
     margin-left: 16px;
   }
+  .profile-order-hint {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
   .dl-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -611,7 +663,7 @@ async function pasteFromClipboard(): Promise<void> {
     width: 38px;
     height: 38px;
   }
-  .profile-card {
+  .profile-card-main {
     padding: 14px 8px 14px 15px;
   }
   .profile-name-row {

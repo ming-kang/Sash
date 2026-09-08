@@ -2,6 +2,7 @@ import type {
   ProfileActionResponse,
   ProfileActivateResponse,
   ProfileRemoveResponse,
+  ProfilesIndex,
   ProfilesUpdateAllResponse,
   ProfileUpdateResponse,
 } from "../../../src/contracts.js";
@@ -49,6 +50,13 @@ export function addProfile(url: string): Promise<ProfileActionResponse> {
   return performProfileMutation(
     () => api.addProfile(url),
     (result) => result.activated,
+  );
+}
+
+export function reorderProfiles(ids: readonly string[]): Promise<ProfilesIndex> {
+  return performProfileMutation(
+    () => api.reorderProfiles(ids),
+    () => false,
   );
 }
 

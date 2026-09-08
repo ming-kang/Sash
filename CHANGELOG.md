@@ -9,10 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Add a source development launcher with separate data and ports, plus a `build` command for the WebUI.
+- Reorder profile cards with a long press and drag or Alt + Up/Down. Persist the order across dashboard refreshes without changing the active profile or reloading Core.
 
 ### Fixed
 
 - Wrap long proxy node names across the full card width and keep latency controls on the metadata row.
+- Make profile card padding and unused space clickable while keeping rename, edit, update and delete actions independent.
 
 ## [0.1.1] - 2026-09-08
 

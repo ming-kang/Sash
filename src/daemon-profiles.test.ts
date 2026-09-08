@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import net from "node:net";
 import { describe, it } from "node:test";
+import { parseDaemonStatus, parseProfilesIndex } from "./contracts.js";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import type { SubscriptionFetch } from "./mihomo-config.js";
 import { loadProfiles, NEVER_UPDATED, type ProfileMeta, saveProfiles } from "./profiles.js";
@@ -128,6 +129,67 @@ describe("daemon server", () => {
       };
       assert.equal(list.profiles.length, 2);
       assert.equal(list.activeId, first.profile.id);
+    });
+
+    it("persists profile order without changing selection, content or generated config", async () => {
+      await h.startServer({ fetchProfile: mockFetchProfile });
+      await h.apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
+      await h.apiRequest("/sash/profiles/import", {
+        method: "POST",
+        body: { name: "local", content: subYaml },
+      });
+      const before = loadProfiles(h.layout);
+      const config = fs.readFileSync(h.layout.configFile, "utf8");
+      const revision = parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data).revisions
+        .profiles;
+      const ids = before.profiles.map((profile) => profile.id).reverse();
+      const response = await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids } });
+      assert.equal(response.statusCode, 200);
+      const expected = { ...before, profiles: [...before.profiles].reverse() };
+      assert.deepEqual(parseProfilesIndex(response.data), expected);
+      assert.deepEqual(loadProfiles(h.layout), expected);
+      assert.deepEqual(parseProfilesIndex((await h.apiRequest("/sash/profiles")).data), expected);
+      assert.equal(fs.readFileSync(h.layout.configFile, "utf8"), config);
+      for (const id of ids) {
+        assert.equal(fs.readFileSync(`${h.layout.profilesDir}/${id}.yaml`, "utf8"), subYaml);
+      }
+      assert.equal(
+        parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data).revisions.profiles,
+        revision + 1,
+      );
+      // Repeating an already committed order is a no-op.
+      await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids } });
+      assert.equal(
+        parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data).revisions.profiles,
+        revision + 1,
+      );
+    });
+
+    it("rejects unauthenticated, malformed and stale profile orders without dropping entries", async () => {
+      await h.startServer({ fetchProfile: mockFetchProfile });
+      await h.apiRequest("/sash/profiles", { method: "POST", body: { url: subUrl } });
+      const before = loadProfiles(h.layout);
+      const id = before.profiles[0]?.id;
+      assert.ok(id);
+      const unauthenticated = await h.apiRequest("/sash/profiles/order", {
+        method: "PUT",
+        token: "",
+        body: { ids: [id] },
+      });
+      assert.equal(unauthenticated.statusCode, 401);
+      for (const body of [{}, { ids: id }, { ids: [1] }, { ids: ["../1"] }, { ids: [id, id] }]) {
+        const response = await h.apiRequest("/sash/profiles/order", { method: "PUT", body });
+        assert.equal(response.statusCode, 400);
+        assert.deepEqual(loadProfiles(h.layout), before);
+      }
+      for (const ids of [[], ["9999999999999"], [id, "9999999999999"]]) {
+        const response = await h.apiRequest("/sash/profiles/order", {
+          method: "PUT",
+          body: { ids },
+        });
+        assert.equal(response.statusCode, 409);
+        assert.deepEqual(loadProfiles(h.layout), before);
+      }
     });
 
     it("PUT /sash/profiles/active switches and recompiles; unknown id 404s", async () => {

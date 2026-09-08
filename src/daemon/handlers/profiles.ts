@@ -6,6 +6,17 @@ export function listProfiles(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: ctx.profiles.list() };
 }
 
+export async function reorderProfiles(
+  ctx: DaemonContext,
+  req: RouteRequest,
+): Promise<RouteResponse> {
+  const { ids } = await req.readJson();
+  if (!Array.isArray(ids) || !ids.every((id): id is string => typeof id === "string")) {
+    throw new ProfileInputError("Missing profile ids array");
+  }
+  return { status: 200, json: await ctx.profiles.reorder(ids) };
+}
+
 export async function addProfile(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
   const body = await req.readJson();
   const url = typeof body.url === "string" ? body.url.trim() : "";

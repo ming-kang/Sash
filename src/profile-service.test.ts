@@ -610,4 +610,59 @@ describe("ProfileService", () => {
     await assert.rejects(() => service.rename(profile.profile.id, "x".repeat(121)), /too long/);
     await assert.rejects(() => service.rename("1234567890123", "ghost"), /not found/);
   });
+
+  it("reorders the latest metadata under the publication lock without reloading Core", async () => {
+    const first = seedProfile(layout, { name: "first", url: "", yamlText: yamlA });
+    const second = seedProfile(layout, { name: "second", url: "", yamlText: yamlB });
+    activateSeed(layout, first.id);
+    const releaseCommit = deferred();
+    let reloads = 0;
+    const service = new ProfileService({
+      layout,
+      settings: () => settings,
+      commit: async (_purpose, action) => {
+        await releaseCommit.promise;
+        return action();
+      },
+      reloadConfig: async () => {
+        reloads += 1;
+      },
+    });
+    const pending = service.reorder([second.id, first.id]);
+    const renamed = { ...second, name: "renamed elsewhere" };
+    saveProfiles({ activeId: second.id, profiles: [first, renamed] }, layout);
+    releaseCommit.resolve();
+    assert.deepEqual(await pending, { activeId: second.id, profiles: [renamed, first] });
+    assert.equal(reloads, 0);
+    assert.equal(fs.existsSync(layout.configFile), false);
+    assert.equal(fs.readFileSync(profileFilePath(layout, first.id), "utf8"), yamlA);
+  });
+
+  it("restores the committed order if index publication fails", async () => {
+    const first = seedProfile(layout, { name: "first", url: "", yamlText: yamlA });
+    const second = seedProfile(layout, { name: "second", url: "", yamlText: yamlB });
+    activateSeed(layout, first.id);
+    const before = fs.readFileSync(layout.profilesIndexFile, "utf8");
+    let indexWrites = 0;
+    let notifications = 0;
+    const service = new ProfileService({
+      layout,
+      settings: () => settings,
+      onChange: () => {
+        notifications += 1;
+      },
+      fileOperations: {
+        ...defaultManagedStateFileOperations,
+        write: (file, data) => {
+          if (file === layout.profilesIndexFile && ++indexWrites === 1) {
+            throw new Error("index write failed");
+          }
+          defaultManagedStateFileOperations.write(file, data);
+        },
+      },
+    });
+    await assert.rejects(() => service.reorder([second.id, first.id]), /index write failed/);
+    assert.equal(fs.readFileSync(layout.profilesIndexFile, "utf8"), before);
+    assert.equal(notifications, 0);
+  });
 });

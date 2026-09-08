@@ -940,6 +940,34 @@ export class ProfileService {
   }
 
   /**
+   * Persist display order without touching profile content or the running Core.
+   * Recheck membership under the publication lock so a stale page cannot drop
+   * a profile added by another client while it was being dragged.
+   */
+  async reorder(ids: readonly string[]): Promise<ProfilesIndex> {
+    const order = [...ids];
+    if (order.some((id) => !/^[0-9]+$/.test(id)) || new Set(order).size !== order.length) {
+      throw new ProfileInputError("Profile order must contain unique profile ids");
+    }
+    return this.commit("reorder profiles", async () => {
+      const index = this.list();
+      const byId = new Map(index.profiles.map((profile) => [profile.id, profile]));
+      if (order.length !== byId.size || order.some((id) => !byId.has(id))) {
+        throw new ProfileConflictError("Profiles changed; refresh the list before reordering");
+      }
+      if (order.every((id, position) => index.profiles[position]?.id === id)) return index;
+      const profiles = order.map((id) => {
+        const profile = byId.get(id);
+        if (!profile) throw new ProfileConflictError(`Profile was removed: ${id}`);
+        return profile;
+      });
+      const next = { ...index, profiles };
+      await this.publish(next);
+      return next;
+    });
+  }
+
+  /**
    * Rename a profile. Display-only change: the YAML file name is the
    * timestamp id and the name never enters the generated core config, so no
    * reload is needed. Remote updates never overwrite the name (like Clash

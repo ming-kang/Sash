@@ -284,6 +284,12 @@ export class SashClient {
     return parseProfilesIndex(await this.request("/sash/profiles"));
   }
 
+  async reorderProfiles(ids: readonly string[]): Promise<ProfilesIndex> {
+    return parseProfilesIndex(
+      await this.request("/sash/profiles/order", { method: "PUT", body: { ids } }),
+    );
+  }
+
   async addProfile(
     url: string,
     opts: { name?: string; activate?: boolean } = {},

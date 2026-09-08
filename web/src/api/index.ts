@@ -155,6 +155,7 @@ export const api = {
   disableSystemProxy: () => sash.patchSettings({ systemProxy: false }),
 
   getProfiles: () => sash.listProfiles(),
+  reorderProfiles: (ids: readonly string[]) => sash.reorderProfiles(ids),
   addProfile: (url: string) => sash.addProfile(url),
   importProfile: (name: string, content: string) => sash.importProfile(name, content),
   updateProfile: (id: string) => sash.updateProfile(id),

@@ -26,6 +26,7 @@ import {
   readProfileContent,
   removeProfile,
   renameProfile,
+  reorderProfiles,
   updateAllProfiles,
   updateProfile,
   writeProfileContent,
@@ -201,6 +202,12 @@ export function buildRoutes(): readonly RouteDef[] {
     },
     { methods: ["GET"], pattern: path("/sash/profiles"), auth: "public", handler: listProfiles },
     { methods: ["POST"], pattern: path("/sash/profiles"), auth: "control", handler: addProfile },
+    {
+      methods: ["PUT"],
+      pattern: path("/sash/profiles/order"),
+      auth: "control",
+      handler: reorderProfiles,
+    },
     {
       methods: ["POST"],
       pattern: path("/sash/profiles/import"),
