@@ -5,6 +5,15 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # typescript@7 is the native compiler without the classic JS API; vue-tsc
+      # cannot run on it until TS 7.1 ships its new API and Volar supports it.
+      - dependency-name: typescript
+        versions: [">=7"]
+      # @types/node tracks the minimum supported runtime (engines >=24), not
+      # the newest Node release.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
