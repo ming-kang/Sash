@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-08
+
 ### Added
 
 - Add Windows login startup through `sash auto [on|off|status]` and the dashboard settings. Preserve the selected data directory and report stale or OS-disabled entries; bare `sash auto` reads status.
