@@ -1,8 +1,15 @@
-import { SashStateStore } from "../app-state.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
+import { canonicalPath, installationId } from "../installation.js";
+import {
+  type InstallationInstance,
+  installationRegistryPaths,
+  registerInstallationInstance,
+  unregisterInstallationInstance,
+} from "../installation-registry.js";
+import { currentPackageRoot } from "../package-info.js";
 import { type SashLayout, sashLayout } from "../paths.js";
-import { acquireStateLock } from "../state-lock.js";
-import { createDaemonServer } from "./server.js";
+import { acquireStateLock, withStateLock } from "../state-lock.js";
+import type { DaemonInstance } from "./server.js";
 
 export interface DaemonPidRecord {
   pid: number;
@@ -11,35 +18,62 @@ export interface DaemonPidRecord {
   startedAt: string;
 }
 
-/** The only production state owner. Initialization and recovery precede the listener. */
+/** The sole application writer; registration shares the installation startup gate. */
 export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
   const layout = opts.layout ?? sashLayout();
+  const packageRoot = canonicalPath(currentPackageRoot());
+  const registry = installationRegistryPaths(installationId(packageRoot));
   const lease = await acquireStateLock(layout.daemonLeaseFile, {
     purpose: "sashd singleton",
     timeoutMs: 0,
   });
   let onSignal: (() => void) | undefined;
   let published = false;
+  let registered: InstallationInstance | undefined;
+  let instance: DaemonInstance | undefined;
   try {
-    const state = new SashStateStore(layout);
-    const instance = createDaemonServer({ layout, state });
-    await instance.lifecycle.recoverStartup();
-    const closed = new Promise<void>((resolve) => instance.server.once("close", resolve));
-    const port = state.snapshot().settings.daemonPort;
-    await new Promise<void>((resolve, reject) => {
-      instance.server.once("error", reject);
-      instance.server.listen(port, "127.0.0.1", resolve);
-    });
-    const record: DaemonPidRecord = {
-      pid: process.pid,
-      token: instance.token,
-      port,
-      startedAt: new Date().toISOString(),
-    };
-    atomicWriteFileSync(layout.daemonPidFile, `${JSON.stringify(record, null, 2)}\n`);
-    published = true;
+    const started = await withStateLock(
+      registry.startupLock,
+      { purpose: "start Sash instance", timeoutMs: 30_000 },
+      async () => {
+        // Load application code only after startup admission is acquired.
+        const { SashStateStore } = await import("../app-state.js");
+        const { createDaemonServer } = await import("./server.js");
+        const state = new SashStateStore(layout);
+        const current = createDaemonServer({ layout, state, packageRoot });
+        instance = current;
+        await current.lifecycle.recoverStartup();
+        const closed = new Promise<void>((resolve) => current.server.once("close", resolve));
+        const port = state.snapshot().settings.daemonPort;
+        await new Promise<void>((resolve, reject) => {
+          current.server.once("error", reject);
+          current.server.listen(port, "127.0.0.1", resolve);
+        });
+        const record: DaemonPidRecord = {
+          pid: process.pid,
+          token: current.token,
+          port,
+          startedAt: current.startedAt,
+        };
+        registered = registerInstallationInstance({
+          schemaVersion: 1,
+          installationId: current.installationId,
+          packageRoot,
+          dataDir: canonicalPath(layout.root),
+          nodePath: process.execPath,
+          sashVersion: current.version,
+          pid: process.pid,
+          bootId: current.token,
+          port,
+          startedAt: current.startedAt,
+        });
+        atomicWriteFileSync(layout.daemonPidFile, `${JSON.stringify(record, null, 2)}\n`);
+        published = true;
+        return { current, closed };
+      },
+    );
     onSignal = () => {
-      void instance
+      void started.current
         .close()
         .catch((error: unknown) =>
           console.error(
@@ -49,13 +83,20 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
     };
     process.on("SIGTERM", onSignal);
     process.on("SIGINT", onSignal);
-    await closed;
+    await started.closed;
+  } catch (error) {
+    if (instance?.server.listening) await instance.close();
+    throw error;
   } finally {
     if (onSignal) {
       process.removeListener("SIGTERM", onSignal);
       process.removeListener("SIGINT", onSignal);
     }
-    if (published) durableRemoveFileSync(layout.daemonPidFile);
-    lease.release();
+    try {
+      if (registered) unregisterInstallationInstance(registered);
+      if (published) durableRemoveFileSync(layout.daemonPidFile);
+    } finally {
+      lease.release();
+    }
   }
 }

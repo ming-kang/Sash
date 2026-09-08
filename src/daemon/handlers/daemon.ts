@@ -15,7 +15,13 @@ export function health(ctx: DaemonContext): RouteResponse {
   // The token is a per-boot identity nonce for daemon instance matching. It
   // is deliberately not a credential: control requests require the CLI
   // bearer or a WebUI session token from the bootstrap exchange below.
-  const body: HealthInfo = { token: ctx.token, pid: process.pid, startedAt: ctx.startedAt };
+  const body: HealthInfo = {
+    token: ctx.token,
+    pid: process.pid,
+    startedAt: ctx.startedAt,
+    version: ctx.version,
+    installationId: ctx.installationId,
+  };
   return { status: 200, json: body };
 }
 
@@ -77,6 +83,8 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
       bootId: ctx.token,
       startedAt: ctx.startedAt,
       port: settings.daemonPort,
+      version: ctx.version,
+      installationId: ctx.installationId,
     },
     revisions: {
       state: ctx.stateRevision(),

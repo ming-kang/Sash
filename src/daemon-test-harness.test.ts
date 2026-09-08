@@ -24,6 +24,7 @@ import type { SystemProxyController } from "./system-proxy-manager.js";
 import { FakeCoreSupervisor, testSettings } from "./test-state.test.js";
 
 export interface DaemonServerOverrides {
+  packageRoot?: string;
   installCore?: boolean;
   stageCore?: DaemonDeps["stageCoreFn"];
   supervisor?: CoreSupervisor;
@@ -126,6 +127,7 @@ export class DaemonTestHarness {
 
     const instance = createDaemonServer({
       layout: this.layout,
+      packageRoot: overrides.packageRoot,
       settings: this.settings,
       supervisor: fakeSupervisor,
       systemProxy: overrides.systemProxy ?? this.fakeSystemProxy(),

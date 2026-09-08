@@ -15,7 +15,9 @@ import { readInstallRecord } from "../core-install-record.js";
 import { ensureCoreIntegrityRecords } from "../core-install-verification.js";
 import { assertCoreBinaryDigest } from "../core-integrity.js";
 import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
+import { installationId } from "../installation.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
+import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
 import { ProfileService } from "../profile-service.js";
 import { getActiveProfile, renderActiveConfig } from "../profiles.js";
@@ -30,6 +32,7 @@ import { WebAuthManager } from "./web-auth.js";
 
 export interface DaemonDeps {
   layout: SashLayout;
+  packageRoot?: string;
   state?: SashStateStore;
   settings?: SashSettings;
   supervisor?: CoreSupervisor;
@@ -59,6 +62,8 @@ export interface DaemonApp {
 /** The daemon owns all application writes; CLI and WebUI use the same actions. */
 export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   const { layout } = deps;
+  const packageRoot = deps.packageRoot ?? currentPackageRoot();
+  const packageInfo = readSashPackageInfo(packageRoot);
   const state = deps.state ?? new SashStateStore(layout, deps.settings);
   const settings = () => state.snapshot().settings;
   const token = deps.token ?? crypto.randomBytes(24).toString("hex");
@@ -221,6 +226,8 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     state,
     token,
     startedAt: new Date().toISOString(),
+    version: packageInfo.version,
+    installationId: installationId(packageRoot),
     webAuth: new WebAuthManager(),
     profiles,
     settingsService,

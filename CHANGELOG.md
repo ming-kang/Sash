@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Report the daemon's startup Sash version and installation identity, and register its data directory under a shared installation startup gate for coordinated upgrades.
 - Back off failed scheduled profile updates, share in-flight updates across manual and scheduled callers, and keep profile downloads running when only Core is stopped.
 - Expose active and queued daemon mutations with slow-operation diagnostics; share short-lived status probes while keeping safety decisions fresh and requiring authentication for forced probes.
 - Cache immutable application snapshots per commit, expose saved-state revisions as `revisions.state`, and reject stale settings writes using `expectedRevision`. Keep status values consistent with their revision across slow probes.

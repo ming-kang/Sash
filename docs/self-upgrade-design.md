@@ -2,6 +2,14 @@
 
 `sash upgrade [version]` updates the Sash package, daemon and bundled dashboard in one operation. `sash update [tag]` updates Core. This contract defines the complete upgrade experience tracked in `ROADMAP.md`.
 
+Implementation tracking:
+
+- [x] Shared installation detection and exact package/Node version validation.
+- [x] Installation instance registration and stable daemon startup identity.
+- [ ] Runtime reservation, private handoff and browser continuation.
+- [ ] Complete npm staging, standalone worker and recoverable package/bin activation.
+- [ ] Command wiring and end-to-end failure/recovery verification.
+
 ## Installation and preparation
 
 - Identify the executing package and its canonical npm global prefix. Source checkouts, linked packages and installations owned by another package manager receive instructions for their actual installation method.

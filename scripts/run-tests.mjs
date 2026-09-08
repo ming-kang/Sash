@@ -51,6 +51,7 @@ const result = spawnSync(process.execPath, ["--import", "tsx", "--test", ...sele
     no_proxy: noProxy,
     SASH_HOME: path.join(isolation, "data"),
     LOCALAPPDATA: path.join(isolation, "local"),
+    XDG_STATE_HOME: path.join(isolation, "xdg-state"),
   },
 });
 

@@ -24,6 +24,9 @@ export interface DaemonInstance {
   lifecycle: RuntimeLifecycle;
   token: string;
   port: number;
+  version: string;
+  installationId: string;
+  startedAt: string;
   close: () => Promise<void>;
 }
 
@@ -162,6 +165,9 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     lifecycle: app.lifecycle,
     token: app.token,
     port: context.settings.committed().daemonPort,
+    version: context.version,
+    installationId: context.installationId,
+    startedAt: context.startedAt,
     close: closeDaemon,
   };
 }

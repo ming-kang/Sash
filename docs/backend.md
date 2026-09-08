@@ -12,6 +12,8 @@ Daemon status exposes `mutationQueue: {active: {purpose, startedAt} | null, queu
 
 CLI commands use `runtime-owner.ts` and `daemon-lifecycle.ts` for read-only discovery, management startup and API calls. A live but unverified daemon blocks competing startup and cannot be stopped by an unverified signal. CLI discovery uses the observed daemon port. The private browser handoff and startup diagnostics are the only incidental CLI files.
 
+Daemon startup also holds an installation admission lock while loading application code and publishing its instance record. The per-user installation registry is independent of `SASH_HOME`, so separate data directories using the same package can be discovered together. Records identify the package, Node executable, data directory, PID and boot; cleanup only removes the matching boot. Health and status expose the version captured at startup and the installation ID, which remain stable if package files change afterward.
+
 | Module | Responsibility |
 | --- | --- |
 | `app-state.ts` | The sole atomic application manifest commit |

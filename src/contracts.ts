@@ -21,7 +21,11 @@ export type ApiErrorCode =
 export interface ApiErrorBody {
   error: { code: string; message: string };
 }
-export interface HealthInfo {
+export interface InstallationIdentity {
+  version?: string;
+  installationId?: string;
+}
+export interface HealthInfo extends InstallationIdentity {
   token: string;
   pid: number;
   startedAt: string;
@@ -91,7 +95,7 @@ export interface MutationQueueStatus {
   queued: number;
 }
 export interface DaemonStatus {
-  daemon: { pid: number; bootId: string; startedAt: string; port: number };
+  daemon: { pid: number; bootId: string; startedAt: string; port: number } & InstallationIdentity;
   revisions: { state: number; runtime: number };
   mutationQueue: MutationQueueStatus;
   core: CoreState;
@@ -158,6 +162,20 @@ export function parseHealthInfo(value: unknown): HealthInfo {
     token: string(source.token, "token"),
     pid: integer(source.pid, "pid", 1),
     startedAt: timestamp(source.startedAt, "startedAt"),
+    ...parseInstallationIdentity(source),
+  };
+}
+
+function parseInstallationIdentity(source: Record<string, unknown>): InstallationIdentity {
+  const version = Object.hasOwn(source, "version") ? string(source.version, "version") : undefined;
+  const installationId = Object.hasOwn(source, "installationId")
+    ? string(source.installationId, "installationId")
+    : undefined;
+  if (installationId !== undefined && !/^[a-f0-9]{64}$/.test(installationId))
+    throw new TypeError("Invalid installation identity");
+  return {
+    ...(version !== undefined ? { version } : {}),
+    ...(installationId !== undefined ? { installationId } : {}),
   };
 }
 export function parseWebBootstrapInfo(value: unknown): WebBootstrapInfo {
@@ -319,6 +337,7 @@ export function parseDaemonStatus(value: unknown): DaemonStatus {
       bootId: string(daemon.bootId, "daemon.bootId"),
       startedAt: timestamp(daemon.startedAt, "daemon.startedAt"),
       port: integer(daemon.port, "daemon.port", 1, 65535),
+      ...parseInstallationIdentity(daemon),
     },
     revisions: {
       state: integer(revisions.state, "revisions.state"),
