@@ -20,8 +20,8 @@
 
 ### bug 修复（全部 S）
 
-- [ ] `sash logs` 非 `--startup` 路径改用 `sashLayout()`，不再依赖可加载的 settings（`src/commands/logs.ts:22`）
-- [ ] `status` 键名 padding：`selected profile` 恰 16 字符与 `padEnd(16)` 撞车（`src/log.ts:18`）
+- [x] `sash logs` 非 `--startup` 路径改用 `sashLayout()`，不再依赖可加载的 settings（`src/commands/logs.ts:22`）
+- [x] `status` 键名 padding：`selected profile` 恰 16 字符与 `padEnd(16)` 撞车（`src/log.ts:18`）
 - [ ] WebUI 日志 warning 级别用 `--warning` 色与警示图标，与 error 区分（`web/src/views/LogsView.vue:221-223, 96`）
 - [ ] 暂停态"关闭全部 (N)"计数与实际关闭集合一致（`web/src/views/ConnectionsView.vue:271-288`）
 - [ ] 延迟测试端点使用更长的客户端超时，避免大组测试被 10s 统一超时误中止（`web/src/api/index.ts:60, 197-204`）

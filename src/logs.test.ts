@@ -12,6 +12,7 @@ import {
   parseLogLineCount,
   readLogGrowth,
 } from "./log-follow.js";
+import { sashLayout } from "./paths.js";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -27,6 +28,41 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void
 }
 
 describe("log line counts", () => {
+  it("reads all diagnostic logs while settings are corrupt without modifying state", async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-logs-corrupt-test-"));
+    const previousHome = process.env.SASH_HOME;
+    process.env.SASH_HOME = root;
+    const layout = sashLayout();
+    const chunks: string[] = [];
+    const output = t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
+      chunks.push(String(chunk));
+      return true;
+    });
+    try {
+      fs.writeFileSync(layout.settingsFile, "{ broken");
+      fs.mkdirSync(layout.logsDir);
+      const cases = [
+        { file: layout.coreLogFile, options: {} },
+        { file: layout.coreErrLogFile, options: { errors: true } },
+        { file: layout.daemonLogFile, options: { daemon: true } },
+        { file: layout.daemonErrLogFile, options: { daemon: true, errors: true } },
+        { file: layout.sashLogFile, options: { startup: true } },
+      ];
+      for (const { file, options } of cases) {
+        const message = `diagnostic ${path.basename(file)}`;
+        fs.writeFileSync(file, `${message}\n`);
+        await runLogs(options);
+        assert.equal(chunks.at(-1), `${message}\n`);
+      }
+      assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), "{ broken");
+    } finally {
+      output.mock.restore();
+      if (previousHome === undefined) delete process.env.SASH_HOME;
+      else process.env.SASH_HOME = previousHome;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps positive safe integers", () => {
     assert.equal(normalizeLines(1), 1);
     assert.equal(normalizeLines(50), 50);

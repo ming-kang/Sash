@@ -15,6 +15,6 @@ export const log = {
   },
   /** Key-value line used by status-like commands. */
   kv(key: string, value: string): void {
-    console.log(`  ${key.padEnd(16)}${value}`);
+    console.log(`  ${key.padEnd(16)} ${value}`);
   },
 };

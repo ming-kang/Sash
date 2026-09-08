@@ -3,7 +3,6 @@ import { log } from "../log.js";
 import { followLogFile, logCursorAtEnd, normalizeLines } from "../log-follow.js";
 import { sashLayout } from "../paths.js";
 import { tailFile } from "../process.js";
-import { runtimeContext } from "./shared.js";
 
 /** Print the last N lines of logs; with follow, wait for and stream future files. */
 export async function runLogs(
@@ -18,8 +17,8 @@ export async function runLogs(
   if (opts.startup && (opts.daemon || opts.errors)) {
     throw new Error("--startup cannot be combined with --daemon or --errors");
   }
-  // Login diagnostics must remain readable even when corrupt settings prevented startup.
-  const layout = opts.startup ? sashLayout() : runtimeContext().layout;
+  // Diagnostics must remain readable even when corrupt settings prevented startup.
+  const layout = sashLayout();
   let file: string;
   if (opts.startup) {
     file = layout.sashLogFile;

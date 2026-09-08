@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Preserve HTTP status errors when controller, release or subscription error bodies are oversized or unreadable, and stop release lookup fallback after cancellation.
+- Keep all CLI logs readable when settings are corrupt and separate long status labels from their values.
 
 ### Changed
 
