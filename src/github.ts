@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { downloadToFile, ERROR_BODY_LIMIT, fetchWithRetry, USER_AGENT } from "./http.js";
+import { downloadToFile, fetchWithRetry, readErrorSummary, USER_AGENT } from "./http.js";
 
 /**
  * GitHub release access without hard dependency on the REST API:
@@ -66,7 +66,9 @@ export async function resolveLatestTag(repo: string, signal?: AbortSignal): Prom
     } else {
       await res.discard();
     }
-  } catch {
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error instanceof Error && error.name === "AbortError") throw error;
     // Fall through to the official REST API.
   }
 
@@ -83,7 +85,7 @@ export async function resolveLatestTag(repo: string, signal?: AbortSignal): Prom
     manualRedirect: true,
   });
   if (res.statusCode !== 200) {
-    await res.text(ERROR_BODY_LIMIT);
+    await readErrorSummary(res);
     throw new Error(`Failed to resolve latest release for ${repo}: HTTP ${res.statusCode}`);
   }
   const text = await res.text(2 * 1024 * 1024);
@@ -123,7 +125,7 @@ export async function listReleaseAssets(
     manualRedirect: true,
   });
   if (res.statusCode !== 200) {
-    await res.text(ERROR_BODY_LIMIT);
+    await readErrorSummary(res);
     throw new Error(`Failed to list release assets for ${repo}@${tag}: HTTP ${res.statusCode}`);
   }
   const text = await res.text(8 * 1024 * 1024);

@@ -25,9 +25,9 @@
 - [ ] WebUI 日志 warning 级别用 `--warning` 色与警示图标，与 error 区分（`web/src/views/LogsView.vue:221-223, 96`）
 - [ ] 暂停态"关闭全部 (N)"计数与实际关闭集合一致（`web/src/views/ConnectionsView.vue:271-288`）
 - [ ] 延迟测试端点使用更长的客户端超时，避免大组测试被 10s 统一超时误中止（`web/src/api/index.ts:60, 197-204`）
-- [ ] 错误体读取不吞真实 HTTP 错误：超 32KiB 时 `text()` 抛错替换了状态码错误
+- [x] 错误体读取不吞真实 HTTP 错误：超 32KiB 时 `text()` 抛错替换了状态码错误
   （`src/github.ts:86,126`、`src/mihomo-config.ts:333`、`src/api.ts:62`）
-- [ ] `resolveLatestTag` 的裸 `catch` 不再吞 AbortError（`src/github.ts:69-71`）
+- [x] `resolveLatestTag` 的裸 `catch` 不再吞 AbortError（`src/github.ts:69-71`）
 - [ ] 连接排序工具栏 `aria-label` 用错 i18n 键（`web/src/views/ConnectionsView.vue:22`）
 
 ## 批次 2 — 架构小件

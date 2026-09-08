@@ -1,4 +1,4 @@
-import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
+import { fetchWithRetry, readErrorSummary } from "./http.js";
 import { parseControllerAddress } from "./settings.js";
 
 /**
@@ -59,7 +59,7 @@ export class MihomoApi {
       attempts: options.attempts ?? 2,
     });
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      const summary = (await res.text(ERROR_BODY_LIMIT)).slice(0, 200).trim();
+      const summary = await readErrorSummary(res);
       throw new Error(`Mihomo API returned HTTP ${res.statusCode}: ${summary}`);
     }
     const text = await res.text(1024 * 1024);
@@ -79,10 +79,8 @@ export class MihomoApi {
       attempts: 1,
     });
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      const message = await response.text(ERROR_BODY_LIMIT);
-      throw new Error(
-        `Core rejected mode change: HTTP ${response.statusCode}: ${message.slice(0, 200)}`,
-      );
+      const message = await readErrorSummary(response);
+      throw new Error(`Core rejected mode change: HTTP ${response.statusCode}: ${message}`);
     }
     await response.discard();
   }

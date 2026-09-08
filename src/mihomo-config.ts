@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 import YAML from "yaml";
-import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
+import { fetchWithRetry, readErrorSummary } from "./http.js";
 import type { SashSettings } from "./settings.js";
 
 /**
@@ -329,7 +329,7 @@ export async function fetchSubscriptionProfile(
   }
 
   if (res.statusCode !== 200) {
-    await res.text(ERROR_BODY_LIMIT);
+    await readErrorSummary(res);
     throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
   }
   const text = await res.text(PROFILE_DOWNLOAD_SIZE_LIMIT);

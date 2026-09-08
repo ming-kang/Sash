@@ -2,8 +2,29 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { describe, it } from "node:test";
 import { MihomoApi } from "./api.js";
+import { ERROR_BODY_LIMIT } from "./http.js";
+import { fetchSubscriptionProfile } from "./mihomo-config.js";
 
 describe("MihomoApi", () => {
+  it("preserves controller and subscription HTTP failures with oversized response bodies", async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(403);
+      res.end("x".repeat(ERROR_BODY_LIMIT + 1));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    try {
+      const api = new MihomoApi(`127.0.0.1:${address.port}`, "");
+      await assert.rejects(api.version(), /HTTP 403/);
+      await assert.rejects(api.setMode("rule"), /HTTP 403/);
+      await assert.rejects(fetchSubscriptionProfile(`${api.baseUrl}/profile`), /HTTP 403/);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("normalizes controller URL without protocol", () => {
     const api = new MihomoApi("127.0.0.1:9090", "secret");
     assert.equal(api.baseUrl, "http://127.0.0.1:9090");

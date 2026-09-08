@@ -82,6 +82,15 @@ export interface FetchResponse {
   discard: () => Promise<void>;
 }
 
+/** Best-effort diagnostics must never replace an already known HTTP failure. */
+export async function readErrorSummary(response: FetchResponse): Promise<string> {
+  try {
+    return (await response.text(ERROR_BODY_LIMIT)).slice(0, 200).trim();
+  } catch {
+    return "";
+  }
+}
+
 export interface FetchOptions {
   signal?: AbortSignal;
   /** Total attempts including the first. The default is method-aware. */
