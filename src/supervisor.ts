@@ -67,6 +67,19 @@ export class CoreSupervisor {
   private childStartedAt: string | undefined;
   private childGeneration = 0;
   private stopping = false;
+  private cachedStatus:
+    | {
+        owner: CoreOwnershipSnapshot;
+        state: CoreState;
+        expiresAt: number;
+      }
+    | undefined;
+  private pendingStatus:
+    | {
+        owner: CoreOwnershipSnapshot;
+        promise: Promise<CoreState>;
+      }
+    | undefined;
   private readonly layout: SashLayout;
   private readonly getSettings: () => SashSettings;
   private readonly spawnFn: (layout: SashLayout, settings: SashSettings) => ChildProcess;
@@ -323,10 +336,38 @@ export class CoreSupervisor {
     );
   }
 
-  async status(): Promise<CoreState> {
+  /** Diagnostics may reuse a 500ms observation; safety decisions request fresh state by default. */
+  async status(options: { fresh?: boolean } = {}): Promise<CoreState> {
     const ownership = this.ownedCoreSnapshot();
     if (!ownership) return { running: false };
+    const cached = this.cachedStatus;
+    if (
+      options.fresh === false &&
+      cached &&
+      performance.now() < cached.expiresAt &&
+      this.ownsCore(cached.owner)
+    )
+      return { ...cached.state };
 
+    let pending = this.pendingStatus;
+    if (!pending || !this.ownsCore(pending.owner)) {
+      const promise = this.probeStatus(ownership).then((state) => {
+        if (this.ownsCore(ownership))
+          this.cachedStatus = { owner: ownership, state, expiresAt: performance.now() + 500 };
+        return state;
+      });
+      pending = { owner: ownership, promise };
+      this.pendingStatus = pending;
+    }
+    try {
+      const state = await pending.promise;
+      return this.ownsCore(ownership) ? { ...state } : { running: false };
+    } finally {
+      if (this.pendingStatus === pending) this.pendingStatus = undefined;
+    }
+  }
+
+  private async probeStatus(ownership: CoreOwnershipSnapshot): Promise<CoreState> {
     const settings = this.getSettings();
     const api = new MihomoApi(settings.controller, settings.secret);
     let healthy = false;

@@ -43,6 +43,8 @@ describe("shared API boundaries", () => {
       { ...status, revisions: { state: 0, runtime: -1 } },
       { ...status, core: { running: "true" } },
       { ...status, configuration: {} },
+      { ...status, mutationQueue: { active: null, queued: -1 } },
+      { ...status, mutationQueue: { active: { purpose: "", startedAt: "today" }, queued: 0 } },
       { ...status, systemProxy: { desired: false, applied: false } },
       { ...status, settings: { ...status.settings, mixedPort: 65536 } },
     ])

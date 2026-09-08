@@ -40,8 +40,11 @@ export async function redeemWebBootstrap(
 }
 
 export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
+  const fresh = req.searchParams.get("fresh") === "1";
+  if (fresh && !req.authorized)
+    throw new HttpError(401, "Fresh status requires control authentication");
   const ownership = ctx.supervisor.ownedCoreSnapshot();
-  const runtimeCore = await ctx.supervisor.status();
+  const runtimeCore = await ctx.supervisor.status({ fresh });
   const installedVersion = currentCoreVersion(ctx.layout);
   let core =
     runtimeCore.version || !installedVersion
@@ -53,7 +56,7 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
   let proxyStateKnown = false;
   let proxyQueryError: string | undefined;
   try {
-    const inspection = await ctx.systemProxy.inspect(req.searchParams.get("fresh") === "1");
+    const inspection = await ctx.systemProxy.inspect(fresh);
     proxyApplied = inspection.applied;
     proxyAppliedKnown = inspection.appliedKnown;
     proxyStateKnown = inspection.stateKnown;
@@ -79,6 +82,7 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
       state: ctx.stateRevision(),
       runtime: ctx.lifecycle.revision,
     },
+    mutationQueue: ctx.gate.snapshot(),
     configuration: {
       pending: ctx.pendingApply(),
       appliedProfile: applied?.profile

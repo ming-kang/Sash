@@ -86,9 +86,14 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
   stateKnown: boolean;
   queryError?: string;
 }
+export interface MutationQueueStatus {
+  active: { purpose: string; startedAt: string } | null;
+  queued: number;
+}
 export interface DaemonStatus {
   daemon: { pid: number; bootId: string; startedAt: string; port: number };
   revisions: { state: number; runtime: number };
+  mutationQueue: MutationQueueStatus;
   core: CoreState;
   configuration: {
     pending: boolean;
@@ -291,6 +296,8 @@ export function parseDaemonStatus(value: unknown): DaemonStatus {
   const source = object(value, "status");
   const daemon = object(source.daemon, "daemon");
   const revisions = object(source.revisions, "revisions");
+  const queue = object(source.mutationQueue, "mutationQueue");
+  const mutation = queue.active === null ? null : object(queue.active, "mutationQueue.active");
   const core = object(source.core, "core");
   const proxy = object(source.systemProxy, "systemProxy");
   const configuration = object(source.configuration, "configuration");
@@ -316,6 +323,15 @@ export function parseDaemonStatus(value: unknown): DaemonStatus {
     revisions: {
       state: integer(revisions.state, "revisions.state"),
       runtime: integer(revisions.runtime, "revisions.runtime"),
+    },
+    mutationQueue: {
+      queued: integer(queue.queued, "mutationQueue.queued"),
+      active: mutation
+        ? {
+            purpose: string(mutation.purpose, "mutationQueue.active.purpose"),
+            startedAt: timestamp(mutation.startedAt, "mutationQueue.active.startedAt"),
+          }
+        : null,
     },
     core: {
       running: boolean(core.running, "core.running"),

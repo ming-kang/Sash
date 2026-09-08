@@ -24,6 +24,8 @@ describe("daemon browser authorization", () => {
       ["GET", "/sash/autostart"],
       ["GET", "/sash/settings"],
       ["GET", "/sash/profiles"],
+      ["GET", "/sash/daemon/status?fresh=1"],
+      ["GET", "/sash/proxy?fresh=1"],
       ["GET", "/core/api/version"],
     ]) {
       assert.ok(method && pathname);

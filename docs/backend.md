@@ -8,6 +8,8 @@ Sash manages one local Core through one loopback daemon. The [high-level archite
 
 `daemon/app.ts` assembles the profile, settings, runtime and Windows services. `DaemonGate` in `daemon/context.ts` owns one in-memory mutation queue and shutdown admission. Reads do not wait for this queue. Downloads happen outside it, with deadlines and cancellation; commits reject stale saved-state revisions or runtime changes.
 
+Daemon status exposes `mutationQueue: {active: {purpose, startedAt} | null, queued}`. Operations lasting at least five seconds produce one diagnostic, including synchronous work that delayed the timer. Counters remain accurate across cancellation, errors and shutdown retries.
+
 CLI commands use `runtime-owner.ts` and `daemon-lifecycle.ts` for read-only discovery, management startup and API calls. A live but unverified daemon blocks competing startup and cannot be stopped by an unverified signal. CLI discovery uses the observed daemon port. The private browser handoff and startup diagnostics are the only incidental CLI files.
 
 | Module | Responsibility |
@@ -127,7 +129,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/profiles/:id/update` | POST | Control; download and save new content |
 | `/sash/profiles/:id` | PATCH / DELETE | Control; rename or remove |
 
-Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required; no absent flag is guessed from an old protocol. `?fresh=1` bypasses settled proxy inspection cache.
+Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required; no absent flag is guessed from an old protocol. Diagnostic Core probes share in-flight work and a 500ms cache bound to the owned Core generation. Safety decisions bypass settled Core observations. On status and proxy routes, `?fresh=1` requires control authentication and bypasses settled probe caches.
 
 Success bodies are resources; empty mutations return `204`. Errors use `{error: {code, message}}`. Unknown required fields or malformed successful payloads are rejected by the shared client. Raw settings editing and config reload routes do not exist.
 
