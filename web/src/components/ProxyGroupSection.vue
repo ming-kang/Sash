@@ -233,7 +233,7 @@ function delayFor(name: string): DelayDisplay {
 
 .pgroup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 240px);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: 8px 12px;
 }
 .node-card {
@@ -242,7 +242,7 @@ function delayFor(name: string): DelayDisplay {
   width: 100%;
   min-width: 0;
   min-height: 58px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -279,8 +279,8 @@ function delayFor(name: string): DelayDisplay {
   min-width: 0;
   min-height: 56px;
   flex-direction: column;
-  justify-content: center;
-  padding: 7px 7px 6px 14px;
+  justify-content: space-between;
+  padding: 8px 12px 4px 14px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -306,14 +306,17 @@ function delayFor(name: string): DelayDisplay {
 }
 .node-name {
   min-width: 0;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--text-primary);
   font-size: 16px;
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  white-space: normal;
 }
 .node-delay {
+  position: absolute;
+  right: 12px;
+  bottom: 4px;
   display: inline-flex;
   min-width: 62px;
   min-height: 30px;
@@ -321,7 +324,6 @@ function delayFor(name: string): DelayDisplay {
   justify-content: flex-end;
   align-self: center;
   gap: 4px;
-  margin-right: 12px;
   padding: 5px 0 5px 8px;
   border: 0;
   background: transparent;
@@ -363,7 +365,9 @@ function delayFor(name: string): DelayDisplay {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  min-height: 30px;
   margin-top: 2px;
+  padding-right: 78px;
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -402,7 +406,10 @@ function delayFor(name: string): DelayDisplay {
     min-height: 40px;
   }
   .pgroup-grid {
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  }
+  .node-sub {
+    min-height: 40px;
   }
 }
 
