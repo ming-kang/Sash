@@ -6,8 +6,6 @@ import {
   autostartContext,
 } from "./autostart/context.js";
 import { installationIssue } from "./autostart/installation.js";
-import { linuxAutostart } from "./autostart/linux.js";
-import { macAutostart } from "./autostart/macos.js";
 import { windowsAutostart } from "./autostart/windows.js";
 import type { AutostartStatus } from "./autostart-contract.js";
 import { errorMessage } from "./error-utils.js";
@@ -15,8 +13,7 @@ import { StateMutationQueue } from "./state-lock.js";
 
 export interface AutostartController {
   inspect(): Promise<AutostartStatus>;
-  /** Undefined toggles only an effective registration off; stale/disabled entries are repaired. */
-  set(enabled?: boolean): Promise<AutostartStatus>;
+  set(enabled: boolean): Promise<AutostartStatus>;
 }
 
 interface AutostartServiceOptions extends AutostartOptions {
@@ -26,7 +23,7 @@ interface AutostartServiceOptions extends AutostartOptions {
 
 export class AutostartUnavailableError extends Error {}
 
-/** One registration per OS user, serialized across CLI processes and the daemon. */
+/** One registration per OS user, serialized across daemon instances. */
 export class AutostartService implements AutostartController {
   private readonly context: AutostartContext;
   private readonly backend: AutostartBackend | undefined;
@@ -37,13 +34,7 @@ export class AutostartService implements AutostartController {
     this.context = autostartContext(options);
     this.backend =
       options.backend ??
-      (this.context.platform === "win32"
-        ? windowsAutostart(this.context)
-        : this.context.platform === "darwin"
-          ? macAutostart(this.context)
-          : this.context.platform === "linux"
-            ? linuxAutostart(this.context)
-            : undefined);
+      (this.context.platform === "win32" ? windowsAutostart(this.context) : undefined);
     this.queue = new StateMutationQueue(path.join(this.context.controlDir, "registration.lock"));
     this.checkInstallation = options.checkInstallation ?? installationIssue;
   }
@@ -72,19 +63,18 @@ export class AutostartService implements AutostartController {
     }
   }
 
-  async set(enabled?: boolean): Promise<AutostartStatus> {
+  async set(enabled: boolean): Promise<AutostartStatus> {
     const backend = this.backend;
     if (!backend) {
       throw new AutostartUnavailableError(`Autostart is not supported on ${this.context.platform}`);
     }
     return this.queue.run("configure autostart", async () => {
-      const next = enabled ?? (await backend.inspect()) !== "on";
-      if (next) {
+      if (enabled) {
         const issue = this.checkInstallation(this.context);
         if (issue) throw new AutostartUnavailableError(issue);
       }
-      await backend.set(next);
-      if (!next) {
+      await backend.set(enabled);
+      if (!enabled) {
         const issue = this.checkInstallation(this.context);
         return { state: "off", canEnable: issue === null, reason: issue };
       }

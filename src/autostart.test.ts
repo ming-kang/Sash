@@ -6,7 +6,7 @@ import { AutostartService } from "./autostart.js";
 import type { RegisteredAutostartState } from "./autostart-contract.js";
 
 describe("AutostartService", () => {
-  it("repairs stale and OS-disabled registrations and toggles only an effective entry off", async (t) => {
+  it("enables and repairs registrations using the explicit target state", async (t) => {
     const { options, ctx } = testAutostartContext(t, "win32");
     let state: RegisteredAutostartState = "off";
     const writes: boolean[] = [];
@@ -25,7 +25,7 @@ describe("AutostartService", () => {
     assert.equal(fs.existsSync(ctx.controlDir), false, "inspection must not write state");
     for (const initial of ["off", "stale", "disabled", "on"] as const) {
       state = initial;
-      const result = await service.set();
+      const result = await service.set(initial !== "on");
       assert.equal(result.state, initial === "on" ? "off" : "on");
     }
     assert.deepEqual(writes, [true, true, true, false]);
@@ -48,14 +48,13 @@ describe("AutostartService", () => {
       },
     });
     assert.equal((await service.inspect()).state, "unknown");
-    await assert.rejects(service.set(), /registry denied/);
     await assert.rejects(service.set(true), /Source checkouts/);
     assert.equal((await service.set(false)).state, "off");
     assert.equal(disabled, true);
   });
 
-  it("serializes toggles across controllers sharing the same OS user", async (t) => {
-    const { options } = testAutostartContext(t, "linux");
+  it("serializes writes across controllers sharing the same OS user", async (t) => {
+    const { options } = testAutostartContext(t, "win32");
     let state: RegisteredAutostartState = "off";
     const writes: boolean[] = [];
     const backend = {
@@ -68,13 +67,13 @@ describe("AutostartService", () => {
     };
     const first = new AutostartService({ ...options, backend, checkInstallation: () => null });
     const second = new AutostartService({ ...options, backend, checkInstallation: () => null });
-    await Promise.all([first.set(), second.set()]);
+    await Promise.all([first.set(true), second.set(false)]);
     assert.deepEqual(writes, [true, false]);
     assert.equal(state, "off");
   });
 
   it("does not claim success when the OS ignores a registration", async (t) => {
-    const { options } = testAutostartContext(t, "linux");
+    const { options } = testAutostartContext(t, "win32");
     const service = new AutostartService({
       ...options,
       checkInstallation: () => null,
@@ -84,9 +83,11 @@ describe("AutostartService", () => {
   });
 
   it("reports unsupported systems without invoking any OS helper", async (t) => {
-    const { options } = testAutostartContext(t, "freebsd");
-    const service = new AutostartService(options);
-    assert.equal((await service.inspect()).state, "unsupported");
-    await assert.rejects(service.set(true), /not supported/);
+    for (const platform of ["darwin", "linux", "freebsd"] as const) {
+      const { options } = testAutostartContext(t, platform);
+      const service = new AutostartService(options);
+      assert.equal((await service.inspect()).state, "unsupported");
+      await assert.rejects(service.set(true), /not supported/);
+    }
   });
 });

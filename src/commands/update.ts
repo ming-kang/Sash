@@ -1,10 +1,10 @@
-import { type CoreUpdateServiceDeps, runCoreUpdate } from "../core-update-service.js";
+import { log } from "../log.js";
+import { ensureManagement } from "../runtime-owner.js";
 import { runtimeContext } from "./shared.js";
 
-/** `sash update` upgrades the managed Core binary with rollback. */
-export async function runUpdate(
-  opts: { version?: string; force?: boolean } = {},
-  deps: CoreUpdateServiceDeps = {},
-): Promise<void> {
-  await runCoreUpdate(runtimeContext(), opts, deps);
+export async function runUpdate(opts: { version?: string } = {}): Promise<void> {
+  const owner = await ensureManagement(runtimeContext());
+  log.info("downloading and verifying Core; the dashboard remains available");
+  const result = await owner.client.updateCore(opts.version);
+  log.ok(`core updated to ${result.version}`);
 }

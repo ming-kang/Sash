@@ -14,6 +14,15 @@ export class HttpError extends Error {
 
 export type JsonObject = Record<string, unknown>;
 
+export function requiredParam(
+  req: { params: Record<string, string | undefined> },
+  name: string,
+): string {
+  const value = req.params[name];
+  if (value === undefined) throw new Error(`Missing route parameter: ${name}`);
+  return value;
+}
+
 export function parseJsonBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];

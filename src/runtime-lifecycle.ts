@@ -1,269 +1,163 @@
+import { MihomoApi } from "./api.js";
 import type { CoreStartResult } from "./contracts.js";
+import type { StagedCore } from "./core.js";
+import {
+  type CoreUpdateOptions,
+  type CoreUpdateResult,
+  commitCoreUpdate,
+  readCoreUpdateTransaction,
+  recoverCoreUpdateTransaction,
+} from "./core-update.js";
+import { atomicWriteFileSync } from "./fs-atomic.js";
+import type { GeneratedConfig } from "./mihomo-config.js";
+import type { SashLayout } from "./paths.js";
+import { recoverBinaryUnlockProbe } from "./process.js";
 import type { SashSettings } from "./settings.js";
-import type { CoreOwnershipSnapshot, CoreSupervisor } from "./supervisor.js";
+import type { CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
 
-export type RuntimePhase =
-  | "stopped"
-  | "starting"
-  | "running"
-  | "stopping"
-  | "restarting"
-  | "failed";
-
-export interface CoreUpdateStartupController {
-  pending(): boolean;
-  completeAfterStart(): void;
-  rollbackAfterStartFailure(): { coreVersion: string } | null | undefined;
+export interface RuntimeConfiguration {
+  generated: GeneratedConfig;
+  settings: SashSettings;
+  profile: { id: string; revision: number; name: string; url: string } | null;
 }
-
 export interface RuntimeLifecycleOptions {
+  controllerProbe?: (settings: SashSettings) => Promise<boolean>;
+  verifyExecutable?: CoreUpdateOptions["verifyExecutable"];
+  layout: SashLayout;
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
   settings: () => SashSettings;
-  coreUpdate?: CoreUpdateStartupController;
 }
 
-export interface RuntimeLifecycleState {
-  phase: RuntimePhase;
-  generation: number;
-}
-
-type StartResult = Omit<CoreStartResult, "ok">;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Serializes Core and system-proxy transitions behind one desired-runtime
- * boundary. The proxy is restored before a deliberate stop and is only
- * applied after the Core has passed its readiness probe.
- */
+/** All calls enter the daemon's single mutation queue. This class owns Core and proxy order. */
 export class RuntimeLifecycle {
-  private readonly supervisor: CoreSupervisor;
-  private readonly systemProxy: SystemProxyController;
-  private readonly getSettings: () => SashSettings;
-  private readonly coreUpdate?: CoreUpdateStartupController;
-  private operationQueue: Promise<void> = Promise.resolve();
-  private phase: RuntimePhase;
-  private generation = 0;
+  private runtimeRevision = 0;
+  private applied: RuntimeConfiguration | undefined;
+  private runtimeSettings: SashSettings;
 
-  constructor(options: RuntimeLifecycleOptions) {
-    this.supervisor = options.supervisor;
-    this.systemProxy = options.systemProxy;
-    this.getSettings = options.settings;
-    this.coreUpdate = options.coreUpdate;
-    this.phase = this.supervisor.isRunning() ? "running" : "stopped";
+  constructor(private readonly options: RuntimeLifecycleOptions) {
+    this.runtimeSettings = { ...options.settings() };
   }
 
-  state(): RuntimeLifecycleState {
-    return { phase: this.phase, generation: this.generation };
+  get revision(): number {
+    return this.runtimeRevision;
+  }
+  settings(): SashSettings {
+    return { ...this.runtimeSettings };
+  }
+  configuration(): RuntimeConfiguration | undefined {
+    return this.applied;
   }
 
-  start(prepare?: () => Promise<void>): Promise<StartResult> {
-    return this.enqueue(() => this.startUnlocked(prepare));
+  async recoverStartup(): Promise<void> {
+    await this.options.systemProxy.release();
+    await this.options.supervisor.cleanStaleCore();
+    if (readCoreUpdateTransaction(this.options.layout)) await this.requireVacantController();
+    recoverBinaryUnlockProbe(this.options.layout.coreExe);
+    recoverCoreUpdateTransaction(this.options.layout, this.options.verifyExecutable);
   }
 
-  stop(): Promise<void> {
-    return this.enqueue(() => this.stopUnlocked());
-  }
-
-  restart(prepare?: () => Promise<void>): Promise<StartResult> {
-    return this.enqueue(() => this.restartUnlocked(prepare));
-  }
-
-  reconcileSystemProxy(): Promise<void> {
-    return this.enqueue(() => this.reconcileSystemProxyUnlocked());
-  }
-
-  recoverStartup(): Promise<void> {
-    return this.enqueue(async () => {
-      await this.systemProxy.release();
-      this.phase = this.supervisor.isRunning() ? "running" : "stopped";
-    });
-  }
-
-  handleUnexpectedCoreExit(): Promise<void> {
-    return this.enqueue(async () => {
-      // The exit callback can be queued while a restart is already replacing
-      // that child. Never let a delayed callback tear down the new runtime.
-      if (this.supervisor.isRunning()) return;
-      this.generation++;
-      this.phase = "failed";
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await this.systemProxy.release();
-          this.phase = "stopped";
-          return;
-        } catch (err) {
-          lastError = err;
-          if (attempt < 2) await sleep(250 * (attempt + 1));
-        }
-      }
-      throw lastError;
-    });
-  }
-
-  close(): Promise<void> {
-    return this.enqueue(() => this.stopUnlocked());
-  }
-
-  private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
-    const next = this.operationQueue.then(operation, operation);
-    this.operationQueue = next.then(
-      () => undefined,
-      () => undefined,
-    );
-    return next;
-  }
-
-  private async startUnlocked(prepare?: () => Promise<void>): Promise<StartResult> {
-    if (this.supervisor.isRunning()) {
-      const status = await this.supervisor.status();
-      if (!status.pid) throw new Error("Core reports running without a process identifier");
-      if (!status.healthy) {
-        throw new Error(`Core process is running but unhealthy (PID=${status.pid})`);
-      }
-      this.coreUpdate?.completeAfterStart();
-      await this.reconcileSystemProxyUnlocked();
-      return {
-        pid: status.pid,
-        ...(status.version ? { version: status.version } : {}),
-        ...(status.tunActive !== undefined ? { tunActive: status.tunActive } : {}),
-      };
-    }
-
-    this.generation++;
-    this.phase = "starting";
-    let startAttempted = false;
-    try {
-      // A prior daemon may have crashed after taking over the OS proxy.
-      await this.systemProxy.release();
-      await prepare?.();
-      startAttempted = true;
-      const result = await this.supervisor.start();
-      this.coreUpdate?.completeAfterStart();
-      this.phase = "running";
-      await this.applyDesiredProxyUnlocked();
-      return result;
-    } catch (err) {
-      if (startAttempted && !this.supervisor.isRunning() && this.coreUpdate) {
-        let pending: boolean;
-        try {
-          pending = this.coreUpdate.pending();
-        } catch (inspectError) {
-          this.phase = "failed";
-          throw new Error(
-            `${(err as Error).message}; pending Core update inspection failed: ${(inspectError as Error).message}`,
-          );
-        }
-        if (pending) {
-          let previous: { coreVersion: string } | null | undefined;
-          try {
-            previous = this.coreUpdate.rollbackAfterStartFailure();
-            if (previous) {
-              await this.supervisor.start();
-              this.phase = "running";
-              await this.applyDesiredProxyUnlocked();
-            } else {
-              this.phase = "stopped";
-            }
-          } catch (rollbackError) {
-            this.phase = this.supervisor.isRunning() ? "running" : "failed";
-            throw new Error(
-              `${(err as Error).message}; Core update rollback failed: ${(rollbackError as Error).message}`,
-            );
-          }
-          const destination = previous ? ` to ${previous.coreVersion}` : "";
-          throw new Error(`${(err as Error).message}; Core update rolled back${destination}`);
-        }
-      }
-      this.phase = this.supervisor.isRunning() ? "running" : "failed";
-      throw err;
-    }
-  }
-
-  private async stopUnlocked(): Promise<void> {
-    this.generation++;
-    this.phase = "stopping";
-    try {
-      // Fail closed: never deliberately leave the OS proxy pointing at a Core
-      // that Sash is about to stop.
-      await this.systemProxy.release();
-      await this.supervisor.stop();
-      this.phase = "stopped";
-    } catch (err) {
-      this.phase = this.supervisor.isRunning() ? "running" : "failed";
-      throw err;
-    }
-  }
-
-  private async restartUnlocked(prepare?: () => Promise<void>): Promise<StartResult> {
-    this.generation++;
-    this.phase = "restarting";
-    try {
-      // Prepare and validate the candidate while the known-good runtime still
-      // exists, then restore the OS proxy before replacing that runtime.
-      await prepare?.();
-      await this.systemProxy.release();
-      const result = await this.supervisor.restart();
-      this.phase = "running";
-      await this.applyDesiredProxyUnlocked();
-      return result;
-    } catch (err) {
-      this.phase = this.supervisor.isRunning() ? "running" : "failed";
-      throw err;
-    }
-  }
-
-  private async reconcileSystemProxyUnlocked(): Promise<void> {
-    const settings = this.getSettings();
-    if (!settings.systemProxy) {
-      await this.systemProxy.release();
-      return;
-    }
-    await this.applyProxyToHealthyOwnedCoreUnlocked(settings.mixedPort);
-  }
-
-  private async applyDesiredProxyUnlocked(): Promise<void> {
-    const settings = this.getSettings();
-    if (!settings.systemProxy) return;
-    await this.applyProxyToHealthyOwnedCoreUnlocked(settings.mixedPort);
-  }
-
-  private async applyProxyToHealthyOwnedCoreUnlocked(port: number): Promise<void> {
-    const ownership = await this.requireHealthyOwnedCoreUnlocked();
-    await this.systemProxy.apply({ port });
-    const coreAfterApply = await this.supervisor.status();
-    if (coreAfterApply.running && coreAfterApply.healthy && this.supervisor.ownsCore(ownership)) {
-      return;
-    }
-
-    // Do not leave the OS pointing at a Core which exited or was replaced
-    // while its proxy settings were being applied.
-    try {
-      await this.systemProxy.release();
-    } catch (err) {
+  private async requireVacantController(): Promise<void> {
+    const reachable = this.options.controllerProbe
+      ? await this.options.controllerProbe(this.runtimeSettings)
+      : await new MihomoApi(
+          this.runtimeSettings.controller,
+          this.runtimeSettings.secret,
+        ).isReachable();
+    if (reachable)
       throw new Error(
-        `Core ownership was lost while applying the system proxy; proxy release also failed: ${(err as Error).message}`,
+        "An unowned Core controller is still active; refusing to replace its runtime",
       );
+  }
+
+  private startCore(): Promise<CoreStartResult> {
+    this.runtimeRevision += 1;
+    return this.options.supervisor.start();
+  }
+
+  /** Idempotent start for an already running Core; stopped starts go through Apply. */
+  async start(): Promise<CoreStartResult> {
+    const core = await this.options.supervisor.status();
+    if (!core.running || !core.healthy || !core.pid)
+      throw new Error("Core is no longer healthy; retry start");
+    await this.reconcileSystemProxy();
+    return { pid: core.pid, ...(core.version ? { version: core.version } : {}) };
+  }
+
+  async apply(configuration: RuntimeConfiguration): Promise<CoreStartResult> {
+    await this.stop();
+    await this.requireVacantController();
+    this.applied = undefined;
+    atomicWriteFileSync(this.options.layout.configFile, configuration.generated.yaml);
+    this.runtimeSettings = { ...configuration.settings };
+    const result = await this.startCore();
+    this.applied = configuration;
+    await this.reconcileSystemProxy();
+    return result;
+  }
+
+  async stop(): Promise<void> {
+    // A failed proxy release must leave a healthy owned Core available.
+    await this.options.systemProxy.release();
+    await this.options.supervisor.stop();
+    this.runtimeRevision += 1;
+  }
+
+  async reconcileSystemProxy(): Promise<void> {
+    if (!this.options.settings().systemProxy) {
+      await this.options.systemProxy.release();
+      return;
     }
+    const { supervisor, systemProxy } = this.options;
+    const owner = supervisor.ownedCoreSnapshot();
+    const core = await supervisor.status();
+    if (!owner || !core.running || !core.healthy || !supervisor.ownsCore(owner)) {
+      throw new Error("Cannot enable system proxy without a healthy owned Core");
+    }
+    await systemProxy.apply({ port: this.runtimeSettings.mixedPort });
+    const after = await supervisor.status();
+    if (after.running && after.healthy && supervisor.ownsCore(owner)) return;
+    await systemProxy.release();
     throw new Error("Core ownership was lost while applying the system proxy");
   }
 
-  private async requireHealthyOwnedCoreUnlocked(): Promise<CoreOwnershipSnapshot> {
-    const ownership = this.supervisor.ownedCoreSnapshot();
-    if (!ownership) throw new Error("Cannot enable system proxy: core is not running");
+  async update(staged: StagedCore, configuration: RuntimeConfiguration): Promise<CoreUpdateResult> {
+    const wasRunning = this.options.supervisor.isRunning();
+    if (!wasRunning) {
+      atomicWriteFileSync(this.options.layout.configFile, configuration.generated.yaml);
+      this.runtimeSettings = { ...configuration.settings };
+    }
+    return commitCoreUpdate({
+      layout: this.options.layout,
+      staged,
+      verifyExecutable: this.options.verifyExecutable,
+      runtime: {
+        wasRunning,
+        stop: async () => {
+          await this.stop();
+          await this.requireVacantController();
+        },
+        startAndVerify: async () => {
+          await this.startCore();
+          this.applied = configuration;
+        },
+        applySystemProxy: () => this.reconcileSystemProxy(),
+      },
+    });
+  }
 
-    const core = await this.supervisor.status();
-    if (!core.running || !core.healthy) {
-      throw new Error("Cannot enable system proxy: core is not healthy");
+  async handleUnexpectedCoreExit(): Promise<void> {
+    if (this.options.supervisor.isRunning()) return;
+    this.runtimeRevision += 1;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await this.options.systemProxy.release();
+        return;
+      } catch (error) {
+        if (attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
     }
-    if (!this.supervisor.ownsCore(ownership)) {
-      throw new Error("Cannot enable system proxy: core ownership changed during health check");
-    }
-    return ownership;
   }
 }

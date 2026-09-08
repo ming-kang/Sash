@@ -1,13 +1,13 @@
 # Automatic Startup
 
-Sash can start in the background when the current user signs in. Enable it from
+Sash can start in the background when the current Windows user signs in. Enable it from
 **Settings → Start at Login** in the dashboard or from the CLI:
 
 ```sh
 sash auto on       # enable or repair the startup entry
 sash auto off      # remove the startup entry
 sash auto status   # inspect without changing anything
-sash auto          # turn an effective entry off; otherwise enable or repair it
+sash auto          # inspect status
 ```
 
 Changing automatic startup affects future logins. Use `sash start` and `sash stop`
@@ -44,18 +44,11 @@ boolean in `sash.json`.
 | Platform | Registration | When it runs |
 | :--- | :--- | :--- |
 | Windows | `Sash` value in the current user's `Run` registry key; hidden WScript launcher | User sign-in, without a console window |
-| macOS | `~/Library/LaunchAgents/com.astralyn.sash.plist` | Graphical user login |
-| Linux | `$XDG_CONFIG_HOME/systemd/user/sash.service`, defaulting to `~/.config/systemd/user/sash.service` | Start of the systemd user session |
+Other platforms report startup integration as unsupported.
 
-Linux requires systemd user services. To start them before a login on a headless
-machine, enable lingering for the current user:
-
-```sh
-loginctl enable-linger
-```
-
-Sash does not install a privileged system service. Registering or removing startup
-does not change system-proxy settings, reload the Core, or stop a running process.
+The daemon performs registration changes. If it is stopped, `sash auto on/off`
+starts management first, without starting Core. Registration does not require a
+privileged system service or restart the current Core.
 
 ## Status and Diagnostics
 
@@ -106,6 +99,3 @@ If Sash has already been uninstalled, remove its startup entry manually:
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` and, if present,
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`.
   Then remove `%LOCALAPPDATA%\Sash\autostart\start.vbs`.
-- macOS: remove `~/Library/LaunchAgents/com.astralyn.sash.plist`.
-- Linux: run `systemctl --user disable sash.service`, then remove
-  `$XDG_CONFIG_HOME/systemd/user/sash.service` (default `~/.config/systemd/user/sash.service`).

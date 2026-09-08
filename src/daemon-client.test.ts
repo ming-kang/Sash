@@ -4,22 +4,21 @@ import { describe, it } from "node:test";
 import { SashDaemonClient } from "./daemon-client.js";
 
 describe("SashDaemonClient mutation requests", () => {
-  it("returns the typed maintenance shutdown snapshot", async () => {
+  it("authenticates daemon shutdown", async () => {
     let authorization: string | undefined;
     const server = http.createServer((req, res) => {
       authorization = req.headers.authorization;
       assert.equal(req.method, "POST");
       assert.equal(req.url, "/sash/daemon/shutdown");
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ coreWasRunning: true }));
+      res.writeHead(204);
+      res.end();
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
 
     try {
-      const result = await new SashDaemonClient(port, "maintenance-secret").maintenanceShutdown();
-      assert.deepEqual(result, { coreWasRunning: true });
+      await new SashDaemonClient(port, "maintenance-secret").shutdown();
       assert.equal(authorization, "Bearer maintenance-secret");
     } finally {
       server.closeAllConnections();

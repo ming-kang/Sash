@@ -37,8 +37,6 @@ export const DEFAULT_BYPASS_LIST = [
 
 export const SYSTEM_PROXY_SNAPSHOT_VERSION = 1 as const;
 
-export type SystemProxyPlatform = "win32" | "darwin" | "linux";
-
 /** Registry values use null to represent a value that did not exist. */
 export interface WindowsSystemProxySnapshot {
   version: typeof SYSTEM_PROXY_SNAPSHOT_VERSION;
@@ -50,55 +48,8 @@ export interface WindowsSystemProxySnapshot {
   autoDetect: number | null;
 }
 
-export interface DarwinProxySetting {
-  enabled: boolean;
-  server: string;
-  port: number;
-  authenticated: boolean;
-}
-
-export interface DarwinAutoProxySetting {
-  enabled: boolean;
-  url: string;
-}
-
-export interface DarwinServiceProxySnapshot {
-  service: string;
-  web: DarwinProxySetting;
-  secureWeb: DarwinProxySetting;
-  socks: DarwinProxySetting;
-  auto: DarwinAutoProxySetting;
-}
-
-export interface DarwinSystemProxySnapshot {
-  version: typeof SYSTEM_PROXY_SNAPSHOT_VERSION;
-  platform: "darwin";
-  services: DarwinServiceProxySnapshot[];
-}
-
-export type LinuxProxyMode = "none" | "manual" | "auto";
-
-export interface LinuxProxyEndpoint {
-  host: string;
-  port: number;
-}
-
-export interface LinuxSystemProxySnapshot {
-  version: typeof SYSTEM_PROXY_SNAPSHOT_VERSION;
-  platform: "linux";
-  mode: LinuxProxyMode;
-  autoConfigUrl: string;
-  httpUseAuthentication: boolean;
-  http: LinuxProxyEndpoint;
-  https: LinuxProxyEndpoint;
-  socks: LinuxProxyEndpoint;
-}
-
 /** A JSON-serializable, platform-discriminated snapshot of managed proxy values. */
-export type SystemProxySnapshot =
-  | WindowsSystemProxySnapshot
-  | DarwinSystemProxySnapshot
-  | LinuxSystemProxySnapshot;
+export type SystemProxySnapshot = WindowsSystemProxySnapshot;
 
 /**
  * Low-level backend. OS capture and apply are asynchronous; pure snapshot

@@ -80,6 +80,7 @@ export interface FetchResponse {
 }
 
 export interface FetchOptions {
+  signal?: AbortSignal;
   /** Total attempts including the first. The default is method-aware. */
   attempts?: number;
   /** Per-attempt time to receive response headers. Default 30 seconds. */
@@ -151,6 +152,7 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
   );
   const deadlineMs = positiveTimeout(opts.deadlineMs, 60_000, "deadlineMs");
   const deadline = new AbortController();
+  const signal = opts.signal ? AbortSignal.any([deadline.signal, opts.signal]) : deadline.signal;
   const deadlineTimer = setTimeout(() => {
     deadline.abort(new Error(`HTTP request deadline exceeded after ${deadlineMs}ms`));
   }, deadlineMs);
@@ -173,7 +175,7 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
           body: opts.body,
           headersTimeout: headersTimeoutMs,
           bodyTimeout: bodyInactivityTimeoutMs,
-          signal: deadline.signal,
+          signal,
           dispatcher: pickDispatcher(opts),
         });
         if (RETRYABLE_STATUS.has(res.statusCode) && attempt < attempts) {
@@ -228,12 +230,9 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
         };
       } catch (err) {
         lastErr = err;
-        if (deadline.signal.aborted || attempt === attempts) break;
-        await sleep(
-          Math.min(4_000, 300 * 2 ** (attempt - 1)) + Math.random() * 200,
-          deadline.signal,
-        );
-        if (deadline.signal.aborted) break;
+        if (signal.aborted || attempt === attempts) break;
+        await sleep(Math.min(4_000, 300 * 2 ** (attempt - 1)) + Math.random() * 200, signal);
+        if (signal.aborted) break;
       }
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
@@ -254,6 +253,7 @@ function abortResponseBody(body: UndiciResponseBody): void {
 }
 
 export interface DownloadOptions {
+  signal?: AbortSignal;
   stallMs?: number;
   /** Absolute budget across redirects, headers, and the complete body. Default 15 minutes. */
   deadlineMs?: number;
@@ -298,6 +298,7 @@ export async function downloadToFile(
   const deadlineMs = positiveTimeout(opts.deadlineMs, 15 * 60_000, "deadlineMs");
   const maxRedirects = 5;
   const deadline = new AbortController();
+  const signal = opts.signal ? AbortSignal.any([deadline.signal, opts.signal]) : deadline.signal;
   const deadlineTimer = setTimeout(() => {
     deadline.abort(new Error(`Download deadline exceeded after ${deadlineMs}ms`));
   }, deadlineMs);
@@ -314,7 +315,7 @@ export async function downloadToFile(
         headers: { "user-agent": USER_AGENT, ...opts.headers },
         headersTimeout: 30_000,
         bodyTimeout: stallMs,
-        signal: deadline.signal,
+        signal,
         dispatcher,
       });
       const isRedirect =

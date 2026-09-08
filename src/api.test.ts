@@ -50,38 +50,10 @@ describe("MihomoApi", () => {
     }
   });
 
-  it("reads the actual TUN runtime state and rejects malformed config responses", async () => {
-    let response: unknown = { tun: { enable: true } };
-    const server = http.createServer((req, res) => {
-      if (req.url === "/configs") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(response));
-        return;
-      }
-      res.writeHead(404);
-      res.end();
-    });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const addr = server.address();
-    const port = typeof addr === "object" && addr ? addr.port : 0;
-
-    try {
-      const api = new MihomoApi(`127.0.0.1:${port}`, "");
-      assert.equal(await api.getTunActive(), true);
-      response = { tun: { enable: false } };
-      assert.equal(await api.getTunActive(), false);
-      response = { tun: { enable: "false" } };
-      await assert.rejects(api.getTunActive(), /missing boolean tun\.enable/);
-    } finally {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
-
-  it("uses the upstream force query and drains a successful reload response", async () => {
+  it("changes mode through the controller and drains its response", async () => {
     let requestBody = "";
     const server = http.createServer((req, res) => {
-      if (req.method === "PUT" && req.url === "/configs?force=true") {
+      if (req.method === "PATCH" && req.url === "/configs") {
         req.setEncoding("utf8");
         req.on("data", (chunk: string) => {
           requestBody += chunk;
@@ -102,9 +74,9 @@ describe("MihomoApi", () => {
     try {
       const api = new MihomoApi(`127.0.0.1:${port}`, "");
       const started = Date.now();
-      await api.reloadConfig("/tmp/config.yaml");
+      await api.setMode("rule");
       assert.ok(Date.now() - started >= 40, "reload resolved before its response body was drained");
-      assert.deepEqual(JSON.parse(requestBody), { path: "/tmp/config.yaml" });
+      assert.deepEqual(JSON.parse(requestBody), { mode: "rule" });
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

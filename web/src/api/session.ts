@@ -11,6 +11,7 @@ let credential: WebSessionInfo | null = null;
 let daemonStartedAt: string | null = null;
 let generation = 0;
 let pendingExchange: Promise<WebSessionInfo> | null = null;
+let initialized = false;
 
 export const sessionReady = ref(false);
 
@@ -46,11 +47,26 @@ function takeBootstrapToken(): string | null {
 }
 
 export const webSession = {
+  initialized: (): boolean =>
+    initialized && !(typeof window !== "undefined" && /(?:^#|&)boot=/.test(window.location.hash)),
+  markDisconnected(): void {
+    initialized = false;
+  },
+  matches(bootId: string): boolean {
+    if (credential?.daemonToken === bootId) return true;
+    if (credential) {
+      generation += 1;
+      setCredential(null);
+      initialized = false;
+    }
+    return false;
+  },
   token: (): string => credential?.token ?? "",
   generation: (): number => generation,
   startedAt: (): string | null => daemonStartedAt,
 
   clear(): void {
+    initialized = false;
     generation += 1;
     pendingExchange = null;
     daemonStartedAt = null;
@@ -78,12 +94,14 @@ export const webSession = {
       if (exchange) candidate = await exchange.catch(() => null);
       const health = await client.health();
       if (current()) {
+        initialized = true;
         setCredential(candidate?.daemonToken === health.token ? candidate : null);
         daemonStartedAt = health.startedAt;
       }
       return health;
     } catch (error) {
       if (current()) {
+        initialized = false;
         setCredential(null);
         daemonStartedAt = null;
       }

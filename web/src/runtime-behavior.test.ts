@@ -1,36 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Window as HappyWindow } from "happy-dom";
-import type { SashStatus } from "./types/index.js";
-
-function healthyStatus(): SashStatus {
-  return {
-    daemon: { pid: 100, startedAt: "2026-01-01T00:00:00.000Z", port: 19090 },
-    revisions: { profiles: 0 },
-    core: {
-      running: true,
-      healthy: true,
-      pid: 200,
-      startedAt: "2026-01-01T00:00:01.000Z",
-    },
-    systemProxy: {
-      desired: false,
-      applied: false,
-      actual: { supported: true, enabled: false },
-      appliedKnown: true,
-      stateKnown: true,
-    },
-    settings: {
-      mixedPort: 17890,
-      controller: "127.0.0.1:9090",
-      tun: false,
-      allowLan: false,
-      daemonPort: 19090,
-      systemProxy: false,
-    },
-    activeProfile: null,
-  };
-}
+import { testStatus as healthyStatus } from "../../src/test-state.test.js";
 
 describe("minimal Vue behavior harness", () => {
   it("renders reactive daemon and Core snapshot notice transitions", async () => {
@@ -62,8 +33,8 @@ describe("minimal Vue behavior harness", () => {
     const original = {
       status: store.status,
       daemonOnline: store.daemonOnline,
-      coreSnapshotAvailable: store.coreSnapshotAvailable,
-      coreSnapshotError: store.coreSnapshotError,
+      resourceLoaded: store.resourceLoaded,
+      resourceErrors: store.resourceErrors,
     };
     const host = window.document.createElement("div");
     window.document.body.append(host);
@@ -84,24 +55,24 @@ describe("minimal Vue behavior harness", () => {
 
       store.status = healthyStatus();
       store.daemonOnline = true;
-      store.coreSnapshotAvailable = false;
-      store.coreSnapshotError = "HTTP 502";
+      store.resourceLoaded = {};
+      store.resourceErrors = { configs: "HTTP 502" };
       await nextTick();
       assert.equal(host.textContent, "coreUnavailable");
 
-      store.coreSnapshotAvailable = true;
+      store.resourceLoaded = { configs: true };
       await nextTick();
       assert.equal(host.textContent, "coreDegraded");
 
-      store.coreSnapshotError = null;
+      store.resourceErrors = {};
       await nextTick();
       assert.equal(host.textContent, "none");
     } finally {
       app.unmount();
       store.status = original.status;
       store.daemonOnline = original.daemonOnline;
-      store.coreSnapshotAvailable = original.coreSnapshotAvailable;
-      store.coreSnapshotError = original.coreSnapshotError;
+      store.resourceLoaded = original.resourceLoaded;
+      store.resourceErrors = original.resourceErrors;
       await window.close();
       for (const key of globalKeys) {
         const saved = previous.get(key);

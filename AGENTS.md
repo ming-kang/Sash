@@ -12,7 +12,9 @@
 Sash is a strict TypeScript ESM CLI (Node.js >= 24). Entry point: `src/cli.ts`.
 
 - `src/commands/` — one module per command group; thin wiring only, no business logic.
-- `src/` root modules — `paths.ts` (data dir layout), `settings.ts` (`sash.json`), `core.ts` (core download/install), `webui.ts` (dashboard asset path resolution), `mihomo-config.ts` (config.yaml generation), `process.ts` (daemon lifecycle, PID identity), `api.ts` (external-controller client), `http.ts` / `github.ts` (networking, mirrors), `fs-atomic.ts`.
+- `src/daemon/app.ts` and `context.ts` — the sole application writer and its in-memory mutation queue; CLI commands discover/start the daemon and call its API.
+- `src/` root modules — `app-state.ts` (atomic `sash.json` manifest), `settings.ts` (settings validation), `profile-service.ts` / `profiles.ts` (saved profiles), `runtime-lifecycle.ts` (explicit Apply, Core and proxy order), `core.ts` / `core-update.ts` (download and binary rollback), `paths.ts`, `webui.ts`, `mihomo-config.ts` (generated `runtime/config.yaml`), `process.ts` (PID identity), `api.ts` (direct controller client), `http.ts` / `github.ts` (remote downloads), `fs-atomic.ts`.
+- `src/sysproxy/` and `src/autostart/` — Windows desktop integration. Old state formats, TUN product fields and non-Windows desktop backends are outside this branch's scope.
 - Tests live beside their module as `*.test.ts`. `dist/` is generated; never edit it manually.
 
 ## Code Quality

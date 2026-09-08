@@ -3,11 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import {
-  validateCoreConfigText,
-  validateCoreConfigTextWithExecutable,
-} from "./core-config-validation.js";
+import { validateCoreConfig } from "./core-config-validation.js";
 import { type SashLayout, sashLayout } from "./paths.js";
+import { deferred } from "./test-state.test.js";
 
 describe("Core config validation", () => {
   let tmpDir: string;
@@ -26,11 +24,13 @@ describe("Core config validation", () => {
 
   it("tests an isolated candidate with the installed Core and removes it afterward", async () => {
     let candidate = "";
-    await validateCoreConfigText("rules:\n  - MATCH,DIRECT\n", layout, (executable, args) => {
-      assert.equal(executable, layout.coreExe);
-      assert.deepEqual(args.slice(0, 4), ["-t", "-d", layout.root, "-f"]);
-      candidate = args[4] ?? "";
-      assert.equal(fs.readFileSync(candidate, "utf8"), "rules:\n  - MATCH,DIRECT\n");
+    await validateCoreConfig(layout.coreExe, "rules:\n  - MATCH,DIRECT\n", layout, {
+      runner: (executable, args) => {
+        assert.equal(executable, layout.coreExe);
+        assert.deepEqual(args.slice(0, 4), ["-t", "-d", layout.root, "-f"]);
+        candidate = args[4] ?? "";
+        assert.equal(fs.readFileSync(candidate, "utf8"), "rules:\n  - MATCH,DIRECT\n");
+      },
     });
 
     assert.ok(candidate);
@@ -42,16 +42,13 @@ describe("Core config validation", () => {
     fs.writeFileSync(staged, "staged");
     let candidate = "";
 
-    await validateCoreConfigTextWithExecutable(
-      staged,
-      "rules:\n  - MATCH,DIRECT\n",
-      layout,
-      (executable, args) => {
+    await validateCoreConfig(staged, "rules:\n  - MATCH,DIRECT\n", layout, {
+      runner: (executable, args) => {
         assert.equal(executable, staged);
         candidate = args[4] ?? "";
         assert.equal(fs.readFileSync(candidate, "utf8"), "rules:\n  - MATCH,DIRECT\n");
       },
-    );
+    });
 
     assert.ok(candidate);
     assert.equal(fs.existsSync(candidate), false);
@@ -61,11 +58,13 @@ describe("Core config validation", () => {
     let candidate = "";
     await assert.rejects(
       () =>
-        validateCoreConfigText("rules: invalid\n", layout, (_executable, args) => {
-          candidate = args[4] ?? "";
-          throw Object.assign(new Error("command failed"), {
-            stderr: Buffer.from("invalid rule target"),
-          });
+        validateCoreConfig(layout.coreExe, "rules: invalid\n", layout, {
+          runner: (_executable, args) => {
+            candidate = args[4] ?? "";
+            throw Object.assign(new Error("command failed"), {
+              stderr: Buffer.from("invalid rule target"),
+            });
+          },
         }),
       /Core rejected generated configuration: invalid rule target/,
     );
@@ -76,8 +75,29 @@ describe("Core config validation", () => {
   it("fails closed when the installed Core is missing", async () => {
     fs.rmSync(layout.coreExe);
     await assert.rejects(
-      () => validateCoreConfigText("rules: []\n", layout),
+      () => validateCoreConfig(layout.coreExe, "rules: []\n", layout),
       /Core executable is missing/,
     );
+  });
+
+  it("cancels validation and removes its private candidate", async () => {
+    const entered = deferred();
+    const controller = new AbortController();
+    const reason = new Error("stop requested");
+    let candidate = "";
+    const validating = validateCoreConfig(layout.coreExe, "rules: []\n", layout, {
+      signal: controller.signal,
+      runner: async (_executable, args, signal) => {
+        candidate = args[4] ?? "";
+        entered.resolve();
+        await new Promise<void>((_resolve, reject) =>
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
+        );
+      },
+    });
+    await entered.promise;
+    controller.abort(reason);
+    await assert.rejects(validating, (error) => error === reason);
+    assert.equal(fs.existsSync(candidate), false);
   });
 });

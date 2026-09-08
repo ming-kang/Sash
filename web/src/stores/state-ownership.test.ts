@@ -1,20 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { testStatus } from "../../../src/test-state.test.js";
 import type { SashStatus } from "../types/index.js";
 import {
   canSetSystemProxyTarget,
   clearCoreOwnedState,
   isCommittedDraftDirty,
-  needsRecoveryRefresh,
   parseLogFrame,
   parseTrafficFrame,
   RequestGenerations,
   reconcileCommittedDraft,
   resolvedProxyDelay,
-  runProfileMutationSequence,
   runtimeNoticeKind,
   runtimeOwnerKey,
-  syncCommittedAllowLan,
 } from "./state-ownership.js";
 
 function status(
@@ -24,18 +22,24 @@ function status(
     healthy?: boolean;
     pid?: number;
     profileRevision?: number;
+    runtimeRevision?: number;
     desiredProxy?: boolean;
     appliedProxy?: boolean;
     actualProxy?: boolean;
   } = {},
 ): SashStatus {
   return {
+    ...testStatus(),
     daemon: {
       pid: 100,
+      bootId: overrides.daemonStartedAt ?? "test-boot",
       startedAt: overrides.daemonStartedAt ?? "2026-01-01T00:00:00.000Z",
       port: 19090,
     },
-    revisions: { profiles: overrides.profileRevision ?? 0 },
+    revisions: {
+      profiles: overrides.profileRevision ?? 0,
+      runtime: overrides.runtimeRevision ?? 1,
+    },
     core: {
       running: overrides.running ?? true,
       healthy: overrides.healthy ?? true,
@@ -52,7 +56,6 @@ function status(
     settings: {
       mixedPort: 17890,
       controller: "127.0.0.1:9090",
-      tun: false,
       allowLan: false,
       daemonPort: 19090,
       systemProxy: false,
@@ -120,13 +123,13 @@ describe("frontend state ownership helpers", () => {
   it("separates runtime ownership from profile snapshot revisions", () => {
     const current = status();
     const revised = status({ profileRevision: 1 });
-    assert.equal(needsRecoveryRefresh(null, current), true);
-    assert.equal(needsRecoveryRefresh(status({ running: false, healthy: false }), current), true);
-    assert.equal(needsRecoveryRefresh(current, status()), false);
-    assert.equal(needsRecoveryRefresh(current, status({ daemonStartedAt: "later" })), true);
-    assert.equal(needsRecoveryRefresh(current, status({ pid: 201 })), true);
-    assert.equal(needsRecoveryRefresh(current, revised), true);
     assert.equal(runtimeOwnerKey(current), runtimeOwnerKey(revised));
+    assert.notEqual(runtimeOwnerKey(current), runtimeOwnerKey(status({ runtimeRevision: 2 })));
+    assert.notEqual(
+      runtimeOwnerKey(current),
+      runtimeOwnerKey(status({ daemonStartedAt: "new-boot" })),
+    );
+    assert.equal(runtimeOwnerKey(status({ running: false })), null);
   });
 
   it("keeps a manual delay across normal proxy snapshot replacement", () => {
@@ -151,15 +154,6 @@ describe("frontend state ownership helpers", () => {
     assert.equal(resolvedProxyDelay("node", initial, manual), 42);
     assert.equal(resolvedProxyDelay("node", polled, manual), 42);
     assert.equal(resolvedProxyDelay("node", polled, {}), 900);
-  });
-
-  it("synchronizes a successfully committed settings toggle immediately", () => {
-    const previous = status();
-    const next = syncCommittedAllowLan(previous, true);
-
-    assert.equal(previous.settings.allowLan, false);
-    assert.equal(next?.settings.allowLan, true);
-    assert.equal(next?.settings.tun, false);
   });
 
   it("derives settings dirty state from the committed value and supports revert/reset", () => {
@@ -189,29 +183,6 @@ describe("frontend state ownership helpers", () => {
     });
     assert.equal(parseLogFrame({ type: "fatal", payload: "bad" }), null);
     assert.equal(parseLogFrame({ type: "info", payload: 12 }), null);
-  });
-
-  it("refreshes profiles after a single-profile update failure before rethrowing", async () => {
-    const order: string[] = [];
-    const failure = new Error("download failed");
-
-    await assert.rejects(
-      runProfileMutationSequence(
-        async () => {
-          order.push("mutation");
-          throw failure;
-        },
-        async () => {
-          order.push("refresh-profiles");
-        },
-        async () => {
-          order.push("refresh-runtime");
-        },
-      ),
-      failure,
-    );
-
-    assert.deepEqual(order, ["mutation", "refresh-profiles"]);
   });
 
   it("allows proxy disable recovery while stopped but requires health for enable", () => {

@@ -1,214 +1,129 @@
 # Sash User & Operations Guide
 
-Sash is a lightweight command-line companion and web dashboard for managing a rule-based network core.
+Sash is a lightweight network toolbox for developers, learning and research, with a CLI and built-in web dashboard. Windows is the primary desktop platform.
 
----
-
-## 1. Quick Start
+## Start and configure
 
 ```sh
-sash start
-sash web        # open the dashboard: download a subscription, pick nodes, toggle the system proxy
+sash web         # start management and authorize the browser; Core stays stopped
+sash start       # install Core if missing, apply saved configuration and start
 sash status
+sash stop        # restore the prior proxy, stop Core and exit the daemon
 ```
 
-Profiles, the system proxy and all runtime settings are managed from the web dashboard; the CLI covers lifecycle, login startup, logs and upgrades.
+In **Profiles**, import YAML or download a remote profile, then select it. Selection, content edits, downloads and scheduled updates are saved without changing the running Core. Click **Apply configuration** to use the saved configuration. This restarts Core and briefly interrupts connections. Overview shows the profile and port actually applied.
 
----
+If validation fails, the previous Core keeps running. If starting the new configuration fails, your saved edits remain and the dashboard stays available for correction. There is no automatic rollback of saved edits.
 
-## 2. CLI Command Reference
+## Commands
 
-### Lifecycle Management
+| Command | Behavior |
+| --- | --- |
+| `sash start` | Ensure management exists; start with saved configuration if stopped. Repeated starts check the running Core and proxy intent. |
+| `sash restart` | Apply saved configuration and restart Core; keep the daemon and browser sessions. |
+| `sash stop` | Restore proxy, stop Core and exit management. Report an error if safe shutdown cannot be verified. |
+| `sash status [--json]` | Read runtime, endpoint, saved profile, proxy and autostart observations. Bare `sash` does the same. |
+| `sash web` | Start management if needed and authorize/open the dashboard. |
+| `sash web --no-open` | Start management and print its address without authorizing a browser. |
+| `sash update [--version TAG]` | Download, verify and install a Core release through the daemon. |
+| `sash auto [on\|off\|status]` | Set or inspect Windows login startup. No argument means status. |
+| `sash logs [-n N] [-f] [--errors] [--daemon]` | Read Core or daemon logs; follow waits for creation and handles rotation. |
+| `sash logs --startup [-n N] [-f]` | Read login attempts, including settings errors before daemon startup. |
+| `sash version` | Print the package version. |
 
-| Command | Description |
-| :--- | :--- |
-| `sash start` | Install missing components, ensure the background daemon is running, then reconcile/start the core. It is safe to repeat. |
-| `sash stop` | Restore the pre-Sash system proxy, stop the Core and shut down the daemon; exits with an error if safe shutdown cannot be verified. |
-| `sash restart` | Restart the whole runtime: the daemon exits through its maintenance boundary and a fresh daemon starts the core. |
-| `sash status [--json]` | Show daemon/core state, active profile, endpoints, automatic startup and system proxy state; incomplete observations exit with code 2. |
-| `sash auto [on\|off\|status]` | Toggle or explicitly set login startup; `status` only inspects the OS registration. |
-| `sash logs [-n N] [-f] [--errors] [--daemon]` | View core or daemon logs; `-f` follows new output. |
-| `sash logs --startup [-n N] [-f]` | View login startup attempts and failures, including settings errors before daemon startup. |
+WebUI **Stop Core** keeps the management process open. To reload updated Sash program code, use stop followed by start/web. `restart` only replaces Core.
 
-### Status JSON and exit codes
+## Browser access
 
-`sash status --json` emits the versioned `schemaVersion: 1` contract below. Unobservable runtime values are `null`; they are never changed to `false` merely because a query timed out.
+Run `sash web` as the same user and with the same `SASH_HOME` as the instance. A private local handoff authorizes the browser without printing credentials. It expires after 90 seconds and works once; rerun the command if needed.
 
-```json
-{
-  "schemaVersion": 1,
-  "complete": true,
-  "healthy": true,
-  "queryError": null,
-  "autostart": {
-    "state": "off",
-    "canEnable": true,
-    "reason": null
-  },
-  "daemon": {
-    "state": "healthy",
-    "running": true,
-    "healthy": true,
-    "pid": 1234,
-    "port": 19090
-  },
-  "core": {
-    "running": true,
-    "healthy": true,
-    "pid": 1235,
-    "version": "v1.19.30",
-    "installedVersion": "v1.19.30"
-  },
-  "systemProxy": {
-    "desired": false,
-    "daemonApplied": false,
-    "osObserved": {
-      "supported": true,
-      "enabled": false,
-      "server": null,
-      "details": null
-    }
-  },
-  "uiInstalled": true,
-  "endpoints": {
-    "mixedProxy": "127.0.0.1:7890",
-    "controller": "127.0.0.1:9090",
-    "daemonApi": "http://127.0.0.1:19090",
-    "dashboard": "http://127.0.0.1:19090/ui/"
-  },
-  "activeProfile": null,
-  "tun": {
-    "desired": false,
-    "active": false
-  },
-  "paths": {
-    "root": "<data directory>",
-    "config": "<data directory>/config.yaml"
-  }
-}
-```
+An authorized tab survives refresh and Core restarts/updates. A daemon restart needs a new authorization. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address displays connection instructions.
 
-`healthy` is the observed daemon/Core controller health and is `null` when daemon runtime status cannot be queried. `complete` covers observability of all contract fields; `queryError` explains an incomplete result. Exit codes are stable:
+## Settings and profiles
 
-| Exit code | Meaning |
-| :--- | :--- |
-| `0` | The status is complete, including a known stopped state. |
-| `2` | Status output was produced, but daemon/Core/OS state could not be fully observed. |
-| `1` | The command itself failed, for example because local state is corrupt. |
+The Settings page saves the mixed proxy port and LAN access for the next Apply. The system-proxy switch takes effect separately and requires a healthy Core to enable. A failed disable keeps the saved off intent; retry it after resolving the OS problem.
 
-Text output follows the same distinction: an unresponsive daemon is reported as unavailable, never with a success marker. `sash status` prints separate daemon, desired, daemon-applied and OS-observed proxy lines and uses exit code 2 when the daemon is alive but unresponsive.
+Remote profiles use the provider's update interval, defaulting to 24 hours. The daemon checks for due updates every 15 minutes. Updates save new content and indicate pending Apply. Identical content does not create a new content revision. Rename and reorder do not affect running data or latency results.
 
-### Log following
+The profile editor rejects a save if another edit changed its content revision. Reopen the current content before retrying. The raw application settings file has no online editor.
 
-`logs -f` behaves like a bounded `tail -F`: it waits when the selected file or log directory does not exist yet, follows appended bytes, restarts at byte zero after truncation or file replacement/rotation, and releases its watcher/timer on SIGINT or SIGTERM. `-n` accepts only canonical positive decimal integers such as `1` or `100`; zero, signs, whitespace, fractions, numeric prefixes and values above JavaScript's safe-integer limit are rejected.
+Login startup is managed through the OS registration, not a boolean in the settings file. Enabling it requires a direct global npm installation. See [Automatic Startup](./autostart.md).
 
-Sash does not blindly turn off an existing proxy. It stores a private ownership journal before takeover and restores only while managed OS values still match the original/Sash transition. If another application changes those values, Sash refuses to overwrite them. Windows and macOS include manual and automatic proxy state; Linux system-proxy automation currently requires GNOME `gsettings`.
+## State format and data
 
-### Web Dashboard
+This branch requires a new schema-2 manifest and provides no migration from older releases. Stop the old instance using its existing installation, keep any profile YAML you need, then use a fresh data directory and import those files normally. Old state is never silently overwritten.
 
-| Command | Description |
-| :--- | :--- |
-| `sash web` | Authorize this browser and open `http://127.0.0.1:19090/ui/`. |
-| `sash web --no-open` | Print the dashboard URL without opening or authorizing a browser. |
+`sash.json` contains `{schemaVersion: 2, revision, settings, profiles}`. `profiles` contains the saved `activeId` and metadata list. The following keys live inside `settings`:
 
-Run `sash web` as the user who runs Sash, with the same `SASH_HOME`. It uses a private local handoff to authorize the browser automatically. A bare dashboard address shows a read-only connection page; it cannot obtain control access from public health information. The handoff expires after 90 seconds and works once. If it expires before the browser opens, rerun the command. An authorized tab can be refreshed, but a daemon restart requires a new `sash web` authorization. Browser storage restrictions keep the session in memory only, so those browsers also require authorization after a page reload.
+| Key | Initial value | Meaning |
+| --- | --- | --- |
+| `mixedPort` | `7890` | HTTP/SOCKS mixed proxy port |
+| `allowLan` | `false` | Accept proxy traffic from other devices |
+| `systemProxy` | `false` | Desired Windows system-proxy state |
+| `controller` | `127.0.0.1:9090` | Internal loopback controller address |
+| `daemonPort` | `19090` | Management API and dashboard port |
+| `secret` | random | Private controller credential |
+| `daemonSecret` | random | Private CLI credential |
 
-### Profiles
+Controller/daemon addresses and credentials can be edited only while Sash is stopped, then read at daemon startup. All three ports must differ. Secrets cannot be blank. Invalid, unknown-field, oversized or unsupported-format state is rejected intact. There are no TUN or legacy subscription settings.
 
-Profiles are managed from the WebUI Profiles page: download from a subscription URL, import a local YAML file, update one or all profiles, rename, edit content, switch the active profile and delete. Remote profiles use the update interval advertised by the provider, defaulting to 24 hours. The daemon checks for due updates every 15 minutes.
-
-### Settings
-
-Runtime settings (`mixedPort`, `allowLan`, `systemProxy`) are managed from the WebUI Settings page, and the entire `sash.json` can be edited as JSON from the same page ("Edit settings file"); invalid documents are rejected without touching the disk. `daemonSecret` changes apply immediately; `daemonPort` changes are saved but require a manual `sash restart` to rebind the listener.
-
-The **Start at Login** card manages the current user's OS startup entry. It uses
-the same service as `sash auto`, reports the observed OS state and can repair stale
-or OS-disabled entries. Enabling requires a direct global npm installation;
-changing startup does not restart the current runtime. See [Automatic Startup](./autostart.md).
-
-### Maintenance & Upgrades
-
-| Command | Description |
-| :--- | :--- |
-| `sash update [--version V] [--force]` | Download and validate a replacement core, then swap it in transactionally. |
-| `sash upgrade [--version V]` | Upgrade the Sash package through npm; requires `sashd` to be stopped first. |
-| `sash version` | Print the Sash package version. |
-
-Core updates download and validate before shutdown, then use an authenticated maintenance request that atomically snapshots whether Core was running while restoring proxy state and stopping `sashd`. After daemon exit, a durable update journal records the previous/target install records before the executable swap. A previously running Core is health-checked immediately; when Core was stopped, `<core>.bak` and the journal remain until the next managed `sash start` passes controller health/version checks. A failed first start restores the previous binary and install record before attempting to restart it. Downloads require official GitHub SHA-256 asset metadata; mirrors are accepted only as transports for bytes matching that digest, and all mirror/redirect/body attempts share a bounded absolute deadline. Archives are capped at 128 MiB, Windows ZIPs must contain the expected upstream Core executable basename, staged binaries must report the exact requested version, and the staged Core validates the freshly generated active configuration before publication.
-
-`sash upgrade --version` accepts only a strict npm semver such as `1.2.3` (without a `v` prefix) or a safe dist-tag such as `latest`/`next`. Package specs, paths, ranges and control characters are rejected.
-
----
-
-## 3. Configuration Reference (`sash.json`)
-
-| Key | Default | Description |
-| :--- | :--- | :--- |
-| `schemaVersion` | `1` | On-disk settings schema; managed by Sash. |
-| `mixedPort` | `7890` | Local HTTP/SOCKS5 mixed inbound port. |
-| `controller` | `127.0.0.1:9090` | Internal controller listen address; only loopback hosts are accepted. |
-| `daemonPort` | `19090` | Daemon API and WebUI port. |
-| `secret` | *(random)* | Internal controller secret. It is never returned by the public status API. |
-| `daemonSecret` | *(random)* | CLI bearer secret for state-changing daemon requests. |
-| `systemProxy` | `false` | Desired OS-level system proxy state. |
-| `tun` | `false` | Legacy compatibility field; always off in 0.1.1. Existing true values migrate to false on load; new true values are rejected. |
-| `allowLan` | `false` | Accept proxy traffic from other devices. |
-
-A legacy `subscriptionUrl` key is migrated once into `profiles/index.json` and then removed. It has priority over legacy `config.yaml` import. If no `profiles/index.json` has ever been created, startup/offline initialization may import an existing `config.yaml` once as the active local profile named `Imported config` (`url: ""`, updates disabled). A present empty index opts out. To avoid importing Sash's own generated default, the file must be valid core-format YAML and contain non-default routing content after managed keys are removed: nonempty proxies/providers, or nonempty rules/groups differing from the DIRECT-only default. The runtime `config.yaml` is kept unchanged during import; later profile application re-renders and validates it. Invalid YAML/config fails closed without overwriting the file.
-
-Installed core version metadata lives in `state/install.json`, not in `sash.json`.
-
-Malformed, future-version or unknown-field `sash.json` documents and malformed `profiles/index.json` files are rejected without being overwritten. Secrets cannot be blank or contain control characters, the controller must remain loopback-only, and the mixed, controller and daemon ports must all differ. Repair or move a damaged file explicitly instead of relying on silent defaults.
-
-Settings changes are prepared as an all-or-nothing candidate: active configuration is validated before settings/config publication, and a failed restart restores the previous candidate where possible. Turning the system proxy off persists the desired off state before OS cleanup; if cleanup fails, toggle the system proxy off again from the WebUI after resolving the OS error.
-
----
-
-## 4. Network Scope in 0.1.1
-
-This release supports local HTTP/SOCKS endpoints, profile rules and reversible system-proxy integration. TUN and Windows Service Mode are developed on the [feat/tun-service-mode branch](https://github.com/ming-kang/Sash/tree/feat/tun-service-mode).
-
-The dashboard has no TUN switch or service installation controls. Settings updates reject `tun: true`; loading an otherwise valid older settings file migrates that value to `false` atomically. Generated configurations explicitly set `tun.enable: false`, including on reload. Profiles containing a separate TUN listener are rejected before publication. Original profile files and profile-owned DNS/provider settings remain unchanged. The JSON status contract retains its TUN observation fields for compatibility.
-
----
-
-## 5. Data Directory Layout
-
-| Platform | Default Path |
-| :--- | :--- |
+| Platform | Default directory |
+| --- | --- |
 | Windows | `%LOCALAPPDATA%\Sash` |
 | macOS | `~/Library/Application Support/Sash` |
 | Linux | `$XDG_DATA_HOME/sash` or `~/.local/share/sash` |
 
-Override the root with an absolute `SASH_HOME` path.
+Use an absolute `SASH_HOME` to select another directory. Use a local filesystem supporting atomic rename and hard links.
 
-- `bin/`: installed core executable; `.bak` is retained during an update transaction.
-- `config.yaml`: active runtime configuration rendered from the active profile or the DIRECT-only default; qualifying pre-profile files are preserved during one-time import.
-- `sash.json`: Sash settings and local control secrets.
-- `profiles/index.json`: profile metadata and active profile id.
-- `profiles/<id>.yaml`: validated local copy of each downloaded/imported profile.
-- `state/sashd.pid`, `state/sash.pid`: atomic daemon/Core discovery records.
-- `state/system-proxy.json`: pre-takeover proxy snapshot and ownership phase.
-- `state/install.json`: canonical installed Core version record.
-- `state/core-install-transaction.json`: first-install publication journal; interrupted publishing rolls back, while a committed marker is only cleared.
-- `state/core-update-transaction.json`: previous/target install records and update phase; retained with `.bak` until managed runtime health and restoration succeed.
-- `state/*.lock`: daemon, runtime, mutation, settings and proxy ownership leases.
-- `logs/`: core and daemon stdout/stderr logs.
-- `ui/` *(optional)*: custom dashboard override.
+```text
+sash.json                       settings, profiles, selection and saved-state revision
+profiles/<id>/<revision>.yaml    immutable source content
+runtime/config.yaml             generated runtime configuration
+bin/                            Core executable and temporary update backup
+state/install.json              installed version
+state/core-update-transaction.json  active binary update/recovery
+state/system-proxy.json         original proxy snapshot and recovery phase
+state/sash.pid, state/sashd.pid  process discovery records
+state/sashd*.lock               daemon singleton/startup ownership
+logs/                           Core, daemon and login diagnostics
+ui/                             optional custom dashboard override
+```
 
-State files are written with mode `0o600` on POSIX where applicable. `SASH_HOME` must be on a local filesystem supporting atomic rename and hard links.
+The manifest and sources use atomic publication. Old source revisions may be cleaned after successful saves; this is not a version-history feature. Do not edit generated runtime configuration. POSIX private state/logs use `0600`.
 
----
+## Updates
 
-## 6. Troubleshooting
+Core updates keep the dashboard available and preserve whether Core was running. Even an initially stopped update performs a temporary startup/health check, then stops again. `.bak` is retained until the new binary passes verification and the original running state is restored. Failure rolls back the executable and install record; saved profiles/settings are not part of this transaction.
 
-- **System proxy recovery is blocked:** another application changed managed values or the ownership journal is corrupt. Keep the Core running, inspect `state/system-proxy.json` and the current OS proxy, then repair explicitly; Sash will not overwrite an unrecognized state.
-- **Daemon/Core ownership is corrupt:** inspect `state/*.lock` and PID records. Sash intentionally fails closed instead of deleting uncertain ownership records.
-- **Profile update failed:** inspect the profile card's error or use its update button; generated candidates are checked by the installed Core before commit, and the last valid running config remains active on validation/reload failure.
-- **Corrupt settings/profile index:** repair the JSON file or move it aside; Sash intentionally does not overwrite corrupt state.
-- **Daemon errors:** `sash logs --daemon --errors`.
-- **Sash did not start at login:** inspect `sash auto status` and `sash logs --startup`. Repair stale or OS-disabled entries with `sash auto on`; Linux startup before login requires user lingering.
-- **Core errors:** `sash logs --errors`. Log tails and follow-mode reads use bounded chunks, so large logs do not require one whole-file allocation.
-- **Shutdown returned an error:** cleanup was not completed; the daemon remains listening and scheduled profile updates remain active. Resolve the reported proxy/Core issue and retry `sash stop`.
-- **Core binary/metadata mismatch:** Sash will not execute a binary unless `state/install.json` is valid and agrees that an installation exists. An interrupted `.unlock-probe` is restored automatically when it is the only copy; if both files exist with different bytes, Sash preserves both and fails closed. Inspect them explicitly or run `sash update --force` after resolving the conflict.
-- **Force a validated core reinstall:** `sash update --force`.
+Downloads require official SHA-256 metadata, trusted HTTPS origins and bounded extraction. If verification cannot complete, the update fails rather than executing unverifiable bytes.
+
+Update Sash itself through npm:
+
+```sh
+sash stop
+npm install -g @astralyn/sash
+sash start
+sash web
+```
+
+`sash upgrade` and `sash update --force` are removed. Damaged installations are diagnosed and preserved; use a clean data directory for reinstalling after stopping the existing instance.
+
+## Status and troubleshooting
+
+`sash status --json` uses `schemaVersion: 2`. It includes `complete`, `healthy`, `queryError`, daemon/Core state, desired/applied/observed proxy state, autostart, endpoints, saved active profile and paths. Unknown observations remain `null`; no TUN fields are emitted. The running proxy endpoint comes from applied settings.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Complete observation, including a known stopped state |
+| `2` | Output produced, but some runtime/OS observation is unavailable |
+| `1` | The command failed, for example due to corrupt local state |
+
+- **Pending configuration:** click Apply or run `sash restart`. Saving alone does not change Core.
+- **Apply failed:** inspect the displayed error and `sash logs --errors`; correct the saved profile and apply again.
+- **Proxy restoration blocked:** keep the ownership journal and inspect the current Windows settings. Sash will not overwrite third-party changes or stop a healthy Core while restoration fails.
+- **Daemon ownership unknown:** inspect its logs and PID/lease records; Sash will not kill an unverified process or start a competitor.
+- **Interrupted update:** stop and start the daemon so its startup recovery can run. Corrupt or unrecognized backup/metadata files are preserved for inspection.
+- **Login startup failed:** read `sash auto status` and `sash logs --startup`; repair the entry with `sash auto on`.
+- **Shutdown failed:** the management API remains available for retry. Resolve the reported proxy/Core failure and repeat `sash stop`.
+
+Windows proxy/PAC restoration and login startup are the only desktop integrations. Basic Core/CLI operation remains portable. TUN and service mode are outside this branch; generated configuration always disables TUN and rejects a separate TUN listener.

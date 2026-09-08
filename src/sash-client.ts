@@ -1,7 +1,7 @@
 import { type AutostartStatus, parseAutostartStatus } from "./autostart-contract.js";
 import {
-  type CoreReloadResult,
   type CoreStartResult,
+  type CoreUpdateResponse,
   type DaemonStatus,
   type HealthInfo,
   type ProfileActionResponse,
@@ -13,8 +13,8 @@ import {
   type ProfilesUpdateAllResponse,
   type ProfileUpdateResponse,
   parseApiErrorBody,
-  parseCoreReloadResult,
   parseCoreStartResult,
+  parseCoreUpdateResponse,
   parseDaemonStatus,
   parseHealthInfo,
   parseProfileActionResponse,
@@ -26,16 +26,12 @@ import {
   parseProfilesUpdateAllResponse,
   parseProfileUpdateResponse,
   parsePublicSettings,
-  parseSettingsFileContent,
   parseSettingsWriteResult,
-  parseShutdownResult,
   parseSystemProxyStatusResponse,
   parseWebBootstrapInfo,
   parseWebSessionInfo,
-  type SettingsFileContent,
   type SettingsPatch,
   type SettingsWriteResult,
-  type ShutdownResult,
   type SystemProxyStatusResponse,
   type WebBootstrapInfo,
   type WebSessionInfo,
@@ -100,6 +96,8 @@ const defaultFetch: SashClientFetch = async (url, init) => {
   });
   return { status: response.status, text: () => response.text() };
 };
+
+const CORE_OPERATION_TIMEOUT_MS = 20 * 60_000;
 
 /** HTTP failure from the daemon API, carrying the error-envelope fields. */
 export class SashApiError extends Error {
@@ -210,15 +208,15 @@ export class SashClient {
 
   async status(fresh = false): Promise<DaemonStatus> {
     return parseDaemonStatus(
-      await this.request(fresh ? "/sash/daemon/status?fresh=1" : "/sash/daemon/status"),
+      await this.request(fresh ? "/sash/daemon/status?fresh=1" : "/sash/daemon/status", {
+        timeoutMs: 8000,
+      }),
     );
   }
 
   /** Cleanup completes before the daemon acknowledges; the listener closes after the response. */
-  async shutdown(): Promise<ShutdownResult> {
-    return parseShutdownResult(
-      await this.request("/sash/daemon/shutdown", { method: "POST", timeoutMs: 45_000 }),
-    );
+  async shutdown(): Promise<void> {
+    await this.request("/sash/daemon/shutdown", { method: "POST", timeoutMs: 45_000 });
   }
 
   async autostartStatus(): Promise<AutostartStatus> {
@@ -242,7 +240,10 @@ export class SashClient {
 
   async startCore(): Promise<CoreStartResult> {
     return parseCoreStartResult(
-      await this.request("/sash/core/start", { method: "POST", timeoutMs: 15_000 }),
+      await this.request("/sash/core/start", {
+        method: "POST",
+        timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+      }),
     );
   }
 
@@ -252,17 +253,28 @@ export class SashClient {
 
   async restartCore(): Promise<CoreStartResult> {
     return parseCoreStartResult(
-      await this.request("/sash/core/restart", { method: "POST", timeoutMs: 30_000 }),
+      await this.request("/sash/core/restart", {
+        method: "POST",
+        timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+      }),
     );
   }
 
-  async reloadCoreConfig(): Promise<CoreReloadResult> {
-    return parseCoreReloadResult(
-      await this.request("/sash/core/reload", { method: "POST", timeoutMs: 30_000 }),
+  async updateCore(version?: string): Promise<CoreUpdateResponse> {
+    return parseCoreUpdateResponse(
+      await this.request("/sash/core/update", {
+        method: "POST",
+        body: version ? { version } : {},
+        timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+      }),
     );
   }
 
   /* ---- system proxy ---- */
+
+  async setMode(mode: "rule" | "global" | "direct"): Promise<void> {
+    await this.request("/sash/core/mode", { method: "PUT", body: { mode } });
+  }
 
   async proxyStatus(fresh = false): Promise<SystemProxyStatusResponse> {
     return parseSystemProxyStatusResponse(
@@ -279,20 +291,6 @@ export class SashClient {
   async patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {
     return parseSettingsWriteResult(
       await this.request("/sash/settings", { method: "PATCH", body: patch, timeoutMs: 45_000 }),
-    );
-  }
-
-  async getSettingsFile(): Promise<SettingsFileContent> {
-    return parseSettingsFileContent(await this.request("/sash/settings/file"));
-  }
-
-  async writeSettingsFile(content: string): Promise<SettingsWriteResult> {
-    return parseSettingsWriteResult(
-      await this.request("/sash/settings/file", {
-        method: "PUT",
-        body: { content },
-        timeoutMs: 45_000,
-      }),
     );
   }
 
@@ -360,11 +358,15 @@ export class SashClient {
     return parseProfileContentResponse(await this.request(`/sash/profiles/${id}/content`));
   }
 
-  async writeProfileContent(id: string, content: string): Promise<ProfileUpdateResponse> {
+  async writeProfileContent(
+    id: string,
+    content: string,
+    revision: number,
+  ): Promise<ProfileUpdateResponse> {
     return parseProfileUpdateResponse(
       await this.request(`/sash/profiles/${id}/content`, {
         method: "PUT",
-        body: { content },
+        body: { content, revision },
         timeoutMs: 30_000,
       }),
     );

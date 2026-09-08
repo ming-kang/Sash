@@ -18,20 +18,17 @@ export interface AutostartOptions {
   env?: NodeJS.ProcessEnv;
   packageRoot?: string;
   nodePath?: string;
-  uid?: number;
   runCommand?: AutostartCommand;
 }
 
 export interface AutostartContext {
   platform: NodeJS.Platform;
   homedir: string;
-  configHome: string;
   controlDir: string;
   dataDir: string;
   packageRoot: string;
   nodePath: string;
   entryPath: string;
-  uid: number | undefined;
   env: NodeJS.ProcessEnv;
   run(command: string, args: string[], extraEnv?: NodeJS.ProcessEnv): Promise<CommandResult>;
 }
@@ -45,29 +42,21 @@ export function autostartContext(options: AutostartOptions = {}): AutostartConte
   const platform = options.platform ?? process.platform;
   const homedir = options.homedir ?? os.homedir();
   const env = buildSanitizedEnv(options.env ?? process.env);
-  const configHome = absoluteEnvPath(env.XDG_CONFIG_HOME, path.join(homedir, ".config"));
   const packageRoot = options.packageRoot ?? path.resolve(import.meta.dirname, "../..");
-  const controlDir =
-    platform === "win32"
-      ? path.join(
-          absoluteEnvPath(env.LOCALAPPDATA, path.join(homedir, "AppData", "Local")),
-          "Sash",
-          "autostart",
-        )
-      : platform === "darwin"
-        ? path.join(homedir, "Library", "Application Support", "Sash", "autostart")
-        : path.join(configHome, "sash", "autostart");
+  const controlDir = path.join(
+    absoluteEnvPath(env.LOCALAPPDATA, path.join(homedir, "AppData", "Local")),
+    "Sash",
+    "autostart",
+  );
   const runCommand = options.runCommand ?? runAutostartCommand;
   return {
     platform,
     homedir,
-    configHome,
     controlDir,
     dataDir: path.resolve((options.layout ?? sashLayout()).root),
     packageRoot,
     nodePath: options.nodePath ?? process.execPath,
     entryPath: path.join(packageRoot, "dist", "autostart-entry.js"),
-    uid: options.uid ?? process.getuid?.(),
     env,
     run: (command, args, extraEnv) =>
       runCommand(command, args, buildSanitizedEnv({ ...env, ...extraEnv })),

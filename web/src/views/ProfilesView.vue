@@ -285,7 +285,7 @@ async function download(): Promise<void> {
     dlUrl.value = "";
     if (res.activated) {
       toast.success(
-        t("toast.profileActivated", { name: res.profile.name, n: res.proxyCount ?? 0 }),
+        t("toast.profileActivated", { name: res.profile.name }),
       );
     } else {
       toast.success(t("toast.profileAdded", { name: res.profile.name }));
@@ -330,8 +330,8 @@ async function updateAll(): Promise<void> {
 async function selectProfile(p: ProfileMeta): Promise<void> {
   if (profileBusy.value || p.id === store.activeProfileId) return;
   try {
-    const res = await activateProfile(p.id);
-    toast.success(t("toast.profileActivated", { name: p.name, n: res.proxyCount }));
+    await activateProfile(p.id);
+    toast.success(t("toast.profileActivated", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   }

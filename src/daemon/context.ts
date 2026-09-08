@@ -1,49 +1,53 @@
+import type { SashStateStore } from "../app-state.js";
 import type { AutostartController } from "../autostart.js";
-import type { CoreStartResult, ShutdownResult } from "../contracts.js";
-import type { GeneratedConfig } from "../mihomo-config.js";
+import type { CoreStartResult } from "../contracts.js";
+import type { CoreUpdateResult } from "../core-update.js";
 import type { SashLayout } from "../paths.js";
 import type { ProfileService } from "../profile-service.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { SashSettings } from "../settings.js";
 import type { SettingsService } from "../settings-service.js";
-import type { StateMutationQueue } from "../state-lock.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../system-proxy-manager.js";
 import { ShuttingDownError } from "./errors.js";
 import type { WebAuthManager } from "./web-auth.js";
 
-/**
- * Admission gate plus idempotent cleanup for the daemon. Mutations are
- * rejected once shutdown starts; a failed cleanup reopens the gate so the
- * close can be retried.
- */
+/** One queue and one admission gate for all daemon state transitions. Reads remain independent. */
 export class DaemonGate {
+  private tail: Promise<void> = Promise.resolve();
   private closing = false;
-  private cleanupPromise: Promise<ShutdownResult> | undefined;
+  private cleanupPromise: Promise<void> | undefined;
 
   constructor(
-    private readonly queue: StateMutationQueue,
-    private readonly cleanup: () => Promise<ShutdownResult>,
+    private readonly cleanup: () => Promise<void>,
+    private readonly cancel: () => void,
   ) {}
-
   get isClosing(): boolean {
     return this.closing;
   }
 
-  async mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T> {
-    if (this.closing) throw new ShuttingDownError();
-    return this.queue.run(purpose, () => {
+  mutate<T>(_purpose: string, action: () => T | Promise<T>): Promise<T> {
+    if (this.closing) return Promise.reject(new ShuttingDownError());
+    const next = this.tail.then(() => {
       if (this.closing) throw new ShuttingDownError();
       return action();
     });
+    this.tail = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
-  shutdown(): Promise<ShutdownResult> {
+  shutdown(): Promise<void> {
     if (this.cleanupPromise) return this.cleanupPromise;
-    // Close the admission gate before queueing the snapshot. Mutations already
-    // queued finish first; later requests cannot enter after the snapshot.
     this.closing = true;
-    const attempt = this.queue.run("close daemon", this.cleanup);
+    this.cancel();
+    const attempt = this.tail.then(this.cleanup);
+    this.tail = attempt.then(
+      () => undefined,
+      () => undefined,
+    );
     this.cleanupPromise = attempt;
     void attempt.catch(() => {
       if (this.cleanupPromise === attempt) {
@@ -54,16 +58,15 @@ export class DaemonGate {
     return attempt;
   }
 
-  /** Reopen admissions after a failed listener close (cleanup already ran). */
   reopen(): void {
     this.closing = false;
+    this.cleanupPromise = undefined;
   }
 }
 
-/** Services and domain actions shared by the daemon route handlers. */
 export interface DaemonContext {
   readonly layout: SashLayout;
-  /** Per-boot identity nonce reported by health; never authorizes requests. */
+  readonly state: SashStateStore;
   readonly token: string;
   readonly startedAt: string;
   readonly webAuth: WebAuthManager;
@@ -74,17 +77,15 @@ export interface DaemonContext {
   readonly systemProxy: SystemProxyController;
   readonly autostart: AutostartController;
   readonly gate: DaemonGate;
-  readonly settings: {
-    committed(): SashSettings;
-    runtime(): SashSettings;
-  };
+  readonly settings: { committed(): SashSettings; runtime(): SashSettings };
   mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T>;
   profileRevision(): number;
+  pendingApply(): boolean;
   startCore(): Promise<CoreStartResult>;
   restartCore(): Promise<CoreStartResult>;
-  reloadCoreConfig(): Promise<GeneratedConfig>;
-  shutdown(): Promise<ShutdownResult>;
-  /** Wired by server.ts once the HTTP listener exists. */
+  stopCore(): Promise<void>;
+  updateCore(version?: string): Promise<CoreUpdateResult>;
+  shutdown(): Promise<void>;
   closeListener(): Promise<void>;
   readonly onShutdown?: () => void;
 }

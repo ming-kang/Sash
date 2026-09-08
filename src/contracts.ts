@@ -1,20 +1,14 @@
 import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
-import type { SubscriptionUserinfo } from "./mihomo-config.js";
-import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
+import { type ProfileMeta, type ProfilesIndex, parseProfileMeta } from "./profile-model.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy.js";
 
+export { parseProfilesIndex } from "./profile-model.js";
 export type { ProfileMeta, ProfilesIndex };
-
 export const WEB_SOCKET_AUTH_PROTOCOL = "sash";
 export const WEB_SOCKET_TOKEN_PROTOCOL_PREFIX = "sash-token.";
 
-/* -------------------------------------------------------------------------- */
-/* Error envelope                                                              */
-/* -------------------------------------------------------------------------- */
-
-/** Machine-readable codes carried by every non-2xx sashd response. */
 export type ApiErrorCode =
   | "invalid_input"
   | "not_found"
@@ -24,66 +18,65 @@ export type ApiErrorCode =
   | "unauthorized"
   | "http"
   | "internal";
-
 export interface ApiErrorBody {
-  error: {
-    code: ApiErrorCode | (string & {});
-    message: string;
-  };
+  error: { code: string; message: string };
 }
-
-export function apiErrorBody(code: ApiErrorCode, message: string): ApiErrorBody {
-  return { error: { code, message } };
-}
-
-/** Extract the error envelope from an unknown response body, if present. */
-export function parseApiErrorBody(value: unknown): { code: string; message: string } | undefined {
-  if (!isPlainObject(value) || !isPlainObject(value.error)) return undefined;
-  const { code, message } = value.error;
-  if (typeof code !== "string" || typeof message !== "string") return undefined;
-  return { code, message };
-}
-
-/* -------------------------------------------------------------------------- */
-/* Resource bodies (no `ok` envelope: HTTP status carries request success)     */
-/* -------------------------------------------------------------------------- */
-
 export interface HealthInfo {
-  /** Per-boot identity nonce for daemon instance matching; never authorizes requests. */
   token: string;
   pid: number;
   startedAt: string;
 }
-
-/** One-time browser bootstrap capability minted by an authenticated CLI client. */
 export interface WebBootstrapInfo {
   token: string;
   expiresAt: string;
 }
-
-/** In-memory WebUI control session, valid until the daemon exits. */
 export interface WebSessionInfo {
   token: string;
-  /** Public identity of the daemon that issued this credential. */
   daemonToken: string;
 }
-
 export interface CoreStartResult {
   pid: number;
   version?: string;
-  /** Actual Core runtime state; omitted when /configs cannot be verified. */
-  tunActive?: boolean;
 }
-
-export interface CoreReloadResult {
+export interface CoreUpdateResponse {
+  version: string;
+}
+export interface SettingsPatch {
+  mixedPort?: number;
+  allowLan?: boolean;
+  systemProxy?: boolean;
+}
+export interface SettingsWriteResult {
+  restartRequired: boolean;
+  settings: PublicSashSettings;
+}
+export interface ProfileActionResponse {
+  profile: ProfileMeta;
+  activated: boolean;
+}
+export interface ProfileUpdateResponse {
+  profile: ProfileMeta;
+}
+export interface ProfileRenameResponse {
+  profile: ProfileMeta;
+}
+export interface ProfileContentResponse {
+  name: string;
+  content: string;
+  revision: number;
+}
+export interface ProfileActivateResponse {
+  activeId: string | null;
   proxyCount: number;
-  source: "subscription" | "default";
 }
-
-export interface ShutdownResult {
-  coreWasRunning: boolean;
+export interface ProfileRemoveResponse {
+  wasActive: boolean;
 }
-
+export interface ProfilesResponse extends ProfilesIndex {}
+export interface ProfilesUpdateAllResponse {
+  updated: number;
+  failed: Array<{ id: string; name: string; error: string }>;
+}
 export interface SystemProxyStatusResponse extends SystemProxyState {
   desired: boolean;
   applied: boolean;
@@ -91,17 +84,15 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
   stateKnown: boolean;
   queryError?: string;
 }
-
 export interface DaemonStatus {
-  daemon: {
-    pid: number;
-    startedAt: string;
-    port: number;
-  };
-  revisions: {
-    profiles: number;
-  };
+  daemon: { pid: number; bootId: string; startedAt: string; port: number };
+  revisions: { profiles: number; runtime: number };
   core: CoreState;
+  configuration: {
+    pending: boolean;
+    appliedProfile: { id: string; revision: number; name: string; url: string } | null;
+    appliedSettings: { mixedPort: number; allowLan: boolean } | null;
+  };
   systemProxy: {
     desired: boolean;
     applied: boolean;
@@ -114,695 +105,253 @@ export interface DaemonStatus {
   activeProfile: { id: string; name: string; url: string } | null;
 }
 
-/** Partial-object protocol for PATCH /sash/settings. */
-export interface SettingsPatch {
-  mixedPort?: number;
-  allowLan?: boolean;
-  tun?: boolean;
-  systemProxy?: boolean;
-  daemonPort?: number;
-  daemonSecret?: string;
-}
-
-export interface SettingsWriteResult {
-  restartRequired: boolean;
-  settings: PublicSashSettings;
-}
-
-export interface SettingsFileContent {
-  content: string;
-}
-
-export interface ProfilesResponse extends ProfilesIndex {}
-
-export interface ProfileActionResponse {
-  profile: ProfileMeta;
-  activated: boolean;
-  proxyCount?: number;
-}
-
-export interface ProfileUpdateResponse {
-  profile: ProfileMeta;
-  proxyCount?: number;
-}
-
-export interface ProfilesUpdateAllResponse {
-  /** Business outcome lives in `failed`; the HTTP status is always 200. */
-  updated: number;
-  failed: Array<{ id: string; name: string; error: string }>;
-  proxyCount?: number;
-}
-
-export interface ProfileContentResponse {
-  name: string;
-  content: string;
-}
-
-export interface ProfileActivateResponse {
-  activeId: string | null;
-  proxyCount: number;
-}
-
-export interface ProfileRemoveResponse {
-  wasActive: boolean;
-  proxyCount?: number;
-}
-
-export interface ProfileRenameResponse {
-  profile: ProfileMeta;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Parsers                                                                     */
-/* -------------------------------------------------------------------------- */
-
-function invalid(contract: string, path: string, expected: string): never {
-  throw new TypeError(`${contract} response is invalid: ${path} must be ${expected}`);
-}
-
-function objectValue(value: unknown, contract: string, path: string): Record<string, unknown> {
-  if (!isPlainObject(value)) invalid(contract, path, "a plain object");
+function object(value: unknown, name: string): Record<string, unknown> {
+  if (!isPlainObject(value)) throw new TypeError(`${name} must be a plain object`);
   return value;
 }
-
-function required(
-  source: Record<string, unknown>,
-  key: string,
-  contract: string,
-  path: string,
-): unknown {
-  if (!Object.hasOwn(source, key)) invalid(contract, path, "present");
-  return source[key];
-}
-
-function booleanValue(value: unknown, contract: string, path: string): boolean {
-  if (typeof value !== "boolean") invalid(contract, path, "a boolean");
+function string(value: unknown, name: string, allowEmpty = false): string {
+  if (typeof value !== "string" || (!allowEmpty && !value.trim()))
+    throw new TypeError(`${name} must be a string${allowEmpty ? "" : " with content"}`);
   return value;
 }
-
-function stringValue(value: unknown, contract: string, path: string, nonEmpty = false): string {
-  if (typeof value !== "string" || (nonEmpty && !value.trim())) {
-    invalid(contract, path, nonEmpty ? "a non-empty string" : "a string");
-  }
+function boolean(value: unknown, name: string): boolean {
+  if (typeof value !== "boolean") throw new TypeError(`${name} must be a boolean`);
   return value;
 }
-
-function finiteNumber(value: unknown, contract: string, path: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    invalid(contract, path, "a finite number");
-  }
+function integer(value: unknown, name: string, min = 0, max = Number.MAX_SAFE_INTEGER): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max)
+    throw new TypeError(`${name} must be an integer from ${min} to ${max}`);
   return value;
 }
-
-function positiveSafeInteger(value: unknown, contract: string, path: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-    invalid(contract, path, "a positive safe integer");
-  }
+function timestamp(value: unknown, name: string): string {
+  if (!isCanonicalIsoTimestamp(value)) throw new TypeError(`${name} must be a canonical timestamp`);
   return value;
 }
-
-function nonNegativeSafeInteger(value: unknown, contract: string, path: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    invalid(contract, path, "a non-negative safe integer");
-  }
-  return value;
+function optionalString(source: Record<string, unknown>, key: string): string | undefined {
+  return Object.hasOwn(source, key) ? string(source[key], key, true) : undefined;
 }
 
-function portValue(value: unknown, contract: string, path: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 65_535) {
-    invalid(contract, path, "an integer port from 1 to 65535");
-  }
-  return value;
+export function apiErrorBody(code: ApiErrorCode, message: string): ApiErrorBody {
+  return { error: { code, message } };
+}
+export function parseApiErrorBody(value: unknown): { code: string; message: string } | undefined {
+  if (
+    !isPlainObject(value) ||
+    !isPlainObject(value.error) ||
+    typeof value.error.code !== "string" ||
+    typeof value.error.message !== "string"
+  )
+    return undefined;
+  return { code: value.error.code, message: value.error.message };
 }
 
-function timestampValue(value: unknown, contract: string, path: string): string {
-  if (!isCanonicalIsoTimestamp(value)) invalid(contract, path, "a canonical ISO timestamp");
-  return value;
-}
-
-function optionalString(
-  source: Record<string, unknown>,
-  key: string,
-  contract: string,
-  path: string,
-): string | undefined {
-  return Object.hasOwn(source, key) ? stringValue(source[key], contract, path) : undefined;
-}
-
-function knownFlag(
-  source: Record<string, unknown>,
-  key: "appliedKnown" | "stateKnown",
-  contract: string,
-  path: string,
-): boolean {
-  return Object.hasOwn(source, key) ? booleanValue(source[key], contract, path) : false;
-}
-
-function parseSystemProxyState(value: unknown, contract: string, path: string): SystemProxyState {
-  const source = objectValue(value, contract, path);
-  const server = optionalString(source, "server", contract, `${path}.server`);
-  const details = optionalString(source, "details", contract, `${path}.details`);
+export function parseHealthInfo(value: unknown): HealthInfo {
+  const source = object(value, "health");
   return {
-    supported: booleanValue(
-      required(source, "supported", contract, `${path}.supported`),
-      contract,
-      `${path}.supported`,
-    ),
-    enabled: booleanValue(
-      required(source, "enabled", contract, `${path}.enabled`),
-      contract,
-      `${path}.enabled`,
-    ),
+    token: string(source.token, "token"),
+    pid: integer(source.pid, "pid", 1),
+    startedAt: timestamp(source.startedAt, "startedAt"),
+  };
+}
+export function parseWebBootstrapInfo(value: unknown): WebBootstrapInfo {
+  const source = object(value, "bootstrap");
+  return {
+    token: string(source.token, "token"),
+    expiresAt: timestamp(source.expiresAt, "expiresAt"),
+  };
+}
+export function parseWebSessionInfo(value: unknown): WebSessionInfo {
+  const source = object(value, "session");
+  return {
+    token: string(source.token, "token"),
+    daemonToken: string(source.daemonToken, "daemonToken"),
+  };
+}
+export function parseCoreStartResult(value: unknown): CoreStartResult {
+  const source = object(value, "Core start");
+  const version = optionalString(source, "version");
+  return { pid: integer(source.pid, "pid", 1), ...(version !== undefined ? { version } : {}) };
+}
+export function parseCoreUpdateResponse(value: unknown): CoreUpdateResponse {
+  return { version: string(object(value, "Core update").version, "version") };
+}
+
+export function parsePublicSettings(value: unknown): PublicSashSettings {
+  const source = object(value, "settings");
+  return {
+    mixedPort: integer(source.mixedPort, "mixedPort", 1, 65535),
+    controller: string(source.controller, "controller"),
+    allowLan: boolean(source.allowLan, "allowLan"),
+    daemonPort: integer(source.daemonPort, "daemonPort", 1, 65535),
+    systemProxy: boolean(source.systemProxy, "systemProxy"),
+  };
+}
+export function parseSettingsPatch(value: unknown): SettingsPatch {
+  const source = object(value, "settings patch");
+  for (const key of Object.keys(source)) {
+    if (!["mixedPort", "allowLan", "systemProxy"].includes(key))
+      throw new TypeError(`Unknown settings field: ${key}`);
+  }
+  return {
+    ...(Object.hasOwn(source, "mixedPort")
+      ? { mixedPort: integer(source.mixedPort, "mixedPort", 1, 65535) }
+      : {}),
+    ...(Object.hasOwn(source, "allowLan")
+      ? { allowLan: boolean(source.allowLan, "allowLan") }
+      : {}),
+    ...(Object.hasOwn(source, "systemProxy")
+      ? { systemProxy: boolean(source.systemProxy, "systemProxy") }
+      : {}),
+  };
+}
+export function parseSettingsWriteResult(value: unknown): SettingsWriteResult {
+  const source = object(value, "settings write");
+  return {
+    restartRequired: boolean(source.restartRequired, "restartRequired"),
+    settings: parsePublicSettings(source.settings),
+  };
+}
+
+function parseSystemProxyState(value: unknown): SystemProxyState {
+  const source = object(value, "system proxy");
+  const server = optionalString(source, "server");
+  const details = optionalString(source, "details");
+  return {
+    supported: boolean(source.supported, "supported"),
+    enabled: boolean(source.enabled, "enabled"),
     ...(server !== undefined ? { server } : {}),
     ...(details !== undefined ? { details } : {}),
   };
 }
-
-function parseCoreState(value: unknown, contract: string): CoreState {
-  const source = objectValue(value, contract, "core");
-  const pid = Object.hasOwn(source, "pid")
-    ? positiveSafeInteger(source.pid, contract, "core.pid")
-    : undefined;
-  const startedAt = Object.hasOwn(source, "startedAt")
-    ? timestampValue(source.startedAt, contract, "core.startedAt")
-    : undefined;
-  const healthy = Object.hasOwn(source, "healthy")
-    ? booleanValue(source.healthy, contract, "core.healthy")
-    : undefined;
-  const version = optionalString(source, "version", contract, "core.version");
-  const tunActive = Object.hasOwn(source, "tunActive")
-    ? booleanValue(source.tunActive, contract, "core.tunActive")
-    : undefined;
-  return {
-    running: booleanValue(
-      required(source, "running", contract, "core.running"),
-      contract,
-      "core.running",
-    ),
-    ...(pid !== undefined ? { pid } : {}),
-    ...(startedAt !== undefined ? { startedAt } : {}),
-    ...(healthy !== undefined ? { healthy } : {}),
-    ...(version !== undefined ? { version } : {}),
-    ...(tunActive !== undefined ? { tunActive } : {}),
-  };
-}
-
-export function parsePublicSettings(value: unknown): PublicSashSettings {
-  const contract = "sashd settings";
-  const source = objectValue(value, contract, "settings");
-  return {
-    mixedPort: portValue(
-      required(source, "mixedPort", contract, "settings.mixedPort"),
-      contract,
-      "settings.mixedPort",
-    ),
-    controller: stringValue(
-      required(source, "controller", contract, "settings.controller"),
-      contract,
-      "settings.controller",
-      true,
-    ),
-    tun: booleanValue(required(source, "tun", contract, "settings.tun"), contract, "settings.tun"),
-    allowLan: booleanValue(
-      required(source, "allowLan", contract, "settings.allowLan"),
-      contract,
-      "settings.allowLan",
-    ),
-    daemonPort: portValue(
-      required(source, "daemonPort", contract, "settings.daemonPort"),
-      contract,
-      "settings.daemonPort",
-    ),
-    systemProxy: booleanValue(
-      required(source, "systemProxy", contract, "settings.systemProxy"),
-      contract,
-      "settings.systemProxy",
-    ),
-  };
-}
-
-function parseProfileMeta(value: unknown, contract: string, path: string): ProfileMeta {
-  const source = objectValue(value, contract, path);
-  const subInfoValue = Object.hasOwn(source, "subInfo")
-    ? objectValue(source.subInfo, contract, `${path}.subInfo`)
-    : undefined;
-  const subInfo: SubscriptionUserinfo | undefined = subInfoValue
-    ? {
-        upload: finiteNumber(
-          required(subInfoValue, "upload", contract, `${path}.subInfo.upload`),
-          contract,
-          `${path}.subInfo.upload`,
-        ),
-        download: finiteNumber(
-          required(subInfoValue, "download", contract, `${path}.subInfo.download`),
-          contract,
-          `${path}.subInfo.download`,
-        ),
-        total: finiteNumber(
-          required(subInfoValue, "total", contract, `${path}.subInfo.total`),
-          contract,
-          `${path}.subInfo.total`,
-        ),
-        ...(Object.hasOwn(subInfoValue, "expire")
-          ? {
-              expire: finiteNumber(subInfoValue.expire, contract, `${path}.subInfo.expire`),
-            }
-          : {}),
-      }
-    : undefined;
-  const homePage = optionalString(source, "homePage", contract, `${path}.homePage`);
-  const lastError = optionalString(source, "lastError", contract, `${path}.lastError`);
-  return {
-    id: stringValue(required(source, "id", contract, `${path}.id`), contract, `${path}.id`, true),
-    name: stringValue(required(source, "name", contract, `${path}.name`), contract, `${path}.name`),
-    url: stringValue(required(source, "url", contract, `${path}.url`), contract, `${path}.url`),
-    intervalHours: nonNegativeSafeInteger(
-      required(source, "intervalHours", contract, `${path}.intervalHours`),
-      contract,
-      `${path}.intervalHours`,
-    ),
-    createdAt: timestampValue(
-      required(source, "createdAt", contract, `${path}.createdAt`),
-      contract,
-      `${path}.createdAt`,
-    ),
-    updatedAt: timestampValue(
-      required(source, "updatedAt", contract, `${path}.updatedAt`),
-      contract,
-      `${path}.updatedAt`,
-    ),
-    ...(subInfo !== undefined ? { subInfo } : {}),
-    ...(homePage !== undefined ? { homePage } : {}),
-    ...(lastError !== undefined ? { lastError } : {}),
-  };
-}
-
-function optionalProxyCount(
-  source: Record<string, unknown>,
-  contract: string,
-  path: string,
-): { proxyCount?: number } {
-  return Object.hasOwn(source, "proxyCount")
-    ? { proxyCount: nonNegativeSafeInteger(source.proxyCount, contract, `${path}.proxyCount`) }
-    : {};
-}
-
-export function parseHealthInfo(value: unknown): HealthInfo {
-  const contract = "sashd health";
-  const source = objectValue(value, contract, "response");
-  return {
-    token: stringValue(required(source, "token", contract, "token"), contract, "token", true),
-    pid: positiveSafeInteger(required(source, "pid", contract, "pid"), contract, "pid"),
-    startedAt: timestampValue(
-      required(source, "startedAt", contract, "startedAt"),
-      contract,
-      "startedAt",
-    ),
-  };
-}
-
-export function parseWebBootstrapInfo(value: unknown): WebBootstrapInfo {
-  const contract = "sashd web bootstrap";
-  const source = objectValue(value, contract, "response");
-  return {
-    token: stringValue(required(source, "token", contract, "token"), contract, "token", true),
-    expiresAt: timestampValue(
-      required(source, "expiresAt", contract, "expiresAt"),
-      contract,
-      "expiresAt",
-    ),
-  };
-}
-
-export function parseWebSessionInfo(value: unknown): WebSessionInfo {
-  const contract = "sashd web session";
-  const source = objectValue(value, contract, "response");
-  return {
-    token: stringValue(required(source, "token", contract, "token"), contract, "token", true),
-    daemonToken: stringValue(
-      required(source, "daemonToken", contract, "daemonToken"),
-      contract,
-      "daemonToken",
-      true,
-    ),
-  };
-}
-
-export function parseCoreStartResult(value: unknown): CoreStartResult {
-  const contract = "sashd core start";
-  const source = objectValue(value, contract, "response");
-  const version = optionalString(source, "version", contract, "version");
-  const tunActive = Object.hasOwn(source, "tunActive")
-    ? booleanValue(source.tunActive, contract, "tunActive")
-    : undefined;
-  return {
-    pid: positiveSafeInteger(required(source, "pid", contract, "pid"), contract, "pid"),
-    ...(version !== undefined ? { version } : {}),
-    ...(tunActive !== undefined ? { tunActive } : {}),
-  };
-}
-
-export function parseCoreReloadResult(value: unknown): CoreReloadResult {
-  const contract = "sashd core reload";
-  const source = objectValue(value, contract, "response");
-  const sourceKind = stringValue(
-    required(source, "source", contract, "source"),
-    contract,
-    "source",
-  );
-  if (sourceKind !== "subscription" && sourceKind !== "default") {
-    invalid(contract, "source", `"subscription" or "default"`);
-  }
-  return {
-    proxyCount: nonNegativeSafeInteger(
-      required(source, "proxyCount", contract, "proxyCount"),
-      contract,
-      "proxyCount",
-    ),
-    source: sourceKind,
-  };
-}
-
-export function parseShutdownResult(value: unknown): ShutdownResult {
-  const contract = "sashd shutdown";
-  const source = objectValue(value, contract, "response");
-  return {
-    coreWasRunning: booleanValue(
-      required(source, "coreWasRunning", contract, "coreWasRunning"),
-      contract,
-      "coreWasRunning",
-    ),
-  };
-}
-
 export function parseSystemProxyStatusResponse(value: unknown): SystemProxyStatusResponse {
-  const contract = "sashd system proxy";
-  const source = objectValue(value, contract, "response");
-  const state = parseSystemProxyState(source, contract, "response");
-  const queryError = optionalString(source, "queryError", contract, "queryError");
+  const source = object(value, "system proxy status");
+  const queryError = optionalString(source, "queryError");
   return {
-    desired: booleanValue(required(source, "desired", contract, "desired"), contract, "desired"),
-    applied: booleanValue(required(source, "applied", contract, "applied"), contract, "applied"),
-    ...state,
-    appliedKnown: knownFlag(source, "appliedKnown", contract, "appliedKnown"),
-    stateKnown: knownFlag(source, "stateKnown", contract, "stateKnown"),
+    ...parseSystemProxyState(source),
+    desired: boolean(source.desired, "desired"),
+    applied: boolean(source.applied, "applied"),
+    appliedKnown: boolean(source.appliedKnown, "appliedKnown"),
+    stateKnown: boolean(source.stateKnown, "stateKnown"),
     ...(queryError !== undefined ? { queryError } : {}),
   };
 }
 
-export function parseSettingsPatch(
-  value: unknown,
-  direction: "request" | "response" = "response",
-): SettingsPatch {
-  const subject = `sashd settings patch ${direction}`;
-  const fail = (path: string, expected: string): never => {
-    throw new TypeError(`${subject} is invalid: ${path} must be ${expected}`);
-  };
-  if (!isPlainObject(value)) fail("body", "a plain object");
-  const source = value as Record<string, unknown>;
-  const allowed = new Set([
-    "mixedPort",
-    "allowLan",
-    "tun",
-    "systemProxy",
-    "daemonPort",
-    "daemonSecret",
-  ]);
-  for (const key of Object.keys(source)) {
-    if (!allowed.has(key)) fail(key, "a known settings patch field");
-  }
-  const portField = (key: "mixedPort" | "daemonPort"): number | undefined => {
-    if (!Object.hasOwn(source, key)) return undefined;
-    const field = source[key];
-    if (typeof field !== "number" || !Number.isInteger(field) || field < 1 || field > 65_535) {
-      return fail(key, "an integer port from 1 to 65535");
-    }
-    return field;
-  };
-  const boolField = (key: "allowLan" | "tun" | "systemProxy"): boolean | undefined => {
-    if (!Object.hasOwn(source, key)) return undefined;
-    const field = source[key];
-    if (typeof field !== "boolean") return fail(key, "a boolean");
-    return field;
-  };
-  const patch: SettingsPatch = {};
-  const mixedPort = portField("mixedPort");
-  if (mixedPort !== undefined) patch.mixedPort = mixedPort;
-  const daemonPort = portField("daemonPort");
-  if (daemonPort !== undefined) patch.daemonPort = daemonPort;
-  const allowLan = boolField("allowLan");
-  if (allowLan !== undefined) patch.allowLan = allowLan;
-  const tun = boolField("tun");
-  if (tun !== undefined) patch.tun = tun;
-  const systemProxy = boolField("systemProxy");
-  if (systemProxy !== undefined) patch.systemProxy = systemProxy;
-  if (Object.hasOwn(source, "daemonSecret")) {
-    const secret = source.daemonSecret;
-    if (typeof secret !== "string" || !secret.trim()) {
-      fail("daemonSecret", "a non-empty string");
-    }
-    patch.daemonSecret = secret as string;
-  }
-  return patch;
-}
-
-export function parseSettingsWriteResult(value: unknown): SettingsWriteResult {
-  const contract = "sashd settings write";
-  const source = objectValue(value, contract, "response");
-  return {
-    restartRequired: booleanValue(
-      required(source, "restartRequired", contract, "restartRequired"),
-      contract,
-      "restartRequired",
-    ),
-    settings: parsePublicSettings(required(source, "settings", contract, "settings")),
-  };
-}
-
-export function parseSettingsFileContent(value: unknown): SettingsFileContent {
-  const contract = "sashd settings file";
-  const source = objectValue(value, contract, "response");
-  return {
-    content: stringValue(required(source, "content", contract, "content"), contract, "content"),
-  };
-}
-
-export function parseProfilesIndex(value: unknown): ProfilesIndex {
-  const contract = "sashd profiles";
-  const source = objectValue(value, contract, "response");
-  const activeValue = required(source, "activeId", contract, "activeId");
-  const profilesValue = required(source, "profiles", contract, "profiles");
-  if (!Array.isArray(profilesValue)) invalid(contract, "profiles", "an array");
-  return {
-    activeId: activeValue === null ? null : stringValue(activeValue, contract, "activeId", true),
-    profiles: profilesValue.map((entry, index) =>
-      parseProfileMeta(entry, contract, `profiles[${index}]`),
-    ),
-  };
-}
-
 export function parseProfileActionResponse(value: unknown): ProfileActionResponse {
-  const contract = "sashd profile action";
-  const source = objectValue(value, contract, "response");
+  const source = object(value, "profile action");
   return {
-    profile: parseProfileMeta(
-      required(source, "profile", contract, "profile"),
-      contract,
-      "profile",
-    ),
-    activated: booleanValue(
-      required(source, "activated", contract, "activated"),
-      contract,
-      "activated",
-    ),
-    ...optionalProxyCount(source, contract, "response"),
+    profile: parseProfileMeta(source.profile),
+    activated: boolean(source.activated, "activated"),
   };
 }
-
 export function parseProfileUpdateResponse(value: unknown): ProfileUpdateResponse {
-  const contract = "sashd profile update";
-  const source = objectValue(value, contract, "response");
+  return { profile: parseProfileMeta(object(value, "profile").profile) };
+}
+export { parseProfileUpdateResponse as parseProfileRenameResponse };
+export function parseProfileContentResponse(value: unknown): ProfileContentResponse {
+  const source = object(value, "profile content");
   return {
-    profile: parseProfileMeta(
-      required(source, "profile", contract, "profile"),
-      contract,
-      "profile",
-    ),
-    ...optionalProxyCount(source, contract, "response"),
+    name: string(source.name, "name"),
+    content: string(source.content, "content", true),
+    revision: integer(source.revision, "revision", 1),
   };
 }
-
-export function parseProfilesUpdateAllResponse(value: unknown): ProfilesUpdateAllResponse {
-  const contract = "sashd profiles update-all";
-  const source = objectValue(value, contract, "response");
-  const failedValue = required(source, "failed", contract, "failed");
-  if (!Array.isArray(failedValue)) invalid(contract, "failed", "an array");
+export function parseProfileActivateResponse(value: unknown): ProfileActivateResponse {
+  const source = object(value, "profile selection");
   return {
-    updated: nonNegativeSafeInteger(
-      required(source, "updated", contract, "updated"),
-      contract,
-      "updated",
-    ),
-    failed: failedValue.map((entry, index) => {
-      const path = `failed[${index}]`;
-      const failure = objectValue(entry, contract, path);
+    activeId: source.activeId === null ? null : string(source.activeId, "activeId"),
+    proxyCount: integer(source.proxyCount, "proxyCount"),
+  };
+}
+export function parseProfileRemoveResponse(value: unknown): ProfileRemoveResponse {
+  return { wasActive: boolean(object(value, "profile removal").wasActive, "wasActive") };
+}
+export function parseProfilesUpdateAllResponse(value: unknown): ProfilesUpdateAllResponse {
+  const source = object(value, "profiles update");
+  if (!Array.isArray(source.failed)) throw new TypeError("failed must be an array");
+  return {
+    updated: integer(source.updated, "updated"),
+    failed: source.failed.map((item) => {
+      const failure = object(item, "profile error");
       return {
-        id: stringValue(required(failure, "id", contract, `${path}.id`), contract, `${path}.id`),
-        name: stringValue(
-          required(failure, "name", contract, `${path}.name`),
-          contract,
-          `${path}.name`,
-        ),
-        error: stringValue(
-          required(failure, "error", contract, `${path}.error`),
-          contract,
-          `${path}.error`,
-        ),
+        id: string(failure.id, "id"),
+        name: string(failure.name, "name"),
+        error: string(failure.error, "error"),
       };
     }),
-    ...optionalProxyCount(source, contract, "response"),
-  };
-}
-
-export function parseProfileContentResponse(value: unknown): ProfileContentResponse {
-  const contract = "sashd profile content";
-  const source = objectValue(value, contract, "response");
-  return {
-    name: stringValue(required(source, "name", contract, "name"), contract, "name"),
-    content: stringValue(required(source, "content", contract, "content"), contract, "content"),
-  };
-}
-
-export function parseProfileActivateResponse(value: unknown): ProfileActivateResponse {
-  const contract = "sashd profile activate";
-  const source = objectValue(value, contract, "response");
-  const activeValue = required(source, "activeId", contract, "activeId");
-  return {
-    activeId: activeValue === null ? null : stringValue(activeValue, contract, "activeId", true),
-    proxyCount: nonNegativeSafeInteger(
-      required(source, "proxyCount", contract, "proxyCount"),
-      contract,
-      "proxyCount",
-    ),
-  };
-}
-
-export function parseProfileRemoveResponse(value: unknown): ProfileRemoveResponse {
-  const contract = "sashd profile remove";
-  const source = objectValue(value, contract, "response");
-  return {
-    wasActive: booleanValue(
-      required(source, "wasActive", contract, "wasActive"),
-      contract,
-      "wasActive",
-    ),
-    ...optionalProxyCount(source, contract, "response"),
-  };
-}
-
-export function parseProfileRenameResponse(value: unknown): ProfileRenameResponse {
-  const contract = "sashd profile rename";
-  const source = objectValue(value, contract, "response");
-  return {
-    profile: parseProfileMeta(
-      required(source, "profile", contract, "profile"),
-      contract,
-      "profile",
-    ),
   };
 }
 
 export function parseDaemonStatus(value: unknown): DaemonStatus {
-  const contract = "sashd status";
-  const source = objectValue(value, contract, "response");
-  const daemonSource = objectValue(
-    required(source, "daemon", contract, "daemon"),
-    contract,
-    "daemon",
-  );
-  const revisionsSource = objectValue(
-    required(source, "revisions", contract, "revisions"),
-    contract,
-    "revisions",
-  );
-  const proxySource = objectValue(
-    required(source, "systemProxy", contract, "systemProxy"),
-    contract,
-    "systemProxy",
-  );
-  const actual = Object.hasOwn(proxySource, "actual")
-    ? parseSystemProxyState(proxySource.actual, contract, "systemProxy.actual")
-    : undefined;
-  const queryError = optionalString(proxySource, "queryError", contract, "systemProxy.queryError");
-  const activeValue = required(source, "activeProfile", contract, "activeProfile");
-  const activeProfile =
-    activeValue === null
+  const source = object(value, "status");
+  const daemon = object(source.daemon, "daemon");
+  const revisions = object(source.revisions, "revisions");
+  const core = object(source.core, "core");
+  const proxy = object(source.systemProxy, "systemProxy");
+  const configuration = object(source.configuration, "configuration");
+  const selected =
+    source.activeProfile === null ? null : object(source.activeProfile, "activeProfile");
+  const applied =
+    configuration.appliedProfile === null
       ? null
-      : (() => {
-          const active = objectValue(activeValue, contract, "activeProfile");
-          return {
-            id: stringValue(
-              required(active, "id", contract, "activeProfile.id"),
-              contract,
-              "activeProfile.id",
-              true,
-            ),
-            name: stringValue(
-              required(active, "name", contract, "activeProfile.name"),
-              contract,
-              "activeProfile.name",
-            ),
-            url: stringValue(
-              required(active, "url", contract, "activeProfile.url"),
-              contract,
-              "activeProfile.url",
-            ),
-          };
-        })();
-
+      : object(configuration.appliedProfile, "appliedProfile");
+  const appliedSettings =
+    configuration.appliedSettings === null
+      ? null
+      : object(configuration.appliedSettings, "appliedSettings");
+  const version = optionalString(core, "version");
+  const queryError = optionalString(proxy, "queryError");
   return {
     daemon: {
-      pid: positiveSafeInteger(
-        required(daemonSource, "pid", contract, "daemon.pid"),
-        contract,
-        "daemon.pid",
-      ),
-      startedAt: timestampValue(
-        required(daemonSource, "startedAt", contract, "daemon.startedAt"),
-        contract,
-        "daemon.startedAt",
-      ),
-      port: portValue(
-        required(daemonSource, "port", contract, "daemon.port"),
-        contract,
-        "daemon.port",
-      ),
+      pid: integer(daemon.pid, "daemon.pid", 1),
+      bootId: string(daemon.bootId, "daemon.bootId"),
+      startedAt: timestamp(daemon.startedAt, "daemon.startedAt"),
+      port: integer(daemon.port, "daemon.port", 1, 65535),
     },
     revisions: {
-      profiles: nonNegativeSafeInteger(
-        required(revisionsSource, "profiles", contract, "revisions.profiles"),
-        contract,
-        "revisions.profiles",
-      ),
+      profiles: integer(revisions.profiles, "revisions.profiles"),
+      runtime: integer(revisions.runtime, "revisions.runtime"),
     },
-    core: parseCoreState(required(source, "core", contract, "core"), contract),
+    core: {
+      running: boolean(core.running, "core.running"),
+      ...(Object.hasOwn(core, "pid") ? { pid: integer(core.pid, "core.pid", 1) } : {}),
+      ...(Object.hasOwn(core, "startedAt")
+        ? { startedAt: timestamp(core.startedAt, "core.startedAt") }
+        : {}),
+      ...(Object.hasOwn(core, "healthy") ? { healthy: boolean(core.healthy, "core.healthy") } : {}),
+      ...(version !== undefined ? { version } : {}),
+    },
+    configuration: {
+      pending: boolean(configuration.pending, "configuration.pending"),
+      appliedProfile: applied
+        ? {
+            id: string(applied.id, "appliedProfile.id"),
+            revision: integer(applied.revision, "appliedProfile.revision", 1),
+            name: string(applied.name, "appliedProfile.name"),
+            url: string(applied.url, "appliedProfile.url", true),
+          }
+        : null,
+      appliedSettings: appliedSettings
+        ? {
+            mixedPort: integer(appliedSettings.mixedPort, "appliedSettings.mixedPort", 1, 65535),
+            allowLan: boolean(appliedSettings.allowLan, "appliedSettings.allowLan"),
+          }
+        : null,
+    },
     systemProxy: {
-      desired: booleanValue(
-        required(proxySource, "desired", contract, "systemProxy.desired"),
-        contract,
-        "systemProxy.desired",
-      ),
-      applied: booleanValue(
-        required(proxySource, "applied", contract, "systemProxy.applied"),
-        contract,
-        "systemProxy.applied",
-      ),
-      ...(actual !== undefined ? { actual } : {}),
-      appliedKnown: knownFlag(proxySource, "appliedKnown", contract, "systemProxy.appliedKnown"),
-      stateKnown: knownFlag(proxySource, "stateKnown", contract, "systemProxy.stateKnown"),
+      desired: boolean(proxy.desired, "systemProxy.desired"),
+      applied: boolean(proxy.applied, "systemProxy.applied"),
+      appliedKnown: boolean(proxy.appliedKnown, "systemProxy.appliedKnown"),
+      stateKnown: boolean(proxy.stateKnown, "systemProxy.stateKnown"),
+      ...(Object.hasOwn(proxy, "actual") ? { actual: parseSystemProxyState(proxy.actual) } : {}),
       ...(queryError !== undefined ? { queryError } : {}),
     },
-    settings: parsePublicSettings(required(source, "settings", contract, "settings")),
-    activeProfile,
+    settings: parsePublicSettings(source.settings),
+    activeProfile: selected
+      ? {
+          id: string(selected.id, "activeProfile.id"),
+          name: string(selected.name, "activeProfile.name"),
+          url: string(selected.url, "activeProfile.url", true),
+        }
+      : null,
   };
 }

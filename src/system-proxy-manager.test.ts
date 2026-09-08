@@ -3,12 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type {
-  EnableOptions,
-  LinuxSystemProxySnapshot,
-  SystemProxyBackend,
-  SystemProxySnapshot,
-  SystemProxyState,
+import {
+  createSystemProxyBackend,
+  type EnableOptions,
+  type SystemProxyBackend,
+  type SystemProxySnapshot,
+  type SystemProxyState,
 } from "./sysproxy.js";
 import {
   parseSystemProxyJournal,
@@ -16,136 +16,51 @@ import {
   type SystemProxyJournalLayout,
   SystemProxyManager,
 } from "./system-proxy-manager.js";
+import { deferred } from "./test-state.test.js";
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve = (): void => undefined;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-function linuxSnapshot(
-  name: string,
-  port: number,
-  mode: "none" | "manual" = "none",
-): LinuxSystemProxySnapshot {
+const windows = createSystemProxyBackend("win32");
+function snapshot(name: string, port: number): SystemProxySnapshot {
   return {
     version: 1,
-    platform: "linux",
-    mode,
-    autoConfigUrl: `${name}-auto.example.test/proxy.pac`,
-    httpUseAuthentication: false,
-    http: { host: `${name}-http.example.test`, port },
-    https: { host: `${name}-https.example.test`, port: port + 1 },
-    socks: { host: `${name}-socks.example.test`, port: port + 2 },
+    platform: "win32",
+    proxyEnable: 0,
+    proxyServer: `${name}.example.test:${port}`,
+    proxyOverride: "<local>",
+    autoConfigUrl: `https://${name}.example.test/proxy.pac`,
+    autoDetect: 1,
   };
-}
-
-function linuxCompatible(
-  current: LinuxSystemProxySnapshot,
-  original: LinuxSystemProxySnapshot,
-  target: LinuxSystemProxySnapshot,
-): boolean {
-  const leaf = <T>(value: T, before: T, after: T): boolean => value === before || value === after;
-  const endpoint = (
-    value: { host: string; port: number },
-    before: { host: string; port: number },
-    after: { host: string; port: number },
-  ): boolean =>
-    leaf(value.host, before.host, after.host) && leaf(value.port, before.port, after.port);
-  return (
-    leaf(current.mode, original.mode, target.mode) &&
-    leaf(current.autoConfigUrl, original.autoConfigUrl, target.autoConfigUrl) &&
-    leaf(
-      current.httpUseAuthentication,
-      original.httpUseAuthentication,
-      target.httpUseAuthentication,
-    ) &&
-    endpoint(current.http, original.http, target.http) &&
-    endpoint(current.https, original.https, target.https) &&
-    endpoint(current.socks, original.socks, target.socks)
-  );
 }
 
 class FakeBackend implements SystemProxyBackend {
   readonly supported = true;
-  current: LinuxSystemProxySnapshot;
-  readonly applyCalls: LinuxSystemProxySnapshot[] = [];
+  current: SystemProxySnapshot;
+  readonly applyCalls: SystemProxySnapshot[] = [];
   captureCalls = 0;
-  onApply?: (snapshot: LinuxSystemProxySnapshot, backend: FakeBackend) => void | Promise<void>;
+  onApply?: (snapshot: SystemProxySnapshot, backend: FakeBackend) => void | Promise<void>;
   onCapture?: (backend: FakeBackend) => void | Promise<void>;
   onCreateTarget?: (backend: FakeBackend) => void;
-
-  constructor(initial: LinuxSystemProxySnapshot) {
-    this.current = clone(initial);
+  constructor(initial: SystemProxySnapshot) {
+    this.current = structuredClone(initial);
   }
-
   async capture(): Promise<SystemProxySnapshot> {
     this.captureCalls++;
     await this.onCapture?.(this);
-    return clone(this.current);
+    return structuredClone(this.current);
   }
-
   createTarget(original: SystemProxySnapshot, opts: EnableOptions): SystemProxySnapshot {
-    if (original.platform !== "linux")
-      throw new Error("fake backend only supports Linux snapshots");
     this.onCreateTarget?.(this);
-    return {
-      version: 1,
-      platform: "linux",
-      mode: "manual",
-      autoConfigUrl: original.autoConfigUrl,
-      httpUseAuthentication: false,
-      http: { host: opts.host ?? "127.0.0.1", port: opts.port },
-      https: { host: opts.host ?? "127.0.0.1", port: opts.port },
-      socks: { host: opts.host ?? "127.0.0.1", port: opts.port },
-    };
+    return windows.createTarget(original, opts);
   }
-
   async apply(snapshot: SystemProxySnapshot): Promise<void> {
-    if (snapshot.platform !== "linux")
-      throw new Error("fake backend only supports Linux snapshots");
-    const next = clone(snapshot);
+    const next = structuredClone(snapshot);
     this.applyCalls.push(next);
-    if (this.onApply) {
-      await this.onApply(next, this);
-      return;
-    }
-    this.current = next;
+    if (this.onApply) await this.onApply(next, this);
+    else this.current = next;
   }
-
-  equivalent(a: SystemProxySnapshot, b: SystemProxySnapshot): boolean {
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
-
-  compatible(
-    current: SystemProxySnapshot,
-    original: SystemProxySnapshot,
-    target: SystemProxySnapshot,
-  ): boolean {
-    if (
-      current.platform !== "linux" ||
-      original.platform !== "linux" ||
-      target.platform !== "linux"
-    ) {
-      return false;
-    }
-    return linuxCompatible(current, original, target);
-  }
-
+  equivalent = windows.equivalent;
+  compatible = windows.compatible;
   state(snapshot: SystemProxySnapshot): SystemProxyState {
-    if (snapshot.platform !== "linux")
-      throw new Error("fake backend only supports Linux snapshots");
-    return {
-      supported: true,
-      enabled: snapshot.mode === "manual",
-      server: `${snapshot.http.host}:${snapshot.http.port}`,
-    };
+    return windows.state(snapshot);
   }
 }
 
@@ -155,7 +70,10 @@ describe("SystemProxyManager", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-system-proxy-manager-test-"));
-    layout = { systemProxyStateFile: path.join(tmpDir, "state", "system-proxy.json") };
+    layout = {
+      systemProxyStateFile: path.join(tmpDir, "state", "system-proxy.json"),
+      systemProxyLockFile: path.join(tmpDir, "proxy.lock"),
+    };
   });
 
   afterEach(() => {
@@ -168,17 +86,17 @@ describe("SystemProxyManager", () => {
 
   function targetFor(
     backend: FakeBackend,
-    original: LinuxSystemProxySnapshot,
+    original: SystemProxySnapshot,
     port = 17890,
-  ): LinuxSystemProxySnapshot {
+  ): SystemProxySnapshot {
     const target = backend.createTarget(original, { port });
-    assert.equal(target.platform, "linux");
+    assert.equal(target.platform, "win32");
     return target;
   }
 
   function writeJournal(
-    original: LinuxSystemProxySnapshot,
-    target: LinuxSystemProxySnapshot,
+    original: SystemProxySnapshot,
+    target: SystemProxySnapshot,
     phase: SystemProxyJournal["phase"] = "prepared",
   ): string {
     const journal: SystemProxyJournal = {
@@ -195,46 +113,8 @@ describe("SystemProxyManager", () => {
     return text;
   }
 
-  it("rejects the removed positional constructor at runtime", () => {
-    const backend = new FakeBackend(linuxSnapshot("proxy-a", 8000));
-    const LegacyConstructor = SystemProxyManager as unknown as new (
-      legacyLayout: SystemProxyJournalLayout,
-      legacyBackend?: SystemProxyBackend,
-    ) => SystemProxyManager;
-
-    class InheritedLegacyLayout implements SystemProxyJournalLayout {
-      get systemProxyStateFile(): string {
-        return layout.systemProxyStateFile;
-      }
-    }
-
-    assert.throws(() => new LegacyConstructor(layout), /requires an options object/);
-    assert.throws(() => new LegacyConstructor(layout, backend), /requires an options object/);
-    assert.throws(
-      () => new LegacyConstructor(new InheritedLegacyLayout()),
-      /requires an options object/,
-    );
-  });
-
-  it("upgrades legacy journals to the current in-memory schema", () => {
-    const original = linuxSnapshot("proxy-a", 8000);
-    const backend = new FakeBackend(original);
-    const target = targetFor(backend, original);
-    const parsed = parseSystemProxyJournal({
-      schemaVersion: 1,
-      phase: "applied",
-      ownerPid: process.pid,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      original,
-      target,
-    });
-
-    assert.equal(parsed.schemaVersion, 2);
-    assert.equal(parsed.phase, "applied");
-  });
-
   it("restores an existing proxy snapshot after releasing Sash ownership", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const manager = new SystemProxyManager({ layout, backend });
 
@@ -257,8 +137,54 @@ describe("SystemProxyManager", () => {
     assert.equal(await manager.isApplied(), false);
   });
 
+  it("rejects old and malformed journal formats without migrating them", () => {
+    const original = snapshot("proxy-a", 8000);
+    const backend = new FakeBackend(original);
+    const valid: SystemProxyJournal = {
+      schemaVersion: 2,
+      phase: "applied",
+      ownerPid: process.pid,
+      createdAt: "2026-09-08T00:00:00.000Z",
+      original,
+      target: targetFor(backend, original),
+    };
+    for (const invalid of [
+      { ...valid, schemaVersion: 1 },
+      { ...valid, extra: true },
+      { ...valid, ownerPid: 0 },
+      { ...valid, original: { ...original, extra: true } },
+    ]) {
+      assert.throws(() => parseSystemProxyJournal(invalid), /Invalid system proxy journal/);
+    }
+  });
+
+  it("serializes two managers through their shared OS operation lock", async () => {
+    const original = snapshot("proxy-a", 8000);
+    const backend = new FakeBackend(original);
+    const entered = deferred();
+    const release = deferred();
+    backend.onApply = async (value, fake) => {
+      if (value.proxyEnable === 1) {
+        entered.resolve();
+        await release.promise;
+      }
+      fake.current = structuredClone(value);
+    };
+    const owner = new SystemProxyManager({ layout, backend });
+    const recovery = new SystemProxyManager({ layout, backend });
+    const applying = owner.apply({ port: 17890 });
+    await entered.promise;
+    const restoring = recovery.release();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(backend.applyCalls.length, 1);
+    release.resolve();
+    await Promise.all([applying, restoring]);
+    assert.deepEqual(backend.current, original);
+    assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
+  });
+
   it("does not inspect or modify the OS when release has no journal", async () => {
-    const backend = new FakeBackend(linuxSnapshot("proxy-a", 8000));
+    const backend = new FakeBackend(snapshot("proxy-a", 8000));
     const manager = new SystemProxyManager({ layout, backend });
 
     await manager.release();
@@ -267,8 +193,17 @@ describe("SystemProxyManager", () => {
     assert.equal(backend.applyCalls.length, 0);
   });
 
+  it("reports unsupported desktop integration without issuing OS commands", async () => {
+    const manager = new SystemProxyManager({ layout, backend: createSystemProxyBackend("linux") });
+    const inspection = await manager.inspect();
+    assert.equal(inspection.state.supported, false);
+    assert.equal(inspection.stateKnown, true);
+    assert.equal(inspection.applied, false);
+    await manager.release();
+  });
+
   it("does not tear down and reapply an unchanged owned target", async () => {
-    const backend = new FakeBackend(linuxSnapshot("proxy-a", 8000));
+    const backend = new FakeBackend(snapshot("proxy-a", 8000));
     const manager = new SystemProxyManager({ layout, backend });
 
     await manager.apply({ port: 17890 });
@@ -280,11 +215,11 @@ describe("SystemProxyManager", () => {
   });
 
   it("refuses to overwrite an external change made while ownership is prepared", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
-    const external = linuxSnapshot("proxy-b", 9000);
+    const original = snapshot("proxy-a", 8000);
+    const external = snapshot("proxy-b", 9000);
     const backend = new FakeBackend(original);
     backend.onCreateTarget = (fake) => {
-      fake.current = clone(external);
+      fake.current = structuredClone(external);
     };
     const manager = new SystemProxyManager({ layout, backend });
 
@@ -296,12 +231,12 @@ describe("SystemProxyManager", () => {
   });
 
   it("restores a prepared partial write left by a crash", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const target = targetFor(backend, original);
-    const partial = clone(original);
-    partial.http = clone(target.http);
-    partial.https.port = target.https.port;
+    const partial = structuredClone(original);
+    partial.proxyServer = target.proxyServer;
+    partial.proxyEnable = target.proxyEnable;
     backend.current = partial;
     writeJournal(original, target, "prepared");
     const manager = new SystemProxyManager({ layout, backend });
@@ -315,22 +250,22 @@ describe("SystemProxyManager", () => {
   });
 
   it("does not treat an applied journal with one reverted field as a crash partial", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const manager = new SystemProxyManager({ layout, backend });
     await manager.apply({ port: 17890 });
-    backend.current.http.host = original.http.host;
+    backend.current.proxyServer = original.proxyServer;
 
     await assert.rejects(manager.release(), /modified outside Sash/);
 
     assert.equal(fs.existsSync(layout.systemProxyStateFile), true);
-    assert.equal(backend.current.http.host, original.http.host);
+    assert.equal(backend.current.proxyServer, original.proxyServer);
     assert.equal(backend.applyCalls.length, 1);
   });
 
   it("fails closed when a third-party proxy configuration is present", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
-    const backend = new FakeBackend(linuxSnapshot("proxy-b", 9000));
+    const original = snapshot("proxy-a", 8000);
+    const backend = new FakeBackend(snapshot("proxy-b", 9000));
     const target = targetFor(backend, original);
     const journalText = writeJournal(original, target, "applied");
     const manager = new SystemProxyManager({ layout, backend });
@@ -342,21 +277,21 @@ describe("SystemProxyManager", () => {
   });
 
   it("compensates an apply failure when the partial state is still compatible", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const target = targetFor(backend, original);
-    const partial = clone(original);
-    partial.http = clone(target.http);
+    const partial = structuredClone(original);
+    partial.proxyServer = target.proxyServer;
     let invocation = 0;
     backend.onApply = (snapshot, fake) => {
       invocation++;
       if (invocation === 1) {
         assert.deepEqual(snapshot, target);
-        fake.current = clone(partial);
+        fake.current = structuredClone(partial);
         throw new Error("target write failed");
       }
       assert.deepEqual(snapshot, original);
-      fake.current = clone(snapshot);
+      fake.current = structuredClone(snapshot);
     };
     const manager = new SystemProxyManager({ layout, backend });
 
@@ -368,17 +303,17 @@ describe("SystemProxyManager", () => {
   });
 
   it("keeps a restoring journal when compensation cannot restore the snapshot", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const target = targetFor(backend, original);
-    const partial = clone(original);
-    partial.http = clone(target.http);
+    const partial = structuredClone(original);
+    partial.proxyServer = target.proxyServer;
     let invocation = 0;
     backend.onApply = (snapshot, fake) => {
       invocation++;
       if (invocation === 1) {
         assert.deepEqual(snapshot, target);
-        fake.current = clone(partial);
+        fake.current = structuredClone(partial);
         throw new Error("target write failed");
       }
       assert.deepEqual(snapshot, original);
@@ -399,15 +334,15 @@ describe("SystemProxyManager", () => {
   });
 
   it("continues a partial restoration after a crash", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const manager = new SystemProxyManager({ layout, backend });
     await manager.apply({ port: 17890 });
-    const target = clone(backend.current);
-    const partial = clone(target);
-    partial.http = clone(original.http);
+    const target = structuredClone(backend.current);
+    const partial = structuredClone(target);
+    partial.proxyServer = original.proxyServer;
     backend.onApply = (_snapshot, fake) => {
-      fake.current = clone(partial);
+      fake.current = structuredClone(partial);
       throw new Error("restore interrupted");
     };
 
@@ -419,7 +354,7 @@ describe("SystemProxyManager", () => {
     assert.deepEqual(backend.current, partial);
 
     backend.onApply = (snapshot, fake) => {
-      fake.current = clone(snapshot);
+      fake.current = structuredClone(snapshot);
     };
     await new SystemProxyManager({ layout, backend }).release();
 
@@ -428,7 +363,7 @@ describe("SystemProxyManager", () => {
   });
 
   it("refuses corrupt journals without overwriting or deleting them", async () => {
-    const backend = new FakeBackend(linuxSnapshot("proxy-a", 8000));
+    const backend = new FakeBackend(snapshot("proxy-a", 8000));
     const manager = new SystemProxyManager({ layout, backend });
     const corrupt = "{ not valid JSON";
     fs.mkdirSync(path.dirname(layout.systemProxyStateFile), { recursive: true });
@@ -444,13 +379,13 @@ describe("SystemProxyManager", () => {
     assert.equal(inspection.appliedKnown, false);
     assert.equal(inspection.stateKnown, true);
     assert.match(inspection.queryError ?? "", /journal is invalid/);
-    assert.equal(inspection.state.enabled, false);
+    assert.equal(inspection.state.enabled, true);
     assert.match(inspection.state.details ?? "", /journal is invalid/);
     assert.equal(fs.readFileSync(layout.systemProxyStateFile, "utf8"), corrupt);
   });
 
   it("deduplicates same-generation inspections and reuses only settled non-fresh cache", async () => {
-    const backend = new FakeBackend(linuxSnapshot("proxy-a", 8000));
+    const backend = new FakeBackend(snapshot("proxy-a", 8000));
     const entered = deferred();
     const release = deferred();
     let blockFirst = true;
@@ -478,19 +413,19 @@ describe("SystemProxyManager", () => {
     assert.equal(backend.captureCalls, 2);
   });
 
-  it("serializes truly asynchronous apply, inspect, and release operations", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+  it("keeps inspection responsive with unknown state while serializing OS writes", async () => {
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const events: string[] = [];
     const applyEntered = deferred();
     const releaseApply = deferred();
     backend.onApply = async (snapshot, fake) => {
-      events.push(snapshot.mode === "manual" ? "target" : "original");
-      if (snapshot.mode === "manual") {
+      events.push(snapshot.proxyEnable === 1 ? "target" : "original");
+      if (snapshot.proxyEnable === 1) {
         applyEntered.resolve();
         await releaseApply.promise;
       }
-      fake.current = clone(snapshot);
+      fake.current = structuredClone(snapshot);
     };
     const manager = new SystemProxyManager({ layout, backend });
 
@@ -506,14 +441,16 @@ describe("SystemProxyManager", () => {
     const observed = await inspecting;
     await releasing;
 
-    assert.equal(observed.applied, true);
+    assert.equal(observed.appliedKnown, false);
+    assert.equal(observed.stateKnown, false);
+    assert.match(observed.queryError ?? "", /in progress/);
     assert.deepEqual(events, ["target", "original"]);
     assert.deepEqual(backend.current, original);
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
   it("retries inspection when another manager removes the journal during capture", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const owner = new SystemProxyManager({ layout, backend });
     await owner.apply({ port: 17890 });
@@ -537,7 +474,7 @@ describe("SystemProxyManager", () => {
   });
 
   it("reports expected-journal disappearance during verified restoration", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const manager = new SystemProxyManager({ layout, backend });
     await manager.apply({ port: 17890 });
@@ -554,12 +491,12 @@ describe("SystemProxyManager", () => {
   });
 
   it("preserves falsy restoration failures unless fresh verification proves success", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const verifiedBackend = new FakeBackend(original);
     const verified = new SystemProxyManager({ layout, backend: verifiedBackend });
     await verified.apply({ port: 17890 });
     verifiedBackend.onApply = (snapshot, fake) => {
-      fake.current = clone(snapshot);
+      fake.current = structuredClone(snapshot);
       return Promise.reject(undefined);
     };
 
@@ -567,6 +504,7 @@ describe("SystemProxyManager", () => {
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
 
     const failedLayout = {
+      ...layout,
       systemProxyStateFile: path.join(tmpDir, "state", "system-proxy-failed.json"),
     };
     const failedBackend = new FakeBackend(original);
@@ -581,7 +519,7 @@ describe("SystemProxyManager", () => {
   });
 
   it("reports falsy capture failures and continues the queue after a falsy rejection", async () => {
-    const original = linuxSnapshot("proxy-a", 8000);
+    const original = snapshot("proxy-a", 8000);
     const captureBackend = new FakeBackend(original);
     captureBackend.onCapture = () => Promise.reject(undefined);
     const observing = new SystemProxyManager({ layout, backend: captureBackend });
@@ -592,12 +530,13 @@ describe("SystemProxyManager", () => {
     assert.equal(inspection.queryError, "undefined");
 
     const queuedLayout = {
+      ...layout,
       systemProxyStateFile: path.join(tmpDir, "state", "system-proxy-queued.json"),
     };
     const queuedBackend = new FakeBackend(original);
     let rejectTarget = true;
     queuedBackend.onApply = (snapshot, fake) => {
-      fake.current = clone(snapshot);
+      fake.current = structuredClone(snapshot);
       if (rejectTarget) {
         rejectTarget = false;
         return Promise.reject(undefined);

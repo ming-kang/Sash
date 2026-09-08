@@ -1,24 +1,35 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { testProfile, testStatus } from "../../../src/test-state.test.js";
 import { api } from "../api/index.js";
-import type { ProfileMeta, SashStatus } from "../types/index.js";
-import { refreshConnections } from "./core-actions.js";
+import { currentRoute } from "../router.js";
+import type { SashStatus } from "../types/index.js";
+import { refreshConnections, refreshVisibleCoreResources } from "./core-actions.js";
 import {
   markDaemonOffline,
   refreshRuntimeState,
   refreshStatus,
-  setAllowLan,
+  saveNetworkSettings,
   setSystemProxyEnabled,
   startRuntimePolling,
 } from "./runtime-actions.js";
 import { adoptDaemonStatus, store } from "./state.js";
 
-const originalHasSession = api.hasSession;
+const originalApi = { ...api };
 beforeEach(() => {
   api.hasSession = () => true;
+  api.sessionMatches = () => true;
+  api.isInitialized = () => false;
+  api.markDisconnected = () => undefined;
+  api.getProfiles = async () => ({ activeId: null, profiles: [] });
+  markDaemonOffline();
+  currentRoute.value = "overview";
+  store.profiles = [];
+  store.lastProfileRevision = null;
 });
 afterEach(() => {
-  api.hasSession = originalHasSession;
+  markDaemonOffline();
+  Object.assign(api, originalApi);
 });
 
 function runtimeStatus(options: {
@@ -26,282 +37,160 @@ function runtimeStatus(options: {
   profileRevision: number;
   running?: boolean;
   healthy?: boolean;
-  pid?: number;
-  coreStartedAt?: string;
+  runtimeRevision?: number;
 }): SashStatus {
-  return {
-    daemon: { pid: 100, startedAt: options.daemonStartedAt, port: 19090 },
-    revisions: { profiles: options.profileRevision },
-    core: {
-      running: options.running ?? true,
-      healthy: options.healthy ?? true,
-      ...(options.pid === undefined ? {} : { pid: options.pid }),
-      ...(options.coreStartedAt === undefined ? {} : { startedAt: options.coreStartedAt }),
-    },
-    systemProxy: {
-      desired: false,
-      applied: false,
-      actual: { supported: true, enabled: false },
-      appliedKnown: true,
-      stateKnown: true,
-    },
-    settings: {
-      mixedPort: 17890,
-      controller: "127.0.0.1:9090",
-      tun: false,
-      allowLan: false,
-      daemonPort: 19090,
-      systemProxy: false,
-    },
-    activeProfile: null,
-  };
-}
-
-function profile(name: string): ProfileMeta {
-  return {
-    id: "1",
-    name,
-    url: "https://example.com/profile",
-    intervalHours: 24,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  };
+  const value = testStatus();
+  value.daemon.bootId = options.daemonStartedAt;
+  value.revisions.profiles = options.profileRevision;
+  value.revisions.runtime = options.runtimeRevision ?? 1;
+  value.core.running = options.running ?? true;
+  value.core.healthy = options.healthy ?? true;
+  return value;
 }
 
 describe("web runtime ownership", () => {
-  it("keeps the daemon online without polling Core when browser authorization is absent", async () => {
-    const originals = { getStatus: api.getStatus, getConfigs: api.getConfigs };
-    const status = runtimeStatus({ daemonStartedAt: "read-only", profileRevision: 0 });
+  function coreResponses(): string[] {
+    const reads: string[] = [];
+    api.getConfigs = async () => {
+      reads.push("configs");
+      return { mode: "rule" } as Awaited<ReturnType<typeof api.getConfigs>>;
+    };
+    api.getProxies = async () => {
+      reads.push("proxies");
+      return { proxies: { node: { name: "node", type: "Direct", udp: true, history: [] } } };
+    };
+    api.getRules = async () => {
+      reads.push("rules");
+      return { rules: [{ type: "MATCH", payload: "", proxy: "DIRECT" }] };
+    };
+    api.getConnections = async () => {
+      reads.push("connections");
+      return { connections: null, uploadTotal: 12, downloadTotal: 34 };
+    };
+    return reads;
+  }
+
+  it("keeps public daemon status online without polling private resources when unauthorized", async () => {
+    const status = testStatus();
+    api.sessionMatches = () => false;
     api.hasSession = () => false;
     api.getStatus = async () => status;
-    api.getConfigs = async () => {
-      throw new Error("unauthorized Core poll");
+    api.getProfiles = async () => {
+      throw new Error("unauthorized profile poll");
     };
-    try {
-      assert.equal(await refreshStatus(), "unauthorized");
-      assert.equal(store.daemonOnline, true);
-      assert.equal(store.status, status);
-      assert.equal(store.coreSnapshotError, null);
-      assert.equal(store.coreSnapshotAvailable, false);
-    } finally {
-      Object.assign(api, originals);
-      markDaemonOffline();
-    }
+    const reads = coreResponses();
+    assert.equal(await refreshStatus(), "unauthorized");
+    assert.equal(store.daemonOnline, true);
+    assert.equal(store.status, status);
+    assert.deepEqual(store.resourceLoaded, {});
+    assert.deepEqual(reads, []);
   });
-  it("forces a Core snapshot only for explicit runtime refreshes", async () => {
-    const originals = {
-      getStatus: api.getStatus,
-      getProfiles: api.getProfiles,
-      getConfigs: api.getConfigs,
-      getProxies: api.getProxies,
-      getRules: api.getRules,
-      getConnections: api.getConnections,
-    };
-    const status = runtimeStatus({
-      daemonStartedAt: "daemon-force",
-      profileRevision: 1,
-      pid: 200,
-      coreStartedAt: "core-force",
-    });
-    let snapshotRequests = 0;
 
+  it("loads resources only for the visible page and keeps status refreshes lightweight", async () => {
+    api.getStatus = async () => testStatus();
+    const reads = coreResponses();
+    assert.equal(await refreshStatus(), "status");
+    assert.deepEqual(reads, []);
+    await refreshRuntimeState();
+    assert.deepEqual(reads.sort(), ["configs", "connections", "proxies"]);
+    currentRoute.value = "profiles";
+    await refreshRuntimeState();
+    assert.equal(reads.length, 3);
+    currentRoute.value = "rules";
+    await refreshVisibleCoreResources();
+    assert.equal(reads.at(-1), "rules");
+    await refreshVisibleCoreResources(1);
+    assert.equal(reads.length, 4, "unchanged rules should stay cached");
+  });
+
+  it("preserves Core caches and measured delays across metadata changes", async () => {
+    let status = testStatus();
+    let profile = testProfile();
     api.getStatus = async () => status;
-    api.getProfiles = async () => ({ activeId: null, profiles: [] });
-    api.getConfigs = async () => {
-      snapshotRequests += 1;
-      return {
-        port: 0,
-        "socks-port": 0,
-        "redir-port": 0,
-        "tproxy-port": 0,
-        "mixed-port": 17890,
-        "allow-lan": false,
-        mode: "rule",
-        "log-level": "info",
-      };
-    };
-    api.getProxies = async () => ({ proxies: {} });
-    api.getRules = async () => ({ rules: [] });
-    api.getConnections = async () => ({
-      uploadTotal: 0,
-      downloadTotal: 0,
-      connections: [],
-    });
+    api.getProfiles = async () => ({ activeId: profile.id, profiles: [profile] });
+    const reads = coreResponses();
+    await refreshRuntimeState();
+    const generation = store.runtimeGeneration;
+    const proxies = store.proxies;
+    store.manualProxyDelays = { node: 42 };
+    status = { ...status, revisions: { ...status.revisions, profiles: 2 } };
+    profile = { ...profile, name: "renamed" };
+    await refreshStatus();
+    assert.equal(store.profiles[0]?.name, "renamed");
+    assert.equal(store.proxies, proxies);
+    assert.equal(store.manualProxyDelays.node, 42);
+    assert.equal(store.runtimeGeneration, generation);
+    assert.equal(reads.length, 3);
 
-    markDaemonOffline();
-    try {
-      assert.equal(await refreshStatus(), "full");
-      assert.equal(snapshotRequests, 1);
-      assert.equal(await refreshStatus(), "status");
-      assert.equal(snapshotRequests, 1);
-
-      await refreshRuntimeState();
-      assert.equal(snapshotRequests, 2);
-    } finally {
-      Object.assign(api, originals);
-      markDaemonOffline();
-      store.profiles = [];
-      store.activeProfileId = null;
-      store.lastProfileRevision = null;
-    }
+    status = { ...status, revisions: { ...status.revisions, runtime: 2 } };
+    await refreshStatus();
+    assert.equal(store.runtimeGeneration, generation + 1);
+    assert.deepEqual(store.proxies, {});
+    assert.deepEqual(store.manualProxyDelays, {});
+    assert.deepEqual(store.resourceLoaded, {});
   });
 
-  it("keeps daemon, profile, and Core snapshot failures independently owned", async () => {
-    const originals = {
-      getStatus: api.getStatus,
-      getProfiles: api.getProfiles,
-      getConfigs: api.getConfigs,
-      getProxies: api.getProxies,
-      getRules: api.getRules,
-      getConnections: api.getConnections,
+  it("retains a failed resource while updating independent successful resources", async () => {
+    api.getStatus = async () => testStatus();
+    coreResponses();
+    await refreshRuntimeState();
+    const proxies = store.proxies;
+    api.getProxies = async () => {
+      throw new Error("proxy query failed");
     };
-    let currentStatus = runtimeStatus({
-      daemonStartedAt: "daemon-a",
-      profileRevision: 0,
-      running: false,
-      healthy: false,
-    });
-    let profileName = "stopped-zero";
-    let snapshotName = "owner-a";
-    let failCore = false;
-    let failConnections = false;
+    api.getConnections = async () => ({ connections: [], uploadTotal: 100, downloadTotal: 200 });
+    await refreshRuntimeState();
+    assert.equal(store.proxies, proxies);
+    assert.equal(store.resourceLoaded.proxies, true);
+    assert.deepEqual(store.resourceErrors, { proxies: "proxy query failed" });
+    assert.equal(store.connectionsUploadTotal, 100);
+    assert.equal(store.daemonOnline, true);
+  });
 
-    api.getStatus = async () => currentStatus;
-    api.getProfiles = async () => ({ activeId: "1", profiles: [profile(profileName)] });
-    api.getConfigs = async () => {
-      if (failCore) throw new Error("HTTP 502");
-      return {
-        port: 0,
-        "socks-port": 0,
-        "redir-port": 0,
-        "tproxy-port": 0,
-        "mixed-port": 17890,
-        "allow-lan": false,
-        mode: "rule",
-        "log-level": "info",
-      };
+  it("retries failed metadata loads and invalidates profile revisions on a new daemon boot", async () => {
+    let status = testStatus();
+    api.getStatus = async () => status;
+    api.getProfiles = async () => {
+      throw new Error("metadata query failed");
     };
-    api.getProxies = async () => ({
-      proxies: {
-        [snapshotName]: {
-          name: snapshotName,
-          type: "Direct",
-          udp: true,
-          history: [],
-        },
-      },
-    });
-    api.getRules = async () => ({ rules: [{ type: "MATCH", payload: "", proxy: snapshotName }] });
-    api.getConnections = async () => {
-      if (failConnections) throw new Error("HTTP 502");
-      return { uploadTotal: 12, downloadTotal: 34, connections: null };
-    };
-
-    markDaemonOffline();
-    store.profiles = [];
-    store.activeProfileId = null;
-    try {
-      assert.equal(await refreshStatus(), "stopped");
-      assert.equal(store.profiles[0]?.name, "stopped-zero");
-      assert.equal(store.lastProfileRevision, 0);
-      assert.equal(store.daemonOnline, true);
-
-      currentStatus = runtimeStatus({
-        daemonStartedAt: "daemon-a",
-        profileRevision: 1,
-        running: false,
-        healthy: false,
-      });
-      profileName = "stopped-one";
-      assert.equal(await refreshStatus(), "stopped");
-      assert.equal(store.profiles[0]?.name, "stopped-one");
-      assert.equal(store.lastProfileRevision, 1);
-
-      currentStatus = runtimeStatus({
-        daemonStartedAt: "daemon-a",
-        profileRevision: 1,
-        pid: 200,
-        coreStartedAt: "core-a",
-      });
-      assert.equal(await refreshStatus(), "full");
-      assert.equal(store.coreSnapshotAvailable, true);
-      assert.equal(store.coreSnapshotError, null);
-      assert.ok(store.proxies["owner-a"]);
-      const ownerGeneration = store.runtimeGeneration;
-
-      failConnections = true;
-      await assert.rejects(refreshConnections, /HTTP 502/);
-      failConnections = false;
-      assert.equal(store.daemonOnline, true);
-      assert.equal(store.coreSnapshotAvailable, true);
-      assert.equal(store.coreSnapshotError, "HTTP 502");
-      assert.ok(store.proxies["owner-a"]);
-
-      failCore = true;
-      assert.equal(await refreshStatus(), "degraded");
-      assert.equal(store.daemonOnline, true);
-      assert.equal(store.coreSnapshotAvailable, true);
-      assert.ok(store.proxies["owner-a"]);
-      assert.equal(store.runtimeGeneration, ownerGeneration);
-
-      currentStatus = runtimeStatus({
-        daemonStartedAt: "daemon-a",
-        profileRevision: 1,
-        pid: 201,
-        coreStartedAt: "core-b",
-      });
-      assert.equal(await refreshStatus(), "degraded");
-      assert.equal(store.daemonOnline, true);
-      assert.equal(store.coreSnapshotAvailable, false);
-      assert.equal(store.coreSnapshotError, "HTTP 502");
-      assert.deepEqual(store.proxies, {});
-      assert.equal(store.runtimeGeneration, ownerGeneration + 1);
-
-      failCore = false;
-      snapshotName = "owner-c";
-      profileName = "daemon-restarted";
-      currentStatus = runtimeStatus({
-        daemonStartedAt: "daemon-b",
-        profileRevision: 1,
-        pid: 202,
-        coreStartedAt: "core-c",
-      });
-      assert.equal(await refreshStatus(), "full");
-      assert.equal(store.profiles[0]?.name, "daemon-restarted");
-      assert.equal(store.lastProfileRevision, 1);
-      assert.ok(store.proxies["owner-c"]);
-      const restartedGeneration = store.runtimeGeneration;
-
-      failCore = true;
-      profileName = "profile-revised";
-      currentStatus = runtimeStatus({
-        daemonStartedAt: "daemon-b",
-        profileRevision: 2,
-        pid: 202,
-        coreStartedAt: "core-c",
-      });
-      assert.equal(await refreshStatus(), "degraded");
-      assert.equal(store.profiles[0]?.name, "profile-revised");
-      assert.ok(store.proxies["owner-c"]);
-      assert.equal(store.runtimeGeneration, restartedGeneration);
-
-      failCore = false;
-      snapshotName = "profile-revised";
-      assert.equal(await refreshStatus(), "full");
-      assert.ok(store.proxies["profile-revised"]);
-      assert.equal(store.runtimeGeneration, restartedGeneration + 1);
-    } finally {
-      Object.assign(api, originals);
-      markDaemonOffline();
-      store.profiles = [];
-      store.activeProfileId = null;
-      store.lastProfileRevision = null;
-    }
+    assert.equal(await refreshStatus(), "status");
+    assert.equal(store.lastProfileRevision, null);
+    api.getProfiles = async () => ({ activeId: "1", profiles: [testProfile()] });
+    await refreshStatus();
+    assert.equal(store.lastProfileRevision, 0);
+    status = { ...status, daemon: { ...status.daemon, bootId: "new-boot" } };
+    api.getProfiles = async () => ({ activeId: "2", profiles: [testProfile("2")] });
+    await refreshStatus();
+    assert.equal(store.activeProfileId, "2");
   });
 });
 
 describe("network mutation outcomes", () => {
   for (const kind of ["allow-lan", "systemProxy"] as const) {
+    it(`${kind}: a late write response cannot change the successor daemon's settings`, async () => {
+      const status = testStatus();
+      adoptDaemonStatus(status);
+      const pending = Promise.withResolvers<Awaited<ReturnType<typeof api.patchSettings>>>();
+      api.patchSettings = api.enableSystemProxy = async () => pending.promise;
+      api.getStatus = async () => {
+        throw new Error("temporarily unavailable");
+      };
+      const saving =
+        kind === "systemProxy"
+          ? setSystemProxyEnabled(true)
+          : saveNetworkSettings({ allowLan: true });
+      const successor = { ...testStatus(), daemon: { ...status.daemon, bootId: "successor" } };
+      adoptDaemonStatus(successor);
+      pending.resolve({
+        settings: { ...status.settings, allowLan: true, systemProxy: true },
+        restartRequired: true,
+      });
+      await saving;
+      assert.equal(store.status, successor);
+      assert.equal(store.status.settings.allowLan, false);
+      assert.equal(store.status.settings.systemProxy, false);
+    });
+
     it(`${kind}: preserves saved intent and observed proxy state when refresh fails`, async () => {
       const originals = {
         patchSettings: api.patchSettings,
@@ -309,7 +198,6 @@ describe("network mutation outcomes", () => {
         getStatus: api.getStatus,
       };
       const status = runtimeStatus({ daemonStartedAt: "mutation", profileRevision: 0 });
-      status.core.tunActive = false;
       adoptDaemonStatus(status);
       const settings = {
         ...status.settings,
@@ -325,7 +213,9 @@ describe("network mutation outcomes", () => {
       };
       try {
         const verified =
-          kind === "systemProxy" ? await setSystemProxyEnabled(true) : await setAllowLan(true);
+          kind === "systemProxy"
+            ? await setSystemProxyEnabled(true)
+            : await saveNetworkSettings({ allowLan: true });
         assert.equal(verified, false);
         assert.deepEqual(store.status?.settings, settings);
         assert.deepEqual(store.status?.systemProxy, {
@@ -358,7 +248,9 @@ describe("network mutation outcomes", () => {
       };
       try {
         await assert.rejects(
-          kind === "systemProxy" ? setSystemProxyEnabled(true) : setAllowLan(true),
+          kind === "systemProxy"
+            ? setSystemProxyEnabled(true)
+            : saveNetworkSettings({ allowLan: true }),
           (error) => error === failure,
         );
         assert.equal(refreshes, 1);
@@ -379,13 +271,18 @@ describe("stale polling failures", () => {
           initialize: api.initialize,
           getStatus: api.getStatus,
           getProfiles: api.getProfiles,
-          clearSession: api.clearSession,
+          markDisconnected: api.markDisconnected,
         };
         const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
         const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
         Object.defineProperty(globalThis, "window", {
           configurable: true,
-          value: { setTimeout: () => 1, clearTimeout: () => undefined },
+          value: {
+            setTimeout: () => 1,
+            clearTimeout: () => undefined,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+          },
         });
         Object.defineProperty(globalThis, "document", {
           configurable: true,
@@ -398,7 +295,7 @@ describe("stale polling failures", () => {
         const pending = Promise.withResolvers<never>();
         const entered = Promise.withResolvers<void>();
         let clears = 0;
-        api.clearSession = () => {
+        api.markDisconnected = () => {
           clears += 1;
         };
         api.initialize = async () => {
@@ -465,7 +362,7 @@ it("keeps LAN intent committed while saving and preserves an unrelated system pr
     throw new Error("refresh unavailable");
   };
   try {
-    const saving = setAllowLan(true);
+    const saving = saveNetworkSettings({ allowLan: true });
     assert.equal(store.status?.settings.allowLan, false);
     assert.equal(store.operations.networkSetting, true);
     pending.resolve({ settings: { ...status.settings, allowLan: true }, restartRequired: false });
@@ -483,7 +380,7 @@ it("resource requests do not supersede status and older resource failures cannot
   const status = runtimeStatus({ daemonStartedAt: "resource-order", profileRevision: 0 });
   adoptDaemonStatus(status);
   store.lastProfileRevision = 0;
-  store.coreSnapshotAvailable = true;
+  store.resourceLoaded = { connections: true };
   const old = Promise.withResolvers<Awaited<ReturnType<typeof api.getConnections>>>();
   api.getConnections = async () => old.promise;
   try {
@@ -493,7 +390,7 @@ it("resource requests do not supersede status and older resource failures cannot
     old.reject(new Error("stale resource failure"));
     await assert.rejects(oldRequest, /stale resource failure/);
     assert.equal(store.connectionsUploadTotal, 42);
-    assert.equal(store.coreSnapshotError, null);
+    assert.deepEqual(store.resourceErrors, {});
 
     const pending = Promise.withResolvers<SashStatus>();
     api.getStatus = async () => pending.promise;

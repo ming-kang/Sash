@@ -11,7 +11,7 @@ import { serveStaticUi } from "../daemon-static.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
 import { readAutostart, writeAutostart } from "./handlers/autostart.js";
-import { reloadCoreConfig, restartCore, startCore, stopCore } from "./handlers/core.js";
+import { restartCore, setCoreMode, startCore, stopCore, updateCore } from "./handlers/core.js";
 import {
   createWebBootstrap,
   daemonStatus,
@@ -33,12 +33,7 @@ import {
   writeProfileContent,
 } from "./handlers/profiles.js";
 import { proxyStatus } from "./handlers/proxy.js";
-import {
-  patchSettings,
-  readSettings,
-  readSettingsFile,
-  writeSettingsFile,
-} from "./handlers/settings.js";
+import { patchSettings, readSettings } from "./handlers/settings.js";
 
 /* ====================================================================== */
 /* Request target parsing                                                  */
@@ -168,6 +163,7 @@ export function buildRoutes(): readonly RouteDef[] {
       handler: redeemWebBootstrap,
     },
     { methods: ["POST"], pattern: path("/sash/core/start"), auth: "control", handler: startCore },
+    { methods: ["PUT"], pattern: path("/sash/core/mode"), auth: "control", handler: setCoreMode },
     { methods: ["POST"], pattern: path("/sash/core/stop"), auth: "control", handler: stopCore },
     {
       methods: ["POST"],
@@ -177,9 +173,9 @@ export function buildRoutes(): readonly RouteDef[] {
     },
     {
       methods: ["POST"],
-      pattern: path("/sash/core/reload"),
+      pattern: path("/sash/core/update"),
       auth: "control",
-      handler: reloadCoreConfig,
+      handler: updateCore,
     },
     { methods: ["GET"], pattern: path("/sash/proxy"), auth: "public", handler: proxyStatus },
     { methods: ["GET"], pattern: path("/sash/autostart"), auth: "control", handler: readAutostart },
@@ -195,18 +191,6 @@ export function buildRoutes(): readonly RouteDef[] {
       pattern: path("/sash/settings"),
       auth: "control",
       handler: patchSettings,
-    },
-    {
-      methods: ["GET"],
-      pattern: path("/sash/settings/file"),
-      auth: "control",
-      handler: readSettingsFile,
-    },
-    {
-      methods: ["PUT"],
-      pattern: path("/sash/settings/file"),
-      auth: "control",
-      handler: writeSettingsFile,
     },
     { methods: ["GET"], pattern: path("/sash/profiles"), auth: "public", handler: listProfiles },
     { methods: ["POST"], pattern: path("/sash/profiles"), auth: "control", handler: addProfile },
@@ -299,6 +283,15 @@ function forwardToCore(
   res: ServerResponse,
   target: ParsedDaemonRequestTarget,
 ): void {
+  const method = req.method?.toUpperCase() ?? "GET";
+  const pathname = coreApiTarget(target).split("?")[0] ?? "/";
+  const allowedMutation =
+    (method === "PUT" && /^\/proxies\/[^/]+$/.test(pathname)) ||
+    (method === "DELETE" && /^\/connections(?:\/[^/]+)?$/.test(pathname));
+  if (isControlMutation(method) && !allowedMutation) {
+    sendError(res, 403, "conflict", "Use Sash controls to change managed Core configuration");
+    return;
+  }
   const runtime = ctx.settings.runtime();
   forwardHttpToCore(req, res, coreApiTarget(target), runtime.controller, runtime.secret);
 }
@@ -337,13 +330,6 @@ const METHOD_ORDER = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
 function methodOrder(method: string): number {
   const index = METHOD_ORDER.indexOf(method as (typeof METHOD_ORDER)[number]);
   return index < 0 ? METHOD_ORDER.length : index;
-}
-
-/** Read a route parameter that the matched pattern guarantees to exist. */
-export function requiredParam(req: RouteRequest, name: string): string {
-  const value = req.params[name];
-  if (value === undefined) throw new Error(`Missing route parameter: ${name}`);
-  return value;
 }
 
 function writeResponse(res: ServerResponse, response: RouteResponse): void {

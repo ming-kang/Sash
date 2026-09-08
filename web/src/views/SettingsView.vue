@@ -1,18 +1,6 @@
 <template>
   <div>
-    <PageHeader :title="t('page.settings.title')" :desc="t('page.settings.desc')">
-      <button
-        type="button"
-        class="btn btn-secondary btn-sm"
-        @click="fileEditorOpen = true"
-      >
-        <Icon name="code" :size="14" />
-        {{ t('settings.editFile') }}
-      </button>
-    </PageHeader>
-
-    <SettingsFileDialog v-if="fileEditorOpen" @close="fileEditorOpen = false" />
-
+    <PageHeader :title="t('page.settings.title')" :desc="t('page.settings.desc')" />
     <div class="settings-grid">
       <!-- Interface -->
       <UiCard :title="t('settings.appearanceTitle')" class="settings-card">
@@ -102,13 +90,13 @@
               max="65535"
               class="input input-sm port-input"
               :aria-label="t('settings.mixedPortTitle')"
-              :disabled="savingPort || !store.status"
+              :disabled="savingPort || store.operations.networkSetting || !store.status"
             />
             <button
               v-if="portDirty"
               type="button"
               class="btn btn-secondary btn-sm"
-              :disabled="savingPort || !store.status"
+              :disabled="savingPort || store.operations.networkSetting || !store.status"
               @click="resetMixedPort"
             >
               {{ t('common.reset') }}
@@ -116,7 +104,7 @@
             <button
               type="button"
               class="btn btn-secondary btn-sm interrupt-save"
-              :disabled="savingPort || !portValid || !store.status"
+              :disabled="savingPort || store.operations.networkSetting || !portValid || !store.status"
               @click="saveMixedPort"
             >
               {{ savingPort ? t('common.loading') : t('common.save') }}
@@ -141,42 +129,13 @@
 
       </UiCard>
 
-      <!-- Core control -->
       <UiCard :title="t('settings.coreTitle')" class="settings-card">
-        <div class="setting-row danger-row">
+        <div class="setting-row">
           <div class="setting-info">
             <span class="setting-name">{{ t('settings.restartTitle') }}</span>
             <span class="setting-desc">{{ t('settings.restartDesc') }}</span>
           </div>
-          <div class="setting-action">
-            <button
-              type="button"
-              class="btn btn-sm danger-action"
-              :disabled="restarting"
-              @click="restartCore"
-            >
-              <Icon name="power" :size="13" :class="{ spin: restarting }" />
-              <span>{{ t('settings.restartBtn') }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-name">{{ t('settings.reloadTitle') }}</span>
-            <span class="setting-desc">{{ t('settings.reloadDesc') }}</span>
-          </div>
-          <div class="setting-action">
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm"
-              :disabled="reloading"
-              @click="reloadConfig"
-            >
-              <Icon name="refresh" :size="13" :class="{ spin: reloading }" />
-              <span>{{ t('settings.reloadBtn') }}</span>
-            </button>
-          </div>
+          <CoreControls />
         </div>
       </UiCard>
 
@@ -202,19 +161,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, watch } from "vue";
-import { api } from "../api/index.js";
+import { computed, ref, watch } from "vue";
 import AutostartCard from "../components/AutostartCard.vue";
-import Icon from "../components/Icon.vue";
+import CoreControls from "../components/CoreControls.vue";
 import PageHeader from "../components/PageHeader.vue";
 import UiCard from "../components/UiCard.vue";
 import UiSwitch from "../components/UiSwitch.vue";
-import { coreVersion, useCoreRestart } from "../composables/core-runtime.js";
+import { coreVersion } from "../composables/core-runtime.js";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
 import {
   errorText,
-  setAllowLan,
-  refreshRuntimeState,
+  saveNetworkSettings,
   store,
   toast,
 } from "../stores/index.js";
@@ -224,19 +181,10 @@ import {
 } from "../stores/state-ownership.js";
 import { setTheme, theme, type Theme } from "../theme.js";
 
-// The settings-file editor (CodeMirror) loads only when the dialog opens.
-const SettingsFileDialog = defineAsyncComponent(
-  () => import("../components/SettingsFileDialog.vue"),
-);
-
-const fileEditorOpen = ref(false);
-
 const committedMixedPort = ref(store.status?.settings.mixedPort ?? 7890);
 const mixedPort = ref(committedMixedPort.value);
 
 const savingPort = ref(false);
-const { restarting, restartCore } = useCoreRestart();
-const reloading = ref(false);
 
 watch(
   () => store.status?.settings.mixedPort,
@@ -279,13 +227,12 @@ function resetMixedPort(): void {
 }
 
 async function saveMixedPort(): Promise<void> {
-  if (!portValid.value || savingPort.value) return;
+  if (!portValid.value || savingPort.value || store.operations.networkSetting) return;
   savingPort.value = true;
   try {
-    const result = await api.patchSettings({ mixedPort: mixedPort.value });
-    if (store.status) store.status = { ...store.status, settings: result.settings };
-    await refreshRuntimeState();
-    toast.success(t("toast.portSaved"));
+    const verified = await saveNetworkSettings({ mixedPort: mixedPort.value });
+    if (verified) toast.success(t("toast.portSaved"));
+    else toast.info(t("toast.settingSavedUnverified"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
@@ -295,25 +242,11 @@ async function saveMixedPort(): Promise<void> {
 
 async function toggleAllowLan(next: boolean): Promise<void> {
   try {
-    const verified = await setAllowLan(next);
+    const verified = await saveNetworkSettings({ allowLan: next });
     if (verified) toast.success(t("toast.settingSaved"));
     else toast.info(t("toast.settingSavedUnverified"));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
-  }
-}
-
-async function reloadConfig(): Promise<void> {
-  if (reloading.value) return;
-  reloading.value = true;
-  try {
-    const res = await api.reloadCoreConfig();
-    await refreshRuntimeState();
-    toast.success(t("toast.configReloaded", { n: res.proxyCount }));
-  } catch (err) {
-    toast.error(t("toast.failed", { msg: errorText(err) }));
-  } finally {
-    reloading.value = false;
   }
 }
 </script>
@@ -372,9 +305,6 @@ async function reloadConfig(): Promise<void> {
   background: var(--general-row-hover);
   border-radius: 3px;
 }
-.danger-row .setting-name {
-  color: var(--danger);
-}
 .setting-info {
   display: flex;
   min-width: 0;
@@ -414,16 +344,8 @@ async function reloadConfig(): Promise<void> {
   background: transparent;
   border-color: var(--warning-border);
 }
-.danger-action {
-  color: var(--danger);
-  background: transparent;
-  border-color: var(--danger-border);
-}
 .interrupt-save:hover:not(:disabled) {
   background: var(--warning-soft);
-}
-.danger-action:hover:not(:disabled) {
-  background: var(--danger-soft);
 }
 
 .info-grid {

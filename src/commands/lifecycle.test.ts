@@ -1,211 +1,107 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, it } from "node:test";
-import { evaluateDaemon } from "../daemon-lifecycle.js";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "../paths.js";
-import { DEFAULT_SETTINGS, saveSettings } from "../settings.js";
 import { acquireStateLockSync } from "../state-lock.js";
+import { createTestState, testSettings } from "../test-state.test.js";
 import { runRestart, runStart, runStop } from "./lifecycle.js";
-
-let root: string | undefined;
-let previousSashHome: string | undefined;
-let server: http.Server | undefined;
-let releaseLease: (() => void) | undefined;
-
-afterEach(async () => {
-  releaseLease?.();
-  releaseLease = undefined;
-  if (server) {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server?.close(() => resolve()));
-    server = undefined;
-  }
-  if (previousSashHome === undefined) delete process.env.SASH_HOME;
-  else process.env.SASH_HOME = previousSashHome;
-  if (root) fs.rmSync(root, { recursive: true, force: true });
-  root = undefined;
-});
+import { runUpdate } from "./update.js";
 
 describe("lifecycle commands", () => {
-  it("uses the observed daemon port when starting Core and printing endpoints", async () => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-command-start-test-"));
-    previousSashHome = process.env.SASH_HOME;
+  let root: string;
+  let previousHome: string | undefined;
+  let server: http.Server;
+  let releaseLease: () => void;
+  let port: number;
+  let requests: { url: string; body: string }[];
+
+  beforeEach(async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-command-test-"));
+    previousHome = process.env.SASH_HOME;
     process.env.SASH_HOME = root;
     const layout = sashLayout(root);
-    let startCalls = 0;
-    let daemonToken = "";
-    server = http.createServer((req, res) => {
-      res.writeHead(200, { "content-type": "application/json" });
-      if (req.url === "/sash/daemon/health") {
-        res.end(
-          JSON.stringify({
-            ok: true,
-            token: daemonToken,
-            pid: process.pid,
-            startedAt: "2026-01-01T00:00:00.000Z",
-          }),
-        );
-        return;
-      }
-      if (req.url === "/sash/core/start") {
-        startCalls++;
-        res.end(JSON.stringify({ pid: 77, version: "v-test", tunActive: false }));
-        return;
-      }
-      res.writeHead(404);
-      res.end();
-    });
-    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as AddressInfo).port;
-    const configuredPort = port === 19090 ? 19091 : 19090;
-    const settings = {
-      ...DEFAULT_SETTINGS,
-      daemonPort: configuredPort,
-      tun: false,
-      secret: "test-core-secret",
-      daemonSecret: "test-daemon-secret",
-    };
-    saveSettings(settings, layout);
+    requests = [];
     const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test daemon" });
     releaseLease = () => lease.release();
-    daemonToken = lease.record.token;
-    fs.mkdirSync(layout.stateDir, { recursive: true });
+    server = http.createServer(async (req, res) => {
+      if (req.url !== "/sash/daemon/health")
+        assert.equal(req.headers.authorization, "Bearer test-daemon-secret");
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      requests.push({ url: req.url ?? "", body: Buffer.concat(chunks).toString() });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify(
+          req.url === "/sash/daemon/health"
+            ? {
+                ok: true,
+                token: lease.record.token,
+                pid: process.pid,
+                startedAt: "2026-09-08T00:00:00.000Z",
+              }
+            : req.url === "/sash/core/update"
+              ? { version: "v1.2.3" }
+              : { pid: 77, version: "v1.2.3" },
+        ),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    port = address.port;
+    createTestState(layout, testSettings());
     fs.writeFileSync(
       layout.daemonPidFile,
-      `${JSON.stringify({
+      JSON.stringify({
         pid: process.pid,
         token: lease.record.token,
         port,
-        startedAt: "2026-01-01T00:00:00.000Z",
-      })}\n`,
+        startedAt: "2026-09-08T00:00:00.000Z",
+      }),
     );
+  });
 
-    const daemon = await evaluateDaemon(layout, settings);
-    assert.equal(daemon.healthy, true, JSON.stringify(daemon));
+  afterEach(async () => {
+    releaseLease();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (previousHome === undefined) delete process.env.SASH_HOME;
+    else process.env.SASH_HOME = previousHome;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("starts Core through the observed daemon port and prints that endpoint", async (t) => {
     const output: string[] = [];
-    const warnings: string[] = [];
-    const previousLog = console.log;
-    const previousWarn = console.warn;
-    console.log = (...args: unknown[]) => output.push(args.map(String).join(" "));
-    console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
-    try {
-      await runStart();
-    } finally {
-      console.log = previousLog;
-      console.warn = previousWarn;
-    }
-
-    assert.equal(startCalls, 1);
-    assert.equal(
+    t.mock.method(console, "log", (...args: unknown[]) => output.push(args.map(String).join(" ")));
+    await runStart();
+    assert.equal(requests.filter((request) => request.url === "/sash/core/start").length, 1);
+    assert.ok(
       output.some((line) => line.includes("sash api") && line.includes(`127.0.0.1:${port}`)),
-      true,
     );
-    assert.equal(
-      output.some(
-        (line) => line.includes("sash api") && line.includes(`127.0.0.1:${configuredPort}`),
-      ),
-      false,
-    );
-    assert.deepEqual(warnings, []);
   });
 
-  it("restarts through the daemon maintenance boundary and resumes the Core", async () => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-command-restart-test-"));
-    previousSashHome = process.env.SASH_HOME;
-    process.env.SASH_HOME = root;
-    const layout = sashLayout(root);
-    let maintenanceCalls = 0;
-    let startCalls = 0;
-    let daemonToken = "";
-    server = http.createServer((req, res) => {
-      res.writeHead(200, { "content-type": "application/json" });
-      if (req.url === "/sash/daemon/health") {
-        res.end(
-          JSON.stringify({
-            ok: true,
-            token: daemonToken,
-            pid: process.pid,
-            startedAt: "2026-01-01T00:00:00.000Z",
-          }),
-        );
-        return;
-      }
-      if (req.url === "/sash/daemon/shutdown") {
-        maintenanceCalls++;
-        res.end(JSON.stringify({ coreWasRunning: true }));
-        return;
-      }
-      if (req.url === "/sash/core/start") {
-        startCalls++;
-        res.end(JSON.stringify({ pid: 77, version: "v-test", tunActive: false }));
-        return;
-      }
-      res.writeHead(404);
-      res.end();
-    });
-    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as AddressInfo).port;
-    saveSettings(
-      {
-        ...DEFAULT_SETTINGS,
-        daemonPort: port,
-        secret: "test-core-secret",
-        daemonSecret: "test-daemon-secret",
-      },
-      layout,
+  it("restarts Core without shutting down the management daemon", async () => {
+    await runRestart();
+    assert.deepEqual(
+      requests.filter((request) => request.url !== "/sash/daemon/health"),
+      [{ url: "/sash/core/restart", body: "" }],
     );
-    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test daemon" });
-    releaseLease = () => lease.release();
-    daemonToken = lease.record.token;
-    fs.mkdirSync(layout.stateDir, { recursive: true });
-    fs.writeFileSync(
-      layout.daemonPidFile,
-      `${JSON.stringify({
-        pid: process.pid,
-        token: lease.record.token,
-        port,
-        startedAt: "2026-01-01T00:00:00.000Z",
-      })}\n`,
-    );
-
-    let waitedFor: number | undefined;
-    await runRestart({
-      // The fake daemon is this test process: it never exits, and spawnDaemon
-      // adopts it again because it still answers healthy.
-      waitForDaemonExit: async (pid) => {
-        waitedFor = pid;
-      },
-    });
-
-    assert.equal(maintenanceCalls, 1);
-    assert.equal(waitedFor, process.pid);
-    assert.equal(startCalls, 1);
   });
 
-  it("rejects stop when daemon shutdown cannot be verified", async () => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-command-stop-test-"));
-    previousSashHome = process.env.SASH_HOME;
-    process.env.SASH_HOME = root;
-    const layout = sashLayout(root);
-    saveSettings(
-      { ...DEFAULT_SETTINGS, secret: "test-core-secret", daemonSecret: "test-daemon-secret" },
-      layout,
-    );
-    fs.mkdirSync(layout.stateDir, { recursive: true });
-    fs.writeFileSync(
-      layout.daemonPidFile,
-      `${JSON.stringify({
-        pid: process.pid,
-        token: "unverified-token",
-        port: 1,
-        startedAt: "2026-01-01T00:00:00.000Z",
-      })}\n`,
-    );
+  it("updates through the daemon without a maintenance handoff", async () => {
+    await runUpdate({ version: "v1.2.3" });
+    const mutations = requests.filter((request) => request.url !== "/sash/daemon/health");
+    assert.equal(mutations.length, 1);
+    assert.equal(mutations[0]?.url, "/sash/core/update");
+    assert.deepEqual(JSON.parse(mutations[0]?.body ?? ""), { version: "v1.2.3" });
+  });
 
-    await assert.rejects(runStop(), /could not be stopped safely/);
+  it("refuses an unverified stop without sending a shutdown request", async () => {
+    releaseLease();
+    await assert.rejects(runStop(), /refusing an unverified stop/);
+    assert.deepEqual(requests, []);
   });
 });

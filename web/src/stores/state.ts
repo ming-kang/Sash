@@ -1,4 +1,5 @@
 import { computed, shallowReactive } from "vue";
+import { currentRoute } from "../router.js";
 import type {
   ConnectionItem,
   LogMessage,
@@ -24,24 +25,18 @@ export interface ToastItem {
   kind: "success" | "error" | "info";
   text: string;
 }
-
 export interface StoredLogMessage extends LogMessage {
   id: number;
 }
-
+export type CoreResource = "configs" | "proxies" | "rules" | "connections";
 export interface StoreState {
   status: SashStatus | null;
   daemonOnline: boolean;
   lastProfileRevision: number | null;
-  coreSnapshotAvailable: boolean;
-  coreSnapshotError: string | null;
+  resourceLoaded: Partial<Record<CoreResource, boolean>>;
+  resourceErrors: Partial<Record<CoreResource, string>>;
   mode: OutboundMode;
-  traffic: {
-    up: number;
-    down: number;
-    historyUp: number[];
-    historyDown: number[];
-  };
+  traffic: { up: number; down: number; historyUp: number[]; historyDown: number[] };
   proxies: Record<string, ProxyItem>;
   proxyGroups: string[];
   manualProxyDelays: Record<string, number>;
@@ -66,28 +61,18 @@ export interface StoreState {
 
 export const HISTORY_LEN = 60;
 export const requests = new RequestGenerations();
-
-interface RuntimeOwnershipState {
-  observedOwner: string | null;
-  snapshotProfileRevision: number | null;
-  lastDaemonStartedAt: string | null;
-}
-
-export const runtimeOwnership: RuntimeOwnershipState = {
-  observedOwner: null,
-  snapshotProfileRevision: null,
-  lastDaemonStartedAt: null,
+export const runtimeOwnership = {
+  observedOwner: null as string | null,
+  lastBootId: null as string | null,
 };
 
-// Shallow on purpose: collections (connections, rules, proxies, logs, traffic)
-// hold thousands of entries and are always replaced by reference, never mutated
-// in place. Deep proxies would wrap every nested object on every poll cycle.
+// Large collections are replaced by reference; their entries do not need deep Vue proxies.
 export const store = shallowReactive<StoreState>({
   status: null,
   daemonOnline: true,
   lastProfileRevision: null,
-  coreSnapshotAvailable: false,
-  coreSnapshotError: null,
+  resourceLoaded: {},
+  resourceErrors: {},
   mode: "rule",
   traffic: {
     up: 0,
@@ -117,17 +102,38 @@ export const store = shallowReactive<StoreState>({
   toasts: [],
 });
 
+export function visibleCoreResources(): CoreResource[] {
+  switch (currentRoute.value) {
+    case "overview":
+      return ["configs", "proxies", "connections"];
+    case "connections":
+      return ["connections"];
+    case "rules":
+      return ["rules"];
+    default:
+      return [];
+  }
+}
+
+export const coreSnapshotError = computed(
+  () =>
+    visibleCoreResources()
+      .map((resource) => store.resourceErrors[resource])
+      .filter(Boolean)
+      .join("; ") || null,
+);
 export const isSysProxyOn = computed(() => systemProxyNeedsDisable(store.status));
 export const isCoreRunning = computed(() => store.status?.core.running ?? false);
 export const isCoreReady = computed(() => isCoreHealthy(store.status));
-export const runtimeNotice = computed(() =>
-  runtimeNoticeKind(
+export const runtimeNotice = computed(() => {
+  if (store.daemonOnline && isCoreRunning.value && !isCoreReady.value) return "coreDegraded";
+  return runtimeNoticeKind(
     store.daemonOnline,
-    isCoreHealthy(store.status),
-    store.coreSnapshotAvailable,
-    store.coreSnapshotError,
-  ),
-);
+    isCoreReady.value,
+    visibleCoreResources().some((resource) => store.resourceLoaded[resource]),
+    coreSnapshotError.value,
+  );
+});
 export const canToggleSystemProxy = computed(
   () =>
     !store.operations.systemProxy &&
@@ -137,54 +143,26 @@ export const canToggleSystemProxy = computed(
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
 export function setProfiles(response: ProfilesResponse): void {
   store.profiles = response.profiles;
   store.activeProfileId = response.activeId;
 }
 
 export function transitionRuntimeOwner(status: SashStatus | null): void {
-  const nextOwner = runtimeOwnerKey(status);
-  if (nextOwner === runtimeOwnership.observedOwner) {
-    if (nextOwner === null) {
-      store.coreSnapshotAvailable = false;
-      store.coreSnapshotError = null;
-      runtimeOwnership.snapshotProfileRevision = null;
-    }
-    return;
-  }
-
-  runtimeOwnership.observedOwner = nextOwner;
-  runtimeOwnership.snapshotProfileRevision = null;
-  store.coreSnapshotAvailable = false;
-  store.coreSnapshotError = null;
+  const next = runtimeOwnerKey(status);
+  if (next === runtimeOwnership.observedOwner) return;
+  runtimeOwnership.observedOwner = next;
+  store.resourceLoaded = {};
+  store.resourceErrors = {};
   clearCoreOwnedState(store, HISTORY_LEN);
 }
 
 export function adoptDaemonStatus(status: SashStatus): void {
-  if (runtimeOwnership.lastDaemonStartedAt !== status.daemon.startedAt) {
+  if (runtimeOwnership.lastBootId !== status.daemon.bootId) {
     requests.invalidate("profiles");
     store.lastProfileRevision = null;
   }
-  runtimeOwnership.lastDaemonStartedAt = status.daemon.startedAt;
+  runtimeOwnership.lastBootId = status.daemon.bootId;
   store.status = status;
   store.daemonOnline = true;
-  transitionRuntimeOwner(status);
-}
-
-export function coreRequestIsCurrent(status: SashStatus, runtimeRequest: number): boolean {
-  return (
-    requests.isCurrent("runtime", runtimeRequest) &&
-    runtimeOwnerKey(status) !== null &&
-    runtimeOwnerKey(store.status) === runtimeOwnerKey(status)
-  );
-}
-
-export function recordCoreSnapshotError(
-  status: SashStatus,
-  runtimeRequest: number,
-  error: unknown,
-): void {
-  if (!coreRequestIsCurrent(status, runtimeRequest)) return;
-  store.coreSnapshotError = errorText(error).slice(0, 300);
 }

@@ -53,6 +53,7 @@ async function capture(page: Page, name: string): Promise<void> {
 
 try {
   for (const engine of [chromium, firefox]) {
+    console.log(`Verifying ${engine.name()}`);
     state = { state: "off", canEnable: true, reason: null };
     const browser = await engine.launch();
     try {
@@ -82,6 +83,7 @@ try {
       const response = page.waitForResponse((res) =>
         res.url().endsWith("/sash/autostart") && res.request().method() === "PUT",
       );
+      void response.catch(() => undefined);
       await toggle.click();
       await start;
       assert.equal(await toggle.getAttribute("aria-checked"), "false");
@@ -98,6 +100,7 @@ try {
       const failed = page.waitForResponse((res) =>
         res.url().endsWith("/sash/autostart") && res.request().method() === "PUT",
       );
+      void failed.catch(() => undefined);
       await toggle.click();
       assert.equal((await failed).status(), 500);
       await idle(page);

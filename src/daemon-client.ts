@@ -1,11 +1,11 @@
 import type { AutostartStatus } from "./autostart-contract.js";
 import type {
   CoreStartResult,
+  CoreUpdateResponse,
   DaemonStatus,
   HealthInfo,
   SettingsPatch,
   SettingsWriteResult,
-  ShutdownResult,
   WebBootstrapInfo,
 } from "./contracts.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
@@ -21,6 +21,7 @@ const daemonFetch: SashClientFetch = async (url, init) => {
     ...(init.body !== undefined ? { body: init.body } : {}),
     direct: true,
     deadlineMs: init.timeoutMs,
+    headersTimeoutMs: init.timeoutMs,
     ...(init.attempts !== undefined ? { attempts: init.attempts } : {}),
   });
   return {
@@ -81,12 +82,15 @@ export class SashDaemonClient {
     return this.client.startCore();
   }
 
-  patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {
-    return this.client.patchSettings(patch);
+  restartCore(): Promise<CoreStartResult> {
+    return this.client.restartCore();
+  }
+  updateCore(version?: string): Promise<CoreUpdateResponse> {
+    return this.client.updateCore(version);
   }
 
-  maintenanceShutdown(): Promise<ShutdownResult> {
-    return this.client.shutdown();
+  patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {
+    return this.client.patchSettings(patch);
   }
 
   async shutdown(): Promise<void> {

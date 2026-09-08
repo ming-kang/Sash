@@ -1,25 +1,24 @@
 import crypto from "node:crypto";
-import { MihomoApi } from "../api.js";
+import fs from "node:fs";
+import path from "node:path";
+import { SashStateStore, StateConflictError } from "../app-state.js";
 import { type AutostartController, AutostartService } from "../autostart.js";
-import type { CoreStartResult } from "../contracts.js";
-import { currentCoreVersion } from "../core.js";
-import { validateCoreConfigText } from "../core-config-validation.js";
-import { pendingCoreUpdateVersion, readCoreUpdateTransaction } from "../core-update.js";
 import {
-  completeCoordinatedCoreUpdateAfterStart,
-  rollbackCoordinatedCoreUpdate,
-} from "../core-update-coordination.js";
+  assertCoreInstallationConsistent,
+  coreInstalled,
+  currentCoreVersion,
+  type StagedCore,
+  stageCore,
+} from "../core.js";
+import { validateCoreConfig } from "../core-config-validation.js";
+import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
-import {
-  type PreparedActiveReload,
-  ProfileConflictError,
-  ProfileService,
-} from "../profile-service.js";
-import { RuntimeLifecycle } from "../runtime-lifecycle.js";
-import { type SashSettings, saveSettings } from "../settings.js";
+import { ProfileService } from "../profile-service.js";
+import { getActiveProfile, renderActiveConfig } from "../profiles.js";
+import { type RuntimeConfiguration, RuntimeLifecycle } from "../runtime-lifecycle.js";
+import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
-import { StateMutationQueue } from "../state-lock.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../system-proxy-manager.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
@@ -28,13 +27,21 @@ import { WebAuthManager } from "./web-auth.js";
 
 export interface DaemonDeps {
   layout: SashLayout;
-  settings: SashSettings;
+  state?: SashStateStore;
+  settings?: SashSettings;
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
   autostart?: AutostartController;
   token?: string;
-  fetchProfileFn?: (url: string) => Promise<SubscriptionFetch>;
-  validateConfigFn?: (generated: GeneratedConfig) => Promise<void> | void;
+  fetchProfileFn?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
+  validateConfigFn?: (
+    generated: GeneratedConfig,
+    executable: string,
+    signal: AbortSignal,
+  ) => Promise<void> | void;
+  stageCoreFn?: typeof stageCore;
+  verifyCoreFn?: (exe: string, version: string) => void;
+  controllerProbe?: (settings: SashSettings) => Promise<boolean>;
   onShutdown?: () => void;
   scheduler?: DaemonScheduler;
 }
@@ -46,151 +53,144 @@ export interface DaemonApp {
   token: string;
 }
 
-/** Assemble the daemon's services and domain actions around one state queue. */
+/** The daemon owns all application writes; CLI and WebUI use the same actions. */
 export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
-  const layout = deps.layout;
-  let committedSettings = saveSettings({ ...deps.settings }, layout);
-  let runtimeSettings = committedSettings;
+  const { layout } = deps;
+  const state = deps.state ?? new SashStateStore(layout, deps.settings);
+  const settings = () => state.snapshot().settings;
   const token = deps.token ?? crypto.randomBytes(24).toString("hex");
-  const startedAt = new Date().toISOString();
   const systemProxy = deps.systemProxy ?? new SystemProxyManager({ layout });
-  const mutations = new StateMutationQueue(layout.mutationLockFile);
-  let profileRevision = 0;
-
-  let lifecycle: RuntimeLifecycle | undefined;
+  let lifecycle: RuntimeLifecycle;
+  let gate: DaemonGate;
   const supervisor =
     deps.supervisor ??
     new CoreSupervisor({
       layout,
-      settings: () => runtimeSettings,
-      expectedVersion: () =>
-        pendingCoreUpdateVersion(layout) || currentCoreVersion(layout) || undefined,
-      onExit: async () => {
-        try {
-          await lifecycle?.handleUnexpectedCoreExit();
-        } catch (err) {
-          console.error(
-            `[sashd] failed to restore system proxy after Core exit: ${(err as Error).message}`,
-          );
-        }
-      },
+      settings: () => lifecycle?.settings() ?? settings(),
+      expectedVersion: () => currentCoreVersion(layout) || undefined,
+      onExit: () =>
+        gate
+          .mutate("recover Core exit", () => lifecycle.handleUnexpectedCoreExit())
+          .catch((error: unknown) => {
+            console.error(
+              `[sashd] Core exit cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }),
     });
   lifecycle = new RuntimeLifecycle({
+    layout,
     supervisor,
     systemProxy,
-    settings: () => runtimeSettings,
-    coreUpdate: {
-      pending: () => readCoreUpdateTransaction(layout) !== undefined,
-      completeAfterStart: () => {
-        completeCoordinatedCoreUpdateAfterStart(layout);
-      },
-      rollbackAfterStartFailure: () => rollbackCoordinatedCoreUpdate(layout),
-    },
+    settings,
+    verifyExecutable: deps.verifyCoreFn,
+    controllerProbe: deps.controllerProbe,
   });
-
-  const gate = new DaemonGate(mutations, async () => {
-    const coreWasRunning = supervisor.isRunning();
-    await lifecycle.close();
-    return { coreWasRunning };
-  });
-  const mutate = <T>(purpose: string, action: () => T | Promise<T>): Promise<T> =>
-    gate.mutate(purpose, action);
-
-  const profiles = new ProfileService({
+  let downloading = false;
+  let preparation = new AbortController();
+  let profiles: ProfileService;
+  const cancelPreparations = (): void => {
+    preparation.abort(new StateConflictError("Core operation cancelled"));
+    preparation = new AbortController();
+    profiles.cancelDownloads();
+  };
+  gate = new DaemonGate(() => lifecycle.stop(), cancelPreparations);
+  const mutate = <T>(purpose: string, action: () => T | Promise<T>) => gate.mutate(purpose, action);
+  profiles = new ProfileService({
     layout,
-    settings: () => committedSettings,
-    ...(deps.fetchProfileFn ? { fetchProfile: deps.fetchProfileFn } : {}),
-    validateConfig:
-      deps.validateConfigFn ?? ((generated) => validateCoreConfigText(generated.yaml, layout)),
-    reloadConfig: async (configPath) => {
-      if (!supervisor.isRunning()) return;
-      const api = new MihomoApi(runtimeSettings.controller, runtimeSettings.secret);
-      await api.reloadConfig(configPath);
-    },
+    state,
     commit: mutate,
-    onChange: () => {
-      profileRevision += 1;
-    },
+    fetchProfile: deps.fetchProfileFn,
   });
+  const settingsService = new SettingsService({ state, commit: mutate, lifecycle, supervisor });
+  const validate = (
+    generated: GeneratedConfig,
+    executable: string,
+    signal: AbortSignal,
+  ): Promise<void> =>
+    Promise.resolve(
+      deps.validateConfigFn
+        ? deps.validateConfigFn(generated, executable, signal)
+        : validateCoreConfig(executable, generated.yaml, layout, { signal }),
+    );
 
-  const settingsService = new SettingsService({
-    layout,
-    getCommitted: () => committedSettings,
-    setCommitted: (next) => {
-      committedSettings = { ...next };
-    },
-    setRuntime: (next) => {
-      runtimeSettings = { ...next };
-    },
-    profiles,
-    supervisor,
-    lifecycle,
-    commit: mutate,
-  });
+  const savedConfiguration = (): RuntimeConfiguration => {
+    const snapshot = state.snapshot();
+    const profile = getActiveProfile(snapshot.profiles);
+    return {
+      generated: renderActiveConfig(snapshot, layout),
+      settings: snapshot.settings,
+      profile: profile
+        ? { id: profile.id, revision: profile.revision, name: profile.name, url: profile.url }
+        : null,
+    };
+  };
 
-  const commitPreparedReload = (
-    prepared: PreparedActiveReload,
-    reloadRuntime: boolean,
-  ): Promise<GeneratedConfig> =>
-    profiles.commitPreparedActiveReload(prepared, {
-      reloadRuntime,
-      boundary: "already-held",
-    });
+  const requireRecoveredInstall = (): void => {
+    assertCoreInstallationConsistent(layout);
+    if (readCoreUpdateTransaction(layout))
+      throw new StateConflictError(
+        "Core update recovery is pending; run sash stop, then sash start",
+      );
+  };
 
-  const startCore = async (): Promise<CoreStartResult> => {
-    if (readCoreUpdateTransaction(layout)) {
-      // The update already published its validated config and retains the old
-      // files for rollback. Start that exact candidate before ordinary profile
-      // publication can consume or replace the coordinated journal.
-      return mutate("start pending Core update", () => lifecycle.start());
-    }
-    const retryAfterPreparation = Symbol("retry Core start after preparation");
-    for (;;) {
-      let prepared: PreparedActiveReload | undefined;
-      if (!supervisor.isRunning()) {
+  const updateCore = async (version?: string): Promise<CoreUpdateResult> => {
+    if (gate.isClosing) throw new Error("sashd is shutting down");
+    if (downloading) throw new StateConflictError("A Core download is already in progress");
+    requireRecoveredInstall();
+    const revision = state.snapshot().revision;
+    const epoch = lifecycle.revision;
+    const configuration = supervisor.isRunning() ? lifecycle.configuration() : savedConfiguration();
+    if (!configuration) throw new Error("Running Core configuration is unknown");
+    const { signal } = preparation;
+    downloading = true;
+    let staged: StagedCore | undefined;
+    try {
+      staged = await (deps.stageCoreFn ?? stageCore)({ layout, tag: version, signal });
+      signal.throwIfAborted();
+      await validate(configuration.generated, staged.exe, signal);
+      const candidate = staged;
+      return await mutate("update Core", async () => {
+        signal.throwIfAborted();
+        state.assertCurrent(revision);
+        if (lifecycle.revision !== epoch)
+          throw new StateConflictError("Core changed during download; retry the update");
+        return lifecycle.update(candidate, configuration);
+      });
+    } catch (error) {
+      signal.throwIfAborted();
+      throw error;
+    } finally {
+      downloading = false;
+      if (staged) {
+        fs.rmSync(staged.exe, { force: true });
         try {
-          prepared = await profiles.prepareActiveReload();
-        } catch (err) {
-          // Preserve idempotent start semantics when another mutation brought
-          // Core online while this request was preparing its stopped path.
-          if (supervisor.isRunning()) continue;
-          throw err;
+          fs.rmdirSync(path.dirname(staged.exe));
+        } catch {
+          /* Only remove an empty staging directory. */
         }
       }
-
-      const preparedForStart = prepared;
-      const result = await mutate("start core", async () => {
-        if (!preparedForStart && !supervisor.isRunning()) return retryAfterPreparation;
-        return lifecycle.start(
-          preparedForStart
-            ? async () => {
-                await commitPreparedReload(preparedForStart, false);
-              }
-            : undefined,
-        );
-      });
-      if (result !== retryAfterPreparation) return result;
     }
   };
 
-  const withPreparedReloadRetry = async <T>(
-    purpose: string,
-    action: (prepared: PreparedActiveReload) => Promise<T>,
-  ): Promise<T> => {
-    for (let attempt = 0; ; attempt += 1) {
-      const prepared = await profiles.prepareActiveReload();
-      try {
-        return await mutate(purpose, () => action(prepared));
-      } catch (err) {
-        if (!(err instanceof ProfileConflictError) || attempt >= 1) throw err;
-      }
-    }
+  const applyCore = async (onlyIfStopped = false) => {
+    const { signal } = preparation;
+    if (!coreInstalled(layout)) await updateCore();
+    return mutate("apply saved configuration", async () => {
+      signal.throwIfAborted();
+      requireRecoveredInstall();
+      if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
+      const configuration = savedConfiguration();
+      await validate(configuration.generated, layout.coreExe, signal);
+      signal.throwIfAborted();
+      return lifecycle.apply(configuration);
+    });
   };
 
   const context: DaemonContext = {
     layout,
+    state,
     token,
-    startedAt,
+    startedAt: new Date().toISOString(),
     webAuth: new WebAuthManager(),
     profiles,
     settingsService,
@@ -199,29 +199,31 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     systemProxy,
     autostart: deps.autostart ?? new AutostartService({ layout }),
     gate,
-    settings: {
-      committed: () => committedSettings,
-      runtime: () => runtimeSettings,
-    },
     mutate,
-    profileRevision: () => profileRevision,
-    startCore,
-    restartCore: () =>
-      readCoreUpdateTransaction(layout)
-        ? startCore()
-        : withPreparedReloadRetry("restart core", (prepared) =>
-            lifecycle.restart(async () => {
-              await commitPreparedReload(prepared, false);
-            }),
-          ),
-    reloadCoreConfig: () =>
-      withPreparedReloadRetry("reload core config", (prepared) =>
-        commitPreparedReload(prepared, true),
-      ),
+    settings: { committed: settings, runtime: () => lifecycle.settings() },
+    profileRevision: () => state.snapshot().revision,
+    pendingApply: () => {
+      const saved = state.snapshot();
+      const active = getActiveProfile(saved.profiles);
+      const applied = lifecycle.configuration();
+      return (
+        !applied ||
+        applied.profile?.id !== active?.id ||
+        applied.profile?.revision !== active?.revision ||
+        applied.settings.mixedPort !== saved.settings.mixedPort ||
+        applied.settings.allowLan !== saved.settings.allowLan
+      );
+    },
+    startCore: () => applyCore(true),
+    restartCore: () => applyCore(),
+    updateCore,
+    stopCore: () => {
+      cancelPreparations();
+      return mutate("stop Core", () => lifecycle.stop());
+    },
     shutdown: () => gate.shutdown(),
-    closeListener: () => Promise.reject(new Error("listener close is not wired yet")),
+    closeListener: () => Promise.reject(new Error("Listener is not ready")),
     ...(deps.onShutdown ? { onShutdown: deps.onShutdown } : {}),
   };
-
   return { context, supervisor, lifecycle, token };
 }

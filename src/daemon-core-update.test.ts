@@ -2,89 +2,95 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { readInstallRecord } from "./core.js";
-import { commitCoreUpdate, readCoreUpdateTransaction } from "./core-update.js";
+import { parseDaemonStatus } from "./contracts.js";
+import { readInstallRecord } from "./core-install-record.js";
+import { readCoreUpdateTransaction } from "./core-update.js";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
-import {
-  readManagedStateTransactionStatus,
-  retainManagedStateTransaction,
-} from "./managed-state-transaction.js";
-import type { CoreSupervisor } from "./supervisor.js";
+import { deferred, FakeCoreSupervisor } from "./test-state.test.js";
 
-describe("daemon startup after a stopped Core update", () => {
+describe("daemon-owned Core updates", () => {
   const h = useDaemonTestHarness();
-  for (const command of ["start", "restart"]) {
-    for (const fails of [false, true]) {
-      it(`${command} consumes the retained candidate through health/rollback (failure=${fails})`, async () => {
-        const previousConfig = "rules:\n  - MATCH,DIRECT\n# previous\n";
-        const candidateConfig = "rules:\n  - MATCH,DIRECT\ntun:\n  enable: false\n# candidate\n";
-        let running = false;
-        let starts = 0;
-        let validations = 0;
-        const supervisor = {
-          isRunning: () => running,
-          start: async () => {
-            starts++;
-            assert.equal(fs.readFileSync(h.layout.configFile, "utf8"), candidateConfig);
-            assert.equal(readManagedStateTransactionStatus(h.layout)?.phase, "retained");
-            if (fails) throw new Error("candidate health failed");
-            running = true;
-            return { pid: 1234, version: process.version };
-          },
-          restart: async () => {
-            assert.fail("pending updates must use the managed start health/rollback path");
-          },
-          stop: async () => {
-            running = false;
-          },
-        } as unknown as CoreSupervisor;
-        await h.startServer({
-          supervisor,
-          validateConfig: () => {
-            validations++;
-          },
-        });
-        fs.writeFileSync(h.layout.configFile, previousConfig);
-        await retainManagedStateTransaction(h.layout, {
-          config: { yaml: candidateConfig, proxyCount: 0, source: "default" },
-          reloadRuntime: false,
-        });
-
-        // Node's real executable supplies a portable -v fixture. It is only
-        // invoked for version checks; Core startup and OS proxy are injected.
-        fs.mkdirSync(h.layout.tempDir, { recursive: true });
-        fs.mkdirSync(h.layout.binDir, { recursive: true });
-        const stagedExe = path.join(
-          h.layout.tempDir,
-          process.platform === "win32" ? "version.exe" : "version",
-        );
-        fs.copyFileSync(process.execPath, stagedExe);
-        fs.chmodSync(stagedExe, 0o755);
-        await commitCoreUpdate({
-          layout: h.layout,
-          staged: { exe: stagedExe, version: process.version },
-        });
-
-        const response = await h.apiRequest(`/sash/core/${command}`, { method: "POST" });
-        assert.equal(response.statusCode, fails ? 500 : 200);
-        assert.equal(starts, 1);
-        assert.equal(validations, 0, "pending candidate must not be regenerated before startup");
-        assert.equal(readCoreUpdateTransaction(h.layout), undefined);
-        assert.equal(readManagedStateTransactionStatus(h.layout), undefined);
-        assert.equal(fs.existsSync(`${h.layout.coreExe}.bak`), false);
-        assert.equal(
-          fs.readFileSync(h.layout.configFile, "utf8"),
-          fails ? previousConfig : candidateConfig,
-        );
-        if (fails) {
-          assert.equal(readInstallRecord(h.layout), undefined);
-          assert.equal(fs.existsSync(h.layout.coreExe), false);
-          assert.equal(running, false);
-        } else {
-          assert.equal(readInstallRecord(h.layout)?.coreVersion, process.version);
-          assert.equal(running, true);
-        }
-      });
-    }
+  async function stage() {
+    fs.mkdirSync(h.layout.tempDir, { recursive: true });
+    const exe = path.join(h.layout.tempDir, "candidate");
+    fs.writeFileSync(exe, "v2-core");
+    return { exe, version: "v2" };
   }
+  for (const running of [false, true])
+    it(`finishes validation without restarting daemon or invalidating sessions (running=${running})`, async () => {
+      await h.startServer({ stageCore: stage });
+      if (running) await h.apiRequest("/sash/core/start", { method: "POST" });
+      const before = parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data);
+      const token = await h.mintWebSession();
+      const state = fs.readFileSync(h.layout.settingsFile, "utf8");
+      const result = await h.apiRequest("/sash/core/update", {
+        method: "POST",
+        body: { version: "v2" },
+      });
+      assert.equal(result.statusCode, 200);
+      assert.deepEqual(result.data, { version: "v2" });
+      const after = parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data);
+      assert.equal(after.daemon.bootId, before.daemon.bootId);
+      assert.equal(after.core.running, running);
+      assert.equal(fs.readFileSync(h.layout.settingsFile, "utf8"), state);
+      assert.equal(readCoreUpdateTransaction(h.layout), undefined);
+      assert.equal(fs.existsSync(`${h.layout.coreExe}.bak`), false);
+      assert.equal(
+        (
+          await h.apiRequest("/sash/settings", {
+            method: "PATCH",
+            webToken: token,
+            body: { allowLan: true },
+          })
+        ).statusCode,
+        200,
+      );
+    });
+  it("restores the original running binary after failed candidate health", async () => {
+    const core = new FakeCoreSupervisor(h.layout, h.settings);
+    await h.startServer({ supervisor: core, stageCore: stage });
+    await h.apiRequest("/sash/core/start", { method: "POST" });
+    core.onStart = () => {
+      if (readInstallRecord(h.layout)?.coreVersion === "v2") throw new Error("candidate failed");
+    };
+    assert.equal((await h.apiRequest("/sash/core/update", { method: "POST" })).statusCode, 500);
+    assert.equal(readInstallRecord(h.layout)?.coreVersion, "v1.0.0");
+    assert.equal(core.running, true);
+    assert.equal(readCoreUpdateTransaction(h.layout), undefined);
+  });
+  it("cancels an uncommitted download when Core is stopped", async () => {
+    const entered = deferred();
+    const released = deferred();
+    await h.startServer({
+      stageCore: async () => {
+        entered.resolve();
+        await released.promise;
+        return stage();
+      },
+    });
+    const updating = h.apiRequest("/sash/core/update", { method: "POST" });
+    await entered.promise;
+    assert.equal((await h.apiRequest("/sash/daemon/health")).statusCode, 200);
+    assert.equal((await h.apiRequest("/sash/core/stop", { method: "POST" })).statusCode, 204);
+    released.resolve();
+    assert.notEqual((await updating).statusCode, 200);
+    assert.equal(readInstallRecord(h.layout)?.coreVersion, "v1.0.0");
+    assert.equal(readCoreUpdateTransaction(h.layout), undefined);
+  });
+  it("blocks new Core mutations while an interrupted update still owns rollback files", async () => {
+    await h.startServer({ stageCore: stage });
+    fs.writeFileSync(
+      h.layout.coreUpdateTransactionFile,
+      JSON.stringify({
+        version: 1,
+        phase: "prepared",
+        previous: readInstallRecord(h.layout),
+        target: { coreVersion: "v2", installedAt: "2026-09-08T00:00:00.000Z" },
+      }),
+    );
+    assert.equal((await h.apiRequest("/sash/core/restart", { method: "POST" })).statusCode, 409);
+    assert.equal((await h.apiRequest("/sash/core/update", { method: "POST" })).statusCode, 409);
+    assert.equal((await h.apiRequest("/sash/core/stop", { method: "POST" })).statusCode, 204);
+    assert.equal(readCoreUpdateTransaction(h.layout)?.phase, "prepared");
+  });
 });

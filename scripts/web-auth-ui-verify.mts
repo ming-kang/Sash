@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { chromium, firefox, type Page } from "playwright";
 import { runWeb } from "../src/commands/web.js";
-import type { CoreSupervisor } from "../src/supervisor.js";
+import { FakeCoreSupervisor } from "../src/test-state.test.js";
 import { SashDaemonClient } from "../src/daemon-client.js";
 import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
 import { writeBootstrapFile } from "../src/web-bootstrap.js";
@@ -24,22 +24,7 @@ const results: string[] = [];
 const versions: Record<string, string> = {};
 const credentials = new Set([h.settings.daemonSecret, h.settings.secret]);
 const coreSockets = new Set<Duplex>();
-const supervisor = {
-  isRunning: () => true,
-  ownedCoreSnapshot: () => undefined,
-  ownsCore: () => false,
-  status: async () => ({
-    running: true,
-    healthy: true,
-    pid: 12346,
-    startedAt: "2026-01-01T00:00:00.000Z",
-    tunActive: false,
-  }),
-  start: async () => ({ pid: 12346 }),
-  restart: async () => ({ pid: 12346 }),
-  stop: async () => {},
-  cleanStaleCore: async () => {},
-} as unknown as CoreSupervisor;
+const supervisor = new FakeCoreSupervisor(h.layout, h.settings);
 
 h.mockCoreServer = http.createServer((req, res) => {
   if (req.headers.authorization !== `Bearer ${h.settings.secret}` || req.headers["x-sash-token"]) {
@@ -55,7 +40,6 @@ h.mockCoreServer = http.createServer((req, res) => {
       "allow-lan": false,
       mode: "rule",
       "log-level": "info",
-      tun: { enable: false },
     },
     "/proxies": { proxies: { DIRECT: { name: "DIRECT", type: "Direct", udp: true, history: [] } } },
     "/rules": { rules: [] },
@@ -91,6 +75,7 @@ const coreAddress = h.mockCoreServer.address();
 assert.ok(coreAddress && typeof coreAddress === "object");
 h.settings.controller = `127.0.0.1:${coreAddress.port}`;
 await h.startServer({ supervisor });
+assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
 const port = h.boundPort;
 assert.ok(![7890, 9090, 19090].includes(port));
 const origin = `http://127.0.0.1:${port}`;
@@ -102,7 +87,7 @@ async function browserHandoff(): Promise<string> {
     {},
     {
       runtimeContext: () => ({ layout: h.layout, settings: h.settings }),
-      resolveRuntimeOwner: async () => ({
+      ensureManagement: async () => ({
         kind: "daemon",
         daemon: { kind: "healthy", running: true, healthy: true, pid: process.pid, port },
         client: new SashDaemonClient(port, h.settings.daemonSecret),
@@ -116,7 +101,6 @@ async function browserHandoff(): Promise<string> {
       },
       log: {
         info: (message) => messages.push(message),
-        warn: (message) => messages.push(message),
         ok: (message) => messages.push(message),
       },
     },
@@ -264,7 +248,8 @@ try {
 
             await page.goto(`${origin}/ui/#/settings`);
             await page.locator(".settings-grid").waitFor();
-            assert.equal(await page.getByRole("switch").count(), 1);
+            assert.equal(await page.getByRole("switch", { name: "Allow LAN Connections", exact: true }).count(), 1);
+            assert.equal(await page.getByRole("switch", { name: "Start at Login" }).count(), 1);
             assert.equal(await page.getByRole("switch", { name: /TUN/ }).count(), 0);
             await capture(page, `${name}-settings`);
             await page.goto(`${origin}/ui/#/`);
@@ -306,6 +291,7 @@ try {
             await h.instance?.close();
             for (const socket of coreSockets) socket.destroy();
             await h.startServer({ supervisor }, port);
+            assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
             await page.locator(".connection-panel").waitFor();
             assert.equal(
               await page.evaluate(() => sessionStorage.getItem("sash.control-token")),

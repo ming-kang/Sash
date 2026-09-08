@@ -6,9 +6,7 @@ export type Route = (typeof ROUTES)[number];
 
 function parseHash(): Route {
   if (typeof window === "undefined") return "overview";
-  let raw = window.location.hash.replace(/^#\/?/, "").split("?")[0] ?? "";
-  // Legacy hash from before the profiles redesign.
-  if (raw === "subscription") raw = "profiles";
+  const raw = window.location.hash.replace(/^#\/?/, "").split("?")[0] ?? "";
   return (ROUTES as readonly string[]).includes(raw) ? (raw as Route) : "overview";
 }
 

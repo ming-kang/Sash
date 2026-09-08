@@ -25,8 +25,6 @@ export interface CoreState {
   startedAt?: string;
   healthy?: boolean;
   version?: string;
-  /** Actual Core runtime state; omitted when /configs cannot be verified. */
-  tunActive?: boolean;
 }
 
 /** A point-in-time claim for the child currently owned by this supervisor. */
@@ -146,15 +144,7 @@ export class CoreSupervisor {
     return terminated;
   }
 
-  private async probeTunActive(api: MihomoApi): Promise<boolean | undefined> {
-    try {
-      return await api.getTunActive();
-    } catch {
-      return undefined;
-    }
-  }
-
-  async start(): Promise<{ pid: number; version?: string; tunActive?: boolean }> {
+  async start(): Promise<{ pid: number; version?: string }> {
     if (this.child && this.isAlive(this.child.pid ?? -1)) {
       throw new Error(`Core is already running (PID=${this.child.pid})`);
     }
@@ -251,12 +241,10 @@ export class CoreSupervisor {
         }
         healthyProbes++;
         if (healthyProbes >= 2 && this.isAlive(pid)) {
-          const tunActive = await this.probeTunActive(api);
           if (this.isAlive(pid)) {
             return {
               pid,
               version,
-              ...(tunActive !== undefined ? { tunActive } : {}),
             };
           }
         }
@@ -309,7 +297,7 @@ export class CoreSupervisor {
     }
   }
 
-  async restart(): Promise<{ pid: number; version?: string; tunActive?: boolean }> {
+  async restart(): Promise<{ pid: number; version?: string }> {
     await this.stop();
     return this.start();
   }
@@ -340,12 +328,10 @@ export class CoreSupervisor {
     const api = new MihomoApi(settings.controller, settings.secret);
     let healthy = false;
     let version: string | undefined;
-    let tunActive: boolean | undefined;
     try {
-      version = await api.version();
+      version = await api.version({ deadlineMs: 1000, attempts: 1 });
       healthy = true;
       if (!this.ownsCore(ownership)) return { running: false };
-      tunActive = await this.probeTunActive(api);
     } catch {
       healthy = false;
     }
@@ -360,7 +346,6 @@ export class CoreSupervisor {
       startedAt: this.childStartedAt,
       healthy,
       version,
-      ...(tunActive !== undefined ? { tunActive } : {}),
     };
   }
 

@@ -48,7 +48,7 @@ export async function runStatus(
   log.kv("sash api", status.endpoints.daemonApi);
   log.kv("dashboard", status.endpoints.dashboard);
   log.kv(
-    "active profile",
+    "selected profile",
     status.activeProfile
       ? `${status.activeProfile.name} (${status.activeProfile.url || "local file"})`
       : "(none)",

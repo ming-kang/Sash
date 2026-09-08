@@ -8,13 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Add login startup for Windows, macOS and Linux through `sash auto [on|off|status]` and the dashboard settings. Preserve the selected data directory and report stale or OS-disabled entries.
+- Add Windows login startup through `sash auto [on|off|status]` and the dashboard settings. Preserve the selected data directory and report stale or OS-disabled entries; bare `sash auto` reads status.
 - Record login startup attempts and failures in a private rotating log, readable with `sash logs --startup` even when settings are invalid.
 - Add a source development launcher with separate data and ports, plus a `build` command for the WebUI.
 - Reorder profile cards with a long press and drag or Alt + Up/Down. Persist the order across dashboard refreshes without changing the active profile or reloading Core.
 
+### Changed
+
+- Make the daemon the only application state writer. Replace offline mutation, maintenance handoff and coordinated profile/Core transactions with one in-memory mutation queue.
+- Store settings, profile metadata and selection in one atomic schema-2 `sash.json`; store profile sources as immutable `<id>/<revision>.yaml` files. No old-format or API migration is provided.
+- Separate saving from applying. Profile edits, selection, scheduled updates and network preferences stay saved until Apply or `sash restart`; failed application preserves saved edits.
+- Make `sash web` start management without Core, and make `sash restart` replace Core while retaining the daemon and browser sessions.
+- Narrow Core updates to executable/install metadata. First installs and updates always complete health verification immediately, including a temporary start when initially stopped; retain rollback files until verification and runtime restoration succeed.
+- Keep Vue, the existing WebUI and LXGW WenKai Lite font. Share Core controls, refresh Core resources independently by visible page, and retain caches and latency results across metadata edits.
+- Remove TUN product fields, non-Windows desktop integration, raw settings editing in the dashboard, configuration reload aliases, `sash upgrade` and `sash update --force`.
+
 ### Fixed
 
+- Cancel pending downloads and configuration validation on stop/shutdown; prevent stale responses from changing a replacement runtime.
 - Wrap long proxy node names across the full card width and keep latency controls on the metadata row.
 - Make profile card padding and unused space clickable while keeping rename, edit, update and delete actions independent.
 

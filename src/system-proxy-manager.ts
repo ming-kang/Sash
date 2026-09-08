@@ -34,6 +34,7 @@ export interface SystemProxyController {
 
 export interface SystemProxyJournalLayout {
   systemProxyStateFile: string;
+  systemProxyLockFile: string;
 }
 
 export interface SystemProxyManagerOptions {
@@ -62,23 +63,6 @@ function hasExactKeys(value: unknown, keys: readonly string[]): Record<string, u
   return value;
 }
 
-function sameDarwinServiceCollection(a: SystemProxySnapshot, b: SystemProxySnapshot): boolean {
-  if (a.platform !== "darwin" || b.platform !== "darwin") return false;
-  if (a.services.length !== b.services.length) return false;
-  return a.services.every((service, index) => service.service === b.services[index]?.service);
-}
-
-function journalSnapshotsHaveSameStructure(
-  original: SystemProxySnapshot,
-  target: SystemProxySnapshot,
-): boolean {
-  if (original.platform !== target.platform) return false;
-  if (original.platform === "darwin" && target.platform === "darwin") {
-    return sameDarwinServiceCollection(original, target);
-  }
-  return true;
-}
-
 function parseCreatedAt(value: unknown): string {
   if (typeof value !== "string" || value.length === 0 || value.length > 128) {
     throw journalError("createdAt must be a non-empty ISO timestamp");
@@ -99,14 +83,10 @@ export function parseSystemProxyJournal(value: unknown): SystemProxyJournal {
     "original",
     "target",
   ]);
-  if (record.schemaVersion !== 1 && record.schemaVersion !== 2) {
-    throw journalError("schemaVersion must be 1 or 2");
+  if (record.schemaVersion !== 2) {
+    throw journalError("schemaVersion must be 2");
   }
-  if (
-    record.phase !== "prepared" &&
-    record.phase !== "applied" &&
-    !(record.schemaVersion === 2 && record.phase === "restoring")
-  ) {
+  if (record.phase !== "prepared" && record.phase !== "applied" && record.phase !== "restoring") {
     throw journalError("phase must be prepared, applied, or restoring");
   }
   if (
@@ -124,9 +104,6 @@ export function parseSystemProxyJournal(value: unknown): SystemProxyJournal {
     target = parseSystemProxySnapshot(record.target);
   } catch (err) {
     throw journalError(errorMessage(err));
-  }
-  if (!journalSnapshotsHaveSameStructure(original, target)) {
-    throw journalError("original and target have different platform structures");
   }
 
   return {
@@ -178,6 +155,7 @@ export class SystemProxyManager implements SystemProxyController {
   private readonly backend: SystemProxyBackend;
   private readonly operationLockFile: string;
   private operationQueue: Promise<void> = Promise.resolve();
+  private pendingWrites = 0;
   private inspectionGeneration = 0;
   private inspectionCache:
     | { generation: number; expiresAt: number; inspection: SystemProxyInspection }
@@ -186,27 +164,17 @@ export class SystemProxyManager implements SystemProxyController {
     | { generation: number; promise: Promise<SystemProxyInspection> }
     | undefined;
 
-  constructor(options: SystemProxyManagerOptions = {}, ...unexpected: never[]) {
-    if (
-      typeof options !== "object" ||
-      options === null ||
-      Array.isArray(options) ||
-      unexpected.length > 0 ||
-      "systemProxyStateFile" in options
-    ) {
-      throw new Error(
-        "SystemProxyManager requires an options object with layout and backend fields",
-      );
-    }
+  constructor(options: SystemProxyManagerOptions = {}) {
     this.layout = options.layout ?? sashLayout();
     this.backend = options.backend ?? createSystemProxyBackend();
     if (!this.layout.systemProxyStateFile) {
       throw new Error("System proxy journal requires a systemProxyStateFile path");
     }
-    this.operationLockFile = `${this.layout.systemProxyStateFile}.lock`;
+    this.operationLockFile = this.layout.systemProxyLockFile;
   }
 
   apply(opts: EnableOptions): Promise<void> {
+    this.pendingWrites += 1;
     this.invalidateInspection();
     return this.enqueue(async () => {
       try {
@@ -216,12 +184,14 @@ export class SystemProxyManager implements SystemProxyController {
           () => this.applyUnlocked(opts),
         );
       } finally {
+        this.pendingWrites -= 1;
         this.invalidateInspection();
       }
     });
   }
 
   release(): Promise<void> {
+    this.pendingWrites += 1;
     this.invalidateInspection();
     return this.enqueue(async () => {
       try {
@@ -231,12 +201,25 @@ export class SystemProxyManager implements SystemProxyController {
           () => this.recoverUnlocked(),
         );
       } finally {
+        this.pendingWrites -= 1;
         this.invalidateInspection();
       }
     });
   }
 
   inspect(fresh = false): Promise<SystemProxyInspection> {
+    if (this.pendingWrites > 0) {
+      return Promise.resolve({
+        applied: false,
+        appliedKnown: false,
+        stateKnown: false,
+        state: this.inspectionCache?.inspection.state ?? {
+          supported: this.backend.supported ?? isSystemProxySupported(),
+          enabled: false,
+        },
+        queryError: "System proxy change is in progress",
+      });
+    }
     const generation = this.inspectionGeneration;
     if (
       !fresh &&
@@ -378,6 +361,21 @@ export class SystemProxyManager implements SystemProxyController {
   }
 
   private async inspectUncached(): Promise<InspectionAttempt> {
+    if (this.backend.supported === false) {
+      return {
+        journalStable: true,
+        inspection: {
+          applied: false,
+          appliedKnown: true,
+          stateKnown: true,
+          state: {
+            supported: false,
+            enabled: false,
+            details: "System proxy integration is available on Windows only",
+          },
+        },
+      };
+    }
     const first = await this.inspectAttempt();
     return first.journalStable ? first : this.inspectAttempt();
   }
@@ -499,9 +497,7 @@ export class SystemProxyManager implements SystemProxyController {
 
     const original = await this.captureCurrent();
     const target = parseSystemProxySnapshot(this.backend.createTarget(original, opts));
-    if (!journalSnapshotsHaveSameStructure(original, target)) {
-      throw new Error("System proxy backend produced a target with a different platform structure");
-    }
+
     const prepared: SystemProxyJournal = {
       schemaVersion: 2,
       phase: "prepared",
@@ -548,7 +544,7 @@ export class SystemProxyManager implements SystemProxyController {
 
   /**
    * Restore only when current managed values still belong to this journal.
-   * A third value, or a changed macOS service collection, is never overwritten.
+   * A value changed by another application is never overwritten.
    */
   private async restoreJournal(journal: SystemProxyJournal): Promise<void> {
     const current = await this.captureCurrent();

@@ -13,12 +13,9 @@ import type { SashSettings } from "./settings.js";
 
 describe("mihomo-config", () => {
   const mockSettings: SashSettings = {
-    schemaVersion: 1,
-    subscriptionUrl: "",
     mixedPort: 7890,
     controller: "127.0.0.1:9090",
     secret: "test-secret-1234",
-    tun: false,
     allowLan: false,
     daemonPort: 19090,
     daemonSecret: "test-daemon-secret-1234",
@@ -181,12 +178,9 @@ describe("mihomo-config", () => {
       };
 
       const settings: SashSettings = {
-        schemaVersion: 1,
-        subscriptionUrl: "https://example.com/sub",
         mixedPort: 7890,
         controller: "127.0.0.1:9090",
         secret: "managed-secret",
-        tun: false,
         allowLan: false,
         daemonPort: 19090,
         daemonSecret: "daemon-secret",
@@ -234,16 +228,8 @@ describe("mihomo-config", () => {
       });
     });
 
-    it("keeps TUN disabled even for an unnormalized legacy settings object", () => {
-      const settings: SashSettings = { ...mockSettings, tun: true };
-      const overlaid = overlayManagedKeys({}, settings);
-
-      assert.deepEqual(overlaid.tun, { enable: false });
-    });
-
-    it("explicitly disables profile TUN for fresh starts and reloads", () => {
-      const settings: SashSettings = { ...mockSettings, tun: false };
-      const overlaid = overlayManagedKeys({ tun: { enable: true } }, settings);
+    it("explicitly disables profile TUN in the generated runtime config", () => {
+      const overlaid = overlayManagedKeys({ tun: { enable: true } }, mockSettings);
 
       assert.deepEqual(overlaid.tun, { enable: false });
     });

@@ -76,7 +76,7 @@ describe("paths", () => {
       assert.equal(layout.root, customRoot);
       assert.equal(layout.binDir, path.join(customRoot, "bin"));
       assert.equal(layout.coreExe, path.join(customRoot, "bin", expectedExeName));
-      assert.equal(layout.configFile, path.join(customRoot, "config.yaml"));
+      assert.equal(layout.configFile, path.join(customRoot, "runtime", "config.yaml"));
       assert.equal(layout.settingsFile, path.join(customRoot, "sash.json"));
       assert.equal(layout.uiDir, path.join(customRoot, "ui"));
       assert.equal(layout.stateDir, path.join(customRoot, "state"));
@@ -84,22 +84,13 @@ describe("paths", () => {
       assert.equal(layout.daemonPidFile, path.join(customRoot, "state", "sashd.pid"));
       assert.equal(layout.daemonLeaseFile, path.join(customRoot, "state", "sashd.lock"));
       assert.equal(layout.daemonStartLockFile, path.join(customRoot, "state", "sashd-start.lock"));
-      assert.equal(layout.runtimeOperationLockFile, path.join(customRoot, "state", "runtime.lock"));
-      assert.equal(layout.mutationLockFile, path.join(customRoot, "state", "mutation.lock"));
-      assert.equal(layout.settingsLockFile, path.join(customRoot, "state", "settings.lock"));
+      assert.equal(layout.profilesDir, path.join(customRoot, "profiles"));
       assert.equal(
         layout.systemProxyStateFile,
         path.join(customRoot, "state", "system-proxy.json"),
       );
-      assert.equal(
-        layout.managedStateTransactionFile,
-        path.join(customRoot, "state", "managed-state-transaction.json"),
-      );
       assert.equal(layout.installFile, path.join(customRoot, "state", "install.json"));
-      assert.equal(
-        layout.coreInstallTransactionFile,
-        path.join(customRoot, "state", "core-install-transaction.json"),
-      );
+      assert.ok(path.isAbsolute(layout.systemProxyLockFile));
       assert.equal(
         layout.coreUpdateTransactionFile,
         path.join(customRoot, "state", "core-update-transaction.json"),

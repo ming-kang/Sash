@@ -1,16 +1,7 @@
-import { assertCoreInstallationConsistent } from "../core.js";
-import { recoverCoreInstallTransaction } from "../core-install-transaction.js";
-import { atomicWriteFileSync } from "../fs-atomic.js";
-import {
-  readManagedStateTransactionStatus,
-  recoverManagedStateTransaction,
-} from "../managed-state-transaction.js";
+import { SashStateStore } from "../app-state.js";
+import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
 import { type SashLayout, sashLayout } from "../paths.js";
-import { clearPidRecord } from "../process.js";
-import { migrateProfileState } from "../profile-migration.js";
-import { reconcileOrphanedRuntime } from "../runtime-recovery.js";
-import { loadSettings } from "../settings.js";
-import { acquireStateLock, StateMutationQueue } from "../state-lock.js";
+import { acquireStateLock } from "../state-lock.js";
 import { createDaemonServer } from "./server.js";
 
 export interface DaemonPidRecord {
@@ -20,74 +11,51 @@ export interface DaemonPidRecord {
   startedAt: string;
 }
 
-/**
- * Production daemon entrypoint. Reconciles stale state, starts the HTTP
- * listener, writes the daemon PID record, and handles termination signals.
- */
+/** The only production state owner. Initialization and recovery precede the listener. */
 export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
   const layout = opts.layout ?? sashLayout();
-  const daemonLease = await acquireStateLock(layout.daemonLeaseFile, {
+  const lease = await acquireStateLock(layout.daemonLeaseFile, {
     purpose: "sashd singleton",
     timeoutMs: 0,
   });
   let onSignal: (() => void) | undefined;
-
+  let published = false;
   try {
-    const initialization = new StateMutationQueue(layout.mutationLockFile);
-    const settings = await initialization.run("initialize daemon state", async () => {
-      recoverCoreInstallTransaction(layout);
-      const managed = readManagedStateTransactionStatus(layout);
-      if (managed?.coordination !== "core-update") {
-        recoverManagedStateTransaction(layout);
-      }
-
-      let loaded = loadSettings(layout);
-      // Restore proxy ownership and terminate only a verified stale Core before
-      // touching an executable rollback slot. Coordinated managed snapshots may
-      // remain published when the candidate still needs a managed start.
-      const pendingUpdate = await reconcileOrphanedRuntime({ layout, settings: loaded });
-      assertCoreInstallationConsistent(layout);
-      loaded = loadSettings(layout);
-      if (!pendingUpdate) {
-        // Give the legacy URL priority. An unmanaged config.yaml is imported
-        // only if the URL migration did not create an index.
-        await migrateProfileState(loaded, layout);
-      }
-      return loaded;
-    });
-
-    const instance = createDaemonServer({ layout, settings });
-    const serverClosed = new Promise<void>((resolve) => instance.server.once("close", resolve));
-
-    const port = settings.daemonPort;
+    const state = new SashStateStore(layout);
+    const instance = createDaemonServer({ layout, state });
+    await instance.lifecycle.recoverStartup();
+    const closed = new Promise<void>((resolve) => instance.server.once("close", resolve));
+    const port = state.snapshot().settings.daemonPort;
     await new Promise<void>((resolve, reject) => {
-      instance.server.listen(port, "127.0.0.1", () => resolve());
       instance.server.once("error", reject);
+      instance.server.listen(port, "127.0.0.1", resolve);
     });
-
-    const pidRecord: DaemonPidRecord = {
+    const record: DaemonPidRecord = {
       pid: process.pid,
       token: instance.token,
       port,
       startedAt: new Date().toISOString(),
     };
-    atomicWriteFileSync(layout.daemonPidFile, `${JSON.stringify(pidRecord, null, 2)}\n`);
-
+    atomicWriteFileSync(layout.daemonPidFile, `${JSON.stringify(record, null, 2)}\n`);
+    published = true;
     onSignal = () => {
-      void instance.close().catch((err) => {
-        console.error(`[sashd] shutdown blocked: ${(err as Error).message}`);
-      });
+      void instance
+        .close()
+        .catch((error: unknown) =>
+          console.error(
+            `[sashd] shutdown blocked: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
     };
     process.on("SIGTERM", onSignal);
     process.on("SIGINT", onSignal);
-
-    await serverClosed;
+    await closed;
   } finally {
     if (onSignal) {
       process.removeListener("SIGTERM", onSignal);
       process.removeListener("SIGINT", onSignal);
     }
-    clearPidRecord(layout.daemonPidFile);
-    daemonLease.release();
+    if (published) durableRemoveFileSync(layout.daemonPidFile);
+    lease.release();
   }
 }

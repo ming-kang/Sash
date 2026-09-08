@@ -9,10 +9,10 @@ import { runAuto } from "./auto.js";
 describe("sash auto", () => {
   it("does not inspect state before explicit off and keeps status read-only", async (t) => {
     t.mock.method(console, "log", () => {});
-    const writes: Array<boolean | undefined> = [];
+    const writes: boolean[] = [];
     const controller = {
       inspect: async () => ({ state: "off" as const, canEnable: true, reason: null }),
-      set: async (enabled?: boolean) => {
+      set: async (enabled: boolean) => {
         writes.push(enabled);
         return { state: "off" as const, canEnable: true, reason: null };
       },
@@ -23,7 +23,8 @@ describe("sash auto", () => {
     await runAuto("status", controller);
     assert.equal(inspect.mock.callCount(), 1);
     await runAuto(undefined, controller);
-    assert.deepEqual(writes, [false, undefined]);
+    assert.deepEqual(writes, [false]);
+    assert.equal(inspect.mock.callCount(), 2);
   });
 
   it("renders command help without creating any autostart registration", async (t) => {

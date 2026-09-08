@@ -38,20 +38,15 @@ export interface SashLayout {
   configFile: string;
   settingsFile: string;
   profilesDir: string;
-  profilesIndexFile: string;
   uiDir: string;
   stateDir: string;
   pidFile: string;
   daemonPidFile: string;
   daemonLeaseFile: string;
   daemonStartLockFile: string;
-  runtimeOperationLockFile: string;
-  mutationLockFile: string;
-  settingsLockFile: string;
   systemProxyStateFile: string;
-  managedStateTransactionFile: string;
+  systemProxyLockFile: string;
   installFile: string;
-  coreInstallTransactionFile: string;
   coreUpdateTransactionFile: string;
   logsDir: string;
   coreLogFile: string;
@@ -64,27 +59,29 @@ export interface SashLayout {
 
 export function sashLayout(root: string = sashRoot()): SashLayout {
   const exeName = process.platform === "win32" ? "mihomo.exe" : "mihomo";
+  const userControlDir =
+    process.platform === "win32"
+      ? path.join(
+          envPathOr(path.join(os.homedir(), "AppData", "Local"), process.env.LOCALAPPDATA),
+          "Sash",
+        )
+      : path.join(root, "state");
   return {
     root,
     binDir: path.join(root, "bin"),
     coreExe: path.join(root, "bin", exeName),
-    configFile: path.join(root, "config.yaml"),
+    configFile: path.join(root, "runtime", "config.yaml"),
     settingsFile: path.join(root, "sash.json"),
     profilesDir: path.join(root, "profiles"),
-    profilesIndexFile: path.join(root, "profiles", "index.json"),
     uiDir: path.join(root, "ui"),
     stateDir: path.join(root, "state"),
     pidFile: path.join(root, "state", "sash.pid"),
     daemonPidFile: path.join(root, "state", "sashd.pid"),
     daemonLeaseFile: path.join(root, "state", "sashd.lock"),
     daemonStartLockFile: path.join(root, "state", "sashd-start.lock"),
-    runtimeOperationLockFile: path.join(root, "state", "runtime.lock"),
-    mutationLockFile: path.join(root, "state", "mutation.lock"),
-    settingsLockFile: path.join(root, "state", "settings.lock"),
     systemProxyStateFile: path.join(root, "state", "system-proxy.json"),
-    managedStateTransactionFile: path.join(root, "state", "managed-state-transaction.json"),
+    systemProxyLockFile: path.join(userControlDir, "system-proxy.lock"),
     installFile: path.join(root, "state", "install.json"),
-    coreInstallTransactionFile: path.join(root, "state", "core-install-transaction.json"),
     coreUpdateTransactionFile: path.join(root, "state", "core-update-transaction.json"),
     logsDir: path.join(root, "logs"),
     coreLogFile: path.join(root, "logs", "mihomo.log"),

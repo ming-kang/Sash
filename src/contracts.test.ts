@@ -2,314 +2,119 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   parseApiErrorBody,
-  parseCoreReloadResult,
   parseCoreStartResult,
+  parseCoreUpdateResponse,
   parseDaemonStatus,
   parseHealthInfo,
   parseProfileActionResponse,
+  parseProfileContentResponse,
   parseProfilesIndex,
   parseProfilesUpdateAllResponse,
   parseSettingsPatch,
   parseSettingsWriteResult,
-  parseShutdownResult,
   parseSystemProxyStatusResponse,
 } from "./contracts.js";
+import { testProfile, testStatus } from "./test-state.test.js";
 
-const timestamp = "2026-01-02T03:04:05.000Z";
-
-function statusDocument(): Record<string, unknown> {
-  return {
-    daemon: { pid: 1234, startedAt: timestamp, port: 19090 },
-    revisions: { profiles: 2 },
-    core: {
-      running: true,
-      pid: 4321,
-      startedAt: timestamp,
-      healthy: true,
-      version: "v1.2.3",
-      tunActive: false,
-    },
-    systemProxy: {
-      desired: true,
-      applied: true,
-      actual: { supported: true, enabled: true, server: "127.0.0.1:17890" },
-      appliedKnown: true,
-      stateKnown: true,
-    },
-    settings: {
-      mixedPort: 17890,
-      controller: "127.0.0.1:9090",
-      tun: false,
-      allowLan: false,
-      daemonPort: 19090,
-      systemProxy: true,
-    },
-    activeProfile: { id: "1", name: "local", url: "" },
-  };
-}
-
-function profileMetaDocument(): Record<string, unknown> {
-  return {
-    id: "1780811098558",
-    name: "edge",
-    url: "https://example.com/sub",
-    intervalHours: 24,
-    createdAt: timestamp,
-    updatedAt: "1970-01-01T00:00:00.000Z",
-  };
-}
-
-describe("daemon response contracts", () => {
-  it("parses and projects a canonical health response", () => {
-    assert.deepEqual(
-      parseHealthInfo({
-        token: "boot-token",
-        pid: 1234,
-        startedAt: timestamp,
-        futureField: "ignored",
-      }),
-      { token: "boot-token", pid: 1234, startedAt: timestamp },
-    );
-  });
-
-  it("rejects unsafe health identity fields and non-canonical timestamps", () => {
-    for (const [field, value] of [
-      ["pid", 0],
-      ["pid", 1.5],
-      ["pid", Number.MAX_SAFE_INTEGER + 1],
-      ["token", "   "],
-      ["startedAt", "2026-01-02 03:04:05Z"],
-    ] as const) {
-      const document = { token: "token", pid: 1, startedAt: timestamp, [field]: value };
-      assert.throws(() => parseHealthInfo(document), new RegExp(String(field)));
-    }
-  });
-
-  it("parses status while dropping unknown fields and control secrets", () => {
-    const document = statusDocument();
-    document.future = true;
-    (document.daemon as Record<string, unknown>).future = true;
-    (document.settings as Record<string, unknown>).secret = "must-not-cross-the-boundary";
-    (document.settings as Record<string, unknown>).daemonSecret = "must-not-cross-the-boundary";
-
-    const parsed = parseDaemonStatus(document);
-
-    assert.equal(parsed.daemon.pid, 1234);
-    assert.equal(parsed.core.version, "v1.2.3");
-    assert.equal(parsed.systemProxy.actual?.server, "127.0.0.1:17890");
-    assert.equal(parsed.activeProfile?.url, "");
-    assert.deepEqual(Object.keys(parsed.settings).sort(), [
-      "allowLan",
-      "controller",
-      "daemonPort",
-      "mixedPort",
-      "systemProxy",
-      "tun",
-    ]);
-    assert.equal("future" in parsed, false);
-    assert.equal("future" in parsed.daemon, false);
-  });
-
-  it("normalizes only missing legacy known flags to false", () => {
-    const document = statusDocument();
-    const proxy = document.systemProxy as Record<string, unknown>;
-    delete proxy.appliedKnown;
-    delete proxy.stateKnown;
-
-    const parsed = parseDaemonStatus(document);
-    assert.equal(parsed.systemProxy.appliedKnown, false);
-    assert.equal(parsed.systemProxy.stateKnown, false);
-
-    proxy.appliedKnown = undefined;
-    assert.throws(() => parseDaemonStatus(document), /systemProxy\.appliedKnown/);
-  });
-
-  it("rejects malformed required status fields", () => {
-    const cases: Array<[string, (document: Record<string, unknown>) => void]> = [
-      ["daemon", (document) => delete document.daemon],
-      ["daemon.port", (document) => ((document.daemon as Record<string, unknown>).port = 0)],
-      [
-        "daemon.startedAt",
-        (document) =>
-          ((document.daemon as Record<string, unknown>).startedAt = "2026-01-02T03:04:05Z"),
-      ],
-      [
-        "revisions.profiles",
-        (document) => ((document.revisions as Record<string, unknown>).profiles = -1),
-      ],
-      ["core.running", (document) => ((document.core as Record<string, unknown>).running = "yes")],
-      ["core.pid", (document) => ((document.core as Record<string, unknown>).pid = 1.5)],
-      [
-        "core.startedAt",
-        (document) => ((document.core as Record<string, unknown>).startedAt = "yesterday"),
-      ],
-      [
-        "systemProxy.actual.enabled",
-        (document) =>
-          ((
-            (document.systemProxy as Record<string, unknown>).actual as Record<string, unknown>
-          ).enabled = 1),
-      ],
-      [
-        "settings.mixedPort",
-        (document) => ((document.settings as Record<string, unknown>).mixedPort = 65_536),
-      ],
-      ["settings.tun", (document) => ((document.settings as Record<string, unknown>).tun = 0)],
-      [
-        "activeProfile.id",
-        (document) => ((document.activeProfile as Record<string, unknown>).id = ""),
-      ],
-    ];
-
-    for (const [path, mutate] of cases) {
-      const document = statusDocument();
-      mutate(document);
-      assert.throws(() => parseDaemonStatus(document), new RegExp(path.replace(".", "\\.")));
-    }
-  });
-
-  it("parses the flattened proxy response and supports legacy known flags", () => {
-    const parsed = parseSystemProxyStatusResponse({
-      desired: false,
-      applied: false,
-      supported: true,
-      enabled: false,
-      details: "off",
-      future: "ignored",
+describe("shared API boundaries", () => {
+  it("validates boot identity and projects only public status fields", () => {
+    const status = testStatus();
+    const parsed = parseDaemonStatus({
+      ...status,
+      extra: true,
+      settings: { ...status.settings, secret: "private", daemonSecret: "private" },
     });
-
-    assert.deepEqual(parsed, {
-      desired: false,
-      applied: false,
+    assert.deepEqual(parsed, status);
+    assert.deepEqual(
+      parseHealthInfo({ token: "boot", pid: 1, startedAt: status.daemon.startedAt, extra: true }),
+      { token: "boot", pid: 1, startedAt: status.daemon.startedAt },
+    );
+    for (const patch of [{ pid: 0 }, { pid: 1.5 }, { token: " " }, { startedAt: "yesterday" }])
+      assert.throws(() =>
+        parseHealthInfo({ token: "boot", pid: 1, startedAt: status.daemon.startedAt, ...patch }),
+      );
+  });
+  it("rejects malformed status and missing observation flags", () => {
+    const status = testStatus();
+    for (const value of [
+      null,
+      {},
+      { ...status, daemon: { ...status.daemon, bootId: "" } },
+      { ...status, revisions: { profiles: 0, runtime: -1 } },
+      { ...status, core: { running: "true" } },
+      { ...status, configuration: {} },
+      { ...status, systemProxy: { desired: false, applied: false } },
+      { ...status, settings: { ...status.settings, mixedPort: 65536 } },
+    ])
+      assert.throws(() => parseDaemonStatus(value));
+  });
+  it("requires current proxy flags instead of guessing absent values", () => {
+    const value = {
       supported: true,
       enabled: false,
-      details: "off",
+      desired: false,
+      applied: false,
       appliedKnown: false,
       stateKnown: false,
+    };
+    assert.deepEqual(parseSystemProxyStatusResponse(value), value);
+    assert.throws(() => parseSystemProxyStatusResponse({ ...value, stateKnown: undefined }));
+  });
+  it("validates lifecycle and saved-settings results", () => {
+    assert.deepEqual(parseCoreStartResult({ pid: 1234, version: "v1" }), {
+      pid: 1234,
+      version: "v1",
     });
-    assert.throws(
-      () =>
-        parseSystemProxyStatusResponse({
-          desired: false,
-          applied: false,
-          supported: true,
-          enabled: false,
-          stateKnown: "yes",
-        }),
-      /stateKnown/,
+    assert.throws(() => parseCoreStartResult({ pid: -1 }));
+    assert.deepEqual(parseCoreUpdateResponse({ version: "v2" }), { version: "v2" });
+    assert.throws(() => parseCoreUpdateResponse({ version: "" }));
+    assert.equal(
+      parseSettingsWriteResult({ restartRequired: true, settings: testStatus().settings })
+        .restartRequired,
+      true,
     );
-  });
-
-  it("parses core lifecycle results without an ok envelope", () => {
-    assert.deepEqual(parseCoreStartResult({ pid: 4321, version: "v1.2.3", tunActive: true }), {
-      pid: 4321,
-      version: "v1.2.3",
-      tunActive: true,
+    assert.deepEqual(parseSettingsPatch({ mixedPort: 18880, allowLan: true }), {
+      mixedPort: 18880,
+      allowLan: true,
     });
-    assert.deepEqual(parseCoreStartResult({ pid: 4321 }), { pid: 4321 });
-    assert.throws(() => parseCoreStartResult({ pid: -1 }), /pid/);
-
-    assert.deepEqual(parseCoreReloadResult({ proxyCount: 12, source: "subscription" }), {
-      proxyCount: 12,
-      source: "subscription",
-    });
-    assert.throws(() => parseCoreReloadResult({ proxyCount: 12, source: "other" }), /source/);
-
-    assert.deepEqual(parseShutdownResult({ coreWasRunning: false }), { coreWasRunning: false });
-    assert.throws(() => parseShutdownResult({}), /coreWasRunning/);
+    for (const value of [
+      { tun: false },
+      { daemonPort: 19090 },
+      { secret: "secret" },
+      { mixedPort: 0 },
+    ])
+      assert.throws(() => parseSettingsPatch(value));
   });
-
-  it("parses the settings patch protocol strictly", () => {
-    assert.deepEqual(
-      parseSettingsPatch({
-        mixedPort: 17891,
-        allowLan: true,
-        tun: false,
-        systemProxy: true,
-        daemonPort: 19091,
-        daemonSecret: "new-secret",
-      }),
-      {
-        mixedPort: 17891,
-        allowLan: true,
-        tun: false,
-        systemProxy: true,
-        daemonPort: 19091,
-        daemonSecret: "new-secret",
-      },
+  it("validates profile revisions and per-profile error bodies", () => {
+    const profile = testProfile();
+    assert.equal(
+      parseProfilesIndex({ activeId: profile.id, profiles: [profile] }).profiles[0]?.revision,
+      1,
     );
-    assert.deepEqual(parseSettingsPatch({}), {});
-    assert.throws(() => parseSettingsPatch({ secret: "core-secret" }), /secret/);
-    assert.throws(() => parseSettingsPatch({ mixedPort: 0 }), /mixedPort/);
-    assert.throws(() => parseSettingsPatch({ tun: "on" }), /tun/);
-    assert.throws(() => parseSettingsPatch({ daemonSecret: "  " }), /daemonSecret/);
-  });
-
-  it("parses settings write results and file content", () => {
-    const parsed = parseSettingsWriteResult({
-      restartRequired: true,
-      settings: {
-        mixedPort: 17890,
-        controller: "127.0.0.1:9090",
-        tun: false,
-        allowLan: false,
-        daemonPort: 19091,
-        systemProxy: false,
-      },
-    });
-    assert.equal(parsed.restartRequired, true);
-    assert.equal(parsed.settings.daemonPort, 19091);
-    assert.throws(() => parseSettingsWriteResult({ restartRequired: true }), /settings/);
-  });
-
-  it("parses profile responses with full metadata validation", () => {
-    const index = parseProfilesIndex({
-      activeId: "1780811098558",
-      profiles: [
-        {
-          ...profileMetaDocument(),
-          subInfo: { upload: 1, download: 2, total: 3, expire: 4 },
-          homePage: "https://example.com",
-          lastError: "boom",
-        },
-      ],
-    });
-    assert.equal(index.activeId, "1780811098558");
-    assert.equal(index.profiles[0]?.subInfo?.total, 3);
-    assert.equal(index.profiles[0]?.lastError, "boom");
-
-    assert.deepEqual(parseProfilesIndex({ activeId: null, profiles: [] }), {
-      activeId: null,
-      profiles: [],
-    });
-    assert.throws(() => parseProfilesIndex({ activeId: null, profiles: [{}] }), /profiles\[0\]/);
-
-    const action = parseProfileActionResponse({
-      profile: profileMetaDocument(),
+    assert.deepEqual(parseProfileActionResponse({ profile, activated: true }), {
+      profile,
       activated: true,
-      proxyCount: 7,
     });
-    assert.equal(action.profile.id, "1780811098558");
-    assert.equal(action.proxyCount, 7);
-
-    const all = parseProfilesUpdateAllResponse({
-      updated: 2,
-      failed: [{ id: "1", name: "edge", error: "fetch failed" }],
-    });
-    assert.equal(all.failed[0]?.error, "fetch failed");
-    assert.throws(
-      () => parseProfilesUpdateAllResponse({ updated: 2, failed: [{ id: "1" }] }),
-      /failed\[0\]/,
+    assert.throws(() => parseProfileContentResponse({ name: "name", content: "rules: []" }));
+    assert.equal(
+      parseProfileContentResponse({ name: "name", content: "rules: []", revision: 1 }).revision,
+      1,
     );
-  });
-
-  it("extracts structured error envelopes", () => {
-    assert.deepEqual(parseApiErrorBody({ error: { code: "conflict", message: "busy" } }), {
+    assert.throws(() =>
+      parseProfilesIndex({ activeId: null, profiles: [{ ...profile, revision: 0 }] }),
+    );
+    assert.equal(
+      parseProfilesUpdateAllResponse({
+        updated: 1,
+        failed: [{ id: "2", name: "remote", error: "offline" }],
+      }).failed.length,
+      1,
+    );
+    assert.throws(() => parseProfilesUpdateAllResponse({ updated: 1, failed: [{}] }));
+    assert.deepEqual(parseApiErrorBody({ error: { code: "conflict", message: "changed" } }), {
       code: "conflict",
-      message: "busy",
+      message: "changed",
     });
-    assert.equal(parseApiErrorBody({ error: "plain string" }), undefined);
-    assert.equal(parseApiErrorBody({}), undefined);
-    assert.equal(parseApiErrorBody("nope"), undefined);
+    assert.equal(parseApiErrorBody("invalid"), undefined);
   });
 });

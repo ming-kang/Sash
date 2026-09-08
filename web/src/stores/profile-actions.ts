@@ -1,103 +1,58 @@
-import type {
-  ProfileActionResponse,
-  ProfileActivateResponse,
-  ProfileRemoveResponse,
-  ProfilesIndex,
-  ProfilesUpdateAllResponse,
-  ProfileUpdateResponse,
-} from "../../../src/contracts.js";
 import { api } from "../api/index.js";
-import { refreshRuntimeState, refreshStatus } from "./runtime-actions.js";
+import { refreshStatus } from "./runtime-actions.js";
 import { requests, setProfiles, store } from "./state.js";
-import { runProfileMutationSequence } from "./state-ownership.js";
 
 export async function refreshProfiles(): Promise<void> {
-  const profileRequest = requests.begin("profiles");
-  const status = store.status;
+  const generation = requests.begin("profiles");
+  const bootId = store.status?.daemon.bootId;
+  const revision = store.status?.revisions.profiles;
   const profiles = await api.getProfiles();
-  if (!requests.isCurrent("profiles", profileRequest)) return;
-  setProfiles(profiles);
-  if (status && store.status?.daemon.startedAt === status.daemon.startedAt) {
-    store.lastProfileRevision = status.revisions.profiles;
+  if (requests.isCurrent("profiles", generation) && store.status?.daemon.bootId === bootId) {
+    setProfiles(profiles);
+    store.lastProfileRevision = revision ?? null;
   }
 }
 
-async function performProfileMutation<T>(
-  mutation: () => Promise<T>,
-  refreshesRuntime: (result: T) => boolean,
-): Promise<T> {
+async function saveProfile<T>(operation: () => Promise<T>): Promise<T> {
   if (store.operations.profileMutation) throw new Error("A profile operation is already running");
   store.operations = { ...store.operations, profileMutation: true };
-  requests.invalidate("runtime");
   requests.invalidate("profiles");
   try {
-    return await runProfileMutationSequence(mutation, refreshProfiles, async (result) => {
-      if (refreshesRuntime(result)) await refreshRuntimeState();
-    });
+    const result = await operation();
+    await refreshStatus().catch(() => undefined);
+    return result;
+  } catch (error) {
+    await refreshStatus().catch(() => undefined);
+    throw error;
   } finally {
     store.operations = { ...store.operations, profileMutation: false };
   }
 }
 
-export async function renameProfile(id: string, name: string): Promise<void> {
-  // Rename only touches the profile index, so it skips the heavyweight
-  // runtime-refresh mutation sequence; a plain status refresh is enough.
-  await api.renameProfile(id, name);
-  await refreshStatus();
+export function renameProfile(id: string, name: string) {
+  return saveProfile(() => api.renameProfile(id, name));
 }
-
-export function addProfile(url: string): Promise<ProfileActionResponse> {
-  return performProfileMutation(
-    () => api.addProfile(url),
-    (result) => result.activated,
-  );
+export function addProfile(url: string) {
+  return saveProfile(() => api.addProfile(url));
 }
-
-export function reorderProfiles(ids: readonly string[]): Promise<ProfilesIndex> {
-  return performProfileMutation(
-    () => api.reorderProfiles(ids),
-    () => false,
-  );
+export function reorderProfiles(ids: readonly string[]) {
+  return saveProfile(() => api.reorderProfiles(ids));
 }
-
-export function importProfile(name: string, content: string): Promise<ProfileActionResponse> {
-  return performProfileMutation(
-    () => api.importProfile(name, content),
-    (result) => result.activated,
-  );
+export function importProfile(name: string, content: string) {
+  return saveProfile(() => api.importProfile(name, content));
 }
-
-export function updateProfile(id: string): Promise<ProfileUpdateResponse> {
-  return performProfileMutation(
-    () => api.updateProfile(id),
-    (result) => result.proxyCount !== undefined,
-  );
+export function updateProfile(id: string) {
+  return saveProfile(() => api.updateProfile(id));
 }
-
-export function writeProfileContent(id: string, content: string): Promise<ProfileUpdateResponse> {
-  return performProfileMutation(
-    () => api.setProfileContent(id, content),
-    (result) => result.proxyCount !== undefined,
-  );
+export function writeProfileContent(id: string, content: string, revision: number) {
+  return saveProfile(() => api.setProfileContent(id, content, revision));
 }
-
-export function updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
-  return performProfileMutation(
-    () => api.updateAllProfiles(),
-    (result) => result.proxyCount !== undefined,
-  );
+export function updateAllProfiles() {
+  return saveProfile(() => api.updateAllProfiles());
 }
-
-export function activateProfile(id: string | null): Promise<ProfileActivateResponse> {
-  return performProfileMutation(
-    () => api.setActiveProfile(id),
-    () => true,
-  );
+export function activateProfile(id: string | null) {
+  return saveProfile(() => api.setActiveProfile(id));
 }
-
-export function deleteProfile(id: string): Promise<ProfileRemoveResponse> {
-  return performProfileMutation(
-    () => api.deleteProfile(id),
-    (result) => result.wasActive,
-  );
+export function deleteProfile(id: string) {
+  return saveProfile(() => api.deleteProfile(id));
 }

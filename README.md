@@ -8,19 +8,19 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 
 - **Supervisor daemon (`sashd`)** — background supervisor on port `19090` managing the core lifecycle, recovery, and reverse proxying
 - **Zero-download web dashboard** — built-in modern Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
-- **Reversible system proxy ownership** — snapshots and conditionally restores prior Windows, macOS, or GNOME proxy/PAC state after stop or crash
+- **Windows system proxy** — snapshots and conditionally restores the current user's prior proxy/PAC settings
 - **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
-- **Automatic startup** — start at user login through `sash auto` or the dashboard settings on Windows, macOS and Linux
-- **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles from the dashboard
+- **Windows login startup** — configure it through `sash auto on/off` or the dashboard settings
+- **Explicit save and apply** — import, edit and update profiles, then apply saved changes with one Core restart
 - **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
 
 ## Requirements
 
 - Node.js **24 or newer**
-- Windows 10+, macOS, or Linux — x64 and arm64
+- Windows 10+ — x64 and arm64
 
-Automatic Linux system-proxy integration currently requires a GNOME desktop with `gsettings`; Core lifecycle and local endpoints do not have that desktop requirement.
+Basic Core lifecycle and local endpoints remain portable to macOS and Linux. Desktop system-proxy and login-startup integration are Windows-only.
 
 ## Install
 
@@ -51,18 +51,23 @@ sash stop                  # restores prior proxy state, stops core and sashd
 
 Use `sash web` to authorize and open the dashboard. Opening its address directly shows connection instructions. Refreshing an authorized tab preserves access; after restarting Sash, run `sash web` again.
 
+`sash web` also works while Core is stopped or missing. Profile selection, content edits and network settings are saved first; **Apply configuration** (or `sash restart`) restarts Core with those changes. Core updates and restarts keep the dashboard session alive.
+
 Use `sash auto on` to start Sash at login, `sash auto status` to inspect the
 registration and `sash auto off` to remove it. This requires a direct global npm
 installation and preserves the current data directory. See [Automatic Startup](./docs/autostart.md)
 for platform behavior, diagnostics and removal before uninstalling.
 
-TUN and Windows Service Mode are deferred to the [development branch](https://github.com/ming-kang/Sash/tree/feat/tun-service-mode). Version 0.1.1 keeps TUN disabled and runs without a privileged service.
+TUN and Windows Service Mode remain on the [development branch](https://github.com/ming-kang/Sash/tree/feat/tun-service-mode). This branch keeps TUN disabled and runs without a privileged service.
+
+This refactor introduces a new state format and API without migration support. Use a fresh data directory and import any profile YAML you want to keep; existing state is never silently overwritten.
 
 ## Documentation
 
 Comprehensive documentation is available in the [`docs/`](./docs) directory:
 
 - [**User & Operations Guide**](./docs/usage.md) — complete CLI command reference, configuration parameters and troubleshooting.
+- [**High-level Architecture**](./docs/architecture-proposal.md) — the implemented design, ownership boundaries and save/apply flow.
 - [**Automatic Startup**](./docs/autostart.md) — login startup, OS registration state and failure diagnostics.
 - [**Backend Architecture**](./docs/backend.md) — supervisor daemon model (`sashd`), API endpoints, lifecycle management, system proxy adapters, and safety invariants.
 - [**Frontend Architecture**](./docs/frontend.md) — built-in Vue 3 + Vite dashboard, shared API contracts, reactive runtime state, and WebSocket streaming.

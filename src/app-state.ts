@@ -1,0 +1,126 @@
+import fs from "node:fs";
+import { atomicWriteFileSync } from "./fs-atomic.js";
+import { hasExactOwnKeys, isPlainObject } from "./json-shape.js";
+import { type SashLayout, sashLayout } from "./paths.js";
+import { type ProfilesIndex, parseProfilesIndex } from "./profile-model.js";
+import {
+  DEFAULT_SETTINGS,
+  initialSettings,
+  type SashSettings,
+  validateSettingsCandidate,
+} from "./settings.js";
+
+const MAX_STATE_BYTES = 2 * 1024 * 1024;
+
+export interface SashState {
+  schemaVersion: 2;
+  revision: number;
+  settings: SashSettings;
+  profiles: ProfilesIndex;
+}
+
+export class StateConflictError extends Error {}
+
+function readStateText(layout: SashLayout): string | undefined {
+  try {
+    const stat = fs.lstatSync(layout.settingsFile);
+    if (!stat.isFile() || stat.size > MAX_STATE_BYTES)
+      throw new Error("Sash state must be a bounded regular file");
+    const bytes = fs.readFileSync(layout.settingsFile);
+    if (bytes.length > MAX_STATE_BYTES) throw new Error("Sash state is too large");
+    return bytes.toString("utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+export function parseState(value: unknown): SashState {
+  if (!isPlainObject(value) || value.schemaVersion !== 2) {
+    throw new Error("Invalid Sash state: schemaVersion must be 2");
+  }
+  if (
+    !hasExactOwnKeys(value, ["schemaVersion", "revision", "settings", "profiles"]) ||
+    typeof value.revision !== "number" ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 0
+  ) {
+    throw new Error("Sash state has an invalid shape or revision");
+  }
+  return {
+    schemaVersion: 2,
+    revision: value.revision,
+    settings: validateSettingsCandidate(value.settings),
+    profiles: parseProfilesIndex(value.profiles),
+  };
+}
+
+function parseStateText(text: string, layout: SashLayout): SashState {
+  try {
+    return parseState(JSON.parse(text) as unknown);
+  } catch (error) {
+    throw new Error(
+      `Cannot read Sash state at ${layout.settingsFile}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+/** Read-only: CLI discovery must never initialize or migrate state. */
+export function readState(layout: SashLayout = sashLayout()): SashState | undefined {
+  const text = readStateText(layout);
+  return text === undefined ? undefined : parseStateText(text, layout);
+}
+
+export function loadSettings(layout: SashLayout = sashLayout()): SashSettings {
+  return readState(layout)?.settings ?? { ...DEFAULT_SETTINGS };
+}
+
+/** One canonical publication point, used only by the daemon owning the instance lease. */
+export class SashStateStore {
+  private state: SashState;
+  private text: string;
+
+  constructor(
+    readonly layout: SashLayout,
+    settings?: SashSettings,
+  ) {
+    const stored = readStateText(layout);
+    if (stored !== undefined) {
+      this.state = parseStateText(stored, layout);
+      this.text = stored;
+    } else {
+      this.state = {
+        schemaVersion: 2,
+        revision: 0,
+        settings: validateSettingsCandidate(settings ?? initialSettings()),
+        profiles: { activeId: null, profiles: [] },
+      };
+      this.text = `${JSON.stringify(this.state, null, 2)}\n`;
+      atomicWriteFileSync(layout.settingsFile, this.text);
+    }
+  }
+
+  snapshot(): SashState {
+    return structuredClone(this.state);
+  }
+
+  assertCurrent(revision: number): void {
+    if (revision !== this.state.revision || readStateText(this.layout) !== this.text) {
+      throw new StateConflictError(
+        "Sash state changed; refresh before retrying. Edit files only while Sash is stopped.",
+      );
+    }
+  }
+
+  commit(candidate: SashState): SashState {
+    this.assertCurrent(candidate.revision);
+    const next = parseState({ ...candidate, revision: candidate.revision + 1 });
+    const text = `${JSON.stringify(next, null, 2)}\n`;
+    if (Buffer.byteLength(text) > MAX_STATE_BYTES) throw new Error("Sash state is too large");
+    atomicWriteFileSync(this.layout.settingsFile, text);
+    this.state = next;
+    this.text = text;
+    return this.snapshot();
+  }
+}

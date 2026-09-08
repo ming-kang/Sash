@@ -16,7 +16,7 @@ import {
   matchWebSocketUpgrade,
   parseDaemonRequestTarget,
 } from "./router.js";
-import { startProfileUpdateScheduler } from "./scheduler.js";
+import { type ProfileUpdateScheduler, startProfileUpdateScheduler } from "./scheduler.js";
 
 export interface DaemonInstance {
   server: Server;
@@ -115,7 +115,14 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     }
   });
 
-  const scheduler = startProfileUpdateScheduler(context.profiles, deps.scheduler ?? {});
+  let scheduler: ProfileUpdateScheduler | undefined;
+  server.once("listening", () => {
+    scheduler = startProfileUpdateScheduler(
+      context.profiles,
+      deps.scheduler ?? {},
+      () => !context.gate.isClosing,
+    );
+  });
 
   let listenerClosePromise: Promise<void> | undefined;
   const closeListener = (): Promise<void> => {
@@ -131,7 +138,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       }
       // Timers stay alive if either runtime cleanup or listener closure fails,
       // preserving retryability and scheduled updates after a failed close.
-      scheduler.stop();
+      scheduler?.stop();
     })();
     listenerClosePromise = attempt;
     void attempt.catch(() => {

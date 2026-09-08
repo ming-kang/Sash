@@ -41,12 +41,13 @@ function ghTokenHeaders(): Record<string, string> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
-export async function resolveLatestTag(repo: string): Promise<string> {
+export async function resolveLatestTag(repo: string, signal?: AbortSignal): Promise<string> {
   // Resolve the release identity only from GitHub itself. Mirrors remain byte
   // transports and cannot choose or downgrade the version being installed.
   const latestUrl = `https://github.com/${repo}/releases/latest`;
   try {
     const res = await fetchWithRetry(latestUrl, {
+      signal,
       manualRedirect: true,
       attempts: 2,
       deadlineMs: 15_000,
@@ -72,6 +73,7 @@ export async function resolveLatestTag(repo: string): Promise<string> {
   // Fallback: GitHub REST API (consumes rate limit, direct only)
   const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`;
   const res = await fetchWithRetry(apiUrl, {
+    signal,
     headers: {
       accept: "application/vnd.github+json",
       ...ghTokenHeaders(),
@@ -104,9 +106,14 @@ export interface ReleaseAsset {
   digest: string;
 }
 
-export async function listReleaseAssets(repo: string, tag: string): Promise<ReleaseAsset[]> {
+export async function listReleaseAssets(
+  repo: string,
+  tag: string,
+  signal?: AbortSignal,
+): Promise<ReleaseAsset[]> {
   const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
   const res = await fetchWithRetry(apiUrl, {
+    signal,
     headers: {
       accept: "application/vnd.github+json",
       ...ghTokenHeaders(),
@@ -169,6 +176,7 @@ export async function sha256File(file: string): Promise<string> {
 }
 
 export interface DownloadOptions {
+  signal?: AbortSignal;
   repo: string;
   tag: string;
   /** Absolute budget shared by all mirror attempts. Default 15 minutes. */
@@ -214,6 +222,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
 
   let lastError: Error | undefined;
   for (const url of urls) {
+    opts.signal?.throwIfAborted();
     const remainingMs = deadlineAt - Date.now();
     if (remainingMs <= 0) {
       lastError = new Error(`Core asset download deadline exceeded after ${deadlineMs}ms`);
@@ -221,6 +230,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
     }
     try {
       await downloadToFile(url, opts.dest, {
+        signal: opts.signal,
         allowedHosts: GITHUB_DOWNLOAD_HOSTS,
         maxBytes: RELEASE_ASSET_SIZE_LIMIT,
         requireHttps: true,

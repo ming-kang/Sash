@@ -11,14 +11,8 @@ import {
   validateCoreReleaseTag,
   writeInstallRecord,
 } from "./core-install-record.js";
-import {
-  beginCoreInstallTransaction,
-  clearCoreInstallTransaction,
-  markCoreInstallTransactionCommitted,
-  recoverCoreInstallTransaction,
-} from "./core-install-transaction.js";
 import { containsCoreVersionToken } from "./core-version.js";
-import { durableRenameSync, pathEntryExists } from "./fs-atomic.js";
+import { pathEntryExists } from "./fs-atomic.js";
 import {
   downloadReleaseAsset,
   listReleaseAssets,
@@ -27,7 +21,7 @@ import {
   resolveLatestTag,
 } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { buildSanitizedEnv, recoverBinaryUnlockProbe } from "./process.js";
+import { buildSanitizedEnv } from "./process.js";
 
 /**
  * Mihomo core acquisition: platform asset selection, download, decompression,
@@ -101,12 +95,20 @@ export async function extractCoreArchive(
         throw new Error("Core archive exceeds the download safety limit");
       }
       const zip = new AdmZip(archivePath);
-      const entry = zip
-        .getEntries()
-        .find(
-          (candidate) =>
-            !candidate.isDirectory && /^mihomo.*\.exe$/i.test(path.basename(candidate.entryName)),
-        );
+      const entries = zip.getEntries();
+      if (
+        entries.some(
+          (entry) =>
+            entry.entryName.split(/[\\/]/).includes("..") ||
+            /^(?:[\\/]|[A-Za-z]:)/.test(entry.entryName),
+        )
+      ) {
+        throw new Error("Core archive contains an unsafe path");
+      }
+      const entry = entries.find(
+        (candidate) =>
+          !candidate.isDirectory && /^mihomo.*\.exe$/i.test(path.basename(candidate.entryName)),
+      );
       if (!entry) throw new Error(`No mihomo*.exe found inside ${assetName}`);
       if (entry.header.size > EXTRACT_SIZE_LIMIT) {
         throw new Error("Extracted binary exceeds 512MB safety limit");
@@ -153,6 +155,7 @@ export type { InstallRecord } from "./core-install-record.js";
 export { currentCoreVersion, readInstallRecord, validateCoreReleaseTag, writeInstallRecord };
 
 export interface CoreInstallOptions {
+  signal?: AbortSignal;
   layout?: SashLayout;
   /** Specific tag to install (e.g. v1.19.30); defaults to latest. */
   tag?: string;
@@ -190,16 +193,20 @@ export function verifyCoreExecutable(
 /** Download, extract and validate a core binary without changing installed state. */
 export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCore> {
   const layout = opts.layout ?? sashLayout();
-  const tag = validateCoreReleaseTag(opts.tag ?? (await resolveLatestTag(MIHOMO_REPO)));
-  const assets = await listReleaseAssets(MIHOMO_REPO, tag);
+  const tag = validateCoreReleaseTag(
+    opts.tag ?? (await resolveLatestTag(MIHOMO_REPO, opts.signal)),
+  );
+  const assets = await listReleaseAssets(MIHOMO_REPO, tag, opts.signal);
   const candidates = mihomoAssetCandidates(tag);
 
   fs.mkdirSync(layout.tempDir, { recursive: true });
   fs.mkdirSync(layout.binDir, { recursive: true });
-  const archivePath = path.join(layout.tempDir, `mihomo-${tag}-${process.pid}.download`);
-  const stagedExe = `${layout.coreExe}.${process.pid}.new`;
+  const directory = fs.mkdtempSync(path.join(layout.tempDir, "core-download-"));
+  const archivePath = path.join(directory, "archive.download");
+  const stagedExe = path.join(directory, path.basename(layout.coreExe));
   try {
     const assetName = await downloadReleaseAsset({
+      signal: opts.signal,
       repo: MIHOMO_REPO,
       tag,
       assets,
@@ -208,6 +215,7 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
       onProgress: opts.onProgress,
     });
     await extractCoreArchive(archivePath, assetName, stagedExe);
+    opts.signal?.throwIfAborted();
     fs.chmodSync(stagedExe, 0o755);
     verifyCoreExecutable(stagedExe, 5000, tag);
     return { version: tag, exe: stagedExe };
@@ -216,44 +224,11 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
     throw err;
   } finally {
     fs.rmSync(archivePath, { force: true });
-  }
-}
-
-/** Download and install a core when no previous binary exists. */
-export async function installCore(
-  opts: CoreInstallOptions = {},
-): Promise<{ version: string; exe: string }> {
-  const layout = opts.layout ?? sashLayout();
-  recoverCoreInstallTransaction(layout);
-  assertCoreInstallationConsistent(layout);
-  if (coreInstalled(layout)) {
-    throw new Error(`Core executable already exists at ${layout.coreExe}; use the update flow`);
-  }
-  const staged = await stageCore({ ...opts, layout });
-  let transactionStarted = false;
-  let committed = false;
-  try {
-    const transaction = beginCoreInstallTransaction(staged.version, layout);
-    transactionStarted = true;
-    durableRenameSync(staged.exe, layout.coreExe);
-    writeInstallRecord({ coreVersion: staged.version, installedAt: transaction.createdAt }, layout);
-    markCoreInstallTransactionCommitted(transaction, layout);
-    committed = true;
-    clearCoreInstallTransaction(layout);
-    return { version: staged.version, exe: layout.coreExe };
-  } catch (err) {
-    if (transactionStarted && !committed) {
-      try {
-        recoverCoreInstallTransaction(layout);
-      } catch (recoveryErr) {
-        throw new Error(
-          `${(err as Error).message}; Core install recovery also failed: ${(recoveryErr as Error).message}`,
-        );
-      }
+    try {
+      fs.rmdirSync(directory);
+    } catch {
+      /* Successful staging still owns its executable. */
     }
-    throw err;
-  } finally {
-    fs.rmSync(staged.exe, { force: true });
   }
 }
 
@@ -271,7 +246,6 @@ export function coreInstalled(layout: SashLayout = sashLayout()): boolean {
 
 /** Fail closed when binary and committed install metadata do not agree. */
 export function assertCoreInstallationConsistent(layout: SashLayout = sashLayout()): void {
-  recoverBinaryUnlockProbe(layout.coreExe);
   const binaryExists = pathEntryExists(layout.coreExe);
   const installRecordExists = pathEntryExists(layout.installFile);
   const binaryValid = isRegularFile(layout.coreExe);
@@ -287,6 +261,6 @@ export function assertCoreInstallationConsistent(layout: SashLayout = sashLayout
       ? "Core install metadata exists but the executable is missing"
       : "Core install metadata is malformed without an executable";
   throw new Error(
-    `Core installation is incomplete or invalid: ${reason}. Run \`sash update --force\` to repair it.`,
+    `Core installation is incomplete or invalid: ${reason}. Preserve these files and reinstall into a clean data directory.`,
   );
 }

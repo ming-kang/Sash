@@ -7,25 +7,29 @@ import path from "node:path";
 import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
 import type { AutostartController } from "./autostart.js";
+import { writeInstallRecord } from "./core-install-record.js";
 import {
-  type CoreState,
   type CoreSupervisor,
   createDaemonServer,
+  type DaemonDeps,
   type DaemonInstance,
   type DaemonScheduler,
 } from "./daemon.js";
-import type { GeneratedConfig, SubscriptionFetch } from "./mihomo-config.js";
+import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { DEFAULT_SETTINGS, type SashSettings } from "./settings.js";
+import type { SashSettings } from "./settings.js";
 import type { SystemProxyState } from "./sysproxy.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
+import { FakeCoreSupervisor, testSettings } from "./test-state.test.js";
 
 export interface DaemonServerOverrides {
+  installCore?: boolean;
+  stageCore?: DaemonDeps["stageCoreFn"];
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
   autostart?: AutostartController;
   fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
-  validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
+  validateConfig?: DaemonDeps["validateConfigFn"];
   scheduler?: DaemonScheduler;
 }
 
@@ -55,12 +59,7 @@ export class DaemonTestHarness {
   setup(): void {
     this.tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-daemon-test-"));
     this.layout = sashLayout(this.tmpDir);
-    this.settings = {
-      ...DEFAULT_SETTINGS,
-      daemonSecret: "test-daemon-secret-1234567890",
-      controller: "127.0.0.1:9090",
-      secret: "test-core-secret-1234567890",
-    };
+    this.settings = testSettings();
     this.instance = undefined;
     this.boundPort = 0;
     this.mockCoreServer = undefined;
@@ -109,18 +108,16 @@ export class DaemonTestHarness {
   }
 
   async startServer(overrides: DaemonServerOverrides = {}, port = 0): Promise<DaemonInstance> {
+    if (overrides.installCore !== false && !fs.existsSync(this.layout.coreExe)) {
+      fs.mkdirSync(this.layout.binDir, { recursive: true });
+      fs.writeFileSync(this.layout.coreExe, "v1.0.0-core");
+      writeInstallRecord(
+        { coreVersion: "v1.0.0", installedAt: "2026-09-08T00:00:00.000Z" },
+        this.layout,
+      );
+    }
     const fakeSupervisor: CoreSupervisor =
-      overrides.supervisor ??
-      ({
-        isRunning: () => false,
-        ownedCoreSnapshot: () => undefined,
-        ownsCore: () => false,
-        status: async (): Promise<CoreState> => ({ running: false }),
-        start: async () => ({ pid: 9999, version: "v1.0.0" }),
-        stop: async () => {},
-        restart: async () => ({ pid: 10000, version: "v1.0.0" }),
-        cleanStaleCore: async () => {},
-      } as unknown as CoreSupervisor);
+      overrides.supervisor ?? new FakeCoreSupervisor(this.layout, this.settings);
 
     const instance = createDaemonServer({
       layout: this.layout,
@@ -135,6 +132,16 @@ export class DaemonTestHarness {
       },
       fetchProfileFn: overrides.fetchProfile,
       validateConfigFn: overrides.validateConfig ?? (() => undefined),
+      controllerProbe: async () => false,
+      stageCoreFn:
+        overrides.stageCore ??
+        (async () => {
+          throw new Error("A Core download adapter is required in tests");
+        }),
+      verifyCoreFn: (exe, version) => {
+        if (fs.readFileSync(exe, "utf8") !== `${version}-core`)
+          throw new Error("Core version mismatch");
+      },
       scheduler: overrides.scheduler,
     });
 

@@ -9,13 +9,13 @@ import {
   evaluateDaemon,
 } from "./daemon-lifecycle.js";
 import type { SashLayout } from "./paths.js";
-import { ProfileService } from "./profile-service.js";
+import { getActiveProfile, loadProfiles } from "./profiles.js";
 import type { SashSettings } from "./settings.js";
 import type { SystemProxyState } from "./sysproxy.js";
 import { type SystemProxyInspection, SystemProxyManager } from "./system-proxy-manager.js";
 import { uiInstalled } from "./webui.js";
 
-export const CLI_STATUS_SCHEMA_VERSION = 1 as const;
+export const CLI_STATUS_SCHEMA_VERSION = 2 as const;
 
 export type CliDaemonState = "healthy" | "stopped" | "unhealthy";
 
@@ -63,10 +63,6 @@ export interface CliRuntimeStatus {
     dashboard: string;
   };
   activeProfile: { id: string; name: string; url: string } | null;
-  tun: {
-    desired: boolean;
-    active: boolean | null;
-  };
   paths: {
     root: string;
     config: string;
@@ -239,17 +235,14 @@ export async function collectRuntimeStatus(
     : currentCoreVersion(context.layout);
   const profile = dependencies.activeProfile
     ? dependencies.activeProfile(context)
-    : new ProfileService({
-        layout: context.layout,
-        settings: () => context.settings,
-      }).active();
+    : getActiveProfile(loadProfiles(context.layout));
 
   let coreRunning: boolean | null = daemonState.running ? null : false;
   let coreHealthy: boolean | null = daemonState.running ? null : false;
   let corePid: number | null = null;
   let coreVersion: string | null = null;
-  let tunActive: boolean | null = daemonState.running ? null : false;
   let desiredProxy = context.settings.systemProxy;
+  let mixedEndpoint = `127.0.0.1:${context.settings.mixedPort}`;
   let proxySource: SystemProxyObservationSource | undefined;
   let queriedDaemon = false;
 
@@ -259,6 +252,11 @@ export async function collectRuntimeStatus(
       queriedDaemon = true;
       daemon = daemonObservation(daemonState, "healthy");
       desiredProxy = status.systemProxy.desired;
+      mixedEndpoint = status.core.running
+        ? status.configuration.appliedSettings
+          ? `127.0.0.1:${status.configuration.appliedSettings.mixedPort}`
+          : "unknown"
+        : `127.0.0.1:${status.settings.mixedPort}`;
       proxySource = {
         applied: status.systemProxy.applied,
         appliedKnown: status.systemProxy.appliedKnown,
@@ -272,7 +270,6 @@ export async function collectRuntimeStatus(
       } else if (!status.core.running) {
         coreRunning = false;
         coreHealthy = false;
-        tunActive = false;
       } else {
         coreRunning = true;
         coreHealthy = typeof status.core.healthy === "boolean" ? status.core.healthy : null;
@@ -281,12 +278,10 @@ export async function collectRuntimeStatus(
           typeof status.core.version === "string" && status.core.version
             ? status.core.version
             : null;
-        tunActive = typeof status.core.tunActive === "boolean" ? status.core.tunActive : null;
         if (coreHealthy === null) addError(errors, "Core health is unavailable");
         else if (!coreHealthy) addError(errors, "Core controller health probe failed");
         if (corePid === null) addError(errors, "Core PID is unavailable");
         if (coreVersion === null) addError(errors, "Core runtime version is unavailable");
-        if (tunActive === null) addError(errors, "Core TUN state is unavailable");
       }
     } catch (err) {
       daemon = daemonObservation(daemonState, "unhealthy");
@@ -346,16 +341,12 @@ export async function collectRuntimeStatus(
     },
     uiInstalled: dependencies.hasUi ? dependencies.hasUi(context) : uiInstalled(context.layout),
     endpoints: {
-      mixedProxy: `127.0.0.1:${context.settings.mixedPort}`,
+      mixedProxy: mixedEndpoint,
       controller: context.settings.controller,
       daemonApi: `http://127.0.0.1:${daemonPort}`,
       dashboard: `http://127.0.0.1:${daemonPort}/ui/`,
     },
     activeProfile,
-    tun: {
-      desired: context.settings.tun,
-      active: tunActive,
-    },
     paths: {
       root: context.layout.root,
       config: context.layout.configFile,

@@ -289,7 +289,10 @@ export function resolveSubscriptionRedirect(initial: URL, current: URL, location
   return target;
 }
 
-export async function fetchSubscriptionProfile(url: string): Promise<SubscriptionFetch> {
+export async function fetchSubscriptionProfile(
+  url: string,
+  signal?: AbortSignal,
+): Promise<SubscriptionFetch> {
   let initial: URL;
   try {
     initial = new URL(url);
@@ -309,6 +312,7 @@ export async function fetchSubscriptionProfile(url: string): Promise<Subscriptio
       throw new Error(`Subscription fetch deadline exceeded after ${PROFILE_FETCH_DEADLINE_MS}ms`);
     }
     res = await fetchWithRetry(current.href, {
+      signal,
       attempts: 3,
       deadlineMs: remainingDeadlineMs,
       manualRedirect: true,
@@ -385,7 +389,7 @@ export function overlayManagedKeys(
   out["allow-lan"] = settings.allowLan;
   out["external-controller"] = settings.controller;
   out.secret = settings.secret;
-  // Explicitly disable the listener on reload as well as on a fresh start.
+  // The generated runtime configuration always disables the TUN listener.
   out.tun = { enable: false };
   if (
     Array.isArray(out.listeners) &&

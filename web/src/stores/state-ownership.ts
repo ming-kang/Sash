@@ -1,4 +1,3 @@
-import type { PublicSashSettings } from "../../../src/settings.js";
 import type { LogMessage, ProxyItem, SashStatus, TrafficMessage } from "../types/index.js";
 
 export class RequestGenerations {
@@ -66,23 +65,7 @@ export function isCoreHealthy(status: SashStatus | null): boolean {
 }
 
 export function runtimeOwnerKey(status: SashStatus | null): string | null {
-  if (!isCoreHealthy(status)) return null;
-  return [
-    status?.daemon.startedAt ?? "",
-    status?.core.pid ?? "",
-    status?.core.startedAt ?? "",
-  ].join("|");
-}
-
-export function runtimeCoherenceKey(status: SashStatus | null): string | null {
-  const owner = runtimeOwnerKey(status);
-  return owner === null ? null : `${owner}|${status?.revisions.profiles ?? 0}`;
-}
-
-export function needsRecoveryRefresh(previous: SashStatus | null, next: SashStatus): boolean {
-  const nextKey = runtimeCoherenceKey(next);
-  if (nextKey === null) return false;
-  return runtimeCoherenceKey(previous) !== nextKey;
+  return status?.core.running ? `${status.daemon.bootId}|${status.revisions.runtime}` : null;
 }
 
 export type RuntimeNoticeKind = "offline" | "coreDegraded" | "coreUnavailable";
@@ -146,13 +129,15 @@ export function parseLogFrame(value: unknown): LogMessage | null {
 export function systemProxyNeedsDisable(status: SashStatus | null): boolean {
   return Boolean(
     status?.systemProxy.desired ||
-      status?.systemProxy.applied ||
-      status?.systemProxy.actual?.enabled,
+      (status?.systemProxy.appliedKnown && status.systemProxy.applied) ||
+      (status?.systemProxy.stateKnown && status.systemProxy.actual?.enabled),
   );
 }
 
 export function canSetSystemProxyTarget(status: SashStatus | null, target: boolean): boolean {
-  return target ? isCoreHealthy(status) : systemProxyNeedsDisable(status);
+  return target
+    ? isCoreHealthy(status) && status?.systemProxy.actual?.supported !== false
+    : systemProxyNeedsDisable(status);
 }
 
 export function resolvedProxyDelay(
@@ -163,44 +148,4 @@ export function resolvedProxyDelay(
   const manual = manualDelays[name];
   if (manual !== undefined) return manual;
   return proxies[name]?.history?.at(-1)?.delay;
-}
-
-export function syncCommittedAllowLan(
-  status: SashStatus | null,
-  value: boolean,
-  committed?: PublicSashSettings,
-): SashStatus | null {
-  if (!status) return null;
-  const settings = committed ?? {
-    ...status.settings,
-    allowLan: value,
-  };
-  const core = { ...status.core };
-  if (settings.allowLan !== status.settings.allowLan) delete core.tunActive;
-  return { ...status, settings, core };
-}
-
-export async function runProfileMutationSequence<T>(
-  mutation: () => Promise<T>,
-  refreshProfiles: () => Promise<void>,
-  refreshRuntime?: (result: T) => Promise<void>,
-): Promise<T> {
-  let result: T | undefined;
-  let mutationError: unknown;
-  try {
-    result = await mutation();
-  } catch (err) {
-    mutationError = err;
-  }
-
-  try {
-    await refreshProfiles();
-  } catch (refreshError) {
-    if (mutationError === undefined) throw refreshError;
-  }
-
-  if (mutationError !== undefined) throw mutationError;
-  const committed = result as T;
-  await refreshRuntime?.(committed);
-  return committed;
 }

@@ -71,7 +71,7 @@
             :title="t('page.settings.title')"
             @click="navigate('settings')"
           >
-            127.0.0.1:{{ store.status?.settings.mixedPort ?? 7890 }}
+            {{ store.status?.core.running && store.status.configuration.appliedSettings ? `127.0.0.1:${store.status.configuration.appliedSettings.mixedPort}` : '-' }}
           </button>
         </div>
       </div>
@@ -118,7 +118,7 @@
             <strong class="mono">{{ store.connections.length }}</strong>
           </p>
         </div>
-        <span class="live-state">
+        <span v-if="isCoreReady" class="live-state">
           <span class="dot dot-success" />
           {{ t('common.live') }}
         </span>
@@ -163,7 +163,7 @@ import {
   errorText,
   isCoreReady,
   isSysProxyOn,
-  setAllowLan,
+  saveNetworkSettings,
   setOutboundMode,
   setSystemProxyEnabled,
   store,
@@ -177,7 +177,10 @@ import TrafficChart from "./TrafficChart.vue";
 
 const refreshingSub = ref(false);
 const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
-const activeProfile = computed(() => store.status?.activeProfile ?? null);
+const activeProfile = computed(() => {
+  const applied = store.status?.configuration.appliedProfile;
+  return applied ? store.profiles.find((profile) => profile.id === applied.id) ?? applied : null;
+});
 const allowLanOn = computed(() => store.status?.settings.allowLan ?? false);
 const totalNodes = computed(
   () =>
@@ -217,7 +220,7 @@ async function toggleSystemProxy(target: boolean): Promise<void> {
 
 async function toggleAllowLan(next: boolean): Promise<void> {
   try {
-    const verified = await setAllowLan(next);
+    const verified = await saveNetworkSettings({ allowLan: next });
     if (verified) toast.success(t("toast.settingSaved"));
     else toast.info(t("toast.settingSavedUnverified"));
   } catch (error) {

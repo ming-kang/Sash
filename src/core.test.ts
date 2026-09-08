@@ -17,12 +17,6 @@ import {
   verifyCoreExecutable,
   writeInstallRecord,
 } from "./core.js";
-import {
-  beginCoreInstallTransaction,
-  clearCoreInstallTransaction,
-  markCoreInstallTransactionCommitted,
-  recoverCoreInstallTransaction,
-} from "./core-install-transaction.js";
 import { type ReleaseAsset, selectReleaseAsset } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
@@ -213,6 +207,37 @@ describe("core", () => {
         /Unsupported archive type: archive\.tar/,
       );
     });
+
+    it("rejects traversal paths before extracting any executable", async () => {
+      const zip = new AdmZip();
+      zip.addFile("safe/mihomo.exe", Buffer.from("core"));
+      const bytes = zip.toBuffer();
+      const name = Buffer.from("safe/mihomo.exe");
+      // Patch both ZIP directory entries without a library sanitizing the malicious path.
+      for (let at = bytes.indexOf(name); at >= 0; at = bytes.indexOf(name, at + name.length)) {
+        Buffer.from(".././mihomo.exe").copy(bytes, at);
+      }
+      const archive = path.join(tmpDir, "traversal.zip");
+      const target = path.join(tmpDir, "core.exe");
+      fs.writeFileSync(archive, bytes);
+      await assert.rejects(extractCoreArchive(archive, "core.zip", target), /unsafe path/);
+      assert.equal(fs.existsSync(target), false);
+      assert.equal(fs.existsSync(`${target}.extracted`), false);
+    });
+
+    it("rejects oversized ZIP output before allocating the declared contents", async () => {
+      const zip = new AdmZip();
+      zip.addFile("mihomo.exe", Buffer.from("core"));
+      const bytes = zip.toBuffer();
+      const directory = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+      assert.ok(directory >= 0);
+      bytes.writeUInt32LE(513 * 1024 * 1024, directory + 24);
+      const archive = path.join(tmpDir, "oversized.zip");
+      const target = path.join(tmpDir, "core.exe");
+      fs.writeFileSync(archive, bytes);
+      await assert.rejects(extractCoreArchive(archive, "core.zip", target), /512MB safety limit/);
+      assert.equal(fs.existsSync(target), false);
+    });
   });
 
   describe("release tag validation", () => {
@@ -285,13 +310,13 @@ describe("core", () => {
       fs.writeFileSync(layout.coreExe, "ambiguous-binary");
 
       assert.equal(coreInstalled(layout), false);
-      assert.throws(() => assertCoreInstallationConsistent(layout), /sash update --force/);
+      assert.throws(() => assertCoreInstallationConsistent(layout), /clean data directory/);
 
       fs.mkdirSync(layout.stateDir, { recursive: true });
       fs.writeFileSync(layout.installFile, "{ malformed");
       assert.throws(
         () => assertCoreInstallationConsistent(layout),
-        /without valid install metadata.*sash update --force/,
+        /without valid install metadata.*clean data directory/,
       );
     });
 
@@ -303,96 +328,8 @@ describe("core", () => {
       assert.equal(coreInstalled(layout), false);
       assert.throws(
         () => assertCoreInstallationConsistent(layout),
-        /executable is missing.*sash update --force/,
+        /executable is missing.*clean data directory/,
       );
-    });
-
-    it("recovers an interrupted unlock probe before checking installation consistency", () => {
-      writeInstallRecord(
-        { coreVersion: "v1.19.30", installedAt: "2025-01-01T00:00:00.000Z" },
-        layout,
-      );
-      fs.mkdirSync(layout.binDir, { recursive: true });
-      const probe = path.join(
-        path.dirname(layout.coreExe),
-        `.${path.basename(layout.coreExe)}.unlock-probe`,
-      );
-      fs.writeFileSync(probe, "binary");
-
-      assert.doesNotThrow(() => assertCoreInstallationConsistent(layout));
-      assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "binary");
-      assert.equal(fs.existsSync(probe), false);
-    });
-  });
-
-  describe("first-install transaction recovery", () => {
-    it("rolls back binary and metadata published before the committed marker", () => {
-      const transaction = beginCoreInstallTransaction(
-        "v1.19.30",
-        layout,
-        "2025-01-01T00:00:00.000Z",
-      );
-      fs.mkdirSync(layout.binDir, { recursive: true });
-      fs.writeFileSync(layout.coreExe, "published-core");
-      writeInstallRecord(
-        { coreVersion: transaction.targetVersion, installedAt: transaction.createdAt },
-        layout,
-      );
-
-      recoverCoreInstallTransaction(layout);
-
-      assert.equal(fs.existsSync(layout.coreExe), false);
-      assert.equal(fs.existsSync(layout.installFile), false);
-      assert.equal(fs.existsSync(layout.coreInstallTransactionFile), false);
-    });
-
-    it("keeps a committed install and only clears the transaction marker", () => {
-      const transaction = beginCoreInstallTransaction(
-        "v1.19.30",
-        layout,
-        "2025-01-01T00:00:00.000Z",
-      );
-      fs.mkdirSync(layout.binDir, { recursive: true });
-      fs.writeFileSync(layout.coreExe, "published-core");
-      writeInstallRecord(
-        { coreVersion: transaction.targetVersion, installedAt: transaction.createdAt },
-        layout,
-      );
-      markCoreInstallTransactionCommitted(transaction, layout);
-
-      recoverCoreInstallTransaction(layout);
-
-      assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "published-core");
-      assert.equal(readInstallRecord(layout)?.coreVersion, "v1.19.30");
-      assert.equal(fs.existsSync(layout.coreInstallTransactionFile), false);
-    });
-
-    it("rejects non-canonical or extra transaction fields", () => {
-      fs.mkdirSync(layout.stateDir, { recursive: true });
-      fs.writeFileSync(
-        layout.coreInstallTransactionFile,
-        JSON.stringify({
-          version: 1,
-          phase: "publishing",
-          createdAt: "2025-01-01T00:00:00Z",
-          targetVersion: " v1.19.30 ",
-          binaryExisted: false,
-          installRecordExisted: false,
-          path: layout.coreExe,
-        }),
-      );
-      assert.throws(() => recoverCoreInstallTransaction(layout), /invalid version, phase/);
-      assert.equal(fs.existsSync(layout.coreInstallTransactionFile), true);
-      clearCoreInstallTransaction(layout);
-    });
-
-    it("rejects non-regular and oversized transaction files", () => {
-      fs.mkdirSync(layout.coreInstallTransactionFile, { recursive: true });
-      assert.throws(() => recoverCoreInstallTransaction(layout), /not a regular file/);
-      fs.rmSync(layout.coreInstallTransactionFile, { recursive: true });
-
-      fs.writeFileSync(layout.coreInstallTransactionFile, "x".repeat(16 * 1024 + 1));
-      assert.throws(() => recoverCoreInstallTransaction(layout), /exceeds 16384 bytes/);
     });
   });
 });

@@ -1,7 +1,6 @@
 import type {
   DaemonStatus,
   HealthInfo,
-  ShutdownResult,
   WebBootstrapInfo,
   WebSessionInfo,
 } from "../../contracts.js";
@@ -42,9 +41,10 @@ export async function redeemWebBootstrap(
 
 export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
   const settings = ctx.settings.committed();
+  const ownership = ctx.supervisor.ownedCoreSnapshot();
   const runtimeCore = await ctx.supervisor.status();
   const installedVersion = currentCoreVersion(ctx.layout);
-  const core =
+  let core =
     runtimeCore.version || !installedVersion
       ? runtimeCore
       : { ...runtimeCore, version: installedVersion };
@@ -58,20 +58,32 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
     proxyApplied = inspection.applied;
     proxyAppliedKnown = inspection.appliedKnown;
     proxyStateKnown = inspection.stateKnown;
-    if (proxyStateKnown) actualProxy = inspection.state;
+    actualProxy = inspection.state;
     proxyQueryError = inspection.queryError;
   } catch (err) {
     proxyQueryError = err instanceof Error ? err.message : String(err);
   }
   const active = ctx.profiles.active();
+  if (core.running && (!ownership || !ctx.supervisor.ownsCore(ownership)))
+    core = { running: false };
+  const applied = ctx.lifecycle.configuration();
   const status: DaemonStatus = {
     daemon: {
       pid: process.pid,
+      bootId: ctx.token,
       startedAt: ctx.startedAt,
       port: settings.daemonPort,
     },
     revisions: {
       profiles: ctx.profileRevision(),
+      runtime: ctx.lifecycle.revision,
+    },
+    configuration: {
+      pending: ctx.pendingApply(),
+      appliedProfile: applied?.profile ?? null,
+      appliedSettings: applied
+        ? { mixedPort: applied.settings.mixedPort, allowLan: applied.settings.allowLan }
+        : null,
     },
     core,
     systemProxy: {
@@ -89,9 +101,8 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
 }
 
 export function shutdownDaemon(ctx: DaemonContext): Promise<RouteResponse> {
-  return ctx.shutdown().then((snapshot: ShutdownResult) => ({
-    status: 200,
-    json: { coreWasRunning: snapshot.coreWasRunning } satisfies ShutdownResult,
+  return ctx.shutdown().then(() => ({
+    status: 204,
     // The listener closes only after this response has finished streaming:
     // server.close() waits for the in-flight shutdown request itself.
     after: () => {

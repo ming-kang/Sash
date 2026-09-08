@@ -26,7 +26,6 @@ export function testAutostartContext(
     layout: sashLayout(path.join(root, "data with 空间")),
     packageRoot: path.join(root, "package"),
     nodePath: process.execPath,
-    uid: 501,
     env: {
       SystemRoot: path.join(root, "Windows"),
       LOCALAPPDATA: path.join(root, "local"),

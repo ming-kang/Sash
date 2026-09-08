@@ -6,7 +6,6 @@ import { withCliErrors } from "./cli-errors.js";
 import { runStatus } from "./commands/status.js";
 import type { DaemonStatus } from "./contracts.js";
 import { sashLayout } from "./paths.js";
-import { DEFAULT_SETTINGS } from "./settings.js";
 import {
   collectRuntimeStatus,
   markIncompleteObservation,
@@ -15,16 +14,11 @@ import {
   type StatusObservationContext,
   type StatusObservationDependencies,
 } from "./status.js";
+import { testSettings, testStatus } from "./test-state.test.js";
 
 const context: StatusObservationContext = {
   layout: sashLayout(path.join(os.tmpdir(), "sash-status-observation-test")),
-  settings: {
-    ...DEFAULT_SETTINGS,
-    secret: "core-secret",
-    daemonSecret: "daemon-secret",
-    systemProxy: true,
-    tun: false,
-  },
+  settings: testSettings({ systemProxy: true }),
 };
 
 function statusResponse(
@@ -32,8 +26,14 @@ function statusResponse(
   options: { proxyActual?: boolean } = { proxyActual: true },
 ): DaemonStatus {
   return {
-    daemon: { pid: 101, startedAt: "2026-01-01T00:00:00.000Z", port: 19090 },
-    revisions: { profiles: 1 },
+    ...testStatus(),
+    daemon: { pid: 101, bootId: "test-boot", startedAt: "2026-01-01T00:00:00.000Z", port: 19090 },
+    revisions: { profiles: 1, runtime: 1 },
+    configuration: {
+      pending: false,
+      appliedProfile: null,
+      appliedSettings: { mixedPort: 17890, allowLan: false },
+    },
     core,
     systemProxy: {
       desired: true,
@@ -53,7 +53,6 @@ function statusResponse(
     settings: {
       mixedPort: 17890,
       controller: "127.0.0.1:9090",
-      tun: false,
       allowLan: false,
       daemonPort: 19090,
       systemProxy: true,
@@ -80,7 +79,6 @@ function dependencies(
         pid: 202,
         startedAt: "2026-01-01T00:00:01.000Z",
         version: "v1.2.3",
-        tunActive: false,
       }),
     inspectSystemProxy: async () => ({
       applied: true,
@@ -186,7 +184,7 @@ describe("CLI runtime status observations", () => {
     process.exitCode = previousExitCode;
   });
 
-  it("reports a complete healthy runtime without losing explicit TUN inactivity", async () => {
+  it("reports a complete healthy runtime with observed endpoints", async () => {
     const status = await collectRuntimeStatus(context, dependencies());
 
     assert.deepEqual(Object.keys(status).sort(), [
@@ -201,7 +199,6 @@ describe("CLI runtime status observations", () => {
       "queryError",
       "schemaVersion",
       "systemProxy",
-      "tun",
       "uiInstalled",
     ]);
     assert.deepEqual(Object.keys(status.systemProxy).sort(), [
@@ -209,7 +206,7 @@ describe("CLI runtime status observations", () => {
       "desired",
       "osObserved",
     ]);
-    assert.equal(status.schemaVersion, 1);
+    assert.equal(status.schemaVersion, 2);
     assert.equal(status.complete, true);
     assert.equal(status.healthy, true);
     assert.equal(status.queryError, null);
@@ -220,7 +217,6 @@ describe("CLI runtime status observations", () => {
       version: "v1.2.3",
       installedVersion: "v1.2.3",
     });
-    assert.deepEqual(status.tun, { desired: false, active: false });
     assert.equal(runtimeStatusHeadline(status).level, "ok");
 
     await captureConsole(() => runStatus({ json: true }, async () => status));
@@ -296,7 +292,6 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.daemon.state, "stopped");
     assert.equal(status.core.running, false);
     assert.equal(status.core.healthy, false);
-    assert.equal(status.tun.active, false);
     assert.equal(runtimeStatusHeadline(status).level, "info");
   });
 
@@ -393,12 +388,11 @@ describe("CLI runtime status observations", () => {
     );
     const parsed = JSON.parse(jsonOutput.logs.join("\n")) as Record<string, unknown>;
 
-    assert.equal(parsed.schemaVersion, 1);
+    assert.equal(parsed.schemaVersion, 2);
     assert.equal(parsed.complete, false);
     assert.equal(parsed.healthy, null);
     assert.equal((parsed.core as { running: unknown }).running, null);
     assert.equal((parsed.systemProxy as { daemonApplied: unknown }).daemonApplied, null);
-    assert.equal((parsed.tun as { active: unknown }).active, null);
     assert.equal(process.exitCode, 2);
 
     process.exitCode = undefined;

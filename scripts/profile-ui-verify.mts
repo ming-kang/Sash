@@ -12,7 +12,7 @@ import YAML from "yaml";
 import { parseWebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
 import { loadProfiles } from "../src/profiles.js";
-import type { CoreSupervisor } from "../src/supervisor.js";
+import { FakeCoreSupervisor } from "../src/test-state.test.js";
 import type { ProxyItem } from "../web/src/types/index.js";
 
 const output = await mkdtemp(join(tmpdir(), "sash-profile-ui-"));
@@ -23,7 +23,7 @@ h.setup();
 h.settings.mixedPort = 27893;
 h.settings.daemonPort = 29194;
 const sockets = new Set<Duplex>();
-let reloads = 0;
+const supervisor = new FakeCoreSupervisor(h.layout, h.settings);
 const names = [
   "【亚洲】香港 01 · 高速专线 · 原生 IP · 支持流媒体与 AI 服务",
   "【北美洲】美国洛杉矶 03 · Hysteria2 · 倍率 1.0 · 长名称验证",
@@ -64,13 +64,8 @@ proxies.GLOBAL = {
 
 h.mockCoreServer = http.createServer((req, res) => {
   const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-  if (req.method === "PUT" && pathname === "/configs") {
-    reloads += 1;
-    res.writeHead(204).end();
-    return;
-  }
   const bodies: Record<string, unknown> = {
-    "/configs": { "mixed-port": 27893, "allow-lan": false, mode: "rule", tun: { enable: false } },
+    "/configs": { "mixed-port": 27893, "allow-lan": false, mode: "rule" },
     "/proxies": { proxies },
     "/rules": { rules: [] },
     "/connections": { connections: [], uploadTotal: 0, downloadTotal: 0 },
@@ -98,22 +93,7 @@ const address = h.mockCoreServer.address();
 assert.ok(address && typeof address === "object");
 h.settings.controller = `127.0.0.1:${address.port}`;
 await h.startServer({
-  supervisor: {
-    isRunning: () => true,
-    ownedCoreSnapshot: () => undefined,
-    ownsCore: () => false,
-    status: async () => ({
-      running: true,
-      healthy: true,
-      pid: 12346,
-      startedAt: "2026-01-01T00:00:00.000Z",
-      tunActive: false,
-    }),
-    start: async () => ({ pid: 12346 }),
-    restart: async () => ({ pid: 12346 }),
-    stop: async () => {},
-    cleanStaleCore: async () => {},
-  } as unknown as CoreSupervisor,
+  supervisor,
   fetchProfile: async () => ({
     doc,
     yamlText: content,
@@ -140,6 +120,7 @@ assert.equal(
   200,
 );
 const initialIds = loadProfiles(h.layout).profiles.map((profile) => profile.id);
+assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
 
 async function authorize(page: Page): Promise<void> {
   page.setDefaultTimeout(10_000);
@@ -152,12 +133,14 @@ async function authorize(page: Page): Promise<void> {
   );
   await page.goto(`${origin}/ui/#boot=${bootstrap.token}`);
   await page.locator(".node-card").first().waitFor();
+  await page.locator(".runtime-banner.unauthorized").waitFor({ state: "hidden" });
 }
 
 async function profilesPage(page: Page): Promise<void> {
   await page.goto(`${origin}/ui/#/profiles`);
   await page.locator(".profile-card").first().waitFor();
   await idle(page);
+  await page.evaluate(() => document.fonts.ready);
 }
 
 async function idle(page: Page): Promise<void> {
@@ -281,15 +264,15 @@ try {
       assert.equal(loadProfiles(h.layout).activeId, initialIds[0]);
       results.push(`${tag}: card actions do not activate`);
 
-      const beforeReloads = reloads;
+      const beforeStarts = supervisor.starts;
       const ordered = [initialIds[3], ...initialIds.slice(0, 3)];
       await drag(page, 3, 0);
       await waitOrder(page, ordered);
       assert.equal(loadProfiles(h.layout).activeId, initialIds[0]);
-      assert.equal(reloads, beforeReloads, "Reordering must not reload Core");
+      assert.equal(supervisor.starts, beforeStarts, "Reordering must not restart Core");
       await page.reload();
       await waitOrder(page, ordered);
-      results.push(`${tag}: drag persists across reload without activation or Core reload`);
+      results.push(`${tag}: drag persists across reload without activation or Core restart`);
 
       await drag(page, 3, 0, true);
       await waitOrder(page, ordered);
@@ -399,6 +382,7 @@ try {
     const page = await context.newPage();
     await authorize(page);
     await profilesPage(page);
+    await waitOrder(page, initialIds);
     await page.evaluate(() => {
       const events: string[] = [];
       Reflect.set(window, "profileDragEvents", events);
@@ -425,6 +409,7 @@ try {
     const session = await context.newCDPSession(page);
     const start = { x: source.x + 35, y: source.y + source.height - 12 };
     const end = { x: target.x + 35, y: target.y + target.height / 4 };
+    assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".profile-card")?.getAttribute("data-id"), start), initialIds[2]);
     await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [start] });
     await page.locator(".profile-chosen").waitFor();
     for (let step = 1; step <= 15; step += 1) {

@@ -17,6 +17,7 @@ export interface ProfileUpdateScheduler {
 export function startProfileUpdateScheduler(
   profiles: ProfileService,
   scheduler: DaemonScheduler = {},
+  isActive: () => boolean,
 ): ProfileUpdateScheduler {
   const intervalMs = scheduler.intervalMs ?? 15 * 60 * 1000;
   const kickoffMs = scheduler.kickoffMs ?? 10_000;
@@ -26,6 +27,7 @@ export function startProfileUpdateScheduler(
   const clearScheduledTimeout = scheduler.clearTimeout ?? clearTimeout;
 
   const autoUpdateProfiles = async (): Promise<void> => {
+    if (!isActive()) return;
     try {
       await profiles.updateDue();
     } catch {

@@ -48,7 +48,7 @@ import UiCard from "./UiCard.vue";
 import UiSwitch from "./UiSwitch.vue";
 
 const owner = computed(() =>
-  sessionReady.value && store.daemonOnline ? (store.status?.daemon.startedAt ?? null) : null,
+  sessionReady.value && store.daemonOnline ? (store.status?.daemon.bootId ?? null) : null,
 );
 const { status, busy, refresh, setEnabled } = useAutostart(owner);
 const switchDisabled = computed(

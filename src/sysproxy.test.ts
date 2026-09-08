@@ -2,21 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { runCmd } from "./sysproxy/common.js";
 import {
-  createLegacyProxyCleanup,
   createSystemProxyBackend,
   DEFAULT_BYPASS_LIST,
-  disableLegacySystemProxyIfOwned,
   formatWindowsBypass,
-  isSystemProxySnapshot,
   isSystemProxySupported,
-  parseDarwinAutoProxySetting,
-  parseDarwinProxySetting,
-  parseDarwinServices,
-  parseGSettingsPort,
-  parseGSettingsString,
-  parseSystemProxySnapshot,
   parseWindowsRegistryProxyValues,
-  SYSTEM_PROXY_SNAPSHOT_VERSION,
 } from "./sysproxy.js";
 
 describe("sysproxy", () => {
@@ -42,9 +32,9 @@ describe("sysproxy", () => {
   });
 
   describe("isSystemProxySupported", () => {
-    it("reports true on win32 and darwin", () => {
+    it("enables desktop integration only on Windows", () => {
       assert.equal(isSystemProxySupported("win32"), true);
-      assert.equal(isSystemProxySupported("darwin"), true);
+      assert.equal(isSystemProxySupported("darwin"), false);
     });
 
     it("reports false on unsupported platforms", () => {
@@ -129,142 +119,7 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
     });
   });
 
-  describe("macOS networksetup helpers", () => {
-    it("parses active network services filtering asterisks", () => {
-      const sample = `
-An asterisk (*) denotes that a network service is disabled.
-Wi-Fi
-*Bluetooth PAN
-Thunderbolt Bridge
-`;
-      const services = parseDarwinServices(sample);
-      assert.deepEqual(services, ["Wi-Fi", "Thunderbolt Bridge"]);
-    });
-
-    it("parses authenticated proxy state for snapshots", () => {
-      const sample = `
-Enabled: Yes
-Server: proxy.example.test
-Port: 8080
-Authenticated Proxy Enabled: 1
-`;
-      assert.deepEqual(parseDarwinProxySetting(sample), {
-        enabled: true,
-        server: "proxy.example.test",
-        port: 8080,
-        authenticated: true,
-      });
-    });
-
-    it("parses automatic proxy URL state for snapshots", () => {
-      assert.deepEqual(
-        parseDarwinAutoProxySetting("URL: https://pac.example.test/proxy.pac\nEnabled: Yes\n"),
-        { enabled: true, url: "https://pac.example.test/proxy.pac" },
-      );
-      assert.deepEqual(parseDarwinAutoProxySetting("URL: (null)\nEnabled: No\n"), {
-        enabled: false,
-        url: "",
-      });
-    });
-
-    it("keeps empty Server and URL values on their own lines", () => {
-      const manual = `Enabled: Yes
-Server:
-Port: 0
-Authenticated Proxy Enabled: 0
-`;
-      assert.deepEqual(parseDarwinProxySetting(manual), {
-        enabled: true,
-        server: "",
-        port: 0,
-        authenticated: false,
-      });
-      assert.deepEqual(parseDarwinAutoProxySetting("URL:\nEnabled: No\n"), {
-        enabled: false,
-        url: "",
-      });
-    });
-  });
-
-  describe("snapshot and gsettings parsers", () => {
-    it("parses escaped GVariant strings and typed uint16 ports", () => {
-      assert.equal(parseGSettingsString("'proxy\\\\name\\'s'\n"), "proxy\\name's");
-      assert.throws(() => parseGSettingsString("manual"), /single-quoted/);
-      assert.equal(parseGSettingsPort("uint16 17890\n", "test port"), 17890);
-      assert.equal(parseGSettingsPort("1080", "test port"), 1080);
-    });
-
-    it("keeps snapshot APIs available through the public entry", () => {
-      const snapshot = {
-        version: SYSTEM_PROXY_SNAPSHOT_VERSION,
-        platform: "linux" as const,
-        mode: "none" as const,
-        autoConfigUrl: "",
-        httpUseAuthentication: false,
-        http: { host: "", port: 0 },
-        https: { host: "", port: 0 },
-        socks: { host: "", port: 0 },
-      };
-      assert.equal(isSystemProxySnapshot(snapshot), true);
-      assert.equal(typeof disableLegacySystemProxyIfOwned, "function");
-      const backend = createSystemProxyBackend("freebsd" as NodeJS.Platform);
-      assert.deepEqual(backend.state(snapshot), {
-        supported: false,
-        enabled: false,
-        details: "unsupported platform: freebsd",
-      });
-    });
-
-    it("rejects unknown snapshot fields", () => {
-      assert.throws(
-        () =>
-          parseSystemProxySnapshot({
-            version: 1,
-            platform: "linux",
-            mode: "none",
-            autoConfigUrl: "",
-            httpUseAuthentication: false,
-            http: { host: "", port: 0 },
-            https: { host: "", port: 0 },
-            socks: { host: "", port: 0 },
-            extra: true,
-          }),
-        /unexpected fields/,
-      );
-    });
-
-    it("builds legacy cleanup only for an exact Sash loopback target", () => {
-      const windows = {
-        version: 1 as const,
-        platform: "win32" as const,
-        proxyEnable: 1,
-        proxyServer: "127.0.0.1:17890",
-        proxyOverride: "<local>",
-        autoConfigUrl: "https://pac.example.test/proxy.pac",
-        autoDetect: 1,
-      };
-      assert.deepEqual(createLegacyProxyCleanup(windows, { port: 17890 }), {
-        ...windows,
-        proxyEnable: 0,
-      });
-      assert.equal(createLegacyProxyCleanup(windows, { port: 17891 }), undefined);
-
-      const linux = {
-        version: 1 as const,
-        platform: "linux" as const,
-        mode: "manual" as const,
-        autoConfigUrl: "",
-        httpUseAuthentication: false,
-        http: { host: "127.0.0.1", port: 17890 },
-        https: { host: "127.0.0.1", port: 17890 },
-        socks: { host: "127.0.0.1", port: 17890 },
-      };
-      assert.deepEqual(createLegacyProxyCleanup(linux, { port: 17890 }), {
-        ...linux,
-        mode: "none",
-      });
-    });
-
+  describe("Windows snapshot ownership", () => {
     it("recognizes only original and target leaf values as compatible", () => {
       const backend = createSystemProxyBackend("win32");
       const original = {

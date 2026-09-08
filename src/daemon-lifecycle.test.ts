@@ -12,8 +12,9 @@ import {
   stopDaemonFromCli,
 } from "./daemon-lifecycle.js";
 import { sashLayout } from "./paths.js";
-import { DEFAULT_SETTINGS, saveSettings } from "./settings.js";
+import { DEFAULT_SETTINGS } from "./settings.js";
 import { acquireStateLockSync, type StateLockRecord } from "./state-lock.js";
+import { createTestState, testSettings } from "./test-state.test.js";
 
 describe("daemon ownership evaluation", () => {
   let root: string;
@@ -110,7 +111,7 @@ describe("daemon ownership evaluation", () => {
     });
   });
 
-  it("fails closed for a live legacy PID that cannot prove daemon health", async () => {
+  it("fails closed for a live PID without its singleton lease", async () => {
     const layout = sashLayout(root);
     fs.mkdirSync(layout.stateDir, { recursive: true });
     fs.writeFileSync(
@@ -127,18 +128,17 @@ describe("daemon ownership evaluation", () => {
 
     assert.equal(state.running, true);
     assert.equal(state.healthy, false);
-    assert.equal(state.legacyOwnership, true);
     assert.equal(state.pid, process.pid);
   });
 
-  it("recognizes a healthy pre-lease daemon only through matching PID and boot token", async () => {
+  it("requires a matching singleton lease, PID and boot token", async () => {
     const layout = sashLayout(root);
     server = http.createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
           ok: true,
-          token: "legacy-token",
+          token: "boot-token",
           pid: process.pid,
           startedAt: "2026-01-01T00:00:00.000Z",
         }),
@@ -151,21 +151,18 @@ describe("daemon ownership evaluation", () => {
       layout.daemonPidFile,
       `${JSON.stringify({
         pid: process.pid,
-        token: "legacy-token",
+        token: "boot-token",
         port,
         startedAt: "2026-01-01T00:00:00.000Z",
       })}\n`,
     );
 
-    const state = await evaluateDaemon(layout, {
-      ...DEFAULT_SETTINGS,
-      daemonPort: port,
-      daemonSecret: "test-secret",
-    });
+    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test sashd" });
+    const state = await evaluateDaemon(layout, testSettings({ daemonPort: port }));
+    lease.release();
 
     assert.equal(state.running, true);
     assert.equal(state.healthy, true);
-    assert.equal(state.legacyOwnership, true);
     assert.equal(state.pid, process.pid);
   });
 
@@ -205,7 +202,6 @@ describe("daemon ownership evaluation", () => {
 
     assert.equal(state.running, true);
     assert.equal(state.healthy, false);
-    assert.equal(state.stalePidFile, true);
     assert.equal(state.pid, process.pid);
   });
 
@@ -259,12 +255,12 @@ describe("daemon ownership evaluation", () => {
     const port = (probe.address() as AddressInfo).port;
     await new Promise<void>((resolve) => probe.close(() => resolve()));
     const settings = {
-      ...DEFAULT_SETTINGS,
+      ...testSettings(),
       daemonPort: port,
       secret: "test-core-secret",
       daemonSecret: "test-daemon-secret",
     };
-    saveSettings(settings, layout);
+    createTestState(layout, settings);
 
     let pid: number | undefined;
     try {

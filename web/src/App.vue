@@ -11,12 +11,21 @@
             :class="bannerNotice"
             role="status"
             aria-live="polite"
-            :title="store.coreSnapshotError ?? undefined"
+            :title="coreSnapshotError ?? undefined"
           >
             <Icon name="alert" :size="13" />
             <span>{{ t(`status.${bannerNotice}`) }}</span>
           </div>
         </Transition>
+
+        <div
+          v-if="sessionReady && store.status?.configuration.pending"
+          class="pending-config"
+          role="status"
+        >
+          <span>{{ t('settings.pendingApply') }}</span>
+          <CoreControls apply-only />
+        </div>
 
         <div
           class="page-container"
@@ -39,10 +48,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { api, sessionReady } from "./api/index.js";
 import AppSidebar from "./components/AppSidebar.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import CoreControls from "./components/CoreControls.vue";
 import Icon from "./components/Icon.vue";
 import ToastHost from "./components/ToastHost.vue";
 import { t } from "./i18n/index.js";
@@ -50,6 +60,7 @@ import { currentRoute } from "./router.js";
 import {
   addLog,
   addTraffic,
+  coreSnapshotError,
   isCoreReady,
   resetTraffic,
   runtimeNotice,
@@ -74,6 +85,8 @@ const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue
 let stopPolling: (() => void) | null = null;
 let unsubTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
+const visible = ref(!document.hidden);
+const updateVisibility = () => { visible.value = !document.hidden; };
 
 /** Marks scrolled elements with .is-scrolling so overlay scrollbars fade in while
  *  scrolling and hide again after a short idle delay. */
@@ -104,7 +117,7 @@ function stopStreams(): void {
 
 watch(
   () =>
-    store.daemonOnline && isCoreReady.value && sessionReady.value
+    visible.value && store.daemonOnline && isCoreReady.value && sessionReady.value
       ? store.runtimeGeneration
       : null,
   (generation) => {
@@ -123,7 +136,7 @@ watch(
 // on every other route so bursts never hit the reactive store off-screen.
 watch(
   () =>
-    store.daemonOnline &&
+    visible.value && store.daemonOnline &&
     isCoreReady.value &&
     sessionReady.value &&
     currentRoute.value === "logs"
@@ -138,11 +151,13 @@ watch(
 );
 
 onMounted(() => {
+  document.addEventListener("visibilitychange", updateVisibility);
   stopPolling = startRuntimePolling();
   window.addEventListener("scroll", handleScrollCapture, { capture: true, passive: true });
 });
 
 onUnmounted(() => {
+  document.removeEventListener("visibilitychange", updateVisibility);
   stopPolling?.();
   stopStreams();
   window.removeEventListener("scroll", handleScrollCapture, { capture: true });
@@ -150,6 +165,19 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.pending-config {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 18px;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-bottom: 1px solid var(--warning-border);
+  font-size: 14px;
+}
 .app-frame {
   width: 100%;
   height: 100vh;

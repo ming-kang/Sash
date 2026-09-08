@@ -51,7 +51,7 @@ All fields are case-sensitive and a connection cannot be edited after creation; 
    node scripts/package-smoke.mjs "@astralyn/sash@x.y.z"
    ```
 
-   The npm package page should show provenance from `.github/workflows/publish.yml` at `RELEASE_SHA`. For a full runtime check, install the package in an isolated environment, then run `sash --help` and a `SASH_HOME`-isolated `sash start` / `status` / `stop` cycle (set `GITHUB_TOKEN` if the core download hits GitHub API rate limits).
+   The npm package page should show provenance from `.github/workflows/publish.yml` at `RELEASE_SHA`. For a full runtime check, install the package in an isolated environment, then run `sash --help` and a `SASH_HOME`-isolated `sash start` / `status` / `stop` cycle on non-default ports. Core downloads use public release metadata; credentials from the login shell are deliberately scrubbed from the daemon environment.
 7. Tag that exact commit, not a potentially newer `main`, then create the matching GitHub Release manually:
 
    ```bash

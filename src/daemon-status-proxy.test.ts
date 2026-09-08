@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { describe, it } from "node:test";
+import { loadSettings } from "./app-state.js";
 import { writeInstallRecord } from "./core.js";
 import type { CoreState, CoreSupervisor, DaemonScheduler } from "./daemon.js";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
@@ -11,11 +11,11 @@ describe("daemon server", () => {
 
   describe("GET /sash/status", () => {
     it("returns daemon, core, system proxy, and canonical installed version", async () => {
+      await h.startServer();
       writeInstallRecord(
         { coreVersion: "v1.2.3", installedAt: "2026-01-01T00:00:00.000Z" },
         h.layout,
       );
-      await h.startServer();
       const res = await h.apiRequest("/sash/daemon/status");
       assert.equal(res.statusCode, 200);
       const data = res.data as {
@@ -65,33 +65,6 @@ describe("daemon server", () => {
       releaseInspect?.();
       assert.equal((await status).statusCode, 200);
       assert.equal(inspectFresh, true);
-    });
-
-    it("reports actual TUN state independently from the desired setting", async () => {
-      let running = true;
-      const supervisor = {
-        isRunning: () => running,
-        status: async (): Promise<CoreState> => ({
-          running,
-          healthy: running,
-          pid: 4321,
-          tunActive: true,
-        }),
-        stop: async () => {
-          running = false;
-        },
-        cleanStaleCore: async () => {},
-      } as unknown as CoreSupervisor;
-      await h.startServer({ supervisor });
-
-      const res = await h.apiRequest("/sash/daemon/status");
-      assert.equal(res.statusCode, 200);
-      const data = res.data as {
-        core: { tunActive?: boolean };
-        settings: { tun: boolean };
-      };
-      assert.equal(data.settings.tun, false);
-      assert.equal(data.core.tunActive, true);
     });
   });
 
@@ -220,11 +193,7 @@ describe("daemon server", () => {
       });
       assert.equal(response.statusCode, 500);
       assert.equal(fetches, 0);
-      assert.equal(
-        (JSON.parse(fs.readFileSync(h.layout.settingsFile, "utf8")) as { systemProxy: boolean })
-          .systemProxy,
-        false,
-      );
+      assert.equal(loadSettings(h.layout).systemProxy, false);
     });
 
     it("returns shutdown cleanup failures without stopping the listener or scheduler", async () => {
@@ -264,13 +233,13 @@ describe("daemon server", () => {
 
       const closed = new Promise<void>((resolve) => inst.server.once("close", resolve));
       const successful = await h.apiRequest("/sash/daemon/shutdown", { method: "POST" });
-      assert.equal(successful.statusCode, 200);
+      assert.equal(successful.statusCode, 204);
       await closed;
       assert.equal(inst.server.listening, false);
       assert.equal(clears, 2);
     });
 
-    it("atomically snapshots maintenance state and rejects later mutations", async () => {
+    it("closes mutation admission before stopping Core", async () => {
       let running = true;
       let starts = 0;
       let stopEnteredResolve: (() => void) | undefined;
@@ -309,8 +278,7 @@ describe("daemon server", () => {
       const closed = new Promise<void>((resolve) => inst.server.once("close", resolve));
       releaseStop?.();
       const result = await maintenance;
-      assert.equal(result.statusCode, 200);
-      assert.deepEqual(result.data, { coreWasRunning: true });
+      assert.equal(result.statusCode, 204);
       await closed;
     });
 

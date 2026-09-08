@@ -1,22 +1,16 @@
 import { watch } from "vue";
-import type { SettingsWriteResult } from "../../../src/contracts.js";
+import type { SettingsPatch } from "../../../src/contracts.js";
 import { api } from "../api/index.js";
 import { currentRoute } from "../router.js";
-import type { SashStatus } from "../types/index.js";
-import { refreshConnections, refreshCoreSnapshot, refreshProxies } from "./core-actions.js";
+import { refreshVisibleCoreResources } from "./core-actions.js";
 import {
   adoptDaemonStatus,
   requests,
-  runtimeOwnership,
   setProfiles,
   store,
   transitionRuntimeOwner,
 } from "./state.js";
-import {
-  canSetSystemProxyTarget,
-  isCoreHealthy,
-  syncCommittedAllowLan,
-} from "./state-ownership.js";
+import { canSetSystemProxyTarget, isCoreHealthy } from "./state-ownership.js";
 
 export function markDaemonOffline(): void {
   requests.invalidate("runtime");
@@ -24,240 +18,167 @@ export function markDaemonOffline(): void {
   transitionRuntimeOwner(null);
   store.daemonOnline = false;
   store.status = null;
+  api.markDisconnected();
 }
 
-async function refreshProfilesForStatus(
-  status: SashStatus,
-  runtimeRequest: number,
-): Promise<boolean> {
-  if (store.lastProfileRevision === status.revisions.profiles) return true;
-  const profileRequest = requests.begin("profiles");
-  try {
-    const profiles = await api.getProfiles();
-    if (
-      !requests.isCurrent("runtime", runtimeRequest) ||
-      !requests.isCurrent("profiles", profileRequest) ||
-      store.status?.daemon.startedAt !== status.daemon.startedAt
-    ) {
-      return false;
-    }
-    setProfiles(profiles);
-    store.lastProfileRevision = status.revisions.profiles;
-    return true;
-  } catch {
-    return false;
-  }
-}
+type RuntimeRefreshResult = "status" | "stopped" | "degraded" | "superseded" | "unauthorized";
 
-type RuntimeRefreshResult =
-  | "full"
-  | "status"
-  | "stopped"
-  | "degraded"
-  | "superseded"
-  | "unauthorized";
-
-async function refreshRuntime(
-  forceSnapshot: boolean,
-  runtimeRequest = requests.begin("runtime"),
-  isActive: () => boolean = () => true,
+/** Metadata changes refresh metadata only. Core resources follow their own runtime epoch. */
+export async function refreshStatus(
+  request = requests.begin("runtime"),
 ): Promise<RuntimeRefreshResult> {
-  const isCurrent = () => isActive() && requests.isCurrent("runtime", runtimeRequest);
-  let status: SashStatus;
-  try {
-    status = await api.getStatus();
-  } catch (error) {
-    if (!isCurrent()) return "superseded";
-    throw error;
-  }
-  if (!isCurrent()) return "superseded";
+  const status = await api.getStatus();
+  if (!requests.isCurrent("runtime", request)) return "superseded";
   adoptDaemonStatus(status);
-
-  if (!api.hasSession()) {
+  if (!api.sessionMatches(status.daemon.bootId)) {
     transitionRuntimeOwner(null);
     return "unauthorized";
   }
-
-  const profiles = refreshProfilesForStatus(status, runtimeRequest);
-  if (!isCoreHealthy(status)) {
-    await profiles;
-    return !isCurrent() ? "superseded" : status.core.running ? "degraded" : "stopped";
+  transitionRuntimeOwner(status);
+  if (store.lastProfileRevision !== status.revisions.profiles) {
+    const profileRequest = requests.begin("profiles");
+    try {
+      const profiles = await api.getProfiles();
+      if (
+        requests.isCurrent("runtime", request) &&
+        requests.isCurrent("profiles", profileRequest) &&
+        store.status?.daemon.bootId === status.daemon.bootId
+      ) {
+        setProfiles(profiles);
+        store.lastProfileRevision = status.revisions.profiles;
+      }
+    } catch {
+      /* Keep the prior list and retry its revision on the next poll. */
+    }
   }
-
-  const needsSnapshot =
-    forceSnapshot ||
-    !store.coreSnapshotAvailable ||
-    store.coreSnapshotError !== null ||
-    runtimeOwnership.snapshotProfileRevision !== status.revisions.profiles;
-  if (!needsSnapshot) {
-    await profiles;
-    return isCurrent() ? "status" : "superseded";
-  }
-
-  const [, refreshed] = await Promise.all([profiles, refreshCoreSnapshot(status, runtimeRequest)]);
-  return !isCurrent() ? "superseded" : refreshed ? "full" : "degraded";
+  if (!requests.isCurrent("runtime", request)) return "superseded";
+  return isCoreHealthy(status) ? "status" : status.core.running ? "degraded" : "stopped";
 }
 
 export async function refreshRuntimeState(): Promise<void> {
-  await refreshRuntime(true);
+  if ((await refreshStatus()) === "status") await refreshVisibleCoreResources(0, true);
 }
 
-export function refreshStatus(): Promise<RuntimeRefreshResult> {
-  return refreshRuntime(false);
-}
-
-/** Self-scheduling polling prevents overlapping cycles and only probes Core after a healthy status. */
+/** One non-overlapping poll; session initialization is needed only on entry or reconnect. */
 export function startRuntimePolling(intervalMs = 2000): () => void {
-  const backgroundIntervalMs = Math.max(intervalMs, 15_000);
+  const backgroundInterval = Math.max(intervalMs, 15_000);
   let stopped = false;
   let running = false;
   let refreshWhenIdle = false;
   let timer: number | null = null;
   let cycle = 0;
   let activeRequest = 0;
-
   const clearTimer = (): void => {
-    if (timer === null) return;
-    window.clearTimeout(timer);
+    if (timer !== null) window.clearTimeout(timer);
     timer = null;
   };
-
-  const schedule = (delayMs: number): void => {
+  const schedule = (delay: number): void => {
     clearTimer();
     timer = window.setTimeout(() => {
       timer = null;
       void tick();
-    }, delayMs);
+    }, delay);
   };
-
   const tick = async (): Promise<void> => {
     if (stopped || running) return;
     running = true;
-    const runtimeRequest = requests.begin("runtime");
-    activeRequest = runtimeRequest;
-    const isCurrent = () => !stopped && requests.isCurrent("runtime", runtimeRequest);
+    const request = requests.begin("runtime");
+    activeRequest = request;
+    const current = () => !stopped && requests.isCurrent("runtime", request);
     try {
-      await api.initialize(isCurrent);
-      if (!isCurrent()) return;
-      const result = await refreshRuntime(false, runtimeRequest, () => !stopped);
-      if (!isCurrent()) return;
+      if (!api.isInitialized()) await api.initialize(current);
+      if (!current()) return;
+      const result = await refreshStatus(request);
+      if (!current()) return;
       cycle += 1;
-      if (result === "status" && isCoreHealthy(store.status)) {
-        // Connection dumps are large; only views that show them need fresh data.
-        if (currentRoute.value === "connections" || currentRoute.value === "overview") {
-          await refreshConnections().catch(() => undefined);
-        }
-        if (cycle % 3 === 0) await refreshProxies().catch(() => undefined);
-      }
+      if (result === "status" && !document.hidden) await refreshVisibleCoreResources(cycle);
     } catch {
-      if (isCurrent()) {
-        // Session initialization and credential rejections own authorization;
-        // a failed status refresh alone does not revoke the private credential.
-        markDaemonOffline();
-      }
+      if (current()) markDaemonOffline();
     } finally {
       running = false;
       if (!stopped) {
         if (refreshWhenIdle && !document.hidden) {
           refreshWhenIdle = false;
           schedule(0);
-        } else {
-          schedule(document.hidden ? backgroundIntervalMs : intervalMs);
-        }
+        } else schedule(document.hidden || !api.hasSession() ? backgroundInterval : intervalMs);
       }
     }
   };
-
-  const onVisibilityChange = (): void => {
-    if (stopped) return;
+  const onVisibility = (): void => {
     clearTimer();
     if (document.hidden) {
       refreshWhenIdle = false;
-      if (!running) schedule(backgroundIntervalMs);
-    } else if (running) {
-      refreshWhenIdle = true;
-    } else {
-      void tick();
-    }
+      if (!running) schedule(backgroundInterval);
+    } else if (running) refreshWhenIdle = true;
+    else void tick();
   };
-
-  document.addEventListener("visibilitychange", onVisibilityChange);
-  // Navigating to a connection-aware view fetches immediately instead of
-  // waiting out the polling interval on possibly stale rows.
-  const stopRouteWatch = watch(currentRoute, (route) => {
-    if (stopped) return;
-    if (
-      api.hasSession() &&
-      (route === "connections" || route === "overview") &&
-      isCoreHealthy(store.status)
-    ) {
-      void refreshConnections().catch(() => undefined);
-    }
+  document.addEventListener("visibilitychange", onVisibility);
+  const onHashChange = (): void => {
+    if (api.isInitialized()) return;
+    if (running) refreshWhenIdle = true;
+    else void tick();
+  };
+  window.addEventListener("hashchange", onHashChange);
+  const stopRouteWatch = watch(currentRoute, () => {
+    if (!stopped && !document.hidden && api.hasSession() && isCoreHealthy(store.status))
+      void refreshVisibleCoreResources(0, true);
   });
   void tick();
   return () => {
     stopped = true;
     if (running && requests.isCurrent("runtime", activeRequest)) requests.invalidate("runtime");
-    refreshWhenIdle = false;
     clearTimer();
     stopRouteWatch();
-    document.removeEventListener("visibilitychange", onVisibilityChange);
+    document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("hashchange", onHashChange);
   };
 }
 
 export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {
   if (store.operations.systemProxy) return false;
-  if (!canSetSystemProxyTarget(store.status, target)) {
-    throw new Error(
-      target ? "Cannot enable system proxy: Core is not healthy" : "System proxy is already off",
-    );
-  }
+  if (!canSetSystemProxyTarget(store.status, target))
+    throw new Error(target ? "Core is not healthy" : "System proxy is already off");
   store.operations = { ...store.operations, systemProxy: true };
+  const bootId = store.status?.daemon.bootId;
   requests.invalidate("runtime");
   try {
-    let result: SettingsWriteResult;
-    try {
-      result = target ? await api.enableSystemProxy() : await api.disableSystemProxy();
-    } catch (error) {
-      await refreshStatus().catch(() => undefined);
-      throw error;
-    }
-    if (store.status) {
+    const result = await (target ? api.enableSystemProxy() : api.disableSystemProxy());
+    if (store.status?.daemon.bootId === bootId && store.status)
       store.status = {
         ...store.status,
         settings: result.settings,
-        systemProxy: {
-          ...store.status.systemProxy,
-          desired: result.settings.systemProxy,
-        },
+        systemProxy: { ...store.status.systemProxy, desired: result.settings.systemProxy },
       };
-    }
     return await refreshStatus().then(
-      (result) => result !== "superseded" && result !== "degraded" && result !== "unauthorized",
+      (value) => value !== "superseded" && value !== "unauthorized",
       () => false,
     );
+  } catch (error) {
+    await refreshStatus().catch(() => undefined);
+    throw error;
   } finally {
     store.operations = { ...store.operations, systemProxy: false };
   }
 }
 
-export async function setAllowLan(next: boolean): Promise<boolean> {
+export async function saveNetworkSettings(
+  patch: Pick<SettingsPatch, "mixedPort" | "allowLan">,
+): Promise<boolean> {
   if (store.operations.networkSetting) return false;
   store.operations = { ...store.operations, networkSetting: true };
+  const bootId = store.status?.daemon.bootId;
   requests.invalidate("runtime");
   try {
-    let result: SettingsWriteResult;
-    try {
-      result = await api.patchSettings({ allowLan: next });
-    } catch (error) {
-      await refreshRuntimeState().catch(() => undefined);
-      throw error;
-    }
-    store.status = syncCommittedAllowLan(store.status, next, result.settings);
-    return await refreshRuntime(true).then(
-      (result) => result !== "superseded" && result !== "degraded" && result !== "unauthorized",
+    const result = await api.patchSettings(patch);
+    if (store.status?.daemon.bootId === bootId && store.status)
+      store.status = { ...store.status, settings: result.settings };
+    return await refreshStatus().then(
+      (status) => status !== "superseded" && status !== "unauthorized",
       () => false,
     );
+  } catch (error) {
+    await refreshStatus().catch(() => undefined);
+    throw error;
   } finally {
     store.operations = { ...store.operations, networkSetting: false };
   }

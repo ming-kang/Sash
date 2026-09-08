@@ -3,20 +3,19 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadSettings } from "./app-state.js";
 import type { DaemonPidRecord } from "./daemon.js";
 import { SashDaemonClient } from "./daemon-client.js";
 import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
-import { log } from "./log.js";
 import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-follow.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import {
   buildSanitizedEnv,
-  commandLineContains,
   isProcessAlive,
   killProcessGracefully,
   withPrivateAppendLogFds,
 } from "./process.js";
-import { loadSettings, type SashSettings } from "./settings.js";
+import type { SashSettings } from "./settings.js";
 import { readStateLockRecord, type StateLockRecord, withStateLock } from "./state-lock.js";
 
 export interface DaemonStoppedInfo {
@@ -34,7 +33,6 @@ export interface DaemonHealthyInfo {
   healthy: true;
   pid: number;
   port: number;
-  legacyOwnership?: true;
 }
 
 export interface DaemonUnhealthyInfo {
@@ -45,7 +43,6 @@ export interface DaemonUnhealthyInfo {
   port?: number;
   stalePidFile?: true;
   staleLeaseFile?: true;
-  legacyOwnership?: true;
 }
 
 export type DaemonRunningInfo = DaemonStoppedInfo | DaemonHealthyInfo | DaemonUnhealthyInfo;
@@ -86,10 +83,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Inspect whether sashd is currently running and answers with the matching
- * boot token.
- */
 export async function evaluateDaemon(
   layout: SashLayout = sashLayout(),
   settings?: SashSettings,
@@ -99,44 +92,11 @@ export async function evaluateDaemon(
   try {
     lease = readStateLockRecord(layout.daemonLeaseFile);
   } catch {
-    // A corrupt singleton record is an ownership conflict, not evidence that
-    // it is safe to mutate state or start a second daemon.
-    return {
-      kind: "unhealthy",
-      running: true,
-      healthy: false,
-      ...(record ? { stalePidFile: true } : {}),
-    };
+    return { kind: "unhealthy", running: true, healthy: false };
   }
-
-  if (!lease || !isProcessAlive(lease.pid)) {
-    if (record && isProcessAlive(record.pid)) {
-      const s = settings ?? loadSettings(layout);
-      const legacyClient = new SashDaemonClient(record.port || s.daemonPort, s.daemonSecret);
-      try {
-        const health = await legacyClient.health();
-        if (health.token === record.token && health.pid === record.pid) {
-          return {
-            kind: "healthy",
-            running: true,
-            healthy: true,
-            legacyOwnership: true,
-            pid: record.pid,
-            port: record.port,
-          };
-        }
-      } catch {
-        // Fall through to the fail-closed ownership result below.
-      }
-      return {
-        kind: "unhealthy",
-        running: true,
-        healthy: false,
-        legacyOwnership: true,
-        pid: record.pid,
-        ...(lease ? { staleLeaseFile: true } : {}),
-      };
-    }
+  const liveLease = lease && isProcessAlive(lease.pid);
+  const liveRecord = record && isProcessAlive(record.pid);
+  if (!liveLease && !liveRecord)
     return {
       kind: "stopped",
       running: false,
@@ -145,48 +105,22 @@ export async function evaluateDaemon(
       ...(record ? { stalePidFile: true } : {}),
       ...(lease ? { staleLeaseFile: true } : {}),
     };
+  if (!lease || !record || !liveLease || !liveRecord || lease.pid !== record.pid) {
+    return { kind: "unhealthy", running: true, healthy: false, pid: lease?.pid ?? record?.pid };
   }
-  if (!record || record.pid !== lease.pid || !isProcessAlive(record.pid)) {
-    return {
-      kind: "unhealthy",
-      running: true,
-      healthy: false,
-      pid: lease.pid,
-      ...(record ? { stalePidFile: true } : {}),
-    };
-  }
-
-  const s = settings ?? loadSettings(layout);
-  const client = new SashDaemonClient(record.port || s.daemonPort, s.daemonSecret);
-
   try {
+    const client = new SashDaemonClient(
+      record.port,
+      (settings ?? loadSettings(layout)).daemonSecret,
+    );
     const health = await client.health();
     if (health.token === record.token && health.pid === record.pid) {
-      return {
-        kind: "healthy",
-        running: true,
-        pid: record.pid,
-        healthy: true,
-        port: record.port,
-      };
+      return { kind: "healthy", running: true, healthy: true, pid: record.pid, port: record.port };
     }
-    return {
-      kind: "unhealthy",
-      running: true,
-      healthy: false,
-      stalePidFile: true,
-      pid: record.pid,
-    };
   } catch {
-    // Process is alive but API doesn't answer (may still be booting or stuck)
-    return {
-      kind: "unhealthy",
-      running: true,
-      pid: record.pid,
-      healthy: false,
-      port: record.port,
-    };
+    /* A live but unverified process must not be treated as stopped. */
   }
+  return { kind: "unhealthy", running: true, healthy: false, pid: record.pid, port: record.port };
 }
 
 function resolveDaemonEntryPath(): string {
@@ -341,195 +275,17 @@ export async function ensureDaemon(
   await spawnDaemon({ layout, settings });
 }
 
-export interface MaintenanceDaemonClient {
-  maintenanceShutdown(): Promise<{ ok: true; coreWasRunning: boolean }>;
-  status?(): Promise<{ core: { running: boolean } }>;
-  shutdown?(): Promise<void>;
-}
-
-export interface DaemonMaintenanceSnapshot {
-  daemonWasRunning: boolean;
-  legacyDaemon: boolean;
-  coreWasRunning: boolean;
-}
-
-export interface DaemonMaintenanceDeps {
-  evaluateDaemon?: (layout: SashLayout, settings: SashSettings) => Promise<DaemonRunningInfo>;
-  clientFactory?: (port: number, secret: string) => MaintenanceDaemonClient;
-  waitForDaemonExit?: (pid: number, timeoutMs: number) => Promise<void>;
-}
-
-async function waitForDaemonExit(pid: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline && isProcessAlive(pid)) await sleep(100);
-  if (isProcessAlive(pid)) {
-    throw new Error(`sashd PID ${pid} did not exit after maintenance shutdown`);
-  }
-}
-
-/**
- * Stop sashd and obtain the Core-running state from its serialized shutdown
- * boundary. The daemon closes its mutation gate before answering, so the
- * caller takes runtime ownership without racing in-flight mutations.
- */
-export async function prepareDaemonMaintenance(
-  layout: SashLayout,
-  settings: SashSettings,
-  purpose: string,
-  deps: DaemonMaintenanceDeps = {},
-): Promise<DaemonMaintenanceSnapshot> {
-  const daemonState = await (deps.evaluateDaemon ?? evaluateDaemon)(layout, settings);
-  if (daemonState.kind === "unhealthy") {
-    throw new Error(`sashd is running but unresponsive; refusing a competing ${purpose}`);
-  }
-  if (daemonState.kind === "stopped") {
-    return { daemonWasRunning: false, legacyDaemon: false, coreWasRunning: false };
-  }
-
-  const client = (deps.clientFactory ?? ((port, secret) => new SashDaemonClient(port, secret)))(
-    daemonState.port,
-    settings.daemonSecret,
-  );
-  if (daemonState.legacyOwnership) {
-    if (!client.status || !client.shutdown) {
-      throw new Error("Legacy sashd maintenance requires status and shutdown support");
-    }
-    log.warn("legacy sashd detected; using the pre-maintenance compatibility path");
-    const coreWasRunning = (await client.status()).core.running;
-    await client.shutdown();
-    await (deps.waitForDaemonExit ?? waitForDaemonExit)(daemonState.pid, 20_000);
-    return { daemonWasRunning: true, legacyDaemon: true, coreWasRunning };
-  }
-
-  const snapshot = await client.maintenanceShutdown();
-  await (deps.waitForDaemonExit ?? waitForDaemonExit)(daemonState.pid, 20_000);
-  return { daemonWasRunning: true, legacyDaemon: false, coreWasRunning: snapshot.coreWasRunning };
-}
-
 export async function stopDaemonFromCli(
   opts: { layout?: SashLayout; settings?: SashSettings; timeoutMs?: number } = {},
 ): Promise<boolean> {
   const layout = opts.layout ?? sashLayout();
   const settings = opts.settings ?? loadSettings(layout);
-  const record = readDaemonPidRecord(layout);
-  if (!record) {
-    try {
-      const lease = readStateLockRecord(layout.daemonLeaseFile);
-      if (!lease || !isProcessAlive(lease.pid)) return true;
-      log.warn(`sashd is still starting or unresponsive (PID=${lease.pid}); try stopping again.`);
-      return false;
-    } catch {
-      log.warn("Refusing to stop sashd: singleton ownership record is corrupt.");
-      return false;
-    }
-  }
-
-  const pid = record.pid;
-  if (!isProcessAlive(pid)) return true;
-
-  let lease: StateLockRecord | undefined;
-  try {
-    lease = readStateLockRecord(layout.daemonLeaseFile);
-  } catch {
-    log.warn("Refusing to stop sashd: singleton ownership record is corrupt.");
-    return false;
-  }
-  if (lease && (!isProcessAlive(lease.pid) || lease.pid !== pid)) {
-    log.warn(
-      `Refusing to stop PID ${pid}: daemon PID metadata does not match singleton ownership.`,
-    );
-    return false;
-  }
-
-  const client = new SashDaemonClient(record.port || settings.daemonPort, settings.daemonSecret);
-  const legacyOwnership = !lease;
-  const healthMatchesRecord = async (): Promise<boolean> => {
-    try {
-      const health = await client.health();
-      return health.token === record.token && health.pid === pid;
-    } catch {
-      return false;
-    }
-  };
-  if (!(await healthMatchesRecord())) {
-    log.warn(`Refusing to stop unverified sashd PID ${pid}.`);
-    return false;
-  }
-
-  // Try graceful shutdown via API first.
-  try {
-    await client.shutdown();
-  } catch {
-    // API may be unreachable
-  }
-
-  // Poll for process termination
+  const state = await evaluateDaemon(layout, settings);
+  if (state.kind === "stopped") return true;
+  if (state.kind !== "healthy") return false;
+  const client = new SashDaemonClient(state.port, settings.daemonSecret);
+  await client.shutdown();
   const deadline = Date.now() + (opts.timeoutMs ?? 20_000);
-  while (Date.now() < deadline && isProcessAlive(pid)) {
-    await sleep(200);
-  }
-
-  if (!isProcessAlive(pid)) return true;
-  if (legacyOwnership) {
-    log.warn(
-      `Legacy sashd PID ${pid} did not stop gracefully; refusing force termination without a singleton lease.`,
-    );
-    return false;
-  }
-
-  return withStateLock(
-    layout.mutationLockFile,
-    { purpose: "verify forced sashd stop", timeoutMs: 10_000 },
-    async () => {
-      if (!isProcessAlive(pid)) return true;
-
-      // A forced daemon exit can orphan its Core and leave an OS proxy pointing
-      // at a dead port. Hold the mutation lock and require a fresh observation
-      // proving all managed runtime state has already been released.
-      try {
-        const status = await client.status(true);
-        const actual = status.systemProxy.actual;
-        if (
-          status.daemon.pid !== pid ||
-          status.core.running ||
-          status.systemProxy.applied ||
-          !actual ||
-          actual.enabled ||
-          (actual.supported && Boolean(actual.details)) ||
-          fs.existsSync(layout.systemProxyStateFile) ||
-          fs.existsSync(`${layout.systemProxyStateFile}.lock`)
-        ) {
-          log.warn(
-            `Refusing to force-terminate sashd PID ${pid}: managed runtime cleanup is incomplete or unknown.`,
-          );
-          return false;
-        }
-      } catch {
-        log.warn(
-          `Refusing to force-terminate unresponsive sashd PID ${pid}: runtime cleanup cannot be verified.`,
-        );
-        return false;
-      }
-
-      const verifyDaemonIdentity = async () => {
-        if (!(await healthMatchesRecord())) return "mismatch" as const;
-        return commandLineContains(pid, "daemon-entry") ? ("match" as const) : ("unknown" as const);
-      };
-      if ((await verifyDaemonIdentity()) !== "match") {
-        log.warn(
-          `Refusing to terminate PID ${pid}: process identity no longer matches sashd. Verify manually.`,
-        );
-        return false;
-      }
-
-      const killed = await killProcessGracefully(pid, {
-        timeoutMs: 4000,
-        verify: verifyDaemonIdentity,
-      });
-      if (killed) return true;
-
-      log.error(`sashd process is still running after termination attempt (PID=${pid}).`);
-      return false;
-    },
-  );
+  while (isProcessAlive(state.pid) && Date.now() < deadline) await sleep(100);
+  return !isProcessAlive(state.pid);
 }

@@ -27,8 +27,7 @@ export function installationIssue(ctx: AutostartContext): string | null {
       if (!fs.lstatSync(directory).isDirectory()) return INSTALL_HINT;
     }
     const parent = path.dirname(modules);
-    if (ctx.platform !== "win32" && path.basename(parent) !== "lib") return INSTALL_HINT;
-    const prefix = ctx.platform === "win32" ? parent : path.dirname(parent);
+    const prefix = parent;
     for (const marker of ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]) {
       if (fs.existsSync(path.join(prefix, marker))) return INSTALL_HINT;
     }
@@ -36,15 +35,11 @@ export function installationIssue(ctx: AutostartContext): string | null {
     for (const file of [ctx.nodePath, ctx.entryPath, cli]) {
       if (!fs.statSync(file).isFile()) return INSTALL_HINT;
     }
-    const shim = path.join(prefix, ctx.platform === "win32" ? "sash.cmd" : "bin/sash");
-    if (ctx.platform === "win32") {
-      const stat = fs.lstatSync(shim);
-      if (!stat.isFile() || stat.size > 64 * 1024) return INSTALL_HINT;
-      const contents = fs.readFileSync(shim, "utf8").replaceAll("/", "\\").toLowerCase();
-      if (!contents.includes("node_modules\\@astralyn\\sash\\dist\\cli.js")) return INSTALL_HINT;
-    } else if (fs.realpathSync(shim) !== fs.realpathSync(cli)) {
-      return INSTALL_HINT;
-    }
+    const shim = path.join(prefix, "sash.cmd");
+    const stat = fs.lstatSync(shim);
+    if (!stat.isFile() || stat.size > 64 * 1024) return INSTALL_HINT;
+    const contents = fs.readFileSync(shim, "utf8").replaceAll("/", "\\").toLowerCase();
+    if (!contents.includes("node_modules\\@astralyn\\sash\\dist\\cli.js")) return INSTALL_HINT;
     return null;
   } catch {
     return INSTALL_HINT;

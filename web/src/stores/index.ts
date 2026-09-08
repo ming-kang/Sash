@@ -29,13 +29,14 @@ export {
   markDaemonOffline,
   refreshRuntimeState,
   refreshStatus,
-  setAllowLan,
+  saveNetworkSettings,
   setSystemProxyEnabled,
   startRuntimePolling,
 } from "./runtime-actions.js";
 export type { StoredLogMessage, StoreState, ToastItem } from "./state.js";
 export {
   canToggleSystemProxy,
+  coreSnapshotError,
   errorText,
   isCoreReady,
   isCoreRunning,

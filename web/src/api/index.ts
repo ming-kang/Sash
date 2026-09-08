@@ -57,6 +57,7 @@ async function request(endpoint: string, options: RequestOptions = {}): Promise<
     method: options.method ?? "GET",
     headers,
     body,
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await res.text();
 
@@ -145,6 +146,9 @@ export const api = {
     webSession.initialize(sash, isActive),
   clearSession: webSession.clear,
   hasSession: (): boolean => webSession.token() !== "",
+  isInitialized: webSession.initialized,
+  markDisconnected: webSession.markDisconnected,
+  sessionMatches: webSession.matches,
   getSessionDaemonStartedAt: webSession.startedAt,
 
   getHealth: () => sash.health(),
@@ -166,17 +170,15 @@ export const api = {
   deleteProfile: (id: string) => sash.removeProfile(id),
   renameProfile: (id: string, name: string) => sash.renameProfile(id, name),
   getProfileContent: (id: string) => sash.getProfileContent(id),
-  setProfileContent: (id: string, content: string) => sash.writeProfileContent(id, content),
+  setProfileContent: (id: string, content: string, revision: number) =>
+    sash.writeProfileContent(id, content, revision),
 
   patchSettings: (patch: SettingsPatch) => sash.patchSettings(patch),
-  getSettingsFile: () => sash.getSettingsFile(),
-  saveSettingsFile: (content: string) => sash.writeSettingsFile(content),
   restartCore: () => sash.restartCore(),
-  reloadCoreConfig: () => sash.reloadCoreConfig(),
+  stopCore: () => sash.stopCore(),
 
   getConfigs: () => request<ConfigsResponse>("/core/api/configs"),
-  setMode: (mode: OutboundMode) =>
-    request("/core/api/configs", { method: "PATCH", body: { mode }, response: "void" }),
+  setMode: (mode: OutboundMode) => sash.setMode(mode),
   getProxies: () => request<ProxiesResponse>("/core/api/proxies"),
   selectProxy: (groupName: string, proxyName: string) =>
     request(`/core/api/proxies/${encodeURIComponent(groupName)}`, {

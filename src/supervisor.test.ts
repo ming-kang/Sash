@@ -23,18 +23,14 @@ test("restart: stale exit event from the replaced core does not clobber the new 
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
 
-  // Stub external-controller: healthy version and actual TUN runtime state.
+  // Stub external-controller: healthy version.
   const server = http.createServer((req, res) => {
     if (req.url === "/version") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ version: "v-test", meta: true }));
-      return;
-    }
-    if (req.url === "/configs") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ tun: { enable: true } }));
       return;
     }
     res.writeHead(404);
@@ -47,6 +43,7 @@ test("restart: stale exit event from the replaced core does not clobber the new 
   const spawnFn = (): ChildProcess => {
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
       stdio: "ignore",
+      windowsHide: true,
     });
     children.push(child);
     return child;
@@ -68,14 +65,11 @@ test("restart: stale exit event from the replaced core does not clobber the new 
     const first = await supervisor.start();
     const oldChild = children[0];
     assert.ok(oldChild);
-    assert.equal(first.tunActive, true);
     const firstStatus = await supervisor.status();
     assert.equal(firstStatus.pid, first.pid);
-    assert.equal(firstStatus.tunActive, true);
 
     const second = await supervisor.restart();
     assert.ok(second.pid);
-    assert.equal(second.tunActive, true);
     assert.notEqual(first.pid, second.pid);
 
     // Simulate the late-arriving exit event from the replaced process. On
@@ -89,7 +83,6 @@ test("restart: stale exit event from the replaced core does not clobber the new 
     assert.equal(state.running, true);
     assert.equal(state.pid, second.pid);
     assert.equal(state.healthy, true);
-    assert.equal(state.tunActive, true);
     assert.equal(exitCalls, 0);
 
     const record = readPidRecord(layout.pidFile);
@@ -113,6 +106,7 @@ test("stop preserves Core ownership when termination cannot be confirmed", async
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
 
   const server = http.createServer((req, res) => {
@@ -204,6 +198,7 @@ test("start terminates the child when PID ownership cannot be persisted", async 
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
   fs.mkdirSync(layout.pidFile, { recursive: true });
   const fakeChild = Object.assign(new EventEmitter(), { pid: 4343 }) as ChildProcess;
@@ -253,6 +248,7 @@ test("status reports stopped when its controller probe outlives the owned child"
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
 
   let holdResponse: (() => void) | undefined;
@@ -335,6 +331,7 @@ test("start installs an error listener before rejecting a child without a PID", 
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
   const child = Object.assign(new EventEmitter(), {
     pid: undefined,
@@ -360,6 +357,7 @@ test("PID write failure preserves uncertain ownership when termination fails", a
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
   fs.mkdirSync(layout.pidFile, { recursive: true });
   const child = Object.assign(new EventEmitter(), {
@@ -398,6 +396,7 @@ test("start aborts an owned child after an asynchronous spawn error", async () =
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
   const child = Object.assign(new EventEmitter(), {
     pid: 5454,
@@ -437,6 +436,7 @@ test("health timeout aborts the child and clears its owned PID record", async ()
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
   const child = Object.assign(new EventEmitter(), {
     pid: 5555,

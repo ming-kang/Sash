@@ -1,17 +1,11 @@
-import type { RuntimeContext } from "../offline-mutation.js";
+import { loadSettings } from "../app-state.js";
 import { sashLayout } from "../paths.js";
-import { loadSettings } from "../settings.js";
+import type { RuntimeContext } from "../runtime-owner.js";
 
-export type {
-  OfflineMutationOptions,
-  OfflineRuntimeReconciliation,
-  RuntimeContext,
-} from "../offline-mutation.js";
-export { runOfflineMutation } from "../offline-mutation.js";
+export type { RuntimeContext } from "../runtime-owner.js";
 
-/** CLI entrypoint context: the user data directory plus its committed settings. */
+/** Read-only CLI context; only the daemon initializes or publishes application state. */
 export function runtimeContext(): RuntimeContext {
   const layout = sashLayout();
-  const settings = loadSettings(layout);
-  return { layout, settings };
+  return { layout, settings: loadSettings(layout) };
 }

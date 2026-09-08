@@ -2,667 +2,193 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
-import { defaultManagedStateFileOperations } from "./managed-state-transaction.js";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { readState, type SashStateStore } from "./app-state.js";
+import { DaemonGate } from "./daemon/context.js";
 import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import {
-  type PreparedActiveConfig,
-  type PreparedActiveReload,
-  ProfileService,
-} from "./profile-service.js";
-import {
-  loadProfiles,
-  NEVER_UPDATED,
-  type ProfileMeta,
-  profileFilePath,
-  saveProfiles,
-} from "./profiles.js";
-import { DEFAULT_SETTINGS, type SashSettings } from "./settings.js";
+import { ProfileService } from "./profile-service.js";
+import { parseProfileText, profileFilePath } from "./profiles.js";
+import { createTestState, deferred } from "./test-state.test.js";
 
-const yamlA = "proxies:\n  - name: node-a\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
-const yamlB = "proxies:\n  - name: node-b\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
+const yamlA = "proxies:\n  - name: node-a\n    type: direct\nrules: ['MATCH,DIRECT']\n";
+const yamlB = yamlA.replace("node-a", "node-b");
+const fetched = (yamlText = yamlA): SubscriptionFetch => ({
+  doc: parseProfileText(yamlText),
+  yamlText,
+  intervalHours: 6,
+  subInfo: { upload: 1, download: 2, total: 100 },
+});
 
-function seedProfile(
-  layout: SashLayout,
-  init: { name: string; url: string; yamlText?: string },
-): ProfileMeta {
-  const index = loadProfiles(layout);
-  const id = String(index.profiles.length + 1);
-  const now = new Date().toISOString();
-  const profile: ProfileMeta = {
-    id,
-    name: init.name,
-    url: init.url,
-    intervalHours: init.url ? 24 : 0,
-    createdAt: now,
-    updatedAt: init.yamlText === undefined ? NEVER_UPDATED : now,
-  };
-  if (init.yamlText !== undefined) {
-    fs.mkdirSync(layout.profilesDir, { recursive: true });
-    fs.writeFileSync(profileFilePath(layout, id), init.yamlText);
-  }
-  saveProfiles({ ...index, profiles: [...index.profiles, profile] }, layout);
-  return profile;
-}
-
-function activateSeed(layout: SashLayout, id: string): void {
-  const index = loadProfiles(layout);
-  saveProfiles({ ...index, activeId: id }, layout);
-}
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve = (): void => undefined;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-function fetched(yamlText: string, name = "remote"): SubscriptionFetch {
-  return {
-    doc: { proxies: [{ name: yamlText === yamlA ? "node-a" : "node-b", type: "direct" }] },
-    yamlText,
-    name,
-    intervalHours: 6,
-    subInfo: { upload: 1, download: 2, total: 100 },
-    homePage: "https://example.test/",
-  };
-}
-
-describe("ProfileService", () => {
-  let tmpDir: string;
+describe("saved profiles", () => {
+  let root: string;
   let layout: SashLayout;
-  let settings: SashSettings;
-
+  let state: SashStateStore;
+  let gate: DaemonGate;
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-profile-service-test-"));
-    layout = sashLayout(tmpDir);
-    settings = {
-      ...DEFAULT_SETTINGS,
-      secret: "test-secret",
-      daemonSecret: "test-daemon-secret",
-    };
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-profiles-test-"));
+    layout = sashLayout(root);
+    state = createTestState(layout);
+    gate = new DaemonGate(
+      async () => {},
+      () => {},
+    );
   });
-
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    mock.restoreAll();
+    fs.rmSync(root, { recursive: true, force: true });
   });
-
-  it("stores remote metadata and auto-activates only the first profile", async () => {
-    const service = new ProfileService({
+  function service(
+    fetchProfile: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch> = async () =>
+      fetched(),
+  ) {
+    return new ProfileService({
       layout,
-      settings: () => settings,
-      fetchProfile: async (url) => fetched(url.endsWith("a") ? yamlA : yamlB),
+      state,
+      commit: (purpose, action) => gate.mutate(purpose, action),
+      fetchProfile,
     });
+  }
 
-    const first = await service.addRemote("https://example.test/a");
-    const second = await service.addRemote("https://example.test/b");
-
+  it("stores complete sources and metadata without publishing runtime config", async () => {
+    const profiles = service();
+    const first = await profiles.addRemote("https://example.test/a");
+    const second = await profiles.importLocal("local", yamlB);
     assert.equal(first.activated, true);
     assert.equal(second.activated, false);
-    assert.equal(service.list().activeId, first.profile.id);
     assert.equal(first.profile.intervalHours, 6);
     assert.equal(first.profile.subInfo?.total, 100);
-    assert.equal(first.profile.homePage, "https://example.test/");
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-a/);
-  });
-
-  it("validates the final managed config before storing an imported profile", async () => {
-    let validatedYaml = "";
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      validateConfig: (generated) => {
-        validatedYaml = generated.yaml;
-        throw new Error("core validation rejected");
-      },
-    });
-
-    await assert.rejects(() => service.importLocal("invalid", yamlA), /core validation rejected/);
-    assert.match(validatedYaml, /mixed-port: 7890/);
-    assert.equal(service.list().profiles.length, 0);
+    assert.equal(profiles.readContent(first.profile.id).content, yamlA);
+    assert.equal(readState(layout)?.profiles.profiles.length, 2);
     assert.equal(fs.existsSync(layout.configFile), false);
   });
 
-  it("rolls config and active selection back when runtime reload fails", async () => {
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      reloadConfig: async (configPath) => {
-        if (fs.readFileSync(configPath, "utf8").includes("node-b")) {
-          throw new Error("reload rejected");
-        }
-      },
-    });
-
-    const first = await service.importLocal("first", yamlA);
-    const second = await service.importLocal("second", yamlB);
-    await assert.rejects(() => service.activate(second.profile.id), /reload rejected/);
-
-    assert.equal(service.list().activeId, first.profile.id);
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-a/);
+  it("saves selection, rename, order, and deletion without touching the running config", async () => {
+    const profiles = service();
+    const a = (await profiles.importLocal("a", yamlA)).profile;
+    const b = (await profiles.importLocal("b", yamlB)).profile;
+    fs.writeFileSync(layout.configFile, "running config");
+    await profiles.activate(b.id);
+    await profiles.rename(a.id, " renamed ");
+    await profiles.reorder([b.id, a.id]);
+    assert.equal(profiles.list().profiles[1]?.name, "renamed");
+    assert.equal(profiles.list().profiles[1]?.revision, a.revision);
+    assert.deepEqual(await profiles.remove(b.id), { wasActive: true });
+    assert.equal(profiles.list().activeId, null);
+    assert.equal(fs.readFileSync(layout.configFile, "utf8"), "running config");
+    await assert.rejects(profiles.reorder([a.id, a.id]), /every profile/);
+    await assert.rejects(profiles.rename(a.id, " "), /1 to 120/);
   });
 
-  it("rejects a missing local profile file instead of silently keeping old config", async () => {
-    const service = new ProfileService({ layout, settings: () => settings });
-    const first = await service.importLocal("first", yamlA);
-    const second = await service.importLocal("second", yamlB);
-    fs.rmSync(profileFilePath(layout, second.profile.id));
-
-    await assert.rejects(() => service.activate(second.profile.id), /file is missing/);
-    assert.equal(service.list().activeId, first.profile.id);
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-a/);
+  it("rejects invalid YAML before any publication and refuses missing selected sources", async () => {
+    const profiles = service();
+    for (const text of ["proxies: [", "wrong: document", "- not-a-root-map"])
+      await assert.rejects(profiles.importLocal("bad", text));
+    assert.equal(state.snapshot().revision, 0);
+    const a = (await profiles.importLocal("a", yamlA)).profile;
+    const b = (await profiles.importLocal("b", yamlB)).profile;
+    fs.unlinkSync(profileFilePath(layout, b.id, b.revision));
+    await assert.rejects(profiles.activate(b.id));
+    assert.equal(profiles.list().activeId, a.id);
   });
 
-  it("leaves no profile state when first remote activation reload fails", async () => {
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => fetched(yamlA),
-      reloadConfig: async () => {
-        throw new Error("reload rejected");
-      },
-    });
-
-    await assert.rejects(() => service.addRemote("https://example.test/a"), /reload rejected/);
-    assert.deepEqual(service.list(), { activeId: null, profiles: [] });
-    assert.equal(fs.existsSync(layout.configFile), false);
-    assert.equal(fs.existsSync(layout.profilesDir), true);
-    assert.equal(fs.readdirSync(layout.profilesDir).length, 0);
-  });
-
-  it("leaves no profile state when first local activation reload fails", async () => {
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      reloadConfig: async () => {
-        throw new Error("reload rejected");
-      },
-    });
-
-    await assert.rejects(() => service.importLocal("local", yamlA), /reload rejected/);
-    assert.deepEqual(service.list(), { activeId: null, profiles: [] });
-    assert.equal(fs.existsSync(layout.configFile), false);
-    assert.equal(fs.readdirSync(layout.profilesDir).length, 0);
-  });
-
-  it("does not persist fetched missing-profile content before validation or reload succeeds", async () => {
-    const seeded = seedProfile(layout, {
-      name: "remote",
-      url: "https://example.test/a",
-    });
-    activateSeed(layout, seeded.id);
-    const validatorFailure = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => fetched(yamlA),
-      validateConfig: () => {
-        throw new Error("invalid candidate");
-      },
-    });
-
-    await assert.rejects(() => validatorFailure.activate(seeded.id), /invalid candidate/);
-    assert.equal(fs.existsSync(profileFilePath(layout, seeded.id)), false);
-    assert.equal(loadProfiles(layout).profiles[0]?.updatedAt, "1970-01-01T00:00:00.000Z");
-
-    const reloadFailure = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => fetched(yamlA),
-      reloadConfig: async () => {
-        throw new Error("reload rejected");
-      },
-    });
-    await assert.rejects(() => reloadFailure.reloadActive(), /reload rejected/);
-    assert.equal(fs.existsSync(profileFilePath(layout, seeded.id)), false);
-    assert.equal(loadProfiles(layout).profiles[0]?.updatedAt, "1970-01-01T00:00:00.000Z");
-  });
-
-  it("reports a failed old-runtime reload during rollback", async () => {
-    const seed = new ProfileService({ layout, settings: () => settings });
-    const first = await seed.importLocal("first", yamlA);
-    const second = await seed.importLocal("second", yamlB);
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      reloadConfig: async () => {
-        throw new Error("reload unavailable");
-      },
-    });
-
+  it("uses editor revisions so one tab cannot overwrite another saved edit", async () => {
+    const profiles = service();
+    const a = (await profiles.importLocal("a", yamlA)).profile;
+    const edited = await profiles.writeContent(a.id, yamlB, a.revision);
+    assert.ok(edited.profile.revision > a.revision);
     await assert.rejects(
-      () => service.activate(second.profile.id),
-      /config rollback reload failed: reload unavailable/,
+      profiles.writeContent(a.id, yamlA, a.revision),
+      /changed since the editor/,
     );
-    assert.equal(loadProfiles(layout).activeId, first.profile.id);
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-a/);
+    assert.equal(profiles.readContent(a.id).content, yamlB);
+    const unchanged = await profiles.writeContent(a.id, yamlB, edited.profile.revision);
+    assert.equal(unchanged.profile.revision, edited.profile.revision);
   });
 
-  it("rolls inactive YAML publication back when index publication fails", async () => {
-    const first = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => fetched(yamlA),
+  it("keeps the old reference after a crash between source and manifest publication", async () => {
+    const profiles = service();
+    const a = (await profiles.importLocal("a", yamlA)).profile;
+    const before = fs.readFileSync(layout.settingsFile, "utf8");
+    const rename = fs.renameSync;
+    mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+      if (String(to) === layout.settingsFile)
+        throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+      return rename(from, to);
     });
-    await first.addRemote("https://example.test/a");
-    let indexWrites = 0;
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => fetched(yamlB),
-      fileOperations: {
-        ...defaultManagedStateFileOperations,
-        write: (file, data) => {
-          if (file === layout.profilesIndexFile && ++indexWrites === 1) {
-            throw new Error("index write failed");
-          }
-          defaultManagedStateFileOperations.write(file, data);
-        },
-      },
-    });
-
-    await assert.rejects(() => service.addRemote("https://example.test/b"), /index write failed/);
-    assert.equal(loadProfiles(layout).profiles.length, 1);
-    assert.equal(
-      fs.readdirSync(layout.profilesDir).filter((file) => file.endsWith(".yaml")).length,
-      1,
-    );
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-a/);
+    await assert.rejects(profiles.writeContent(a.id, yamlB, a.revision), /disk full/);
+    assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), before);
+    assert.equal(profiles.readContent(a.id).content, yamlA);
+    assert.equal(fs.readFileSync(profileFilePath(layout, a.id, a.revision + 1), "utf8"), yamlB);
+    mock.restoreAll();
+    const updated = await profiles.writeContent(a.id, yamlB, a.revision);
+    assert.ok(updated.profile.revision > a.revision + 1);
   });
 
-  it("rolls active deletion back when its YAML cannot be deleted", async () => {
-    const seed = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => fetched(yamlA),
+  it("does not let late downloads or their errors replace newer content", async () => {
+    const profiles = service();
+    const remote = (await profiles.addRemote("https://example.test/a")).profile;
+    const entered = deferred();
+    const release = deferred();
+    const slow = service(async () => {
+      entered.resolve();
+      await release.promise;
+      return fetched();
     });
-    const created = await seed.addRemote("https://example.test/a");
-    const beforeConfig = fs.readFileSync(layout.configFile, "utf8");
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      fileOperations: {
-        ...defaultManagedStateFileOperations,
-        remove: (file) => {
-          if (file === profileFilePath(layout, created.profile.id)) {
-            throw new Error("delete failed");
-          }
-          defaultManagedStateFileOperations.remove(file);
-        },
-      },
-    });
-
-    await assert.rejects(() => service.remove(created.profile.id), /delete failed/);
-    assert.equal(loadProfiles(layout).activeId, created.profile.id);
-    assert.equal(fs.existsSync(profileFilePath(layout, created.profile.id)), true);
-    assert.equal(fs.readFileSync(layout.configFile, "utf8"), beforeConfig);
-  });
-
-  it("rejects a prepared profile when managed settings change before commit", async () => {
-    let releaseFetch: (() => void) | undefined;
-    const fetchStarted = new Promise<void>((resolve) => {
-      releaseFetch = resolve;
-    });
-    let continueFetch: (() => void) | undefined;
-    const fetchBlocked = new Promise<void>((resolve) => {
-      continueFetch = resolve;
-    });
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => {
-        releaseFetch?.();
-        await fetchBlocked;
-        return fetched(yamlA);
-      },
-    });
-
-    const adding = service.addRemote("https://example.test/a");
-    await fetchStarted;
-    settings.mixedPort = 18888;
-    continueFetch?.();
-
-    await assert.rejects(adding, /Settings changed while preparing/);
-    assert.deepEqual(service.list(), { activeId: null, profiles: [] });
-  });
-
-  it("rejects activation when the prepared local profile changes before commit", async () => {
-    const first = seedProfile(layout, { name: "first", url: "", yamlText: yamlA });
-    const second = seedProfile(layout, { name: "second", url: "", yamlText: yamlB });
-    activateSeed(layout, first.id);
-    const validationEntered = deferred();
-    const releaseValidation = deferred();
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      validateConfig: async (generated) => {
-        if (!generated.yaml.includes("node-b")) return;
-        validationEntered.resolve();
-        await releaseValidation.promise;
-      },
-    });
-
-    const activation = service.activate(second.id);
-    const rejected = assert.rejects(activation, /content changed/);
-    await validationEntered.promise;
-    fs.writeFileSync(profileFilePath(layout, second.id), yamlA);
-    releaseValidation.resolve();
-
+    const pending = slow.update(remote.id);
+    const rejected = assert.rejects(pending, /changed while downloading/);
+    await entered.promise;
+    await profiles.writeContent(remote.id, yamlB, remote.revision);
+    release.resolve();
     await rejected;
-    assert.equal(loadProfiles(layout).activeId, first.id);
+    assert.equal(profiles.readContent(remote.id).content, yamlB);
+    assert.equal(profiles.list().profiles[0]?.lastError, undefined);
   });
 
-  it("rejects an out-of-order update without overwriting newer profile content", async () => {
-    const seeded = seedProfile(layout, {
-      name: "remote",
-      url: "https://example.test/profile",
-      yamlText: yamlA,
+  it("retains names and content revisions when remote bytes are unchanged", async () => {
+    const profiles = service();
+    const remote = (await profiles.addRemote("https://example.test/a")).profile;
+    await profiles.rename(remote.id, "mine");
+    const result = await profiles.update(remote.id);
+    assert.equal(result.profile.name, "mine");
+    assert.equal(result.profile.revision, remote.revision);
+  });
+
+  it("fetches independent updates concurrently and reports per-profile failure", async () => {
+    const profiles = service();
+    await profiles.addRemote("https://example.test/a");
+    await profiles.addRemote("https://example.test/b");
+    let active = 0;
+    let peak = 0;
+    const updating = service(async (url) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setImmediate(resolve));
+      active -= 1;
+      if (url.endsWith("b")) throw new Error("offline");
+      return fetched(yamlB);
     });
-    activateSeed(layout, seeded.id);
-    const slowFetchEntered = deferred();
-    const releaseSlowFetch = deferred();
-    let commitTail = Promise.resolve();
-    const commit = <T>(_purpose: string, action: () => T | Promise<T>): Promise<T> => {
-      const next = commitTail.then(action, action);
-      commitTail = next.then(
-        () => undefined,
-        () => undefined,
+    const result = await updating.updateAll();
+    assert.equal(peak, 2);
+    assert.equal(result.updated, 1);
+    assert.equal(result.failed.length, 1);
+    assert.equal(profiles.list().profiles[1]?.lastError, "offline");
+  });
+
+  it("cancels outstanding download bodies", async () => {
+    const entered = deferred();
+    const profiles = service(async (_url, signal) => {
+      entered.resolve();
+      await new Promise((_resolve, reject) =>
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
       );
-      return next;
-    };
-    const slow = new ProfileService({
-      layout,
-      settings: () => settings,
-      commit,
-      fetchProfile: async () => {
-        slowFetchEntered.resolve();
-        await releaseSlowFetch.promise;
-        return { doc: { proxies: [{ name: "node-a", type: "direct" }] }, yamlText: yamlA };
-      },
+      return fetched();
     });
-    const fast = new ProfileService({
-      layout,
-      settings: () => settings,
-      commit,
-      fetchProfile: async () => ({
-        doc: { proxies: [{ name: "node-b", type: "direct" }] },
-        yamlText: yamlB,
-      }),
-    });
-
-    const staleUpdate = slow.update(seeded.id);
-    const staleRejected = assert.rejects(staleUpdate, /profile changed|Profile changed/);
-    await slowFetchEntered.promise;
-    await fast.update(seeded.id);
-    releaseSlowFetch.resolve();
-
-    await staleRejected;
-    assert.match(fs.readFileSync(profileFilePath(layout, seeded.id), "utf8"), /node-b/);
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
-    assert.equal(loadProfiles(layout).profiles[0]?.lastError, undefined);
-  });
-
-  it("rejects a fetched missing-profile candidate when a file appears before commit", async () => {
-    const seeded = seedProfile(layout, {
-      name: "remote",
-      url: "https://example.test/profile",
-    });
-    activateSeed(layout, seeded.id);
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => fetched(yamlA),
-    });
-
-    const prepared = await service.prepareActiveConfig(settings);
-    fs.mkdirSync(layout.profilesDir, { recursive: true });
-    fs.writeFileSync(profileFilePath(layout, seeded.id), yamlB);
-
-    await assert.rejects(
-      () => service.withPreparedActivePublication(prepared, () => undefined),
-      /content changed/,
-    );
-  });
-
-  it("lends a strict reload publication without writing before its callback succeeds", async () => {
-    const seeded = seedProfile(layout, { name: "active", url: "", yamlText: yamlA });
-    activateSeed(layout, seeded.id);
-    fs.writeFileSync(layout.configFile, "old config");
-    let notifications = 0;
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      onChange: () => {
-        notifications += 1;
-      },
-    });
-
-    const prepared = await service.prepareActiveReload();
-    await service.withPreparedActiveReloadPublication(prepared, (publication) => {
-      assert.equal(publication.index.activeId, seeded.id);
-      assert.match(publication.config.yaml, /node-a/);
-      assert.equal(publication.profile, undefined);
-      assert.equal(fs.readFileSync(layout.configFile, "utf8"), "old config");
-      assert.equal(notifications, 0);
-    });
-
-    assert.equal(fs.readFileSync(layout.configFile, "utf8"), "old config");
-    assert.equal(notifications, 1);
-    await assert.rejects(
-      () => service.withPreparedActiveReloadPublication(prepared, () => undefined),
-      /invalid or already consumed/,
-    );
-
-    const failing = await service.prepareActiveReload();
-    await assert.rejects(
-      () =>
-        service.withPreparedActiveReloadPublication(failing, () => {
-          throw new Error("publication failed");
-        }),
-      /publication failed/,
-    );
-    assert.equal(notifications, 1);
-  });
-
-  it("enforces instance-bound one-shot prepared capabilities", async () => {
-    const first = new ProfileService({ layout, settings: () => settings });
-    const second = new ProfileService({ layout, settings: () => settings });
-    const forgedReload = Object.freeze({}) as PreparedActiveReload;
-    await assert.rejects(
-      () => first.commitPreparedActiveReload(forgedReload, { reloadRuntime: false }),
-      /invalid or already consumed/,
-    );
-
-    const preparedReload = await first.prepareActiveReload();
-    await assert.rejects(
-      () => second.commitPreparedActiveReload(preparedReload, { reloadRuntime: false }),
-      /invalid or already consumed/,
-    );
-    await first.commitPreparedActiveReload(preparedReload, { reloadRuntime: false });
-    await assert.rejects(
-      () => first.commitPreparedActiveReload(preparedReload, { reloadRuntime: false }),
-      /invalid or already consumed/,
-    );
-
-    const forgedConfig = Object.freeze({}) as PreparedActiveConfig;
-    await assert.rejects(
-      () => first.withPreparedActivePublication(forgedConfig, () => undefined),
-      /invalid or already consumed/,
-    );
-    const preparedConfig = await first.prepareActiveConfig(settings, settings);
-    await first.withPreparedActivePublication(preparedConfig, () => undefined);
-    await assert.rejects(
-      () => first.withPreparedActivePublication(preparedConfig, () => undefined),
-      /invalid or already consumed/,
-    );
-  });
-
-  it("allows weak settings preparation across unrelated active metadata changes", async () => {
-    const seeded = seedProfile(layout, { name: "before", url: "", yamlText: yamlA });
-    activateSeed(layout, seeded.id);
-    const service = new ProfileService({ layout, settings: () => settings });
-    const prepared = await service.prepareActiveConfig(settings, settings);
-    const index = loadProfiles(layout);
-    const current = index.profiles[0];
-    assert.ok(current);
-    saveProfiles(
-      {
-        ...index,
-        profiles: [{ ...current, name: "after", lastError: "diagnostic only" }],
-      },
-      layout,
-    );
-
-    let callbackEntered = false;
-    await service.withPreparedActivePublication(prepared, ({ config }) => {
-      callbackEntered = true;
-      assert.match(config.yaml, /node-a/);
-    });
-
-    assert.equal(callbackEntered, true);
-  });
-
-  it("rejects strict reload preparation after any active metadata change", async () => {
-    const seeded = seedProfile(layout, { name: "before", url: "", yamlText: yamlA });
-    activateSeed(layout, seeded.id);
-    const service = new ProfileService({ layout, settings: () => settings });
-    const prepared = await service.prepareActiveReload();
-    const index = loadProfiles(layout);
-    const current = index.profiles[0];
-    assert.ok(current);
-    saveProfiles({ ...index, profiles: [{ ...current, name: "after" }] }, layout);
-
-    await assert.rejects(
-      () => service.commitPreparedActiveReload(prepared, { reloadRuntime: false }),
-      /profile changed or was removed/,
-    );
-  });
-
-  it("fetches independent update-all profiles concurrently and commits safely", async () => {
-    const a = seedProfile(layout, {
-      name: "a",
-      url: "https://example.test/a",
-      yamlText: yamlA,
-    });
-    const b = seedProfile(layout, {
-      name: "b",
-      url: "https://example.test/b",
-      yamlText: yamlA,
-    });
-    let concurrent = 0;
-    let maxConcurrent = 0;
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      fetchProfile: async () => {
-        concurrent += 1;
-        maxConcurrent = Math.max(maxConcurrent, concurrent);
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        concurrent -= 1;
-        return fetched(yamlB);
-      },
-    });
-
-    const result = await service.updateAll();
-
-    assert.equal(result.updated, 2);
-    assert.equal(result.failed.length, 0);
-    assert.equal(maxConcurrent, 2);
-    assert.match(fs.readFileSync(profileFilePath(layout, a.id), "utf8"), /node-b/);
-    assert.match(fs.readFileSync(profileFilePath(layout, b.id), "utf8"), /node-b/);
-    assert.equal(loadProfiles(layout).profiles.length, 2);
-  });
-
-  it("reads and writes profile content with validation and atomic publication", async () => {
-    const service = new ProfileService({ layout, settings: () => settings });
-    const profile = await service.importLocal("editable", yamlA);
-
-    const read = service.readContent(profile.profile.id);
-    assert.equal(read.name, "editable");
-    assert.equal(read.content, yamlA);
-
-    await assert.rejects(
-      () => service.writeContent(profile.profile.id, "invalid: ["),
-      /not valid YAML/,
-    );
-    await assert.rejects(
-      () => service.writeContent(profile.profile.id, "foo: bar\n"),
-      /missing proxies\/rules/,
-    );
-
-    const updateResult = await service.writeContent(profile.profile.id, yamlB);
-    assert.equal(updateResult.profile.name, "editable");
-    assert.equal(fs.readFileSync(profileFilePath(layout, profile.profile.id), "utf8"), yamlB);
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
-  });
-
-  it("renames a profile without touching its YAML file", async () => {
-    const service = new ProfileService({ layout, settings: () => settings });
-    const profile = await service.importLocal("before", yamlA);
-
-    const renamed = await service.rename(profile.profile.id, "  after  ");
-    assert.equal(renamed.profile.name, "after");
-    assert.equal(loadProfiles(layout).profiles[0]?.name, "after");
-    assert.equal(fs.readFileSync(profileFilePath(layout, profile.profile.id), "utf8"), yamlA);
-
-    await assert.rejects(() => service.rename(profile.profile.id, "   "), /Missing required/);
-    await assert.rejects(() => service.rename(profile.profile.id, "x".repeat(121)), /too long/);
-    await assert.rejects(() => service.rename("1234567890123", "ghost"), /not found/);
-  });
-
-  it("reorders the latest metadata under the publication lock without reloading Core", async () => {
-    const first = seedProfile(layout, { name: "first", url: "", yamlText: yamlA });
-    const second = seedProfile(layout, { name: "second", url: "", yamlText: yamlB });
-    activateSeed(layout, first.id);
-    const releaseCommit = deferred();
-    let reloads = 0;
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      commit: async (_purpose, action) => {
-        await releaseCommit.promise;
-        return action();
-      },
-      reloadConfig: async () => {
-        reloads += 1;
-      },
-    });
-    const pending = service.reorder([second.id, first.id]);
-    const renamed = { ...second, name: "renamed elsewhere" };
-    saveProfiles({ activeId: second.id, profiles: [first, renamed] }, layout);
-    releaseCommit.resolve();
-    assert.deepEqual(await pending, { activeId: second.id, profiles: [renamed, first] });
-    assert.equal(reloads, 0);
-    assert.equal(fs.existsSync(layout.configFile), false);
-    assert.equal(fs.readFileSync(profileFilePath(layout, first.id), "utf8"), yamlA);
-  });
-
-  it("restores the committed order if index publication fails", async () => {
-    const first = seedProfile(layout, { name: "first", url: "", yamlText: yamlA });
-    const second = seedProfile(layout, { name: "second", url: "", yamlText: yamlB });
-    activateSeed(layout, first.id);
-    const before = fs.readFileSync(layout.profilesIndexFile, "utf8");
-    let indexWrites = 0;
-    let notifications = 0;
-    const service = new ProfileService({
-      layout,
-      settings: () => settings,
-      onChange: () => {
-        notifications += 1;
-      },
-      fileOperations: {
-        ...defaultManagedStateFileOperations,
-        write: (file, data) => {
-          if (file === layout.profilesIndexFile && ++indexWrites === 1) {
-            throw new Error("index write failed");
-          }
-          defaultManagedStateFileOperations.write(file, data);
-        },
-      },
-    });
-    await assert.rejects(() => service.reorder([second.id, first.id]), /index write failed/);
-    assert.equal(fs.readFileSync(layout.profilesIndexFile, "utf8"), before);
-    assert.equal(notifications, 0);
+    const pending = profiles.addRemote("https://example.test/a");
+    const rejected = assert.rejects(pending, /cancelled/);
+    await entered.promise;
+    profiles.cancelDownloads();
+    await rejected;
+    assert.equal(profiles.list().profiles.length, 0);
   });
 });

@@ -10,7 +10,6 @@ import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
 import { runStatus } from "./commands/status.js";
 import { runUpdate } from "./commands/update.js";
-import { runUpgrade } from "./commands/upgrade.js";
 import { runWeb } from "./commands/web.js";
 import { parseLogLineCount } from "./log-follow.js";
 
@@ -44,7 +43,6 @@ Examples:
   $ sash web                   open the web dashboard
   $ sash status                show runtime state, endpoints, and system proxy status
   $ sash update                upgrade the core binary
-  $ sash upgrade               upgrade Sash itself via npm
 
 Data directory: %LOCALAPPDATA%\\Sash (Windows), ~/Library/Application Support/Sash (macOS),
 $XDG_DATA_HOME/sash (Linux). Override with the SASH_HOME environment variable.`,
@@ -62,12 +60,12 @@ program
 
 program
   .command("restart")
-  .description("restart the daemon and core")
+  .description("apply saved configuration and restart the core")
   .action(withCliErrors(() => runRestart()));
 
 program
   .command("auto")
-  .description("toggle or set automatic startup at login for the current user")
+  .description("inspect or set automatic startup at login for the current user")
   .addArgument(
     new Argument("[mode]", "set autostart or inspect its state").choices(["on", "off", "status"]),
   )
@@ -110,18 +108,11 @@ program
   .command("update")
   .description("upgrade the core binary")
   .option("--version <tag>", "install a specific core version, e.g. v1.19.30")
-  .option("--force", "reinstall the target version and repair inconsistent Core state")
-  .action(withCliErrors((opts: { version?: string; force?: boolean }) => runUpdate(opts)));
-
-program
-  .command("upgrade")
-  .description("upgrade Sash itself via npm")
-  .option("--version <version>", "install a specific Sash version")
-  .action(withCliErrors((opts: { version?: string }) => runUpgrade(opts)));
+  .action(withCliErrors((opts: { version?: string }) => runUpdate(opts)));
 
 program
   .command("web")
-  .description("open the web dashboard (installs/starts components as needed)")
+  .description("open the web dashboard without starting the core")
   .option("--no-open", "print the URL without opening a browser")
   .action(withCliErrors((opts: { open: boolean }) => runWeb({ noOpen: !opts.open })));
 

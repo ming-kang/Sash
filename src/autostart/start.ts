@@ -1,11 +1,11 @@
 import fs from "node:fs";
+import { loadSettings } from "../app-state.js";
 import type { CoreStartResult } from "../contracts.js";
 import { errnoCode, errorMessage } from "../error-utils.js";
 import { durableRenameSync } from "../fs-atomic.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import { withPrivateAppendLogFds } from "../process.js";
 import { ensureRunning } from "../runtime-owner.js";
-import { loadSettings } from "../settings.js";
 
 function recordStart(layout: SashLayout, message: string): void {
   try {

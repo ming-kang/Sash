@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { SashDaemonClient } from "./daemon-client.js";
-import type { RuntimeContext } from "./offline-mutation.js";
 import { sashLayout } from "./paths.js";
+import type { RuntimeContext } from "./runtime-owner.js";
 import { resolveRuntimeOwner } from "./runtime-owner.js";
-import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "./settings.js";
+import { createTestState, testSettings } from "./test-state.test.js";
 
 describe("resolveRuntimeOwner", () => {
   let root: string;
@@ -16,13 +16,9 @@ describe("resolveRuntimeOwner", () => {
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-runtime-owner-test-"));
     const layout = sashLayout(root);
-    const settings = {
-      ...DEFAULT_SETTINGS,
-      secret: "core-secret",
-      daemonSecret: "daemon-secret",
-    };
-    saveSettings(settings, layout);
-    ctx = { layout, settings: loadSettings(layout) };
+    const settings = testSettings();
+    createTestState(layout, settings);
+    ctx = { layout, settings };
   });
 
   afterEach(() => {

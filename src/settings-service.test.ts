@@ -2,762 +2,135 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
-import { errorToHttp } from "./daemon/errors.js";
-import { type SashLayout, sashLayout } from "./paths.js";
-import { ProfileConflictError, ProfileService } from "./profile-service.js";
-import {
-  loadProfiles,
-  NEVER_UPDATED,
-  type ProfileMeta,
-  profileFilePath,
-  saveProfiles,
-} from "./profiles.js";
-import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
-import { DEFAULT_SETTINGS, loadSettings, type SashSettings, saveSettings } from "./settings.js";
-import { CoreUnhealthyError, SettingsConflictError, SettingsService } from "./settings-service.js";
-import type { CoreSupervisor } from "./supervisor.js";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { readState } from "./app-state.js";
+import { parseSettingsPatch } from "./contracts.js";
+import { DaemonGate } from "./daemon/context.js";
+import { sashLayout } from "./paths.js";
+import { RuntimeLifecycle } from "./runtime-lifecycle.js";
+import { SettingsService } from "./settings-service.js";
+import type { SystemProxyController } from "./system-proxy-manager.js";
+import { createTestState, FakeCoreSupervisor, testSettings } from "./test-state.test.js";
 
-function seedActiveRemote(layout: SashLayout, url: string): ProfileMeta {
-  const profile: ProfileMeta = {
-    id: "1",
-    name: "remote",
-    url,
-    intervalHours: 24,
-    createdAt: new Date().toISOString(),
-    updatedAt: NEVER_UPDATED,
-  };
-  saveProfiles({ activeId: profile.id, profiles: [profile] }, layout);
-  return profile;
-}
-
-const YAML_A = "proxies:\n  - name: node-a\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
-const YAML_B = "proxies:\n  - name: node-b\n    type: direct\nrules:\n  - MATCH,DIRECT\n";
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve = (): void => undefined;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-function initialSettings(): SashSettings {
-  return {
-    ...DEFAULT_SETTINGS,
-    secret: "core-secret",
-    daemonSecret: "daemon-secret",
-  };
-}
-
-describe("SettingsService", () => {
+describe("saved settings", () => {
   let root: string;
-  let layout: SashLayout;
-
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-settings-service-test-"));
-    layout = sashLayout(root);
   });
-
   afterEach(() => {
+    mock.restoreAll();
     fs.rmSync(root, { recursive: true, force: true });
   });
-
-  it("uses candidate runtime settings while public committed settings remain unchanged", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    let observedRuntimePort = 0;
-    let observedCommittedPort = 0;
-    const profiles = new ProfileService({ layout, settings: () => committed });
-    const supervisor = {
-      isRunning: () => true,
-    } as unknown as CoreSupervisor;
-    const lifecycle = {
-      restart: async () => {
-        observedRuntimePort = runtime.mixedPort;
-        observedCommittedPort = committed.mixedPort;
-        return { pid: 1234 };
+  function fixture(systemProxy = false) {
+    const layout = sashLayout(root);
+    const state = createTestState(layout, testSettings({ systemProxy }));
+    const core = new FakeCoreSupervisor(layout);
+    let releases = 0;
+    let applies = 0;
+    const proxy: SystemProxyController = {
+      apply: async () => {
+        applies += 1;
       },
-    } as unknown as RuntimeLifecycle;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
+      release: async () => {
+        releases += 1;
       },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles,
-      supervisor,
-      lifecycle,
-      commit: async (_purpose, action) => action(),
-    });
-
-    await service.apply({ mixedPort: 18888 });
-
-    assert.equal(observedRuntimePort, 18888);
-    assert.equal(observedCommittedPort, 7890);
-    assert.equal(committed.mixedPort, 18888);
-    assert.equal(loadSettings(layout).mixedPort, 18888);
-  });
-
-  it("gives direct and queued commit boundaries identical offline results", async () => {
-    const run = async (queued: boolean): Promise<SashSettings> => {
-      const localLayout = sashLayout(path.join(root, queued ? "queued" : "direct"));
-      let committed = saveSettings(initialSettings(), localLayout);
-      let runtime = committed;
-      let tail = Promise.resolve();
-      const service = new SettingsService({
-        layout: localLayout,
-        getCommitted: () => committed,
-        setCommitted: (next) => {
-          committed = next;
-        },
-        setRuntime: (next) => {
-          runtime = next;
-        },
-        profiles: new ProfileService({ layout: localLayout, settings: () => committed }),
-        commit: queued
-          ? (_purpose, action) => {
-              const next = tail.then(action, action);
-              tail = next.then(
-                () => undefined,
-                () => undefined,
-              );
-              return next;
-            }
-          : async (_purpose, action) => action(),
-      });
-      await service.apply({ allowLan: true });
-      assert.equal(runtime.allowLan, true);
-      return loadSettings(localLayout);
-    };
-
-    assert.deepEqual(await run(false), await run(true));
-  });
-
-  it("persists a fetched missing active profile with the settings config transaction", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    const seeded = seedActiveRemote(layout, "https://example.test/profile");
-    let profileChanges = 0;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles: new ProfileService({
-        layout,
-        settings: () => committed,
-        fetchProfile: async () => ({
-          doc: { rules: ["MATCH,DIRECT"] },
-          yamlText: "rules:\n  - MATCH,DIRECT\n",
-        }),
-        onChange: () => {
-          profileChanges++;
-        },
+      inspect: async () => ({
+        applied: false,
+        appliedKnown: true,
+        stateKnown: true,
+        state: { supported: true, enabled: false },
       }),
-      commit: async (_purpose, action) => action(),
-    });
-
-    await service.apply({ allowLan: true });
-
-    assert.equal(runtime.allowLan, true);
-    assert.equal(fs.existsSync(profileFilePath(layout, seeded.id)), true);
-    assert.notEqual(loadProfiles(layout).profiles[0]?.updatedAt, "1970-01-01T00:00:00.000Z");
-    assert.equal(profileChanges, 1);
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /allow-lan: true/);
-  });
-
-  it("re-prepares settings when the active profile content changes before commit", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    const seeded = seedActiveRemote(layout, "https://example.test/profile");
-    fs.mkdirSync(layout.profilesDir, { recursive: true });
-    fs.writeFileSync(profileFilePath(layout, seeded.id), YAML_A);
-
-    const settingsPrepareEntered = deferred();
-    const releaseSettingsPrepare = deferred();
-    let blockFirstSettingsPrepare = true;
-    let commitTail = Promise.resolve();
-    const commit = <T>(_purpose: string, action: () => T | Promise<T>): Promise<T> => {
-      const next = commitTail.then(action, action);
-      commitTail = next.then(
-        () => undefined,
-        () => undefined,
-      );
-      return next;
+      isApplied: async () => false,
+      getState: async () => ({ supported: true, enabled: false }),
     };
-    const profiles = new ProfileService({
+    const lifecycle = new RuntimeLifecycle({
       layout,
-      settings: () => committed,
-      fetchProfile: async () => ({
-        doc: { proxies: [{ name: "node-b", type: "direct" }] },
-        yamlText: YAML_B,
-      }),
-      validateConfig: async (generated) => {
-        if (!generated.yaml.includes("allow-lan: true") || !blockFirstSettingsPrepare) return;
-        blockFirstSettingsPrepare = false;
-        settingsPrepareEntered.resolve();
-        await releaseSettingsPrepare.promise;
-      },
-      commit,
+      supervisor: core,
+      systemProxy: proxy,
+      settings: () => state.snapshot().settings,
+      controllerProbe: async () => false,
     });
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles,
-      commit,
-    });
-
-    const updatingSettings = service.apply({ allowLan: true });
-    await settingsPrepareEntered.promise;
-    await profiles.update(seeded.id);
-    assert.match(fs.readFileSync(layout.configFile, "utf8"), /node-b/);
-    releaseSettingsPrepare.resolve();
-
-    await updatingSettings;
-    assert.equal(committed.allowLan, true);
-    assert.equal(runtime.allowLan, true);
-    assert.match(fs.readFileSync(profileFilePath(layout, seeded.id), "utf8"), /node-b/);
-    const config = fs.readFileSync(layout.configFile, "utf8");
-    assert.match(config, /node-b/);
-    assert.match(config, /allow-lan: true/);
-  });
-
-  it("stops after one automatic profile-conflict retry", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    const profiles = new ProfileService({ layout, settings: () => committed });
-    let assertions = 0;
-    profiles.withPreparedActivePublication = async <T>(): Promise<T> => {
-      assertions += 1;
-      throw new ProfileConflictError("profile keeps changing");
-    };
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles,
-      commit: async (_purpose, action) => action(),
-    });
-
-    await assert.rejects(() => service.apply({ allowLan: true }), /profile keeps changing/);
-    assert.equal(assertions, 2);
-    assert.equal(committed.allowLan, false);
-    assert.equal(runtime.allowLan, false);
-  });
-
-  it("allows a valid settings candidate to repair a config rejected under old settings", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    let validations = 0;
-    const profiles = new ProfileService({
-      layout,
-      settings: () => committed,
-      validateConfig: (generated) => {
-        validations += 1;
-        if (!generated.yaml.includes("allow-lan: true")) {
-          throw new Error("old config rejected");
-        }
-      },
-    });
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles,
-      commit: async (_purpose, action) => action(),
-    });
-
-    await service.apply({ allowLan: true });
-
-    assert.equal(validations, 2);
-    assert.equal(committed.allowLan, true);
-    assert.equal(runtime.allowLan, true);
-    assert.equal(loadSettings(layout).allowLan, true);
-  });
-
-  it("uses the operation's original settings snapshot for rollback", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    const previous = committed;
-    let runtime = committed;
-    const validationEntered = deferred();
-    const releaseValidation = deferred();
-    let validations = 0;
-    const profiles = new ProfileService({
-      layout,
-      settings: () => committed,
-      validateConfig: async () => {
-        validations += 1;
-        if (validations !== 1) return;
-        validationEntered.resolve();
-        await releaseValidation.promise;
-      },
-    });
-    const supervisor = { isRunning: () => true } as unknown as CoreSupervisor;
-    const lifecycle = {
-      restart: async () => {
-        throw new Error("restart failed");
-      },
-    } as unknown as RuntimeLifecycle;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles,
-      supervisor,
-      lifecycle,
-      commit: async (_purpose, action) => action(),
-    });
-
-    const updating = service.apply({ allowLan: true });
-    committed = saveSettings({ ...previous, mixedPort: 18888 }, layout);
-    await validationEntered.promise;
-    committed = saveSettings(previous, layout);
-    releaseValidation.resolve();
-
-    await assert.rejects(updating, (error: Error) => {
-      assert.match(error.message, /restart failed/);
-      assert.doesNotMatch(error.message, /config rollback failed/);
-      return true;
-    });
-    assert.equal(validations, 2);
-    assert.equal(runtime.mixedPort, previous.mixedPort);
-    assert.equal(committed.mixedPort, previous.mixedPort);
-  });
-
-  it("does not retry when the commit boundary replaces a profile conflict", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    const profiles = new ProfileService({ layout, settings: () => committed });
-    let profileChecks = 0;
-    profiles.withPreparedActivePublication = async <T>(): Promise<T> => {
-      profileChecks += 1;
-      throw new ProfileConflictError("profile moved");
-    };
-    let boundaryCalls = 0;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles,
-      commit: async (_purpose, action) => {
-        boundaryCalls += 1;
-        try {
-          return await action();
-        } catch (error) {
-          throw new Error(`${(error as Error).message}; state lock release failed`);
-        }
-      },
-    });
-
-    await assert.rejects(
-      () => service.apply({ allowLan: true }),
-      /profile moved; state lock release failed/,
+    const gate = new DaemonGate(
+      async () => {},
+      () => {},
     );
-    assert.equal(boundaryCalls, 1);
-    assert.equal(profileChecks, 1);
-    assert.equal(runtime.allowLan, false);
-  });
-
-  it("restores runtime settings when proxy-off publication fails", async () => {
-    let committed = saveSettings({ ...initialSettings(), systemProxy: true }, layout);
-    let runtime = committed;
-    fs.mkdirSync(layout.managedStateTransactionFile, { recursive: true });
     const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles: new ProfileService({ layout, settings: () => committed }),
-      commit: async (_purpose, action) => action(),
-    });
-
-    await assert.rejects(() => service.apply({ systemProxy: false }));
-
-    assert.equal(runtime.systemProxy, true);
-    assert.equal(committed.systemProxy, true);
-    assert.equal(loadSettings(layout).systemProxy, true);
-  });
-
-  it("does not materialize fetched profile content when settings publication rolls back", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    const seeded = seedActiveRemote(layout, "https://example.test/profile");
-    const beforeProfile = loadProfiles(layout).profiles[0];
-    let restartCalls = 0;
-    const original = new TypeError("restart failed");
-    const profiles = new ProfileService({
-      layout,
-      settings: () => committed,
-      fetchProfile: async () => ({
-        doc: { proxies: [{ name: "node-a", type: "direct" }], rules: ["MATCH,DIRECT"] },
-        yamlText: YAML_A,
-      }),
-    });
-    const supervisor = { isRunning: () => true } as unknown as CoreSupervisor;
-    const lifecycle = {
-      restart: async () => {
-        restartCalls += 1;
-        if (restartCalls === 1) throw original;
-        return { pid: 1234 };
-      },
-    } as unknown as RuntimeLifecycle;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles,
-      supervisor,
+      state,
+      supervisor: core,
       lifecycle,
-      commit: async (_purpose, action) => action(),
+      commit: (purpose, action) => gate.mutate(purpose, action),
     });
-
-    await assert.rejects(
-      () => service.apply({ allowLan: true }),
-      (err: unknown) => {
-        assert.equal(err, original);
-        assert.ok(err instanceof TypeError);
-        return true;
-      },
-    );
-
-    assert.equal(restartCalls, 2);
-    assert.equal(fs.existsSync(profileFilePath(layout, seeded.id)), false);
-    assert.deepEqual(loadProfiles(layout).profiles[0], beforeProfile);
-    assert.equal(committed.allowLan, false);
-    assert.equal(runtime.allowLan, false);
-    assert.doesNotMatch(fs.readFileSync(layout.configFile, "utf8"), /allow-lan: true/);
-  });
-
-  it("rejects TUN enable before changing settings or restarting Core", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    let restartCalls = 0;
-    const profiles = new ProfileService({ layout, settings: () => committed });
-    const supervisor = {
-      isRunning: () => true,
-    } as unknown as CoreSupervisor;
-    const lifecycle = {
-      restart: async () => {
-        restartCalls++;
-        return { pid: 1234, tunActive: false };
-      },
-    } as unknown as RuntimeLifecycle;
-    const service = new SettingsService({
+    return {
       layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles,
-      supervisor,
+      state,
+      core,
+      proxy,
       lifecycle,
-      commit: async (_purpose, action) => action(),
-    });
-
-    await assert.rejects(() => service.apply({ tun: true }), /TUN is unavailable/);
-
-    assert.equal(restartCalls, 0);
-    assert.equal(runtime.tun, false);
-    assert.equal(committed.tun, false);
-    assert.equal(loadSettings(layout).tun, false);
-    assert.equal(fs.existsSync(layout.configFile), false);
-  });
-
-  it("disables system proxy even when the profile index is corrupt", async () => {
-    let committed = saveSettings({ ...initialSettings(), systemProxy: true }, layout);
-    let runtime = committed;
-    fs.mkdirSync(layout.profilesDir, { recursive: true });
-    fs.writeFileSync(layout.profilesIndexFile, "{ broken");
-    let released = false;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles: new ProfileService({ layout, settings: () => committed }),
-      releaseSystemProxy: async () => {
-        released = true;
-      },
-      commit: async (_purpose, action) => action(),
-    });
-
-    await service.apply({ systemProxy: false });
-
-    assert.equal(released, true);
-    assert.equal(committed.systemProxy, false);
-    assert.equal(runtime.systemProxy, false);
-    assert.equal(loadSettings(layout).systemProxy, false);
-  });
-
-  it("applies a multi-key patch in one core transaction", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    let commits = 0;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles: new ProfileService({ layout, settings: () => committed }),
-      commit: async (_purpose, action) => {
-        commits += 1;
-        return action();
-      },
-    });
-
-    const result = await service.apply({ mixedPort: 18888, allowLan: true });
-
-    assert.equal(commits, 1);
-    assert.equal(result.restartRequired, false);
-    assert.equal(committed.mixedPort, 18888);
-    assert.equal(committed.allowLan, true);
-    assert.equal(runtime.mixedPort, 18888);
-    const persisted = loadSettings(layout);
-    assert.equal(persisted.mixedPort, 18888);
-    assert.equal(persisted.allowLan, true);
-    const config = fs.readFileSync(layout.configFile, "utf8");
-    assert.match(config, /mixed-port: 18888/);
-    assert.match(config, /allow-lan: true/);
-  });
-
-  it("persists daemon-level keys without republishing config", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    let validations = 0;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles: new ProfileService({
-        layout,
-        settings: () => committed,
-        validateConfig: () => {
-          validations += 1;
-        },
-      }),
-      commit: async (_purpose, action) => action(),
-    });
-
-    const result = await service.apply({ daemonPort: 29999, daemonSecret: "rotated" });
-
-    assert.equal(result.restartRequired, true);
-    assert.equal(committed.daemonPort, 29999);
-    assert.equal(committed.daemonSecret, "rotated");
-    assert.equal(runtime.daemonSecret, "rotated");
-    assert.equal(loadSettings(layout).daemonPort, 29999);
-    assert.equal(validations, 0);
-    assert.equal(fs.existsSync(layout.configFile), false);
-  });
-
-  it("performs no transaction for a no-op patch", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let commits = 0;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: () => undefined,
-      profiles: new ProfileService({ layout, settings: () => committed }),
-      commit: async (_purpose, action) => {
-        commits += 1;
-        return action();
-      },
-    });
-
-    const result = await service.apply({ mixedPort: committed.mixedPort });
-
-    assert.equal(commits, 0);
-    assert.equal(result.restartRequired, false);
-    assert.equal(result.settings.mixedPort, committed.mixedPort);
-  });
-
-  it("rejects a proxy enable while Core is unhealthy without persisting desired state", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    const supervisor = {
-      status: async () => ({ running: true, healthy: false }),
-    } as unknown as CoreSupervisor;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: () => undefined,
-      profiles: new ProfileService({ layout, settings: () => committed }),
-      supervisor,
-      commit: async (_purpose, action) => action(),
-    });
-
-    await assert.rejects(() => service.apply({ systemProxy: true }), CoreUnhealthyError);
-    assert.equal(committed.systemProxy, false);
-    assert.equal(loadSettings(layout).systemProxy, false);
-  });
-
-  it("reconciles the system proxy after the core restart in a combined patch", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    let runtime = committed;
-    const order: string[] = [];
-    const supervisor = {
-      isRunning: () => true,
-      status: async () => ({ running: true, healthy: true }),
-    } as unknown as CoreSupervisor;
-    const lifecycle = {
-      restart: async () => {
-        order.push("restart");
-        return { pid: 1234 };
-      },
-      reconcileSystemProxy: async () => {
-        order.push("reconcile");
-      },
-    } as unknown as RuntimeLifecycle;
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: (next) => {
-        runtime = next;
-      },
-      profiles: new ProfileService({ layout, settings: () => committed }),
-      supervisor,
-      lifecycle,
-      commit: async (_purpose, action) => action(),
-    });
-
-    await service.apply({ mixedPort: 18888, systemProxy: true });
-
-    assert.deepEqual(order, ["restart", "reconcile"]);
-    assert.equal(committed.mixedPort, 18888);
-    assert.equal(committed.systemProxy, true);
-    assert.equal(runtime.systemProxy, true);
-  });
-  for (const online of [false, true]) {
-    for (const initiallyEnabled of [false, true]) {
-      it(`retries explicit proxy off without profile access (online=${online}, desired=${initiallyEnabled})`, async () => {
-        let committed = saveSettings(
-          { ...initialSettings(), systemProxy: initiallyEnabled },
-          layout,
-        );
-        let runtime = committed;
-        let releases = 0;
-        fs.mkdirSync(layout.profilesDir, { recursive: true });
-        fs.writeFileSync(layout.profilesIndexFile, "{ broken");
-        const release = async (): Promise<void> => {
-          releases++;
-          assert.equal(runtime.systemProxy, false);
-          assert.equal(loadSettings(layout).systemProxy, false);
-          if (releases === 1) throw new Error("release failed; journal retained");
-        };
-        const service = new SettingsService({
-          layout,
-          getCommitted: () => committed,
-          setCommitted: (next) => {
-            committed = next;
-          },
-          setRuntime: (next) => {
-            runtime = next;
-          },
-          profiles: new ProfileService({ layout, settings: () => committed }),
-          ...(online
-            ? { lifecycle: { reconcileSystemProxy: release } as unknown as RuntimeLifecycle }
-            : { releaseSystemProxy: release }),
-          commit: async (_purpose, action) => action(),
-        });
-        await assert.rejects(service.apply({ systemProxy: false }), /release failed/);
-        assert.equal(committed.systemProxy, false);
-        await service.apply({ systemProxy: false });
-        assert.equal(releases, 2);
-        assert.equal(fs.readFileSync(layout.profilesIndexFile, "utf8"), "{ broken");
-        assert.equal(fs.existsSync(layout.configFile), false);
-      });
-    }
+      service,
+      releases: () => releases,
+      applies: () => applies,
+    };
   }
-
-  it("maps a stale settings snapshot to a conflict without publishing", async () => {
-    let committed = saveSettings(initialSettings(), layout);
-    const service = new SettingsService({
-      layout,
-      getCommitted: () => committed,
-      setCommitted: (next) => {
-        committed = next;
-      },
-      setRuntime: () => {
-        assert.fail("must not publish");
-      },
-      profiles: new ProfileService({ layout, settings: () => committed }),
-      commit: async (_purpose, action) => {
-        committed = { ...committed, daemonPort: 29999 };
-        return action();
-      },
+  it("saves network preferences in one commit without restarting or rendering Core", async () => {
+    const f = fixture();
+    const oldPort = f.lifecycle.settings().mixedPort;
+    const result = await f.service.apply({ mixedPort: 18888, allowLan: true });
+    assert.equal(result.restartRequired, true);
+    assert.equal(f.state.snapshot().revision, 1);
+    assert.equal(readState(f.layout)?.settings.mixedPort, 18888);
+    assert.equal(f.lifecycle.settings().mixedPort, oldPort);
+    assert.equal(f.core.starts, 0);
+    assert.equal(fs.existsSync(f.layout.configFile), false);
+  });
+  it("rejects invalid settings and proxy enable without a healthy Core", async () => {
+    const f = fixture();
+    await assert.rejects(f.service.apply({ mixedPort: 0 }));
+    await assert.rejects(f.service.apply({ systemProxy: true }), /not healthy/);
+    assert.equal(f.state.snapshot().revision, 0);
+    assert.equal(f.state.snapshot().settings.systemProxy, false);
+    for (const field of ["controller", "secret", "daemonPort", "daemonSecret", "tun"])
+      assert.throws(() => parseSettingsPatch({ [field]: true }), /Unknown/);
+  });
+  it("persists proxy off before OS cleanup and allows an explicit retry", async () => {
+    const f = fixture(true);
+    let attempts = 0;
+    f.proxy.release = async () => {
+      assert.equal(readState(f.layout)?.settings.systemProxy, false);
+      if (++attempts === 1) throw new Error("restore failed");
+    };
+    await assert.rejects(f.service.apply({ systemProxy: false }), /restore failed/);
+    await f.service.apply({ systemProxy: false });
+    assert.equal(attempts, 2);
+  });
+  it("does not change OS state when durable preference publication fails", async () => {
+    const f = fixture(true);
+    const rename = fs.renameSync;
+    mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+      if (String(to) === f.layout.settingsFile)
+        throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+      return rename(from, to);
     });
-    await assert.rejects(service.apply({ allowLan: true }), (err: unknown) => {
-      assert.ok(err instanceof SettingsConflictError);
-      assert.equal(errorToHttp(err).status, 409);
-      assert.equal(errorToHttp(err).code, "conflict");
-      return true;
+    await assert.rejects(f.service.apply({ systemProxy: false }), /disk full/);
+    assert.equal(f.releases(), 0);
+    assert.equal(f.state.snapshot().settings.systemProxy, true);
+  });
+  it("keeps an explicit desired state observable after an OS apply failure", async () => {
+    const f = fixture();
+    f.core.running = true;
+    f.proxy.apply = async () => {
+      throw new Error("OS rejected proxy");
+    };
+    await assert.rejects(f.service.apply({ systemProxy: true }), /OS rejected proxy/);
+    assert.equal(readState(f.layout)?.settings.systemProxy, true);
+    assert.equal(f.core.running, true);
+  });
+  it("can retry an already-saved proxy-off intent without another disk write", async () => {
+    const f = fixture();
+    mock.method(fs, "renameSync", () => {
+      throw new Error("unexpected state write");
     });
-    assert.equal(fs.existsSync(layout.configFile), false);
+    await f.service.apply({ systemProxy: false });
+    assert.equal(f.releases(), 1);
+    assert.equal(f.state.snapshot().revision, 0);
   });
 });

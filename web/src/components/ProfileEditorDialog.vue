@@ -4,7 +4,6 @@
     :aria-label="t('editor.title')"
     :hint="isRemote ? t('editor.remoteWarning') : undefined"
     :content="content"
-    language="yaml"
     :loading="loading"
     :load-error="loadError"
     :saving="saving"
@@ -31,11 +30,13 @@ const content = ref("");
 const loading = ref(true);
 const saving = ref(false);
 const loadError = ref<string | null>(null);
+const revision = ref(0);
 
 onMounted(async () => {
   try {
     const result = await api.getProfileContent(props.profileId);
     content.value = result.content;
+    revision.value = result.revision;
   } catch (error) {
     loadError.value = errorText(error);
   } finally {
@@ -47,7 +48,7 @@ async function save(text: string): Promise<void> {
   if (saving.value) return;
   saving.value = true;
   try {
-    await writeProfileContent(props.profileId, text);
+    await writeProfileContent(props.profileId, text, revision.value);
     toast.success(t("toast.profileSaved", { name: props.profileName }));
     emit("close");
   } catch (error) {

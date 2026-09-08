@@ -234,7 +234,7 @@ describe("session request ownership", () => {
       await authorize();
       const pending = Promise.withResolvers<Response>();
       globalThis.fetch = async () => pending.promise;
-      const old = gateway ? api.getConfigs() : api.getSettingsFile();
+      const old = gateway ? api.getConfigs() : api.getProfiles();
       await authorize("c".repeat(64));
       pending.resolve(
         respond({ error: { code: "unauthorized", message: "Expired session" } }, 401),

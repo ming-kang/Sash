@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,7 +20,11 @@ const testFiles = testRoots.flatMap(findTestFiles).sort();
 
 const filters = process.argv.slice(2);
 const selected = filters.length
-  ? testFiles.filter((file) => filters.some((needle) => file.includes(needle)))
+  ? testFiles.filter((file) =>
+      filters.some((needle) =>
+        needle.endsWith(".test.ts") ? path.basename(file) === needle : file.includes(needle),
+      ),
+    )
   : testFiles;
 
 if (selected.length === 0) {
@@ -34,12 +39,25 @@ const noProxyEntries = [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1",
   .filter(Boolean);
 const noProxy = [...new Set(noProxyEntries)].join(",");
 
+const tempRoot = realpathSync(os.tmpdir());
+const isolation = mkdtempSync(path.join(tempRoot, "sash-test-run-"));
 const result = spawnSync(process.execPath, ["--import", "tsx", "--test", ...selected], {
   stdio: "inherit",
   // Local fixtures must never be sent through a developer's configured proxy
   // (which may itself be a running Sash/Core instance).
-  env: { ...process.env, NO_PROXY: noProxy, no_proxy: noProxy },
+  env: {
+    ...process.env,
+    NO_PROXY: noProxy,
+    no_proxy: noProxy,
+    SASH_HOME: path.join(isolation, "data"),
+    LOCALAPPDATA: path.join(isolation, "local"),
+  },
 });
+
+if (path.dirname(realpathSync(isolation)).toLowerCase() !== tempRoot.toLowerCase()) {
+  throw new Error("Test isolation directory escaped its temporary parent");
+}
+rmSync(isolation, { recursive: true, force: true });
 
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

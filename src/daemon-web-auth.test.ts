@@ -16,7 +16,7 @@ describe("daemon browser authorization", () => {
       ["POST", "/sash/core/start"],
       ["POST", "/sash/daemon/shutdown"],
       ["POST", "/sash/web/bootstrap"],
-      ["GET", "/sash/settings/file"],
+      ["GET", "/sash/autostart"],
       ["GET", "/core/api/version"],
     ]) {
       assert.ok(method && pathname);
@@ -62,11 +62,11 @@ describe("daemon browser authorization", () => {
     assert.equal(session.daemonToken, instance.token);
     assert.notEqual(session.token, bootstrap.token);
     assert.equal(
-      (await h.apiRequest("/sash/settings/file", { webToken: session.token })).statusCode,
+      (await h.apiRequest("/sash/autostart", { webToken: session.token })).statusCode,
       200,
     );
     assert.equal(
-      (await h.apiRequest("/sash/settings/file", { webToken: bootstrap.token })).statusCode,
+      (await h.apiRequest("/sash/autostart", { webToken: bootstrap.token })).statusCode,
       401,
     );
   });
@@ -124,18 +124,14 @@ describe("daemon browser authorization", () => {
     await before.close();
     const after = await h.startServer();
     assert.notEqual(after.token, before.token);
-    assert.equal(
-      (await h.apiRequest("/sash/settings/file", { webToken: session })).statusCode,
-      401,
-    );
+    assert.equal((await h.apiRequest("/sash/autostart", { webToken: session })).statusCode, 401);
     assert.equal(
       (await h.apiRequest("/sash/web/session", { method: "POST", token: "", body: bootstrap }))
         .statusCode,
       401,
     );
     assert.equal(
-      (await h.apiRequest("/sash/settings/file", { webToken: await h.mintWebSession() }))
-        .statusCode,
+      (await h.apiRequest("/sash/autostart", { webToken: await h.mintWebSession() })).statusCode,
       200,
     );
   });

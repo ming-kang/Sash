@@ -49,7 +49,6 @@
 
 <script setup lang="ts">
 import { StreamLanguage } from "@codemirror/language";
-import { json } from "@codemirror/legacy-modes/mode/javascript";
 import { yaml } from "@codemirror/legacy-modes/mode/yaml";
 import { EditorState } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -65,7 +64,6 @@ const props = withDefaults(
   defineProps<{
     title: string;
     content: string;
-    language: "json" | "yaml";
     loading: boolean;
     loadError: string | null;
     saving: boolean;
@@ -92,7 +90,7 @@ function createEditor(): void {
       doc: props.content,
       extensions: [
         basicSetup,
-        StreamLanguage.define(props.language === "yaml" ? yaml : json),
+        StreamLanguage.define(yaml),
         EditorView.theme({}, { dark }),
         EditorView.lineWrapping,
         ...(dark ? [oneDark] : []),
