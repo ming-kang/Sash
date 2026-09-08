@@ -1,6 +1,7 @@
 import { MihomoApi } from "./api.js";
 import type { CoreStartResult } from "./contracts.js";
 import type { StagedCore } from "./core.js";
+import { ensureCoreIntegrityRecords } from "./core-install-verification.js";
 import {
   type CoreUpdateOptions,
   type CoreUpdateResult,
@@ -51,11 +52,13 @@ export class RuntimeLifecycle {
   }
 
   async recoverStartup(): Promise<void> {
+    if (readCoreUpdateTransaction(this.options.layout))
+      await ensureCoreIntegrityRecords(this.options.layout);
     await this.options.systemProxy.release();
     await this.options.supervisor.cleanStaleCore();
     if (readCoreUpdateTransaction(this.options.layout)) await this.requireVacantController();
     recoverBinaryUnlockProbe(this.options.layout.coreExe);
-    recoverCoreUpdateTransaction(this.options.layout, this.options.verifyExecutable);
+    recoverCoreUpdateTransaction(this.options.layout);
   }
 
   private async requireVacantController(): Promise<void> {

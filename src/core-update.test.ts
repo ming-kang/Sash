@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,12 +29,19 @@ describe("Core binary transaction", () => {
   });
   function seed() {
     fs.writeFileSync(layout.coreExe, "v1-core");
-    writeInstallRecord({ coreVersion: "v1", installedAt: "2026-01-01T00:00:00.000Z" }, layout);
+    writeInstallRecord(
+      {
+        coreVersion: "v1",
+        installedAt: "2026-01-01T00:00:00.000Z",
+        sha256: crypto.hash("sha256", "v1-core"),
+      },
+      layout,
+    );
   }
   function staged() {
     const exe = path.join(layout.binDir, "candidate");
     fs.writeFileSync(exe, "v2-core");
-    return { exe, version: "v2" };
+    return { exe, version: "v2", sha256: crypto.hash("sha256", "v2-core") };
   }
   function verify(exe: string, version: string) {
     assert.equal(fs.readFileSync(exe, "utf8"), `${version}-core`, "binary version mismatch");
@@ -57,11 +65,59 @@ describe("Core binary transaction", () => {
       version: 1,
       phase,
       previous: readInstallRecord(layout) ?? null,
-      target: { coreVersion: "v2", installedAt: "2026-09-08T00:00:00.000Z" },
+      target: {
+        coreVersion: "v2",
+        installedAt: "2026-09-08T00:00:00.000Z",
+        sha256: crypto.hash("sha256", "v2-core"),
+      },
     };
   }
   function saveJournal(value: CoreUpdateTransaction) {
     fs.writeFileSync(layout.coreUpdateTransactionFile, JSON.stringify(value));
+  }
+
+  for (const slot of ["current", "staged"]) {
+    it(`rejects tampered ${slot} bytes before any executable probe or runtime change`, async (t) => {
+      seed();
+      const candidate = staged();
+      const file = slot === "current" ? layout.coreExe : candidate.exe;
+      fs.appendFileSync(file, "modified without changing its claimed version");
+      const metadata = fs.readFileSync(layout.installFile, "utf8");
+      const probe = t.mock.fn(verify);
+      const events: string[] = [];
+      await assert.rejects(
+        commitCoreUpdate({
+          layout,
+          staged: candidate,
+          runtime: runtime(events),
+          verifyExecutable: probe,
+        }),
+        /SHA-256 mismatch/,
+      );
+      assert.equal(probe.mock.callCount(), 0);
+      assert.deepEqual(events, []);
+      assert.equal(fs.readFileSync(layout.installFile, "utf8"), metadata);
+      assert.equal(fs.existsSync(layout.coreUpdateTransactionFile), false);
+      assert.match(fs.readFileSync(file, "utf8"), /modified/);
+    });
+  }
+
+  for (const slot of ["current", "backup"]) {
+    it(`preserves both slots and the journal if ${slot} bytes changed before recovery`, () => {
+      seed();
+      const transaction = journal("swapped");
+      fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
+      fs.writeFileSync(layout.coreExe, "v2-core");
+      writeInstallRecord(transaction.target, layout);
+      saveJournal(transaction);
+      fs.appendFileSync(slot === "current" ? layout.coreExe : `${layout.coreExe}.bak`, "tampered");
+      const current = fs.readFileSync(layout.coreExe, "utf8");
+      const backup = fs.readFileSync(`${layout.coreExe}.bak`, "utf8");
+      assert.throws(() => recoverCoreUpdateTransaction(layout), /SHA-256 mismatch/);
+      assert.equal(fs.readFileSync(layout.coreExe, "utf8"), current);
+      assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), backup);
+      assert.deepEqual(readCoreUpdateTransaction(layout), transaction);
+    });
   }
 
   it("retains .bak through health and proxy restoration, then commits", async () => {
@@ -176,8 +232,8 @@ describe("Core binary transaction", () => {
       if (point >= 1) fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
       if (point >= 2) fs.writeFileSync(layout.coreExe, "v2-core");
       if (point >= 3) writeInstallRecord(value.target, layout);
-      recoverCoreUpdateTransaction(layout, verify);
-      recoverCoreUpdateTransaction(layout, verify);
+      recoverCoreUpdateTransaction(layout);
+      recoverCoreUpdateTransaction(layout);
       assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
       assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
       assert.equal(readCoreUpdateTransaction(layout), undefined);
@@ -191,7 +247,7 @@ describe("Core binary transaction", () => {
     fs.writeFileSync(layout.coreExe, "v2-core");
     writeInstallRecord(value.target, layout);
     fs.unlinkSync(`${layout.coreExe}.bak`);
-    recoverCoreUpdateTransaction(layout, verify);
+    recoverCoreUpdateTransaction(layout);
     assert.equal(readInstallRecord(layout)?.coreVersion, "v2");
     assert.equal(readCoreUpdateTransaction(layout), undefined);
   });
@@ -216,7 +272,7 @@ describe("Core binary transaction", () => {
     assert.equal(readCoreUpdateTransaction(layout)?.phase, "verified");
     assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
     mock.restoreAll();
-    recoverCoreUpdateTransaction(layout, verify);
+    recoverCoreUpdateTransaction(layout);
     assert.equal(readCoreUpdateTransaction(layout), undefined);
   });
 
@@ -225,7 +281,7 @@ describe("Core binary transaction", () => {
     const value = journal("swapped");
     saveJournal(value);
     fs.writeFileSync(layout.coreExe, "v2-core");
-    assert.throws(() => recoverCoreUpdateTransaction(layout, verify), /mismatch/);
+    assert.throws(() => recoverCoreUpdateTransaction(layout), /mismatch/);
     assert.equal(readCoreUpdateTransaction(layout)?.phase, "swapped");
     for (const invalid of [
       "{bad",
@@ -239,7 +295,7 @@ describe("Core binary transaction", () => {
     }
     fs.unlinkSync(layout.coreUpdateTransactionFile);
     fs.writeFileSync(`${layout.coreExe}.bak`, "unknown");
-    assert.throws(() => recoverCoreUpdateTransaction(layout, verify), /no ownership journal/);
+    assert.throws(() => recoverCoreUpdateTransaction(layout), /no ownership journal/);
     assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), "unknown");
   });
 });

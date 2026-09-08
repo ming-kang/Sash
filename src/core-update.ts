@@ -7,6 +7,7 @@ import {
   readInstallRecord,
   writeInstallRecord,
 } from "./core-install-record.js";
+import { assertCoreBinaryDigest } from "./core-integrity.js";
 import {
   atomicWriteFileSync,
   durableRemoveFileSync,
@@ -42,11 +43,8 @@ export interface CoreUpdateOptions {
 export interface CoreUpdateResult {
   version: string;
 }
-type Verifier = NonNullable<CoreUpdateOptions["verifyExecutable"]>;
-
-function verifyBinary(file: string, version: string, verify: Verifier): void {
-  if (!fs.lstatSync(file).isFile()) throw new Error(`Core binary must be a regular file: ${file}`);
-  verify(file, version);
+function verifyBinary(file: string, record: Pick<InstallRecord, "sha256">): void {
+  assertCoreBinaryDigest(file, record.sha256);
 }
 
 function defaultVerifier(exe: string, version: string): void {
@@ -81,7 +79,10 @@ export function readCoreUpdateTransaction(layout: SashLayout): CoreUpdateTransac
   return { version: 1, phase: value.phase as CoreUpdateTransaction["phase"], previous, target };
 }
 
-function writeJournal(layout: SashLayout, transaction: CoreUpdateTransaction): void {
+export function writeCoreUpdateTransaction(
+  layout: SashLayout,
+  transaction: CoreUpdateTransaction,
+): void {
   atomicWriteFileSync(
     layout.coreUpdateTransactionFile,
     `${JSON.stringify(transaction, null, 2)}\n`,
@@ -92,29 +93,25 @@ function clearJournal(layout: SashLayout): void {
   durableRemoveFileSync(layout.coreUpdateTransactionFile);
 }
 
-function restoreFiles(
-  layout: SashLayout,
-  transaction: CoreUpdateTransaction,
-  verify: Verifier,
-): void {
+function restoreFiles(layout: SashLayout, transaction: CoreUpdateTransaction): void {
   const backup = `${layout.coreExe}.bak`;
   if (transaction.previous) {
     if (pathEntryExists(backup)) {
-      verifyBinary(backup, transaction.previous.coreVersion, verify);
+      verifyBinary(backup, transaction.previous);
       if (pathEntryExists(layout.coreExe)) {
-        verifyBinary(layout.coreExe, transaction.target.coreVersion, verify);
+        verifyBinary(layout.coreExe, transaction.target);
         durableRemoveFileSync(layout.coreExe);
       }
       durableRenameSync(backup, layout.coreExe);
     } else {
       // Also covers interruption after restoring the binary but before its metadata.
-      verifyBinary(layout.coreExe, transaction.previous.coreVersion, verify);
+      verifyBinary(layout.coreExe, transaction.previous);
     }
     writeInstallRecord(transaction.previous, layout);
   } else {
     if (pathEntryExists(backup)) throw new Error("Unexpected Core backup for a first install");
     if (pathEntryExists(layout.coreExe)) {
-      verifyBinary(layout.coreExe, transaction.target.coreVersion, verify);
+      verifyBinary(layout.coreExe, transaction.target);
       durableRemoveFileSync(layout.coreExe);
     }
     if (pathEntryExists(layout.installFile)) {
@@ -125,37 +122,30 @@ function restoreFiles(
   }
 }
 
-function finishVerified(
-  layout: SashLayout,
-  transaction: CoreUpdateTransaction,
-  verify: Verifier,
-): void {
-  verifyBinary(layout.coreExe, transaction.target.coreVersion, verify);
+function finishVerified(layout: SashLayout, transaction: CoreUpdateTransaction): void {
+  verifyBinary(layout.coreExe, transaction.target);
   if (!installRecordsEqual(readInstallRecord(layout), transaction.target))
     throw new Error("Verified Core install metadata changed");
   const backup = `${layout.coreExe}.bak`;
   if (pathEntryExists(backup)) {
     if (!transaction.previous) throw new Error("Unexpected backup for a first install");
-    verifyBinary(backup, transaction.previous.coreVersion, verify);
+    verifyBinary(backup, transaction.previous);
     durableRemoveFileSync(backup);
   }
   clearJournal(layout);
 }
 
 /** Called by the daemon after proxy recovery and verified orphan termination. */
-export function recoverCoreUpdateTransaction(
-  layout: SashLayout,
-  verify: Verifier = defaultVerifier,
-): void {
+export function recoverCoreUpdateTransaction(layout: SashLayout): void {
   const transaction = readCoreUpdateTransaction(layout);
   if (!transaction) {
     if (pathEntryExists(`${layout.coreExe}.bak`))
       throw new Error("Core backup has no ownership journal; preserved for inspection");
     return;
   }
-  if (transaction.phase === "verified") finishVerified(layout, transaction, verify);
+  if (transaction.phase === "verified") finishVerified(layout, transaction);
   else {
-    restoreFiles(layout, transaction, verify);
+    restoreFiles(layout, transaction);
     clearJournal(layout);
   }
 }
@@ -176,31 +166,36 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
       "Core installation is inconsistent; preserve its files and reinstall into a clean data directory",
     );
   }
-  if (previous) verifyBinary(layout.coreExe, previous.coreVersion, verify);
-  verifyBinary(staged.exe, staged.version, verify);
+  if (previous) verifyBinary(layout.coreExe, previous);
+  verifyBinary(staged.exe, staged);
+  verify(staged.exe, staged.version);
   await runtime.stop();
   let transaction: CoreUpdateTransaction = {
     version: 1,
     phase: "prepared",
     previous,
-    target: { coreVersion: staged.version, installedAt: new Date().toISOString() },
+    target: {
+      coreVersion: staged.version,
+      installedAt: new Date().toISOString(),
+      sha256: staged.sha256,
+    },
   };
   let committed = false;
   try {
-    writeJournal(layout, transaction);
+    writeCoreUpdateTransaction(layout, transaction);
     await waitForBinaryUnlocked(layout.coreExe);
     if (previous) durableRenameSync(layout.coreExe, `${layout.coreExe}.bak`);
     durableRenameSync(staged.exe, layout.coreExe);
     writeInstallRecord(transaction.target, layout);
     transaction = { ...transaction, phase: "swapped" };
-    writeJournal(layout, transaction);
+    writeCoreUpdateTransaction(layout, transaction);
     await runtime.startAndVerify(staged.version);
     if (runtime.wasRunning) await runtime.applySystemProxy();
     else await runtime.stop();
     transaction = { ...transaction, phase: "verified" };
-    writeJournal(layout, transaction);
+    writeCoreUpdateTransaction(layout, transaction);
     committed = true;
-    finishVerified(layout, transaction, verify);
+    finishVerified(layout, transaction);
     return { version: staged.version };
   } catch (error) {
     if (committed || readCoreUpdateTransaction(layout)?.phase === "verified") throw error;
@@ -208,7 +203,7 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
       // Never replace a binary while candidate termination is uncertain.
       await runtime.stop();
       const journal = readCoreUpdateTransaction(layout);
-      if (journal) restoreFiles(layout, journal, verify);
+      if (journal) restoreFiles(layout, journal);
       if (runtime.wasRunning && previous) {
         await runtime.startAndVerify(previous.coreVersion);
         await runtime.applySystemProxy();

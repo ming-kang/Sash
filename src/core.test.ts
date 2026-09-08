@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -129,7 +130,12 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      await extractCoreArchive(zipPath, "mihomo-windows-amd64-v1.19.30.zip", destExe);
+      const digest = await extractCoreArchive(
+        zipPath,
+        "mihomo-windows-amd64-v1.19.30.zip",
+        destExe,
+      );
+      assert.equal(digest, crypto.hash("sha256", fakeExeData));
 
       assert.equal(fs.existsSync(destExe), true);
       assert.deepEqual(fs.readFileSync(destExe), fakeExeData);
@@ -158,7 +164,8 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      await extractCoreArchive(gzPath, "mihomo-linux-amd64-v1.19.30.gz", destExe);
+      const digest = await extractCoreArchive(gzPath, "mihomo-linux-amd64-v1.19.30.gz", destExe);
+      assert.equal(digest, crypto.hash("sha256", fakeBinaryData));
 
       assert.equal(fs.existsSync(destExe), true);
       assert.deepEqual(fs.readFileSync(destExe), fakeBinaryData);
@@ -294,7 +301,11 @@ describe("core", () => {
       assert.equal(currentCoreVersion(layout), "");
       assert.equal(coreInstalled(layout), false);
 
-      const record = { coreVersion: "v1.19.30", installedAt: "2025-01-01T00:00:00.000Z" };
+      const record = {
+        coreVersion: "v1.19.30",
+        installedAt: "2025-01-01T00:00:00.000Z",
+        sha256: crypto.hash("sha256", "binary"),
+      };
       writeInstallRecord(record, layout);
 
       assert.deepEqual(readInstallRecord(layout), record);
@@ -322,7 +333,11 @@ describe("core", () => {
 
     it("fails closed when valid metadata exists without the binary", () => {
       writeInstallRecord(
-        { coreVersion: "v1.19.30", installedAt: "2025-01-01T00:00:00.000Z" },
+        {
+          coreVersion: "v1.19.30",
+          installedAt: "2025-01-01T00:00:00.000Z",
+          sha256: "a".repeat(64),
+        },
         layout,
       );
       assert.equal(coreInstalled(layout), false);

@@ -11,6 +11,9 @@ import {
   stageCore,
 } from "../core.js";
 import { validateCoreConfig } from "../core-config-validation.js";
+import { readInstallRecord } from "../core-install-record.js";
+import { ensureCoreIntegrityRecords } from "../core-install-verification.js";
+import { assertCoreBinaryDigest } from "../core-integrity.js";
 import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
@@ -86,6 +89,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     controllerProbe: deps.controllerProbe,
   });
   let downloading = false;
+  let verifyingIntegrity: Promise<void> | undefined;
   let preparation = new AbortController();
   let profiles: ProfileService;
   const cancelPreparations = (): void => {
@@ -106,12 +110,15 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     generated: GeneratedConfig,
     executable: string,
     signal: AbortSignal,
-  ): Promise<void> =>
-    Promise.resolve(
+    sha256 = readInstallRecord(layout)?.sha256,
+  ): Promise<void> => {
+    assertCoreBinaryDigest(executable, sha256);
+    return Promise.resolve(
       deps.validateConfigFn
         ? deps.validateConfigFn(generated, executable, signal)
         : validateCoreConfig(executable, generated.yaml, layout, { signal }),
     );
+  };
 
   const savedConfiguration = (): RuntimeConfiguration => {
     const snapshot = state.snapshot();
@@ -133,21 +140,38 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       );
   };
 
+  const verifyInstalledIntegrity = (): Promise<void> => {
+    const { signal } = preparation;
+    verifyingIntegrity ??= ensureCoreIntegrityRecords(
+      layout,
+      (tag) => (deps.stageCoreFn ?? stageCore)({ layout, tag, signal }),
+      signal,
+    ).finally(() => {
+      verifyingIntegrity = undefined;
+    });
+    return verifyingIntegrity;
+  };
+
   const updateCore = async (version?: string): Promise<CoreUpdateResult> => {
     if (gate.isClosing) throw new Error("sashd is shutting down");
     if (downloading) throw new StateConflictError("A Core download is already in progress");
     requireRecoveredInstall();
-    const revision = state.snapshot().revision;
-    const epoch = lifecycle.revision;
-    const configuration = supervisor.isRunning() ? lifecycle.configuration() : savedConfiguration();
-    if (!configuration) throw new Error("Running Core configuration is unknown");
     const { signal } = preparation;
     downloading = true;
     let staged: StagedCore | undefined;
     try {
+      await verifyInstalledIntegrity();
+      signal.throwIfAborted();
+      requireRecoveredInstall();
+      const revision = state.snapshot().revision;
+      const epoch = lifecycle.revision;
+      const configuration = supervisor.isRunning()
+        ? lifecycle.configuration()
+        : savedConfiguration();
+      if (!configuration) throw new Error("Running Core configuration is unknown");
       staged = await (deps.stageCoreFn ?? stageCore)({ layout, tag: version, signal });
       signal.throwIfAborted();
-      await validate(configuration.generated, staged.exe, signal);
+      await validate(configuration.generated, staged.exe, signal, staged.sha256);
       const candidate = staged;
       return await mutate("update Core", async () => {
         signal.throwIfAborted();
@@ -174,6 +198,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
 
   const applyCore = async (onlyIfStopped = false) => {
     const { signal } = preparation;
+    requireRecoveredInstall();
+    await verifyInstalledIntegrity();
+    signal.throwIfAborted();
     if (!coreInstalled(layout)) await updateCore();
     return mutate("apply saved configuration", async () => {
       signal.throwIfAborted();

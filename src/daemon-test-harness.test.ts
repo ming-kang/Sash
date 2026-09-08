@@ -8,6 +8,7 @@ import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
 import type { AutostartController } from "./autostart.js";
 import { writeInstallRecord } from "./core-install-record.js";
+import { coreBinarySha256 } from "./core-integrity.js";
 import {
   type CoreSupervisor,
   createDaemonServer,
@@ -112,7 +113,11 @@ export class DaemonTestHarness {
       fs.mkdirSync(this.layout.binDir, { recursive: true });
       fs.writeFileSync(this.layout.coreExe, "v1.0.0-core");
       writeInstallRecord(
-        { coreVersion: "v1.0.0", installedAt: "2026-09-08T00:00:00.000Z" },
+        {
+          coreVersion: "v1.0.0",
+          installedAt: "2026-09-08T00:00:00.000Z",
+          sha256: coreBinarySha256(this.layout.coreExe),
+        },
         this.layout,
       );
     }

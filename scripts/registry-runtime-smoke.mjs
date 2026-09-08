@@ -198,7 +198,14 @@ try {
   fs.mkdirSync(layout.binDir, { recursive: true });
   await extractCoreArchive(archive, asset.name, layout.coreExe);
   verifyCoreExecutable(layout.coreExe, 5000, CORE_VERSION);
-  writeInstallRecord({ coreVersion: CORE_VERSION, installedAt: new Date().toISOString() }, layout);
+  writeInstallRecord(
+    {
+      coreVersion: CORE_VERSION,
+      installedAt: new Date().toISOString(),
+      sha256: await sha256File(layout.coreExe),
+    },
+    layout,
+  );
   const preview = YAML.parse(renderActiveConfig(readState(layout), layout).yaml);
   assert.equal(preview.tun.enable, false);
   await cli(["web", "--no-open"]);

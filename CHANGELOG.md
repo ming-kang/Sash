@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Remove alternate controller sockets/pipes and tunnels from generated configurations, and reject custom listeners before changing a running Core.
 - Require authentication to read settings and profile metadata; redact subscription URLs from unauthenticated daemon status while preserving authorized CLI and dashboard access.
+- Record extracted Core binary SHA-256 digests and verify installed, staged and rollback files before execution or recovery. Authenticate existing version-only records against official release artifacts before adding their digests.
 
 ### Fixed
 

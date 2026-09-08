@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { MihomoApi } from "./api.js";
+import { readInstallRecord } from "./core-install-record.js";
+import { assertCoreBinaryDigest } from "./core-integrity.js";
 import { containsCoreVersionToken } from "./core-version.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
 import type { SashLayout } from "./paths.js";
@@ -100,6 +102,7 @@ export class CoreSupervisor {
   }
 
   private defaultSpawn(layout: SashLayout, _settings: SashSettings): ChildProcess {
+    assertCoreBinaryDigest(layout.coreExe, readInstallRecord(layout)?.sha256);
     fs.mkdirSync(layout.logsDir, { recursive: true });
     fs.mkdirSync(layout.stateDir, { recursive: true });
 

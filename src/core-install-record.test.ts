@@ -30,18 +30,26 @@ describe("Core install record codec", () => {
     const record = {
       coreVersion: "v1.2.3",
       installedAt: "2026-01-01T00:00:00.000Z",
+      sha256: "a".repeat(64),
     };
 
     assert.deepEqual(parseInstallRecord(record), record);
     assert.equal(parseInstallRecord({ ...record, extra: true }), undefined);
     assert.equal(parseInstallRecord({ ...record, installedAt: "2026-01-01" }), undefined);
     assert.equal(parseInstallRecord({ ...record, coreVersion: "../../escape" }), undefined);
+    for (const sha256 of [null, undefined, "", "a".repeat(63), "A".repeat(64)]) {
+      assert.equal(parseInstallRecord({ ...record, sha256 }), undefined);
+    }
+    const versionOnly = { coreVersion: record.coreVersion, installedAt: record.installedAt };
+    assert.deepEqual(parseInstallRecord(versionOnly), versionOnly);
+    assert.throws(() => writeInstallRecord(versionOnly, layout), /verified Core SHA-256/);
   });
 
   it("writes, reads, and reports one canonical committed record", () => {
     const record = {
       coreVersion: "v1.2.3",
       installedAt: "2026-01-01T00:00:00.000Z",
+      sha256: "a".repeat(64),
     };
 
     writeInstallRecord(record, layout);

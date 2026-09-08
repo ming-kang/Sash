@@ -32,7 +32,7 @@
 
 ## 批次 2 — 架构小件
 
-- [ ] **核心二进制哈希验证**（M）：`InstallRecord` 与更新 journal 存解压后二进制的
+- [x] **核心二进制哈希验证**（M）：`InstallRecord` 与更新 journal 存解压后二进制的
   SHA-256（下载时已知，`src/github.ts:213,241`）；`verifyBinary`/`restoreFiles`/恢复路径
   在执行前先验哈希，执行探测仅作健康检查（`src/core-update.ts:47-126`、`src/core-install-record.ts:8-11`）
 - [ ] **mutation queue 可观测**（S）：记录当前变更 purpose 与起始时间（`src/daemon/context.ts:29`

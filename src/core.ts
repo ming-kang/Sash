@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import crypto, { type Hash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -11,6 +12,7 @@ import {
   validateCoreReleaseTag,
   writeInstallRecord,
 } from "./core-install-record.js";
+import { assertCoreBinaryDigest, CORE_BINARY_SIZE_LIMIT } from "./core-integrity.js";
 import { containsCoreVersionToken } from "./core-version.js";
 import { pathEntryExists } from "./fs-atomic.js";
 import {
@@ -66,17 +68,16 @@ export function mihomoAssetCandidates(
   return [`mihomo-${os}-arm64-${tag}.${ext}`];
 }
 
-const EXTRACT_SIZE_LIMIT = 512 * 1024 * 1024;
-
-function createCoreExtractionLimiter(): Transform {
+function createCoreExtractionLimiter(hash: Hash): Transform {
   let bytes = 0;
   return new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       bytes += chunk.length;
-      if (bytes > EXTRACT_SIZE_LIMIT) {
+      if (bytes > CORE_BINARY_SIZE_LIMIT) {
         callback(new Error("Extracted binary exceeds 512MB safety limit"));
         return;
       }
+      hash.update(chunk);
       callback(null, chunk);
     },
   });
@@ -87,8 +88,9 @@ export async function extractCoreArchive(
   archivePath: string,
   assetName: string,
   destExe: string,
-): Promise<void> {
+): Promise<string> {
   const extracted = `${destExe}.extracted`;
+  const hash = crypto.createHash("sha256");
   try {
     if (assetName.endsWith(".zip")) {
       if (fs.statSync(archivePath).size > RELEASE_ASSET_SIZE_LIMIT) {
@@ -110,7 +112,7 @@ export async function extractCoreArchive(
           !candidate.isDirectory && /^mihomo.*\.exe$/i.test(path.basename(candidate.entryName)),
       );
       if (!entry) throw new Error(`No mihomo*.exe found inside ${assetName}`);
-      if (entry.header.size > EXTRACT_SIZE_LIMIT) {
+      if (entry.header.size > CORE_BINARY_SIZE_LIMIT) {
         throw new Error("Extracted binary exceeds 512MB safety limit");
       }
       const header = entry.header as typeof entry.header & { readonly encrypted?: boolean };
@@ -123,12 +125,12 @@ export async function extractCoreArchive(
       const compressed = entry.getCompressedData();
       const output = fs.createWriteStream(extracted, { mode: 0o755 });
       if (header.method === 0) {
-        await pipeline(Readable.from([compressed]), createCoreExtractionLimiter(), output);
+        await pipeline(Readable.from([compressed]), createCoreExtractionLimiter(hash), output);
       } else {
         await pipeline(
           Readable.from([compressed]),
           zlib.createInflateRaw(),
-          createCoreExtractionLimiter(),
+          createCoreExtractionLimiter(hash),
           output,
         );
       }
@@ -138,13 +140,14 @@ export async function extractCoreArchive(
       await pipeline(
         fs.createReadStream(archivePath),
         zlib.createGunzip(),
-        createCoreExtractionLimiter(),
+        createCoreExtractionLimiter(hash),
         fs.createWriteStream(extracted, { mode: 0o755 }),
       );
     } else {
       throw new Error(`Unsupported archive type: ${assetName}`);
     }
     fs.renameSync(extracted, destExe);
+    return hash.digest("hex");
   } catch (err) {
     fs.rmSync(extracted, { force: true });
     throw err;
@@ -165,6 +168,7 @@ export interface CoreInstallOptions {
 export interface StagedCore {
   version: string;
   exe: string;
+  sha256: string;
 }
 
 /** Execute a staged binary before it is allowed to replace the installed core. */
@@ -214,11 +218,12 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
       dest: archivePath,
       onProgress: opts.onProgress,
     });
-    await extractCoreArchive(archivePath, assetName, stagedExe);
+    const sha256 = await extractCoreArchive(archivePath, assetName, stagedExe);
     opts.signal?.throwIfAborted();
     fs.chmodSync(stagedExe, 0o755);
+    assertCoreBinaryDigest(stagedExe, sha256);
     verifyCoreExecutable(stagedExe, 5000, tag);
-    return { version: tag, exe: stagedExe };
+    return { version: tag, exe: stagedExe, sha256 };
   } catch (err) {
     fs.rmSync(stagedExe, { force: true });
     throw err;
@@ -251,7 +256,11 @@ export function assertCoreInstallationConsistent(layout: SashLayout = sashLayout
   const binaryValid = isRegularFile(layout.coreExe);
   const record = readInstallRecord(layout);
 
-  if ((!binaryExists && !installRecordExists) || (binaryValid && record)) return;
+  if (!binaryExists && !installRecordExists) return;
+  if (binaryValid && record) {
+    if (record.sha256) assertCoreBinaryDigest(layout.coreExe, record.sha256);
+    return;
+  }
 
   const reason = binaryExists
     ? record

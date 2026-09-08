@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -14,8 +15,26 @@ describe("daemon-owned Core updates", () => {
     fs.mkdirSync(h.layout.tempDir, { recursive: true });
     const exe = path.join(h.layout.tempDir, "candidate");
     fs.writeFileSync(exe, "v2-core");
-    return { exe, version: "v2" };
+    return { exe, version: "v2", sha256: crypto.hash("sha256", "v2-core") };
   }
+  it("rejects modified installed bytes before config validation or Core execution", async () => {
+    let validations = 0;
+    await h.startServer({
+      validateConfig: () => {
+        validations += 1;
+      },
+    });
+    fs.appendFileSync(h.layout.coreExe, "tampered");
+    const result = await h.apiRequest("/sash/core/start", { method: "POST" });
+    assert.equal(result.statusCode, 500);
+    assert.match(JSON.stringify(result.data), /SHA-256 mismatch/);
+    assert.equal(validations, 0);
+    assert.equal(fs.existsSync(h.layout.configFile), false);
+    assert.equal(
+      parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data).core.running,
+      false,
+    );
+  });
   for (const running of [false, true])
     it(`finishes validation without restarting daemon or invalidating sessions (running=${running})`, async () => {
       await h.startServer({ stageCore: stage });
@@ -85,7 +104,11 @@ describe("daemon-owned Core updates", () => {
         version: 1,
         phase: "prepared",
         previous: readInstallRecord(h.layout),
-        target: { coreVersion: "v2", installedAt: "2026-09-08T00:00:00.000Z" },
+        target: {
+          coreVersion: "v2",
+          installedAt: "2026-09-08T00:00:00.000Z",
+          sha256: crypto.hash("sha256", "v2-core"),
+        },
       }),
     );
     assert.equal((await h.apiRequest("/sash/core/restart", { method: "POST" })).statusCode, 409);

@@ -69,6 +69,10 @@ Unexpected Core exits trigger bounded proxy-restoration retries. Late child even
 
 Core acquisition selects an unmodified upstream release artifact using official GitHub metadata. Mirrors transport bytes only. Initial URLs and redirects must be HTTPS and host-allowlisted; the complete archive must match the official SHA-256 digest. Archives are capped at 128 MiB, extraction at 512 MiB, ZIP paths cannot escape, and the staged executable must report the exact requested version.
 
+Extraction also hashes the decompressed executable. New install records and update journals retain this SHA-256; configuration validation and process startup check it before executing Core. Recovery authenticates each binary slot against its journal digest before moving or removing files. Executable probes serve as health checks.
+
+Existing version-only install records remain readable. Before their next Core start or update, Sash obtains the same official release, verifies its archive, and compares the extracted digest with the installed file before adding the digest atomically. Existing interrupted journals receive the same verification before recovery. A failed lookup, cancellation, changed metadata or digest mismatch preserves the existing binary and its ownership records.
+
 App captures the applied configuration when Core is running, or saved configuration when it is stopped. Download and candidate config validation leave management responsive. Before publication the queue rechecks saved-state and runtime revisions.
 
 `core-update.ts` receives only the staged executable and runtime callbacks. Its fixed journal contains previous/target install records and three phases:

@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import { isSha256 } from "./core-integrity.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
+import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
 const INSTALL_RECORD_SIZE_LIMIT = 16 * 1024;
@@ -8,6 +9,8 @@ const INSTALL_RECORD_SIZE_LIMIT = 16 * 1024;
 export interface InstallRecord {
   coreVersion: string;
   installedAt: string;
+  /** Absent only in existing version-only records awaiting official artifact verification. */
+  sha256?: string;
 }
 
 export function validateCoreReleaseTag(tag: string): string {
@@ -19,7 +22,11 @@ export function validateCoreReleaseTag(tag: string): string {
 }
 
 export function parseInstallRecord(value: unknown): InstallRecord | undefined {
-  if (!isPlainObject(value) || !hasExactOwnKeys(value, ["coreVersion", "installedAt"])) {
+  if (
+    !isPlainObject(value) ||
+    Object.keys(value).some((key) => !["coreVersion", "installedAt", "sha256"].includes(key)) ||
+    (Object.hasOwn(value, "sha256") && !isSha256(value.sha256))
+  ) {
     return undefined;
   }
   if (typeof value.coreVersion !== "string" || !isCanonicalIsoTimestamp(value.installedAt)) {
@@ -29,6 +36,7 @@ export function parseInstallRecord(value: unknown): InstallRecord | undefined {
     return {
       coreVersion: validateCoreReleaseTag(value.coreVersion),
       installedAt: value.installedAt,
+      ...(typeof value.sha256 === "string" ? { sha256: value.sha256 } : {}),
     };
   } catch {
     return undefined;
@@ -50,9 +58,10 @@ export function writeInstallRecord(record: InstallRecord, layout: SashLayout = s
   if (!isCanonicalIsoTimestamp(record.installedAt)) {
     throw new Error(`Invalid Core install timestamp: ${record.installedAt}`);
   }
+  if (!isSha256(record.sha256)) throw new Error("A verified Core SHA-256 is required");
   atomicWriteFileSync(
     layout.installFile,
-    `${JSON.stringify({ coreVersion, installedAt: record.installedAt }, null, 2)}\n`,
+    `${JSON.stringify({ coreVersion, installedAt: record.installedAt, sha256: record.sha256 }, null, 2)}\n`,
   );
 }
 
@@ -66,5 +75,9 @@ export function installRecordsEqual(
   right: InstallRecord | null,
 ): boolean {
   if (!left || !right) return left === undefined && right === null;
-  return left.coreVersion === right.coreVersion && left.installedAt === right.installedAt;
+  return (
+    left.coreVersion === right.coreVersion &&
+    left.installedAt === right.installedAt &&
+    left.sha256 === right.sha256
+  );
 }
