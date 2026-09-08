@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add a source development launcher with separate data and ports, plus a `build` command for the WebUI.
+
 ## [0.1.1] - 2026-09-08
 
 ### Fixed

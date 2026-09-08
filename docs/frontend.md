@@ -6,6 +6,20 @@ The WebUI is a Vue 3 application built with Vite and bundled into `dist/ui/`. sa
 
 ## 1. Build and Quality Gates
 
+For local source development, run `node scripts/dev.mjs web`. The launcher uses
+`tsx` for both the CLI and daemon and creates a separate data directory by
+appending `-dev` to the platform's normal Sash directory. Its initial mixed,
+controller and dashboard ports are `18890`, `18990` and `28990`; system proxy,
+LAN access and TUN start disabled. `SASH_DEV_HOME` can select another absolute
+development directory without changing the shell's `SASH_HOME`.
+
+Run `node scripts/dev.mjs build` after frontend changes and refresh the browser.
+After backend changes, run `node scripts/dev.mjs restart`, then
+`node scripts/dev.mjs web` to authorize the new daemon session. A PowerShell
+`sash-dev` function can forward arguments to the launcher's absolute path from
+any directory. The first `web` or `start` builds the dashboard if it is missing;
+the normal startup flow installs Core when needed.
+
 - `npm run build:ui` calls the Vite Node API through `scripts/build-ui.mjs`.
 - `npm run typecheck:web` runs `vue-tsc`, including Vue templates.
 - `npm test` runs server type checking, WebUI type checking, backend tests and WebUI TypeScript tests.
