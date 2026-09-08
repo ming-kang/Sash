@@ -1,3 +1,4 @@
+import type { AutostartController } from "../autostart.js";
 import type { CoreStartResult, ShutdownResult } from "../contracts.js";
 import type { GeneratedConfig } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
@@ -71,6 +72,7 @@ export interface DaemonContext {
   readonly lifecycle: RuntimeLifecycle;
   readonly supervisor: CoreSupervisor;
   readonly systemProxy: SystemProxyController;
+  readonly autostart: AutostartController;
   readonly gate: DaemonGate;
   readonly settings: {
     committed(): SashSettings;

@@ -1,3 +1,5 @@
+import { AutostartService } from "./autostart.js";
+import type { AutostartStatus } from "./autostart-contract.js";
 import type { DaemonStatus } from "./contracts.js";
 import { currentCoreVersion } from "./core.js";
 import { SashDaemonClient } from "./daemon-client.js";
@@ -39,6 +41,7 @@ export interface CliRuntimeStatus {
   /** Overall daemon/Core health; null when the daemon status query is unavailable. */
   healthy: boolean | null;
   queryError: string | null;
+  autostart: AutostartStatus;
   daemon: CliDaemonObservation;
   core: {
     running: boolean | null;
@@ -82,6 +85,7 @@ export interface StatusObservationDependencies {
     daemon: DaemonHealthyInfo,
   ) => Promise<DaemonStatus>;
   inspectSystemProxy?: (context: StatusObservationContext) => Promise<SystemProxyInspection>;
+  inspectAutostart?: (context: StatusObservationContext) => Promise<AutostartStatus>;
   installedCoreVersion?: (context: StatusObservationContext) => string;
   activeProfile?: (
     context: StatusObservationContext,
@@ -309,12 +313,24 @@ export async function collectRuntimeStatus(
       : null;
   const activeProfile = profile ? { id: profile.id, name: profile.name, url: profile.url } : null;
   const daemonPort = daemon.port || context.settings.daemonPort;
+  let autostart: AutostartStatus;
+  try {
+    autostart = await (dependencies.inspectAutostart
+      ? dependencies.inspectAutostart(context)
+      : new AutostartService({ layout: context.layout }).inspect());
+  } catch (error) {
+    autostart = { state: "unknown", canEnable: false, reason: errorText(error) };
+  }
+  if (autostart.state === "unknown") {
+    addError(errors, `Autostart query failed: ${autostart.reason ?? "unknown error"}`);
+  }
 
   return {
     schemaVersion: CLI_STATUS_SCHEMA_VERSION,
     complete: errors.length === 0,
     healthy,
     queryError: errors.length > 0 ? errors.join("; ") : null,
+    autostart,
     daemon: { ...daemon, port: daemonPort },
     core: {
       running: coreRunning,

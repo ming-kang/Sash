@@ -1,3 +1,4 @@
+import { type AutostartStatus, parseAutostartStatus } from "./autostart-contract.js";
 import {
   type CoreReloadResult,
   type CoreStartResult,
@@ -217,6 +218,23 @@ export class SashClient {
   async shutdown(): Promise<ShutdownResult> {
     return parseShutdownResult(
       await this.request("/sash/daemon/shutdown", { method: "POST", timeoutMs: 45_000 }),
+    );
+  }
+
+  async autostartStatus(): Promise<AutostartStatus> {
+    return parseAutostartStatus(
+      await this.request("/sash/autostart", { timeoutMs: 15_000, attempts: 1 }),
+    );
+  }
+
+  async setAutostart(enabled: boolean): Promise<AutostartStatus> {
+    return parseAutostartStatus(
+      await this.request("/sash/autostart", {
+        method: "PUT",
+        body: { enabled },
+        timeoutMs: 60_000,
+        attempts: 1,
+      }),
     );
   }
 

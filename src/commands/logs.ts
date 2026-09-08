@@ -1,19 +1,32 @@
 import fs from "node:fs";
 import { log } from "../log.js";
 import { followLogFile, logCursorAtEnd, normalizeLines } from "../log-follow.js";
+import { sashLayout } from "../paths.js";
 import { tailFile } from "../process.js";
 import { runtimeContext } from "./shared.js";
 
 /** Print the last N lines of logs; with follow, wait for and stream future files. */
 export async function runLogs(
-  opts: { lines?: number; follow?: boolean; errors?: boolean; daemon?: boolean } = {},
+  opts: {
+    lines?: number;
+    follow?: boolean;
+    errors?: boolean;
+    daemon?: boolean;
+    startup?: boolean;
+  } = {},
 ): Promise<void> {
-  const ctx = runtimeContext();
+  if (opts.startup && (opts.daemon || opts.errors)) {
+    throw new Error("--startup cannot be combined with --daemon or --errors");
+  }
+  // Login diagnostics must remain readable even when corrupt settings prevented startup.
+  const layout = opts.startup ? sashLayout() : runtimeContext().layout;
   let file: string;
-  if (opts.daemon) {
-    file = opts.errors ? ctx.layout.daemonErrLogFile : ctx.layout.daemonLogFile;
+  if (opts.startup) {
+    file = layout.sashLogFile;
+  } else if (opts.daemon) {
+    file = opts.errors ? layout.daemonErrLogFile : layout.daemonLogFile;
   } else {
-    file = opts.errors ? ctx.layout.coreErrLogFile : ctx.layout.coreLogFile;
+    file = opts.errors ? layout.coreErrLogFile : layout.coreLogFile;
   }
 
   const lines = normalizeLines(opts.lines);

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { MihomoApi } from "../api.js";
+import { type AutostartController, AutostartService } from "../autostart.js";
 import type { CoreStartResult } from "../contracts.js";
 import { currentCoreVersion } from "../core.js";
 import { validateCoreConfigText } from "../core-config-validation.js";
@@ -30,6 +31,7 @@ export interface DaemonDeps {
   settings: SashSettings;
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
+  autostart?: AutostartController;
   token?: string;
   fetchProfileFn?: (url: string) => Promise<SubscriptionFetch>;
   validateConfigFn?: (generated: GeneratedConfig) => Promise<void> | void;
@@ -195,6 +197,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     lifecycle,
     supervisor,
     systemProxy,
+    autostart: deps.autostart ?? new AutostartService({ layout }),
     gate,
     settings: {
       committed: () => committedSettings,

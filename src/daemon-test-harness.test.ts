@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
+import type { AutostartController } from "./autostart.js";
 import {
   type CoreState,
   type CoreSupervisor,
@@ -22,6 +23,7 @@ import type { SystemProxyController } from "./system-proxy-manager.js";
 export interface DaemonServerOverrides {
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
+  autostart?: AutostartController;
   fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
   validateConfig?: (generated: GeneratedConfig) => Promise<void> | void;
   scheduler?: DaemonScheduler;
@@ -125,6 +127,12 @@ export class DaemonTestHarness {
       settings: this.settings,
       supervisor: fakeSupervisor,
       systemProxy: overrides.systemProxy ?? this.fakeSystemProxy(),
+      autostart: overrides.autostart ?? {
+        inspect: async () => ({ state: "off", canEnable: true, reason: null }),
+        set: async () => {
+          throw new Error("An autostart test adapter is required for writes");
+        },
+      },
       fetchProfileFn: overrides.fetchProfile,
       validateConfigFn: overrides.validateConfig ?? (() => undefined),
       scheduler: overrides.scheduler,

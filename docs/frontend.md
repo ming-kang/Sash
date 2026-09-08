@@ -37,6 +37,18 @@ Workflows using `npm ci --ignore-scripts` explicitly initialize the tested nativ
 
 ## 2. Source Layout
 
+`AutostartCard.vue` uses `composables/autostart.ts` and the shared validated
+`/sash/autostart` client. Its switch follows the observed OS registration,
+updates only after a successful response, and re-reads state after a failed
+mutation. Responses from an older daemon or disposed view cannot replace the
+current observation. Source installations explain why enabling is unavailable;
+explicit removal remains available for stale, disabled or unknown entries.
+
+After building, `node --import tsx scripts/autostart-ui-verify.mts` verifies the
+settings card in Chromium and Firefox with a temporary daemon and fake OS
+controller. It checks pending/failed writes, recovery controls, both languages,
+themes and desktop/mobile layouts without registering an actual login task.
+
 ```text
 web/src/
 ├── api/index.ts                  typed REST client and WebSocket reconnect logic

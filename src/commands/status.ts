@@ -27,6 +27,10 @@ export async function runStatus(
   if (status.queryError) log.warn(`status incomplete: ${status.queryError}`);
 
   log.kv("root", status.paths.root);
+  log.kv("autostart", status.autostart.state);
+  if (status.autostart.state === "stale" || status.autostart.state === "disabled") {
+    log.warn("Run sash auto on to repair the login startup registration");
+  }
   log.kv("config", status.paths.config);
   log.kv("mixed port", status.endpoints.mixedProxy);
   log.kv("proxy desired", status.systemProxy.desired ? "on" : "off");

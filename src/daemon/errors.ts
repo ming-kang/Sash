@@ -1,3 +1,4 @@
+import { AutostartUnavailableError } from "../autostart.js";
 import type { ApiErrorCode } from "../contracts.js";
 import { HttpError } from "../daemon-http.js";
 import {
@@ -45,6 +46,7 @@ export function errorToHttp(err: unknown): HttpErrorMapping {
     };
   }
   const message = err instanceof Error ? err.message : String(err);
+  if (err instanceof AutostartUnavailableError) return { status: 409, code: "conflict", message };
   if (err instanceof ProfileNotFoundError) return { status: 404, code: "not_found", message };
   if (err instanceof ProfileInputError) return { status: 400, code: "invalid_input", message };
   if (err instanceof SettingsInputError) return { status: 400, code: "invalid_input", message };

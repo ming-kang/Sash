@@ -30,6 +30,8 @@ The Core remains a non-detached child of `sashd`. Runtime transitions, disk muta
 - `src/supervisor.ts`: child ownership, readiness probes and verified termination.
 - `src/daemon-lifecycle.ts`: daemon discovery, singleton startup, CLI shutdown and the maintenance boundary used by full restarts and Core updates.
 - `src/state-lock.ts`: atomic file leases and cross-process mutation queues.
+- `src/autostart.ts` / `src/autostart/`: per-user OS startup registration, stable installation checks, atomic launcher replacement and rollback. CLI and HTTP mutations share the same registration lock.
+- `src/autostart-entry.ts`: login entry point using the normal runtime owner and private startup diagnostics; `src/autostart-contract.ts` owns the browser-safe API codec.
 - `src/system-proxy-manager.ts`: durable proxy ownership journal, serialized asynchronous OS operations, generation-bound observation cache and conditional recovery.
 - `src/sysproxy.ts` / `src/sysproxy/`: public system-proxy API plus focused Windows, macOS and GNOME asynchronous snapshot/apply backends.
 - `src/profile-service.ts`: profile/config preparation and publication through one-shot opaque capabilities with strict optimistic rechecks.
@@ -117,6 +119,8 @@ There are exactly two HTTP namespaces plus the static dashboard. Every `/sash/*`
 | `/sash/core/reload` | `POST` | control | Re-render, validate and reload active config; returns `{proxyCount, source}`. |
 | `/sash/proxy` | `GET` | public | Desired, Sash-owned and observed OS proxy state. |
 | `/sash/settings` | `GET` | public | Public settings projection (secrets omitted). |
+| `/sash/autostart` | `GET` | control | Observed OS startup state, installation eligibility and diagnostic reason. |
+| `/sash/autostart` | `PUT` | control | Set `{enabled: boolean}` for the current user. Does not start/stop the runtime or rewrite settings. |
 | `/sash/settings` | `PATCH` | control | Partial-object update (`SettingsPatch`); one transaction per apply, returns `{restartRequired, settings}`. Enabling `systemProxy` requires a healthy Core. |
 | `/sash/settings/file` | `GET` | control | Raw canonical `sash.json` text, including secrets. |
 | `/sash/settings/file` | `PUT` | control | Replace settings from raw text; parsed, diffed and applied through the same `SettingsService.apply` path. |

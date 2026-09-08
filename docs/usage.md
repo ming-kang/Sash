@@ -12,7 +12,7 @@ sash web        # open the dashboard: download a subscription, pick nodes, toggl
 sash status
 ```
 
-Profiles, the system proxy and all runtime settings are managed from the web dashboard; the CLI covers lifecycle, logs and upgrades.
+Profiles, the system proxy and all runtime settings are managed from the web dashboard; the CLI covers lifecycle, login startup, logs and upgrades.
 
 ---
 
@@ -25,8 +25,10 @@ Profiles, the system proxy and all runtime settings are managed from the web das
 | `sash start` | Install missing components, ensure the background daemon is running, then reconcile/start the core. It is safe to repeat. |
 | `sash stop` | Restore the pre-Sash system proxy, stop the Core and shut down the daemon; exits with an error if safe shutdown cannot be verified. |
 | `sash restart` | Restart the whole runtime: the daemon exits through its maintenance boundary and a fresh daemon starts the core. |
-| `sash status [--json]` | Show daemon/core state, active profile, endpoints and system proxy state; incomplete observations exit with code 2. |
+| `sash status [--json]` | Show daemon/core state, active profile, endpoints, automatic startup and system proxy state; incomplete observations exit with code 2. |
+| `sash auto [on\|off\|status]` | Toggle or explicitly set login startup; `status` only inspects the OS registration. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | View core or daemon logs; `-f` follows new output. |
+| `sash logs --startup [-n N] [-f]` | View login startup attempts and failures, including settings errors before daemon startup. |
 
 ### Status JSON and exit codes
 
@@ -38,6 +40,11 @@ Profiles, the system proxy and all runtime settings are managed from the web das
   "complete": true,
   "healthy": true,
   "queryError": null,
+  "autostart": {
+    "state": "off",
+    "canEnable": true,
+    "reason": null
+  },
   "daemon": {
     "state": "healthy",
     "running": true,
@@ -113,6 +120,11 @@ Profiles are managed from the WebUI Profiles page: download from a subscription 
 ### Settings
 
 Runtime settings (`mixedPort`, `allowLan`, `systemProxy`) are managed from the WebUI Settings page, and the entire `sash.json` can be edited as JSON from the same page ("Edit settings file"); invalid documents are rejected without touching the disk. `daemonSecret` changes apply immediately; `daemonPort` changes are saved but require a manual `sash restart` to rebind the listener.
+
+The **Start at Login** card manages the current user's OS startup entry. It uses
+the same service as `sash auto`, reports the observed OS state and can repair stale
+or OS-disabled entries. Enabling requires a direct global npm installation;
+changing startup does not restart the current runtime. See [Automatic Startup](./autostart.md).
 
 ### Maintenance & Upgrades
 
@@ -195,6 +207,7 @@ State files are written with mode `0o600` on POSIX where applicable. `SASH_HOME`
 - **Profile update failed:** inspect the profile card's error or use its update button; generated candidates are checked by the installed Core before commit, and the last valid running config remains active on validation/reload failure.
 - **Corrupt settings/profile index:** repair the JSON file or move it aside; Sash intentionally does not overwrite corrupt state.
 - **Daemon errors:** `sash logs --daemon --errors`.
+- **Sash did not start at login:** inspect `sash auto status` and `sash logs --startup`. Repair stale or OS-disabled entries with `sash auto on`; Linux startup before login requires user lingering.
 - **Core errors:** `sash logs --errors`. Log tails and follow-mode reads use bounded chunks, so large logs do not require one whole-file allocation.
 - **Shutdown returned an error:** cleanup was not completed; the daemon remains listening and scheduled profile updates remain active. Resolve the reported proxy/Core issue and retry `sash stop`.
 - **Core binary/metadata mismatch:** Sash will not execute a binary unless `state/install.json` is valid and agrees that an installation exists. An interrupted `.unlock-probe` is restored automatically when it is the only copy; if both files exist with different bytes, Sash preserves both and fails closed. Inspect them explicitly or run `sash update --force` after resolving the conflict.

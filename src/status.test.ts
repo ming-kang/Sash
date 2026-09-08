@@ -89,6 +89,7 @@ function dependencies(
       stateKnown: true,
     }),
     installedCoreVersion: () => "v1.2.3",
+    inspectAutostart: async () => ({ state: "off", canEnable: true, reason: null }),
     activeProfile: () => null,
     hasUi: () => true,
     ...overrides,
@@ -190,6 +191,7 @@ describe("CLI runtime status observations", () => {
 
     assert.deepEqual(Object.keys(status).sort(), [
       "activeProfile",
+      "autostart",
       "complete",
       "core",
       "daemon",
@@ -248,6 +250,25 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.daemon.port, 23456);
     assert.equal(status.endpoints.daemonApi, "http://127.0.0.1:23456");
     assert.equal(status.endpoints.dashboard, "http://127.0.0.1:23456/ui/");
+  });
+
+  it("retains runtime observations when autostart inspection is unavailable", async () => {
+    const status = await collectRuntimeStatus(
+      context,
+      dependencies({
+        inspectAutostart: async () => {
+          throw new Error("autostart access denied");
+        },
+      }),
+    );
+    assert.equal(status.autostart.state, "unknown");
+    assert.equal(status.core.running, true);
+    assert.equal(status.core.healthy, true);
+    assert.equal(status.complete, false);
+    assert.match(status.queryError ?? "", /autostart access denied/);
+    const output = await captureConsole(() => runStatus({}, async () => status));
+    assert.ok(output.logs.some((line) => /autostart\s+unknown/.test(line)));
+    assert.equal(process.exitCode, 2);
   });
 
   it("reports a stopped daemon as a complete known state", async () => {

@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add login startup for Windows, macOS and Linux through `sash auto [on|off|status]` and the dashboard settings. Preserve the selected data directory and report stale or OS-disabled entries.
+- Record login startup attempts and failures in a private rotating log, readable with `sash logs --startup` even when settings are invalid.
 - Add a source development launcher with separate data and ports, plus a `build` command for the WebUI.
 - Reorder profile cards with a long press and drag or Alt + Up/Down. Persist the order across dashboard refreshes without changing the active profile or reloading Core.
 

@@ -102,6 +102,7 @@ function walkFiles(directory, base = directory) {
 
 function assertBuiltTree() {
   assertNonEmptyFile(path.join(root, "dist", "cli.js"));
+  assertNonEmptyFile(path.join(root, "dist", "autostart-entry.js"));
   assertNonEmptyFile(path.join(root, "dist", "ui", "index.html"));
   const assetsDir = path.join(root, "dist", "ui", "assets");
   const assets = fs.readdirSync(assetsDir);
@@ -129,6 +130,8 @@ function assertPackedFiles(files) {
     "docs/frontend.md",
     "docs/remix-icon-license.txt",
     "dist/cli.js",
+    "dist/autostart-entry.js",
+    "dist/autostart.js",
     "dist/webui.js",
     "dist/ui/index.html",
   ];
@@ -236,6 +239,11 @@ try {
   );
   assert.match(help, /Usage:\s+sash/);
   assert.match(help, /show runtime state/);
+  const autoHelp = runNpm(
+    ["exec", "--offline", "--yes=false", "--prefix", installDir, "--", "sash", "auto", "--help"],
+    { env: cliEnv },
+  );
+  assert.match(autoHelp, /Usage:\s+sash auto/);
 
   console.log(
     `[package-smoke] installed and verified ${installSpec ?? "the freshly packed tarball"} as ${packageJson.name}@${expectedVersion} (${packedFiles.length} files)`,

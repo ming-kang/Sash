@@ -10,6 +10,7 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 - **Zero-download web dashboard** — built-in modern Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
 - **Reversible system proxy ownership** — snapshots and conditionally restores prior Windows, macOS, or GNOME proxy/PAC state after stop or crash
 - **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
+- **Automatic startup** — start at user login through `sash auto` or the dashboard settings on Windows, macOS and Linux
 - **Remote profiles** — fetch, validate, schedule, and hot-reload core-format network profiles from the dashboard
 - **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
@@ -50,6 +51,11 @@ sash stop                  # restores prior proxy state, stops core and sashd
 
 Use `sash web` to authorize and open the dashboard. Opening its address directly shows connection instructions. Refreshing an authorized tab preserves access; after restarting Sash, run `sash web` again.
 
+Use `sash auto on` to start Sash at login, `sash auto status` to inspect the
+registration and `sash auto off` to remove it. This requires a direct global npm
+installation and preserves the current data directory. See [Automatic Startup](./docs/autostart.md)
+for platform behavior, diagnostics and removal before uninstalling.
+
 TUN and Windows Service Mode are deferred to the [development branch](https://github.com/ming-kang/Sash/tree/feat/tun-service-mode). Version 0.1.1 keeps TUN disabled and runs without a privileged service.
 
 ## Documentation
@@ -57,6 +63,7 @@ TUN and Windows Service Mode are deferred to the [development branch](https://gi
 Comprehensive documentation is available in the [`docs/`](./docs) directory:
 
 - [**User & Operations Guide**](./docs/usage.md) — complete CLI command reference, configuration parameters and troubleshooting.
+- [**Automatic Startup**](./docs/autostart.md) — login startup, OS registration state and failure diagnostics.
 - [**Backend Architecture**](./docs/backend.md) — supervisor daemon model (`sashd`), API endpoints, lifecycle management, system proxy adapters, and safety invariants.
 - [**Frontend Architecture**](./docs/frontend.md) — built-in Vue 3 + Vite dashboard, shared API contracts, reactive runtime state, and WebSocket streaming.
 - [**Third-Party Notices**](./THIRD_PARTY_NOTICES.md) — licenses and attribution for code/assets embedded in the dashboard and the runtime-downloaded Core.

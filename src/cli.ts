@@ -3,8 +3,9 @@ import "./node-version-guard.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Command, CommanderError, InvalidArgumentError } from "commander";
+import { Argument, Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
+import { type AutoMode, runAuto } from "./commands/auto.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
 import { runStatus } from "./commands/status.js";
@@ -65,6 +66,14 @@ program
   .action(withCliErrors(() => runRestart()));
 
 program
+  .command("auto")
+  .description("toggle or set automatic startup at login for the current user")
+  .addArgument(
+    new Argument("[mode]", "set autostart or inspect its state").choices(["on", "off", "status"]),
+  )
+  .action(withCliErrors((mode?: AutoMode) => runAuto(mode)));
+
+program
   .command("status")
   .description("show runtime state, versions, endpoints, and system proxy status")
   .option("--json", "output machine-readable JSON")
@@ -77,14 +86,22 @@ program
   .option("-f, --follow", "follow the log output")
   .option("--errors", "read the stderr log instead of stdout")
   .option("--daemon", "read sashd daemon logs instead of core logs")
+  .option("--startup", "read login startup diagnostics")
   .action(
     withCliErrors(
-      (opts: { lines?: number; follow?: boolean; errors?: boolean; daemon?: boolean }) =>
+      (opts: {
+        lines?: number;
+        follow?: boolean;
+        errors?: boolean;
+        daemon?: boolean;
+        startup?: boolean;
+      }) =>
         runLogs({
           lines: opts.lines ?? 50,
           follow: opts.follow,
           errors: opts.errors,
           daemon: opts.daemon,
+          startup: opts.startup,
         }),
     ),
   );

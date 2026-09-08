@@ -1,3 +1,4 @@
+import type { AutostartStatus } from "./autostart-contract.js";
 import type {
   CoreStartResult,
   DaemonStatus,
@@ -66,6 +67,14 @@ export class SashDaemonClient {
 
   status(fresh = false): Promise<DaemonStatus> {
     return this.client.status(fresh);
+  }
+
+  autostartStatus(): Promise<AutostartStatus> {
+    return this.client.autostartStatus();
+  }
+
+  setAutostart(enabled: boolean): Promise<AutostartStatus> {
+    return this.client.setAutostart(enabled);
   }
 
   startCore(): Promise<CoreStartResult> {

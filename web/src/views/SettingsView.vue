@@ -84,6 +84,8 @@
         </div>
       </UiCard>
 
+      <AutostartCard />
+
       <!-- Network -->
       <UiCard :title="t('settings.networkTitle')" class="settings-card">
         <div class="setting-row interrupt-row">
@@ -202,6 +204,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { api } from "../api/index.js";
+import AutostartCard from "../components/AutostartCard.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import UiCard from "../components/UiCard.vue";

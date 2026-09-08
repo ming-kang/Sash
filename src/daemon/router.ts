@@ -10,6 +10,7 @@ import { forwardHttpToCore } from "../daemon-proxy.js";
 import { serveStaticUi } from "../daemon-static.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
+import { readAutostart, writeAutostart } from "./handlers/autostart.js";
 import { reloadCoreConfig, restartCore, startCore, stopCore } from "./handlers/core.js";
 import {
   createWebBootstrap,
@@ -181,6 +182,13 @@ export function buildRoutes(): readonly RouteDef[] {
       handler: reloadCoreConfig,
     },
     { methods: ["GET"], pattern: path("/sash/proxy"), auth: "public", handler: proxyStatus },
+    { methods: ["GET"], pattern: path("/sash/autostart"), auth: "control", handler: readAutostart },
+    {
+      methods: ["PUT"],
+      pattern: path("/sash/autostart"),
+      auth: "control",
+      handler: writeAutostart,
+    },
     { methods: ["GET"], pattern: path("/sash/settings"), auth: "public", handler: readSettings },
     {
       methods: ["PATCH"],
