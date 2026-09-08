@@ -395,7 +395,7 @@ export function overlayManagedKeys(
     Array.isArray(out.listeners) &&
     out.listeners.some((listener: unknown) => isPlainObject(listener) && listener.type === "tun")
   ) {
-    throw new Error("TUN listeners are unavailable in this release");
+    throw new Error("TUN listeners are not supported");
   }
   return out;
 }

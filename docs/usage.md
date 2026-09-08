@@ -126,4 +126,4 @@ sash web
 - **Login startup failed:** read `sash auto status` and `sash logs --startup`; repair the entry with `sash auto on`.
 - **Shutdown failed:** the management API remains available for retry. Resolve the reported proxy/Core failure and repeat `sash stop`.
 
-Windows proxy/PAC restoration and login startup are the only desktop integrations. Basic Core/CLI operation remains portable. TUN and service mode are outside this branch; generated configuration always disables TUN and rejects a separate TUN listener.
+Windows proxy/PAC restoration and login startup are the only desktop integrations. Basic Core/CLI operation remains portable. Sash has no TUN or service mode; generated configuration always disables TUN and rejects a separate TUN listener.

@@ -58,8 +58,6 @@ registration and `sash auto off` to remove it. This requires a direct global npm
 installation and preserves the current data directory. See [Automatic Startup](./docs/autostart.md)
 for platform behavior, diagnostics and removal before uninstalling.
 
-TUN and Windows Service Mode remain on the [development branch](https://github.com/ming-kang/Sash/tree/feat/tun-service-mode). This branch keeps TUN disabled and runs without a privileged service.
-
 This refactor introduces a new state format and API without migration support. Use a fresh data directory and import any profile YAML you want to keep; existing state is never silently overwritten.
 
 ## Documentation

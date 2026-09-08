@@ -150,7 +150,7 @@ describe("mihomo-config", () => {
       const listener = { name: "capture", type: "tun", "auto-route": true };
       assert.throws(
         () => overlayManagedKeys({ listeners: [listener] }, mockSettings),
-        /TUN listeners are unavailable/,
+        /TUN listeners are not supported/,
       );
       assert.equal(listener.type, "tun");
       const ordinary = { name: "local", type: "http", port: 27894 };
