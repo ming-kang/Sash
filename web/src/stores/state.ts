@@ -32,7 +32,7 @@ export type CoreResource = "configs" | "proxies" | "rules" | "connections";
 export interface StoreState {
   status: SashStatus | null;
   daemonOnline: boolean;
-  lastProfileRevision: number | null;
+  lastStateRevision: number | null;
   resourceLoaded: Partial<Record<CoreResource, boolean>>;
   resourceErrors: Partial<Record<CoreResource, string>>;
   mode: OutboundMode;
@@ -70,7 +70,7 @@ export const runtimeOwnership = {
 export const store = shallowReactive<StoreState>({
   status: null,
   daemonOnline: true,
-  lastProfileRevision: null,
+  lastStateRevision: null,
   resourceLoaded: {},
   resourceErrors: {},
   mode: "rule",
@@ -160,7 +160,7 @@ export function transitionRuntimeOwner(status: SashStatus | null): void {
 export function adoptDaemonStatus(status: SashStatus): void {
   if (runtimeOwnership.lastBootId !== status.daemon.bootId) {
     requests.invalidate("profiles");
-    store.lastProfileRevision = null;
+    store.lastStateRevision = null;
   }
   runtimeOwnership.lastBootId = status.daemon.bootId;
   store.status = status;

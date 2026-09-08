@@ -79,7 +79,7 @@ export interface DaemonContext {
   readonly gate: DaemonGate;
   readonly settings: { committed(): SashSettings; runtime(): SashSettings };
   mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T>;
-  profileRevision(): number;
+  stateRevision(): number;
   pendingApply(): boolean;
   startCore(): Promise<CoreStartResult>;
   restartCore(): Promise<CoreStartResult>;

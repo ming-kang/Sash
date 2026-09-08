@@ -28,7 +28,7 @@ function statusResponse(
   return {
     ...testStatus(),
     daemon: { pid: 101, bootId: "test-boot", startedAt: "2026-01-01T00:00:00.000Z", port: 19090 },
-    revisions: { profiles: 1, runtime: 1 },
+    revisions: { state: 1, runtime: 1 },
     configuration: {
       pending: false,
       appliedProfile: null,

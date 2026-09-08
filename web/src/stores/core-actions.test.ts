@@ -22,7 +22,7 @@ describe("web Core actions", () => {
       t.mock.method(api, all ? "closeAllConnections" : "closeConnection", () => pending.promise);
       store.status = testStatus();
       const closing = all ? closeAllConnections() : closeConnection("new-connection");
-      store.status = { ...testStatus(), revisions: { profiles: 0, runtime: 2 } };
+      store.status = { ...testStatus(), revisions: { state: 0, runtime: 2 } };
       const successor: typeof store.connections = [
         {
           id: "new-connection",

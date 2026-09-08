@@ -37,9 +37,9 @@
   在执行前先验哈希，执行探测仅作健康检查（`src/core-update.ts:47-126`、`src/core-install-record.ts:8-11`）
 - [ ] **mutation queue 可观测**（S）：记录当前变更 purpose 与起始时间（`src/daemon/context.ts:29`
   现丢弃 `_purpose`），暴露到 daemon status，慢变更写日志，加队列深度计数
-- [ ] **状态快照缓存**（S）：`snapshot()` 每请求深拷贝全状态（`src/app-state.ts:104-106`，
+- [x] **状态快照缓存**（S）：`snapshot()` 每请求深拷贝全状态（`src/app-state.ts:104-106`，
   认证路径 `router.ts:427` 每请求触发）；改缓存冻结快照，commit 失效
-- [ ] **settings PATCH 乐观并发**（S）：接受 `expectedRevision`，复用 `assertCurrent`
+- [x] **settings PATCH 乐观并发**（S）：接受 `expectedRevision`，复用 `assertCurrent`
   （`src/daemon/handlers/settings.ts:11-24`）；同时把 `revisions.profiles` 更名为状态 revision
 - [ ] **取消范围拆分**（S）：`stopCore` 不再取消 profile 下载（`src/daemon/app.ts:220-223`）
 - [ ] **`setCoreMode` 语义**（S–M）：controller 调用移出写队列（不写 daemon 状态），

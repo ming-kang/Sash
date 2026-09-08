@@ -10,6 +10,7 @@ export class CoreUnhealthyError extends Error {}
 export { StateConflictError as SettingsConflictError } from "./app-state.js";
 
 export interface SettingsApplyResult {
+  revision: number;
   settings: SashSettings;
   restartRequired: boolean;
 }
@@ -27,9 +28,11 @@ export class SettingsService {
   async apply(patch: SettingsPatch): Promise<SettingsApplyResult> {
     return this.options.commit("save settings", async () => {
       const state = this.options.state.snapshot();
+      const { expectedRevision, ...changes } = patch;
+      this.options.state.assertCurrent(expectedRevision ?? state.revision);
       let settings: SashSettings;
       try {
-        settings = validateSettingsCandidate({ ...state.settings, ...patch });
+        settings = validateSettingsCandidate({ ...state.settings, ...changes });
       } catch (error) {
         throw new SettingsInputError(error instanceof Error ? error.message : String(error));
       }
@@ -50,6 +53,7 @@ export class SettingsService {
       }
       const running = this.options.lifecycle.settings();
       return {
+        revision: saved.revision,
         settings: saved.settings,
         restartRequired:
           saved.settings.mixedPort !== running.mixedPort ||

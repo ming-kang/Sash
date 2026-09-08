@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { readState } from "./app-state.js";
-import { parseDaemonStatus } from "./contracts.js";
+import { parseDaemonStatus, parseSettingsWriteResult } from "./contracts.js";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import { deferred, FakeCoreSupervisor } from "./test-state.test.js";
 
@@ -11,6 +11,49 @@ describe("save and apply API", () => {
   async function status() {
     return parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data);
   }
+  it("allows only one of two concurrent settings writes based on the same state revision", async () => {
+    await h.startServer();
+    const before = await status();
+    const results = await Promise.all(
+      [18888, 19999].map((mixedPort) =>
+        h.apiRequest("/sash/settings", {
+          method: "PATCH",
+          body: { mixedPort, expectedRevision: before.revisions.state },
+        }),
+      ),
+    );
+    assert.deepEqual(results.map((result) => result.statusCode).sort(), [200, 409]);
+    const winner = results.find((result) => result.statusCode === 200);
+    assert.ok(winner);
+    const saved = parseSettingsWriteResult(winner.data);
+    const after = await status();
+    assert.equal(saved.revision, before.revisions.state + 1);
+    assert.equal(after.revisions.state, saved.revision);
+    assert.equal(after.settings.mixedPort, saved.settings.mixedPort);
+    assert.equal(after.core.running, false);
+    assert.equal(fs.existsSync(h.layout.configFile), false);
+  });
+  it("keeps saved settings consistent with the returned revision during a slow status probe", async () => {
+    const entered = deferred();
+    const release = deferred();
+    const core = new FakeCoreSupervisor(h.layout, h.settings);
+    await h.startServer({ supervisor: core });
+    core.onStatus = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    const pending = status();
+    await entered.promise;
+    const write = await h.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { mixedPort: 18888, expectedRevision: 0 },
+    });
+    assert.equal(write.statusCode, 200);
+    release.resolve();
+    const observed = await pending;
+    assert.equal(observed.settings.mixedPort, 18888);
+    assert.equal(observed.revisions.state, parseSettingsWriteResult(write.data).revision);
+  });
   it("serves management with no installed Core and rejects retired controls", async () => {
     await h.startServer({ installCore: false });
     assert.equal((await h.apiRequest("/sash/daemon/health")).statusCode, 200);

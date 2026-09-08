@@ -5,11 +5,11 @@ import { requests, setProfiles, store } from "./state.js";
 export async function refreshProfiles(): Promise<void> {
   const generation = requests.begin("profiles");
   const bootId = store.status?.daemon.bootId;
-  const revision = store.status?.revisions.profiles;
+  const revision = store.status?.revisions.state;
   const profiles = await api.getProfiles();
   if (requests.isCurrent("profiles", generation) && store.status?.daemon.bootId === bootId) {
     setProfiles(profiles);
-    store.lastProfileRevision = revision ?? null;
+    store.lastStateRevision = revision ?? null;
   }
 }
 

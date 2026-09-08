@@ -21,7 +21,7 @@ function status(
     running?: boolean;
     healthy?: boolean;
     pid?: number;
-    profileRevision?: number;
+    stateRevision?: number;
     runtimeRevision?: number;
     desiredProxy?: boolean;
     appliedProxy?: boolean;
@@ -37,7 +37,7 @@ function status(
       port: 19090,
     },
     revisions: {
-      profiles: overrides.profileRevision ?? 0,
+      state: overrides.stateRevision ?? 0,
       runtime: overrides.runtimeRevision ?? 1,
     },
     core: {
@@ -122,7 +122,7 @@ describe("frontend state ownership helpers", () => {
 
   it("separates runtime ownership from profile snapshot revisions", () => {
     const current = status();
-    const revised = status({ profileRevision: 1 });
+    const revised = status({ stateRevision: 1 });
     assert.equal(runtimeOwnerKey(current), runtimeOwnerKey(revised));
     assert.notEqual(runtimeOwnerKey(current), runtimeOwnerKey(status({ runtimeRevision: 2 })));
     assert.notEqual(

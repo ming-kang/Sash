@@ -21,6 +21,14 @@ export interface SashState {
 
 export class StateConflictError extends Error {}
 
+function freezeSnapshot<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value as Record<string, unknown>)) freezeSnapshot(child);
+  }
+  return value;
+}
+
 function readStateText(layout: SashLayout): string | undefined {
   try {
     const stat = fs.lstatSync(layout.settingsFile);
@@ -80,6 +88,7 @@ export function loadSettings(layout: SashLayout = sashLayout()): SashSettings {
 export class SashStateStore {
   private state: SashState;
   private text: string;
+  private cachedSnapshot: SashState | undefined;
 
   constructor(
     readonly layout: SashLayout,
@@ -101,8 +110,10 @@ export class SashStateStore {
     }
   }
 
+  /** Deeply frozen; reference identity changes only after a successful commit. */
   snapshot(): SashState {
-    return structuredClone(this.state);
+    this.cachedSnapshot ??= freezeSnapshot(structuredClone(this.state));
+    return this.cachedSnapshot;
   }
 
   assertCurrent(revision: number): void {
@@ -121,6 +132,7 @@ export class SashStateStore {
     atomicWriteFileSync(this.layout.settingsFile, text);
     this.state = next;
     this.text = text;
+    this.cachedSnapshot = undefined;
     return this.snapshot();
   }
 }

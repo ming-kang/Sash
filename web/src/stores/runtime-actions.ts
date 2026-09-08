@@ -35,7 +35,7 @@ export async function refreshStatus(
     return "unauthorized";
   }
   transitionRuntimeOwner(status);
-  if (store.lastProfileRevision !== status.revisions.profiles) {
+  if (store.lastStateRevision !== status.revisions.state) {
     const profileRequest = requests.begin("profiles");
     try {
       const profiles = await api.getProfiles();
@@ -45,7 +45,7 @@ export async function refreshStatus(
         store.status?.daemon.bootId === status.daemon.bootId
       ) {
         setProfiles(profiles);
-        store.lastProfileRevision = status.revisions.profiles;
+        store.lastStateRevision = status.revisions.state;
       }
     } catch {
       /* Keep the prior list and retry its revision on the next poll. */
@@ -142,10 +142,18 @@ export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {
   const bootId = store.status?.daemon.bootId;
   requests.invalidate("runtime");
   try {
-    const result = await (target ? api.enableSystemProxy() : api.disableSystemProxy());
-    if (store.status?.daemon.bootId === bootId && store.status)
+    const revision = store.status?.revisions.state;
+    const result = await (target
+      ? api.enableSystemProxy(revision)
+      : api.disableSystemProxy(revision));
+    if (
+      store.status?.daemon.bootId === bootId &&
+      store.status &&
+      result.revision >= store.status.revisions.state
+    )
       store.status = {
         ...store.status,
+        revisions: { ...store.status.revisions, state: result.revision },
         settings: result.settings,
         systemProxy: { ...store.status.systemProxy, desired: result.settings.systemProxy },
       };
@@ -169,9 +177,20 @@ export async function saveNetworkSettings(
   const bootId = store.status?.daemon.bootId;
   requests.invalidate("runtime");
   try {
-    const result = await api.patchSettings(patch);
-    if (store.status?.daemon.bootId === bootId && store.status)
-      store.status = { ...store.status, settings: result.settings };
+    const result = await api.patchSettings({
+      ...patch,
+      expectedRevision: store.status?.revisions.state,
+    });
+    if (
+      store.status?.daemon.bootId === bootId &&
+      store.status &&
+      result.revision >= store.status.revisions.state
+    )
+      store.status = {
+        ...store.status,
+        settings: result.settings,
+        revisions: { ...store.status.revisions, state: result.revision },
+      };
     return await refreshStatus().then(
       (status) => status !== "superseded" && status !== "unauthorized",
       () => false,

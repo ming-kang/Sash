@@ -40,7 +40,6 @@ export async function redeemWebBootstrap(
 }
 
 export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
-  const settings = ctx.settings.committed();
   const ownership = ctx.supervisor.ownedCoreSnapshot();
   const runtimeCore = await ctx.supervisor.status();
   const installedVersion = currentCoreVersion(ctx.layout);
@@ -63,6 +62,8 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
   } catch (err) {
     proxyQueryError = err instanceof Error ? err.message : String(err);
   }
+  // Read saved values and their revision together after asynchronous observations.
+  const settings = ctx.settings.committed();
   const active = ctx.profiles.active();
   if (core.running && (!ownership || !ctx.supervisor.ownsCore(ownership)))
     core = { running: false };
@@ -75,7 +76,7 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
       port: settings.daemonPort,
     },
     revisions: {
-      profiles: ctx.profileRevision(),
+      state: ctx.stateRevision(),
       runtime: ctx.lifecycle.revision,
     },
     configuration: {

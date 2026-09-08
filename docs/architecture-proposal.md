@@ -84,7 +84,7 @@ Sash 程序本身更新使用 `sash stop` → npm 安装 → `sash start`。`sas
 
 Vue、现有页面、霞鹜文楷及字体切分构建链保留。现有懒加载、浅响应式集合、分页和日志批量更新继续使用。共享 `CoreControls` 处理首页、设置页和全局待应用提示中的启停操作。
 
-前端只区分三种版本：`daemon.bootId` 标识管理进程；`revisions.profiles` 标识保存状态；`revisions.runtime` 标识 Core 运行变化。重命名、排序和未应用的编辑不会清空节点测速或 Core 缓存。
+前端只区分三种版本：`daemon.bootId` 标识管理进程；`revisions.state` 标识保存状态；`revisions.runtime` 标识 Core 运行变化。重命名、排序和未应用的编辑不会清空节点测速或 Core 缓存。
 
 节点、连接、规则分别加载和记录失败。配置页不拉 Core 表，规则页只需要规则；日志只在可见日志页订阅。会话初始化只在进入或重连时进行，普通轮询无需重复请求 health。
 

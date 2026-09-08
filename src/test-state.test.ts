@@ -53,7 +53,7 @@ export function testStatus(): DaemonStatus {
       startedAt: "2026-09-08T00:00:00.000Z",
       port: settings.daemonPort,
     },
-    revisions: { profiles: 0, runtime: 1 },
+    revisions: { state: 0, runtime: 1 },
     core: {
       running: true,
       healthy: true,

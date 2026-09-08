@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { loadSettings, readState, SashStateStore } from "./app-state.js";
 import { sashLayout } from "./paths.js";
-import { createTestState } from "./test-state.test.js";
+import { createTestState, testProfile } from "./test-state.test.js";
 
 describe("canonical Sash state", () => {
   let root: string;
@@ -44,10 +44,41 @@ describe("canonical Sash state", () => {
     assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), `${bytes}\n`);
   });
 
+  it("reuses a deeply frozen snapshot until the next committed revision", () => {
+    const state = createTestState(sashLayout(root));
+    state.commit({
+      ...state.snapshot(),
+      profiles: {
+        activeId: "1",
+        profiles: [{ ...testProfile(), subInfo: { upload: 1, download: 2, total: 3 } }],
+      },
+    });
+    const before = state.snapshot();
+    assert.equal(state.snapshot(), before);
+    assert.ok(Object.isFrozen(before));
+    assert.ok(Object.isFrozen(before.settings));
+    assert.ok(Object.isFrozen(before.profiles));
+    assert.ok(Object.isFrozen(before.profiles.profiles));
+    assert.ok(Object.isFrozen(before.profiles.profiles[0]));
+    assert.ok(Object.isFrozen(before.profiles.profiles[0]?.subInfo));
+    assert.throws(() => {
+      before.settings.mixedPort = 18880;
+    }, TypeError);
+    assert.throws(() => {
+      before.profiles.profiles.splice(0, 0);
+    }, TypeError);
+    const after = state.commit({ ...before, settings: { ...before.settings, mixedPort: 18880 } });
+    assert.notEqual(after, before);
+    assert.equal(state.snapshot(), after);
+    assert.notEqual(before.settings.mixedPort, after.settings.mixedPort);
+    assert.equal(after.revision, before.revision + 1);
+  });
+
   it("preserves the old manifest when publication fails", () => {
     const layout = sashLayout(root);
     const state = createTestState(layout);
     const before = fs.readFileSync(layout.settingsFile, "utf8");
+    const snapshot = state.snapshot();
     const rename = fs.renameSync;
     mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
       if (String(to) === layout.settingsFile)
@@ -57,6 +88,7 @@ describe("canonical Sash state", () => {
     assert.throws(() => state.commit(state.snapshot()), /disk full/);
     assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), before);
     assert.equal(state.snapshot().revision, 0);
+    assert.equal(state.snapshot(), snapshot);
   });
 
   it("rejects corrupt, unsupported, oversized and non-regular state without rewriting", () => {

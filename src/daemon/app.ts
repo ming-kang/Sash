@@ -228,7 +228,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     gate,
     mutate,
     settings: { committed: settings, runtime: () => lifecycle.settings() },
-    profileRevision: () => state.snapshot().revision,
+    stateRevision: () => state.snapshot().revision,
     pendingApply: () => {
       const saved = state.snapshot();
       const active = getActiveProfile(saved.profiles);

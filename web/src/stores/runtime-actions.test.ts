@@ -25,7 +25,7 @@ beforeEach(() => {
   markDaemonOffline();
   currentRoute.value = "overview";
   store.profiles = [];
-  store.lastProfileRevision = null;
+  store.lastStateRevision = null;
 });
 afterEach(() => {
   markDaemonOffline();
@@ -34,14 +34,14 @@ afterEach(() => {
 
 function runtimeStatus(options: {
   daemonStartedAt: string;
-  profileRevision: number;
+  stateRevision: number;
   running?: boolean;
   healthy?: boolean;
   runtimeRevision?: number;
 }): SashStatus {
   const value = testStatus();
   value.daemon.bootId = options.daemonStartedAt;
-  value.revisions.profiles = options.profileRevision;
+  value.revisions.state = options.stateRevision;
   value.revisions.runtime = options.runtimeRevision ?? 1;
   value.core.running = options.running ?? true;
   value.core.healthy = options.healthy ?? true;
@@ -113,7 +113,7 @@ describe("web runtime ownership", () => {
     const generation = store.runtimeGeneration;
     const proxies = store.proxies;
     store.manualProxyDelays = { node: 42 };
-    status = { ...status, revisions: { ...status.revisions, profiles: 2 } };
+    status = { ...status, revisions: { ...status.revisions, state: 2 } };
     profile = { ...profile, name: "renamed" };
     await refreshStatus();
     assert.equal(store.profiles[0]?.name, "renamed");
@@ -154,10 +154,10 @@ describe("web runtime ownership", () => {
       throw new Error("metadata query failed");
     };
     assert.equal(await refreshStatus(), "status");
-    assert.equal(store.lastProfileRevision, null);
+    assert.equal(store.lastStateRevision, null);
     api.getProfiles = async () => ({ activeId: "1", profiles: [testProfile()] });
     await refreshStatus();
-    assert.equal(store.lastProfileRevision, 0);
+    assert.equal(store.lastStateRevision, 0);
     status = { ...status, daemon: { ...status.daemon, bootId: "new-boot" } };
     api.getProfiles = async () => ({ activeId: "2", profiles: [testProfile("2")] });
     await refreshStatus();
@@ -167,6 +167,41 @@ describe("web runtime ownership", () => {
 
 describe("network mutation outcomes", () => {
   for (const kind of ["allow-lan", "systemProxy"] as const) {
+    it(`${kind}: sends the observed revision and ignores an older successful response`, async () => {
+      const status = testStatus();
+      adoptDaemonStatus(status);
+      const pending = Promise.withResolvers<Awaited<ReturnType<typeof api.patchSettings>>>();
+      api.patchSettings = async (patch) => {
+        assert.equal(patch.expectedRevision, status.revisions.state);
+        return pending.promise;
+      };
+      api.enableSystemProxy = async (revision) => {
+        assert.equal(revision, status.revisions.state);
+        return pending.promise;
+      };
+      api.getStatus = async () => {
+        throw new Error("refresh unavailable");
+      };
+      const saving =
+        kind === "systemProxy"
+          ? setSystemProxyEnabled(true)
+          : saveNetworkSettings({ allowLan: true });
+      const newer = {
+        ...status,
+        revisions: { ...status.revisions, state: 2 },
+        settings: { ...status.settings, mixedPort: 19999 },
+      };
+      adoptDaemonStatus(newer);
+      pending.resolve({
+        revision: 1,
+        restartRequired: true,
+        settings: { ...status.settings, allowLan: true, systemProxy: true },
+      });
+      await saving;
+      assert.equal(store.status, newer);
+      assert.equal(store.status.settings.mixedPort, 19999);
+    });
+
     it(`${kind}: a late write response cannot change the successor daemon's settings`, async () => {
       const status = testStatus();
       adoptDaemonStatus(status);
@@ -182,6 +217,7 @@ describe("network mutation outcomes", () => {
       const successor = { ...testStatus(), daemon: { ...status.daemon, bootId: "successor" } };
       adoptDaemonStatus(successor);
       pending.resolve({
+        revision: 1,
         settings: { ...status.settings, allowLan: true, systemProxy: true },
         restartRequired: true,
       });
@@ -197,7 +233,7 @@ describe("network mutation outcomes", () => {
         enableSystemProxy: api.enableSystemProxy,
         getStatus: api.getStatus,
       };
-      const status = runtimeStatus({ daemonStartedAt: "mutation", profileRevision: 0 });
+      const status = runtimeStatus({ daemonStartedAt: "mutation", stateRevision: 0 });
       adoptDaemonStatus(status);
       const settings = {
         ...status.settings,
@@ -205,6 +241,7 @@ describe("network mutation outcomes", () => {
         systemProxy: kind === "systemProxy",
       };
       api.patchSettings = api.enableSystemProxy = async () => ({
+        revision: 1,
         settings,
         restartRequired: false,
       });
@@ -236,7 +273,7 @@ describe("network mutation outcomes", () => {
         enableSystemProxy: api.enableSystemProxy,
         getStatus: api.getStatus,
       };
-      adoptDaemonStatus(runtimeStatus({ daemonStartedAt: "mutation-error", profileRevision: 0 }));
+      adoptDaemonStatus(runtimeStatus({ daemonStartedAt: "mutation-error", stateRevision: 0 }));
       const failure = new Error("setting rejected: backend details");
       let refreshes = 0;
       api.patchSettings = api.enableSystemProxy = async () => {
@@ -316,7 +353,7 @@ describe("stale polling failures", () => {
           if (stopped) stop();
           const latest = runtimeStatus({
             daemonStartedAt: "newer",
-            profileRevision: 0,
+            stateRevision: 0,
             running: false,
             healthy: false,
           });
@@ -347,7 +384,7 @@ it("keeps LAN intent committed while saving and preserves an unrelated system pr
     disableSystemProxy: api.disableSystemProxy,
     getStatus: api.getStatus,
   };
-  const status = runtimeStatus({ daemonStartedAt: "pending-toggle", profileRevision: 0 });
+  const status = runtimeStatus({ daemonStartedAt: "pending-toggle", stateRevision: 0 });
   status.settings.systemProxy = true;
   status.systemProxy.desired = true;
   status.systemProxy.applied = true;
@@ -365,7 +402,11 @@ it("keeps LAN intent committed while saving and preserves an unrelated system pr
     const saving = saveNetworkSettings({ allowLan: true });
     assert.equal(store.status?.settings.allowLan, false);
     assert.equal(store.operations.networkSetting, true);
-    pending.resolve({ settings: { ...status.settings, allowLan: true }, restartRequired: false });
+    pending.resolve({
+      revision: 1,
+      settings: { ...status.settings, allowLan: true },
+      restartRequired: false,
+    });
     assert.equal(await saving, false);
     assert.equal(store.status?.settings.allowLan, true);
     assert.deepEqual(store.status?.systemProxy, status.systemProxy);
@@ -377,9 +418,9 @@ it("keeps LAN intent committed while saving and preserves an unrelated system pr
 
 it("resource requests do not supersede status and older resource failures cannot degrade newer data", async () => {
   const originals = { getStatus: api.getStatus, getConnections: api.getConnections };
-  const status = runtimeStatus({ daemonStartedAt: "resource-order", profileRevision: 0 });
+  const status = runtimeStatus({ daemonStartedAt: "resource-order", stateRevision: 0 });
   adoptDaemonStatus(status);
-  store.lastProfileRevision = 0;
+  store.lastStateRevision = 0;
   store.resourceLoaded = { connections: true };
   const old = Promise.withResolvers<Awaited<ReturnType<typeof api.getConnections>>>();
   api.getConnections = async () => old.promise;
@@ -398,7 +439,7 @@ it("resource requests do not supersede status and older resource failures cannot
     await refreshConnections();
     const stopped = runtimeStatus({
       daemonStartedAt: "resource-order",
-      profileRevision: 0,
+      stateRevision: 0,
       running: false,
       healthy: false,
     });

@@ -19,7 +19,7 @@ Sash retains its Vue 3 / Vite WebUI, built into `dist/ui/` and served by the dae
 Three values determine refresh ownership:
 
 - `daemon.bootId`: a new daemon invalidates old authorization and metadata revision comparisons.
-- `revisions.profiles`: saved-state changes refresh profile metadata. It does not invalidate Core resources.
+- `revisions.state`: saved-state changes refresh profile metadata. It does not invalidate Core resources.
 - `revisions.runtime`: with `bootId`, identifies the Core runtime. Replacement clears Core resources, traffic and manual latency results.
 
 Each resource has its own loaded flag and error. A failed rules query does not discard working node data. Failures for the same runtime retain prior data and show degradation; a new runtime cannot inherit old data. Per-domain request generations discard late successes and errors. Mutation results from a replaced daemon/Core cannot overwrite its successor.

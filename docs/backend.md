@@ -44,6 +44,8 @@ Saving source content validates bounded core-format YAML, atomically writes a ne
 
 The manifest is capped at 2 MiB, profile content at 8 MiB. Readers reject invalid schemas, duplicate IDs, invalid revisions, non-regular files and oversized content. Secrets must be nonblank, the controller must be loopback-only, and all listener ports must differ. No legacy formats or migrations are accepted. Existing invalid state is preserved.
 
+Daemon readers share one deeply frozen snapshot per committed revision. A successful commit invalidates it; failed writes preserve the previous snapshot. Settings PATCH accepts `expectedRevision` and returns the committed `revision`. Stale writes fail with `409` before preference or OS changes. The dashboard supplies its observed revision and ignores older write responses.
+
 `runtime/config.yaml` is derived from the selected saved profile or the built-in DIRECT-only default. Source YAML is preserved verbatim. Sash overlays operational ports, controller credentials and LAN access, removes competing controller sockets/pipes and tunnels, disables TUN and rejects all custom listeners before replacing the runtime configuration.
 
 ## Save, Apply and stop
@@ -125,7 +127,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/profiles/:id/update` | POST | Control; download and save new content |
 | `/sash/profiles/:id` | PATCH / DELETE | Control; rename or remove |
 
-Status includes `daemon.bootId`, `revisions.profiles` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required; no absent flag is guessed from an old protocol. `?fresh=1` bypasses settled proxy inspection cache.
+Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required; no absent flag is guessed from an old protocol. `?fresh=1` bypasses settled proxy inspection cache.
 
 Success bodies are resources; empty mutations return `204`. Errors use `{error: {code, message}}`. Unknown required fields or malformed successful payloads are rejected by the shared client. Raw settings editing and config reload routes do not exist.
 

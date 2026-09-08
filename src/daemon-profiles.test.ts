@@ -52,7 +52,7 @@ describe("profile management API", () => {
     await h.apiRequest(`/sash/profiles/${a.id}`, { method: "PATCH", body: { name: "renamed" } });
     await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids: [b.id, a.id] } });
     const after = await status();
-    assert.ok(after.revisions.profiles > before.revisions.profiles);
+    assert.ok(after.revisions.state > before.revisions.state);
     assert.equal(after.revisions.runtime, before.revisions.runtime);
     assert.equal(after.configuration.pending, false);
     assert.equal(after.core.pid, before.core.pid);

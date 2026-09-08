@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Cache immutable application snapshots per commit, expose saved-state revisions as `revisions.state`, and reject stale settings writes using `expectedRevision`. Keep status values consistent with their revision across slow probes.
 - Automate release finalization in the publish workflow: verify published provenance on every run, smoke-test the registry package with a real Core on Windows, then tag the release commit and create the GitHub Release from its changelog section.
 - Update dependencies: commander 15 and undici 8 (download and controller dispatchers stay on HTTP/1.1); build the dashboard with Vite 8 and @vitejs/plugin-vue 6.
 - Remove the TUN and service-mode development-branch references from README and docs; TUN stays disabled in generated configurations and is no longer planned.

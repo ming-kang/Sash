@@ -19,6 +19,10 @@ export async function patchSettings(ctx: DaemonContext, req: RouteRequest): Prom
   const result = await ctx.settingsService.apply(patch);
   return {
     status: 200,
-    json: { restartRequired: result.restartRequired, settings: publicSettings(result.settings) },
+    json: {
+      revision: result.revision,
+      restartRequired: result.restartRequired,
+      settings: publicSettings(result.settings),
+    },
   };
 }

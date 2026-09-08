@@ -42,11 +42,13 @@ export interface CoreUpdateResponse {
   version: string;
 }
 export interface SettingsPatch {
+  expectedRevision?: number;
   mixedPort?: number;
   allowLan?: boolean;
   systemProxy?: boolean;
 }
 export interface SettingsWriteResult {
+  revision: number;
   restartRequired: boolean;
   settings: PublicSashSettings;
 }
@@ -86,7 +88,7 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
 }
 export interface DaemonStatus {
   daemon: { pid: number; bootId: string; startedAt: string; port: number };
-  revisions: { profiles: number; runtime: number };
+  revisions: { state: number; runtime: number };
   core: CoreState;
   configuration: {
     pending: boolean;
@@ -189,10 +191,13 @@ export function parsePublicSettings(value: unknown): PublicSashSettings {
 export function parseSettingsPatch(value: unknown): SettingsPatch {
   const source = object(value, "settings patch");
   for (const key of Object.keys(source)) {
-    if (!["mixedPort", "allowLan", "systemProxy"].includes(key))
+    if (!["mixedPort", "allowLan", "systemProxy", "expectedRevision"].includes(key))
       throw new TypeError(`Unknown settings field: ${key}`);
   }
   return {
+    ...(Object.hasOwn(source, "expectedRevision")
+      ? { expectedRevision: integer(source.expectedRevision, "expectedRevision") }
+      : {}),
     ...(Object.hasOwn(source, "mixedPort")
       ? { mixedPort: integer(source.mixedPort, "mixedPort", 1, 65535) }
       : {}),
@@ -207,6 +212,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
 export function parseSettingsWriteResult(value: unknown): SettingsWriteResult {
   const source = object(value, "settings write");
   return {
+    revision: integer(source.revision, "revision"),
     restartRequired: boolean(source.restartRequired, "restartRequired"),
     settings: parsePublicSettings(source.settings),
   };
@@ -308,7 +314,7 @@ export function parseDaemonStatus(value: unknown): DaemonStatus {
       port: integer(daemon.port, "daemon.port", 1, 65535),
     },
     revisions: {
-      profiles: integer(revisions.profiles, "revisions.profiles"),
+      state: integer(revisions.state, "revisions.state"),
       runtime: integer(revisions.runtime, "revisions.runtime"),
     },
     core: {

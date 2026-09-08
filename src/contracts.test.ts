@@ -40,7 +40,7 @@ describe("shared API boundaries", () => {
       null,
       {},
       { ...status, daemon: { ...status.daemon, bootId: "" } },
-      { ...status, revisions: { profiles: 0, runtime: -1 } },
+      { ...status, revisions: { state: 0, runtime: -1 } },
       { ...status, core: { running: "true" } },
       { ...status, configuration: {} },
       { ...status, systemProxy: { desired: false, applied: false } },
@@ -69,8 +69,11 @@ describe("shared API boundaries", () => {
     assert.deepEqual(parseCoreUpdateResponse({ version: "v2" }), { version: "v2" });
     assert.throws(() => parseCoreUpdateResponse({ version: "" }));
     assert.equal(
-      parseSettingsWriteResult({ restartRequired: true, settings: testStatus().settings })
-        .restartRequired,
+      parseSettingsWriteResult({
+        revision: 1,
+        restartRequired: true,
+        settings: testStatus().settings,
+      }).restartRequired,
       true,
     );
     assert.deepEqual(parseSettingsPatch({ mixedPort: 18880, allowLan: true }), {
@@ -82,6 +85,9 @@ describe("shared API boundaries", () => {
       { daemonPort: 19090 },
       { secret: "secret" },
       { mixedPort: 0 },
+      { expectedRevision: -1 },
+      { expectedRevision: "0" },
+      { expectedRevision: 0.5 },
     ])
       assert.throws(() => parseSettingsPatch(value));
   });

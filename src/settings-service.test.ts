@@ -76,11 +76,27 @@ describe("saved settings", () => {
     const oldPort = f.lifecycle.settings().mixedPort;
     const result = await f.service.apply({ mixedPort: 18888, allowLan: true });
     assert.equal(result.restartRequired, true);
+    assert.equal(result.revision, 1);
     assert.equal(f.state.snapshot().revision, 1);
     assert.equal(readState(f.layout)?.settings.mixedPort, 18888);
     assert.equal(f.lifecycle.settings().mixedPort, oldPort);
     assert.equal(f.core.starts, 0);
     assert.equal(fs.existsSync(f.layout.configFile), false);
+  });
+  it("rejects a stale revision before saving preferences or changing the system proxy", async () => {
+    const f = fixture();
+    const first = await f.service.apply({ mixedPort: 18888, expectedRevision: 0 });
+    assert.equal(first.revision, 1);
+    await assert.rejects(
+      f.service.apply({ mixedPort: 19999, systemProxy: false, expectedRevision: 0 }),
+      /state changed/,
+    );
+    assert.equal(f.state.snapshot().settings.mixedPort, 18888);
+    assert.equal(f.state.snapshot().revision, 1);
+    assert.equal(f.releases(), 0);
+    const retry = await f.service.apply({ systemProxy: false, expectedRevision: 1 });
+    assert.equal(retry.revision, 1);
+    assert.equal(f.releases(), 1);
   });
   it("rejects invalid settings and proxy enable without a healthy Core", async () => {
     const f = fixture();

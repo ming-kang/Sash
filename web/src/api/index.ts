@@ -158,8 +158,10 @@ export const api = {
   setAutostart: (enabled: boolean) => sash.setAutostart(enabled),
   getSessionGeneration: webSession.generation,
 
-  enableSystemProxy: () => sash.patchSettings({ systemProxy: true }),
-  disableSystemProxy: () => sash.patchSettings({ systemProxy: false }),
+  enableSystemProxy: (expectedRevision?: number) =>
+    sash.patchSettings({ systemProxy: true, expectedRevision }),
+  disableSystemProxy: (expectedRevision?: number) =>
+    sash.patchSettings({ systemProxy: false, expectedRevision }),
 
   getProfiles: () => sash.listProfiles(),
   reorderProfiles: (ids: readonly string[]) => sash.reorderProfiles(ids),
