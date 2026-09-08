@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Automate release finalization in the publish workflow: verify published provenance on every run, smoke-test the registry package with a real Core on Windows, then tag the release commit and create the GitHub Release from its changelog section.
+- Update dependencies: commander 15 and undici 8 (download and controller dispatchers stay on HTTP/1.1); build the dashboard with Vite 8 and @vitejs/plugin-vue 6.
 
 ## [0.1.2] - 2026-09-08
 
