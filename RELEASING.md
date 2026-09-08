@@ -43,22 +43,16 @@ All fields are case-sensitive and a connection cannot be edited after creation; 
    gh run watch --repo ming-kang/Sash --exit-status
    ```
 
-   The workflow verifies the release request, runs the full gate (audit, lint, tests, build), packs and smoke-tests the tarball, publishes it with provenance, then re-verifies installation from the registry. After it succeeds, record the run's head commit as `RELEASE_SHA`.
-6. Verify the published package:
+   The workflow completes the whole release: it verifies the release request, runs the full gate (audit, lint, tests, build), packs and smoke-tests the tarball, publishes it with provenance, verifies the published provenance and registry installation, runs a Windows runtime smoke against the registry package with a real Core (`scripts/registry-runtime-smoke.mjs`), then tags the release commit as `vx.y.z` and creates the GitHub Release from the version's `CHANGELOG.md` section. When the run is green, the release is finished.
+6. Optionally spot-check the result:
 
    ```bash
    npm view @astralyn/sash version dist-tags --json
-   node scripts/package-smoke.mjs "@astralyn/sash@x.y.z"
+   node scripts/registry-runtime-smoke.mjs x.y.z
    ```
 
-   The npm package page should show provenance from `.github/workflows/publish.yml` at `RELEASE_SHA`. For a full runtime check, install the package in an isolated environment, then run `sash --help` and a `SASH_HOME`-isolated `sash start` / `status` / `stop` cycle on non-default ports. Core downloads use public release metadata; credentials from the login shell are deliberately scrubbed from the daemon environment.
-7. Tag that exact commit, not a potentially newer `main`, then create the matching GitHub Release manually:
-
-   ```bash
-   git tag -a "vx.y.z" "$RELEASE_SHA" -m "release: x.y.z"
-   git push origin "vx.y.z"
-   ```
+   The npm package page should show provenance from `.github/workflows/publish.yml` at the tagged commit. Core downloads use public release metadata; credentials from the login shell are deliberately scrubbed from the daemon environment.
 
 ## Failed publication
 
-First check `npm view @astralyn/sash@x.y.z version`. If the version does not exist, fix the release commit and dispatch the workflow again. If it exists, npm has already accepted the immutable package; do not unpublish or try to overwrite it. Verify it and, if it is defective, deprecate it and prepare the next patch version.
+First check `npm view @astralyn/sash@x.y.z version`. If the version does not exist, fix the release commit and dispatch the workflow again. If it exists, npm has already accepted the immutable package; do not unpublish or try to overwrite it. Dispatching the workflow again resumes instead of republishing: it verifies the existing package's provenance (which must identify a commit on `main`), re-runs registry verification and the runtime smoke, then finishes the tag and GitHub Release. Tagging and Release creation are idempotent, so a rerun after partial finalization is safe. If the published package is defective, deprecate it and prepare the next patch version.
