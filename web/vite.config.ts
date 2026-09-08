@@ -77,7 +77,7 @@ export default defineConfig({
     outDir: path.resolve(webRoot, "../dist/ui"),
     emptyOutDir: true,
     target: "es2022",
-    minify: "esbuild",
+    minify: true,
     cssMinify: true,
     // Font chunks stay discrete files: they are fingerprinted, fetched in
     // parallel and cached immutably by the daemon, never inlined into CSS.
