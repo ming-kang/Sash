@@ -30,7 +30,10 @@ function getBaseProxyDispatcher(): Dispatcher {
     const allProxy = allProxyRaw && /^https?:\/\//i.test(allProxyRaw) ? allProxyRaw : undefined;
     const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? allProxy;
     const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? allProxy;
+    // allowH2: false keeps the pre-undici-8 HTTP/1.1 wire behavior; the
+    // download path's stall-timeout and size-cap invariants are tested on h1.
     baseProxyDispatcher = new EnvHttpProxyAgent({
+      allowH2: false,
       ...(httpProxy ? { httpProxy } : {}),
       ...(httpsProxy ? { httpsProxy } : {}),
     });
@@ -39,7 +42,7 @@ function getBaseProxyDispatcher(): Dispatcher {
 }
 
 function getBaseDirectDispatcher(): Dispatcher {
-  if (!baseDirectDispatcher) baseDirectDispatcher = new Agent();
+  if (!baseDirectDispatcher) baseDirectDispatcher = new Agent({ allowH2: false });
   return baseDirectDispatcher;
 }
 
