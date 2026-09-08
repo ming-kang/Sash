@@ -56,6 +56,8 @@ Daemon readers share one deeply frozen snapshot per committed revision. A succes
 
 Network preference changes, profile selection, edits and scheduled downloads only save state. They do not restart or reload Core. System-proxy intent is a separate OS action: enable requires a healthy owned Core; disable saves the off preference before attempting restoration and can be retried without another manifest write.
 
+Routing-mode changes affect the running Core only. The controller call runs outside the application mutation queue and verifies Core ownership before and after the request. It does not save a preference or advance the state revision; Apply restores the mode from the selected profile.
+
 Apply executes inside the daemon queue:
 
 1. Generate the candidate from saved state and run Core's configuration validator against a private temporary file.

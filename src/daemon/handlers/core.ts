@@ -2,6 +2,7 @@ import { MihomoApi } from "../../api.js";
 import { validateCoreReleaseTag } from "../../core-install-record.js";
 import { HttpError } from "../../daemon-http.js";
 import type { DaemonContext } from "../context.js";
+import { ShuttingDownError } from "../errors.js";
 import type { RouteRequest, RouteResponse } from "../router.js";
 
 export async function startCore(ctx: DaemonContext): Promise<RouteResponse> {
@@ -39,9 +40,12 @@ export async function setCoreMode(ctx: DaemonContext, req: RouteRequest): Promis
     (mode !== "rule" && mode !== "global" && mode !== "direct")
   )
     throw new HttpError(400, "Invalid routing mode");
-  await ctx.mutate("set routing mode", async () => {
-    const settings = ctx.settings.runtime();
-    await new MihomoApi(settings.controller, settings.secret).setMode(mode);
-  });
+  if (ctx.gate.isClosing) throw new ShuttingDownError();
+  const owner = ctx.supervisor.ownedCoreSnapshot();
+  if (!owner) throw new HttpError(409, "A running owned Core is required to change routing mode");
+  const settings = ctx.settings.runtime();
+  await new MihomoApi(settings.controller, settings.secret).setMode(mode);
+  if (!ctx.supervisor.ownsCore(owner))
+    throw new HttpError(409, "Core changed during the mode request; inspect its current mode");
   return { status: 204 };
 }

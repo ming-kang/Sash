@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Keep runtime routing-mode requests outside the application mutation queue and reject missing or changed Core ownership.
 - Preserve HTTP status errors when controller, release or subscription error bodies are oversized or unreadable, and stop release lookup fallback after cancellation.
 - Keep all CLI logs readable when settings are corrupt and separate long status labels from their values.
 - Distinguish warning logs from errors, count live connections in paused close-all controls, label connection sorting correctly, and allow longer group latency tests in the dashboard.
