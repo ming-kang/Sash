@@ -50,6 +50,72 @@ afterEach(async () => {
 });
 
 describe("browser authorization", () => {
+  it("keeps a dormant credential through disconnection and exchanges it only for an advertised upgrade", async () => {
+    const source = { ...health, token: "b".repeat(48) };
+    const target = {
+      ...health,
+      token: "c".repeat(48),
+      webContinuation: {
+        bootIds: [source.token],
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    };
+    await authorize(sessionToken, source);
+    api.markDisconnected();
+    globalThis.fetch = async () => {
+      throw new Error("connection refused");
+    };
+    await assert.rejects(api.initialize(), /connection refused/);
+    assert.equal(api.hasSession(), false);
+    assert.ok(window.sessionStorage.getItem(STORAGE_KEY));
+    assert.equal(api.sessionMatches(target.token), false);
+    const renewed = "d".repeat(64);
+    globalThis.fetch = async (input, init) => {
+      if (String(input).endsWith("/sash/web/continue")) {
+        assert.deepEqual(JSON.parse(String(init?.body)), {
+          token: sessionToken,
+          daemonToken: source.token,
+        });
+        assert.equal(new Headers(init?.headers).has("x-sash-token"), false);
+        return respond({ token: renewed, daemonToken: target.token });
+      }
+      return respond(target);
+    };
+    await api.initialize();
+    assert.equal(api.hasSession(), true);
+    assert.deepEqual(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? ""), {
+      token: renewed,
+      daemonToken: target.token,
+    });
+  });
+
+  it("does not resurrect an explicitly cleared credential during upgrade continuation", async () => {
+    const source = { ...health, token: "b".repeat(48) };
+    await authorize(sessionToken, source);
+    const pending = Promise.withResolvers<Response>();
+    const entered = Promise.withResolvers<void>();
+    globalThis.fetch = async (input) => {
+      if (String(input).endsWith("/sash/web/continue")) {
+        entered.resolve();
+        return pending.promise;
+      }
+      return respond({
+        ...health,
+        token: "c".repeat(48),
+        webContinuation: {
+          bootIds: [source.token],
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      });
+    };
+    const initialization = api.initialize();
+    await entered.promise;
+    api.clearSession();
+    pending.resolve(respond({ token: "d".repeat(64), daemonToken: "c".repeat(48) }));
+    await initialization;
+    assert.equal(api.hasSession(), false);
+    assert.equal(window.sessionStorage.getItem(STORAGE_KEY), null);
+  });
   it("never acquires a control session from public health", async () => {
     let requests = 0;
     globalThis.fetch = async () => {

@@ -6,6 +6,27 @@ import { ERROR_BODY_LIMIT } from "./http.js";
 import { fetchSubscriptionProfile } from "./mihomo-config.js";
 
 describe("MihomoApi", () => {
+  it("never follows controller redirects carrying private credentials", async () => {
+    const paths: string[] = [];
+    const server = http.createServer((req, res) => {
+      paths.push(req.url ?? "");
+      res.writeHead(307, { Location: "/other-controller" });
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    try {
+      await assert.rejects(
+        new MihomoApi(`127.0.0.1:${address.port}`, "private").version(),
+        /HTTP 307/,
+      );
+      assert.deepEqual(paths, ["/version"]);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
   it("preserves controller and subscription HTTP failures with oversized response bodies", async () => {
     const server = http.createServer((_req, res) => {
       res.writeHead(403);

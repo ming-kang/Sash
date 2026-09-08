@@ -29,6 +29,12 @@ export interface HealthInfo extends InstallationIdentity {
   token: string;
   pid: number;
   startedAt: string;
+  upgradeProtocol?: number;
+  webContinuation?: WebContinuationInfo;
+}
+export interface WebContinuationInfo {
+  bootIds: string[];
+  expiresAt: string;
 }
 export interface WebBootstrapInfo {
   token: string;
@@ -37,6 +43,13 @@ export interface WebBootstrapInfo {
 export interface WebSessionInfo {
   token: string;
   daemonToken: string;
+}
+export interface UpgradeRuntimeStatus {
+  transactionId: string;
+  bootId: string;
+  version: string;
+  phase: "reserved" | "stopping" | "stopped" | "restoring" | "restored" | "committed";
+  running: boolean;
 }
 export interface CoreStartResult {
   pid: number;
@@ -163,6 +176,26 @@ export function parseHealthInfo(value: unknown): HealthInfo {
     pid: integer(source.pid, "pid", 1),
     startedAt: timestamp(source.startedAt, "startedAt"),
     ...parseInstallationIdentity(source),
+    ...(source.upgradeProtocol !== undefined
+      ? { upgradeProtocol: integer(source.upgradeProtocol, "upgradeProtocol", 1) }
+      : {}),
+    ...(source.webContinuation !== undefined
+      ? { webContinuation: parseWebContinuation(source.webContinuation) }
+      : {}),
+  };
+}
+
+function parseWebContinuation(value: unknown): WebContinuationInfo {
+  const source = object(value, "web continuation");
+  if (
+    !Array.isArray(source.bootIds) ||
+    source.bootIds.length > 512 ||
+    source.bootIds.some((id: unknown) => typeof id !== "string" || !/^[a-f0-9]{48}$/.test(id))
+  )
+    throw new TypeError("Invalid browser continuation boot identities");
+  return {
+    bootIds: source.bootIds as string[],
+    expiresAt: timestamp(source.expiresAt, "webContinuation.expiresAt"),
   };
 }
 
@@ -190,6 +223,23 @@ export function parseWebSessionInfo(value: unknown): WebSessionInfo {
   return {
     token: string(source.token, "token"),
     daemonToken: string(source.daemonToken, "daemonToken"),
+  };
+}
+export function parseUpgradeRuntimeStatus(value: unknown): UpgradeRuntimeStatus {
+  const source = object(value, "upgrade runtime");
+  if (
+    typeof source.phase !== "string" ||
+    !["reserved", "stopping", "stopped", "restoring", "restored", "committed"].includes(
+      source.phase,
+    )
+  )
+    throw new TypeError("Invalid Sash upgrade phase");
+  return {
+    transactionId: string(source.transactionId, "transactionId"),
+    bootId: string(source.bootId, "bootId"),
+    version: string(source.version, "version"),
+    phase: source.phase as UpgradeRuntimeStatus["phase"],
+    running: boolean(source.running, "running"),
   };
 }
 export function parseCoreStartResult(value: unknown): CoreStartResult {

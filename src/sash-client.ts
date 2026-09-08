@@ -28,15 +28,18 @@ import {
   parsePublicSettings,
   parseSettingsWriteResult,
   parseSystemProxyStatusResponse,
+  parseUpgradeRuntimeStatus,
   parseWebBootstrapInfo,
   parseWebSessionInfo,
   type SettingsPatch,
   type SettingsWriteResult,
   type SystemProxyStatusResponse,
+  type UpgradeRuntimeStatus,
   type WebBootstrapInfo,
   type WebSessionInfo,
 } from "./contracts.js";
 import type { PublicSashSettings } from "./settings.js";
+import type { UpgradeAccess } from "./upgrade-access.js";
 
 /**
  * Browser-safe client for the daemon-owned /sash/* HTTP API. Every response
@@ -212,6 +215,43 @@ export class SashClient {
         timeoutMs: 8000,
       }),
     );
+  }
+
+  async continueWebSession(session: WebSessionInfo): Promise<WebSessionInfo> {
+    return parseWebSessionInfo(
+      await this.request("/sash/web/continue", {
+        method: "POST",
+        body: session,
+        authenticate: false,
+        attempts: 1,
+      }),
+    );
+  }
+
+  async upgradeRuntime(
+    action: "reserve" | "status" | "commit",
+    access: UpgradeAccess,
+  ): Promise<UpgradeRuntimeStatus> {
+    return parseUpgradeRuntimeStatus(
+      await this.request(`/sash/upgrade/${action}`, {
+        method: "POST",
+        body: access,
+        timeoutMs: 60_000,
+        attempts: 1,
+      }),
+    );
+  }
+
+  async upgradeRuntimeAction(
+    action: "stop" | "release" | "cleanup",
+    access: UpgradeAccess,
+  ): Promise<void> {
+    await this.request(`/sash/upgrade/${action}`, {
+      method: "POST",
+      body: access,
+      timeoutMs: 60_000,
+      attempts: 1,
+    });
   }
 
   /** Cleanup completes before the daemon acknowledges; the listener closes after the response. */

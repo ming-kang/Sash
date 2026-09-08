@@ -17,11 +17,13 @@ import {
   parseDaemonRequestTarget,
 } from "./router.js";
 import { type ProfileUpdateScheduler, startProfileUpdateScheduler } from "./scheduler.js";
+import type { DaemonUpgradeService } from "./upgrade.js";
 
 export interface DaemonInstance {
   server: Server;
   supervisor: CoreSupervisor;
   lifecycle: RuntimeLifecycle;
+  upgrade: DaemonUpgradeService;
   token: string;
   port: number;
   version: string;
@@ -123,7 +125,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     scheduler = startProfileUpdateScheduler(
       context.profiles,
       deps.scheduler ?? {},
-      () => !context.gate.isClosing,
+      () => !context.gate.isClosing && !context.gate.isReserved,
     );
   });
 
@@ -163,6 +165,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     server,
     supervisor: app.supervisor,
     lifecycle: app.lifecycle,
+    upgrade: context.upgrade,
     token: app.token,
     port: context.settings.committed().daemonPort,
     version: context.version,

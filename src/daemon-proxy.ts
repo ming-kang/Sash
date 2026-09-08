@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { coreWebSocketProtocols, webSocketAuthResponseProtocol } from "./daemon-auth.js";
@@ -12,6 +12,28 @@ export function parseHostPort(address: string): { host: string; port: number } {
   return { host: parsed.host, port: parsed.port };
 }
 
+/** Connection-nominated fields are hop-by-hop too (RFC 9110, section 7.6.1). */
+function endToEndHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
+  const result = { ...headers };
+  const connection = headers.connection ?? "";
+  for (const name of [
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    ...connection
+      .toLowerCase()
+      .split(",")
+      .map((part) => part.trim()),
+  ])
+    delete result[name];
+  return result;
+}
+
 /**
  * Forward HTTP requests to the Mihomo external controller, automatically
  * injecting the controller secret Authorization Bearer header.
@@ -22,9 +44,9 @@ export function forwardHttpToCore(
   targetPath: string,
   controller: string,
   secret: string,
-): void {
+): Promise<void> {
   const { host, port } = parseHostPort(controller);
-  const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
+  const upstreamHeaders = endToEndHeaders(req.headers);
   delete upstreamHeaders.host;
   delete upstreamHeaders.authorization;
   delete upstreamHeaders["x-sash-token"];
@@ -32,54 +54,61 @@ export function forwardHttpToCore(
     upstreamHeaders.authorization = `Bearer ${secret}`;
   }
 
-  let completed = false;
+  return new Promise<void>((resolve) => {
+    let completed = false;
 
-  const proxyReq = http.request(
-    {
-      hostname: host,
-      port,
-      path: targetPath,
-      method: req.method,
-      headers: upstreamHeaders,
-      timeout: 30_000,
-    },
-    (proxyRes) => {
-      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
-      proxyRes.pipe(res);
-      proxyRes.on("end", () => {
-        completed = true;
-      });
-      proxyRes.on("error", () => {
-        res.destroy();
-      });
-    },
-  );
+    const proxyReq = http.request(
+      {
+        hostname: host,
+        port,
+        path: targetPath,
+        method: req.method,
+        headers: upstreamHeaders,
+        timeout: 30_000,
+      },
+      (proxyRes) => {
+        if (res.destroyed) {
+          proxyRes.destroy();
+          return;
+        }
+        res.writeHead(proxyRes.statusCode ?? 502, endToEndHeaders(proxyRes.headers));
+        proxyRes.pipe(res);
+        proxyRes.on("end", () => {
+          completed = true;
+        });
+        proxyRes.on("error", () => {
+          res.destroy();
+        });
+      },
+    );
+    proxyReq.once("close", resolve);
 
-  proxyReq.on("timeout", () => {
-    proxyReq.destroy(new Error("Core controller request timed out after 30000ms"));
+    proxyReq.on("timeout", () => {
+      proxyReq.destroy(new Error("Core controller request timed out after 30000ms"));
+    });
+
+    proxyReq.on("error", (err) => {
+      if (!res.headersSent && !res.destroyed) {
+        const msg = JSON.stringify({
+          error: `Core controller unavailable: ${(err as Error).message}`,
+        });
+        res.writeHead(502, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Content-Length": Buffer.byteLength(msg),
+        });
+        res.end(msg);
+      } else if (!res.destroyed) res.destroy();
+    });
+
+    // If client disconnects early, abort upstream request
+    res.on("close", () => {
+      if (!completed) {
+        proxyReq.destroy();
+      }
+    });
+
+    req.pipe(proxyReq);
   });
-
-  proxyReq.on("error", (err) => {
-    if (!res.headersSent) {
-      const msg = JSON.stringify({
-        error: `Core controller unavailable: ${(err as Error).message}`,
-      });
-      res.writeHead(502, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Content-Length": Buffer.byteLength(msg),
-      });
-      res.end(msg);
-    }
-  });
-
-  // If client disconnects early, abort upstream request
-  res.on("close", () => {
-    if (!completed) {
-      proxyReq.destroy();
-    }
-  });
-
-  req.pipe(proxyReq);
 }
 
 /**

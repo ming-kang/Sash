@@ -34,6 +34,7 @@ import {
 } from "./handlers/profiles.js";
 import { proxyStatus } from "./handlers/proxy.js";
 import { patchSettings, readSettings } from "./handlers/settings.js";
+import { continueWebSession, upgradeAction } from "./handlers/upgrade.js";
 
 /* ====================================================================== */
 /* Request target parsing                                                  */
@@ -123,6 +124,7 @@ export interface RouteDef {
   readonly methods: readonly string[] | "*";
   readonly pattern: URLPattern;
   readonly auth: RouteAuth;
+  readonly allowReserved?: boolean;
   readonly handler?: JsonRouteHandler;
   readonly raw?: RawRouteHandler;
 }
@@ -136,6 +138,20 @@ const CORE_API_PREFIX = "/core/api";
 /** The whole daemon HTTP surface, in matching order. */
 export function buildRoutes(): readonly RouteDef[] {
   return [
+    {
+      methods: ["POST"],
+      pattern: path("/sash/upgrade/:action(reserve|status|stop|release|commit|cleanup)"),
+      auth: "control",
+      allowReserved: true,
+      handler: upgradeAction,
+    },
+    {
+      methods: ["POST"],
+      pattern: path("/sash/web/continue"),
+      auth: "public",
+      allowReserved: true,
+      handler: continueWebSession,
+    },
     { methods: ["GET"], pattern: path("/sash/daemon/health"), auth: "public", handler: health },
     {
       methods: ["GET"],
@@ -278,12 +294,12 @@ export function buildRoutes(): readonly RouteDef[] {
   ];
 }
 
-function forwardToCore(
+async function forwardToCore(
   ctx: DaemonContext,
   req: IncomingMessage,
   res: ServerResponse,
   target: ParsedDaemonRequestTarget,
-): void {
+): Promise<void> {
   const method = req.method?.toUpperCase() ?? "GET";
   const pathname = coreApiTarget(target).split("?")[0] ?? "/";
   const allowedMutation =
@@ -294,7 +310,10 @@ function forwardToCore(
     return;
   }
   const runtime = ctx.settings.runtime();
-  forwardHttpToCore(req, res, coreApiTarget(target), runtime.controller, runtime.secret);
+  const forward = () =>
+    forwardHttpToCore(req, res, coreApiTarget(target), runtime.controller, runtime.secret);
+  if (isControlMutation(method)) await ctx.gate.runLiveMutation(forward);
+  else await forward();
 }
 
 function serveUiIndexOrRedirect(
@@ -427,6 +446,11 @@ export async function dispatch(
     isSessionToken: (token) => ctx.webAuth.isSession(token),
   });
   if (requiresAuth && !authorized) {
+    const token = req.headers["x-sash-token"];
+    if (typeof token === "string" && ctx.webAuth.isContinuationToken(token)) {
+      sendError(res, 409, "conflict", "Sash upgraded; reconnect this browser session");
+      return;
+    }
     sendError(res, 401, "unauthorized", "Unauthorized control request");
     return;
   }
@@ -447,6 +471,7 @@ export async function dispatch(
   }
 
   try {
+    if (isControlMutation(method) && !route.allowReserved) ctx.gate.assertMutable();
     if (route.raw) {
       await route.raw(ctx, req, res, target);
       return;
@@ -460,7 +485,11 @@ export async function dispatch(
       search: target.search,
       searchParams: target.searchParams,
       raw: req,
-      readJson: (maxBytes) => parseJsonObjectBody(req, maxBytes),
+      readJson: async (maxBytes) => {
+        const body = await parseJsonObjectBody(req, maxBytes);
+        if (isControlMutation(method) && !route.allowReserved) ctx.gate.assertMutable();
+        return body;
+      },
     };
     writeResponse(res, await route.handler(ctx, request));
   } catch (err) {

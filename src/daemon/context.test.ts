@@ -4,6 +4,55 @@ import { deferred } from "../test-state.test.js";
 import { DaemonGate, type SlowMutationInfo } from "./context.js";
 
 describe("daemon mutation queue", () => {
+  it("closes admission immediately and drains a write and a runtime RPC before reservation", async () => {
+    const write = deferred();
+    const rpc = deferred();
+    const entered = deferred();
+    let cancelled = 0;
+    const gate = new DaemonGate(
+      async () => {},
+      () => {
+        cancelled += 1;
+      },
+    );
+    const running = gate.mutate("write", async () => {
+      entered.resolve();
+      await write.promise;
+    });
+    await entered.promise;
+    const live = gate.runLiveMutation(() => rpc.promise);
+    const queued = assert.rejects(
+      gate.mutate("queued", () => assert.fail()),
+      /upgrade/,
+    );
+    let reserved = false;
+    const reservation = gate.reserve("transaction").then(() => {
+      reserved = true;
+    });
+    await assert.rejects(
+      gate.mutate("new", () => assert.fail()),
+      /upgrade/,
+    );
+    await assert.rejects(
+      gate.runLiveMutation(() => assert.fail()),
+      /upgrade/,
+    );
+    await assert.rejects(gate.reserve("other"), /upgrade/);
+    assert.equal(cancelled, 1);
+    write.resolve();
+    await running;
+    assert.equal(reserved, false);
+    rpc.resolve();
+    await Promise.all([live, queued, reservation]);
+    assert.equal(reserved, true);
+    await assert.rejects(
+      gate.mutateReserved("other", "snapshot", () => assert.fail()),
+      /does not match/,
+    );
+    assert.equal(await gate.mutateReserved("transaction", "snapshot", () => 42), 42);
+    gate.releaseReservation("transaction");
+    assert.equal(await gate.mutate("next", () => 43), 43);
+  });
   it("reports synchronous slow work and preserves the domain error if diagnostics fail", async (t) => {
     let now = 0;
     let reports = 0;

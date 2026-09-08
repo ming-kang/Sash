@@ -6,6 +6,7 @@ import type {
 } from "../../contracts.js";
 import { currentCoreVersion } from "../../core.js";
 import { HttpError } from "../../daemon-http.js";
+import { UPGRADE_PROTOCOL } from "../../package-info.js";
 import { publicSettings } from "../../settings.js";
 import type { SystemProxyState } from "../../sysproxy.js";
 import type { DaemonContext } from "../context.js";
@@ -15,12 +16,15 @@ export function health(ctx: DaemonContext): RouteResponse {
   // The token is a per-boot identity nonce for daemon instance matching. It
   // is deliberately not a credential: control requests require the CLI
   // bearer or a WebUI session token from the bootstrap exchange below.
+  const continuation = ctx.webAuth.continuationInfo();
   const body: HealthInfo = {
     token: ctx.token,
     pid: process.pid,
     startedAt: ctx.startedAt,
     version: ctx.version,
     installationId: ctx.installationId,
+    upgradeProtocol: UPGRADE_PROTOCOL,
+    ...(continuation ? { webContinuation: continuation } : {}),
   };
   return { status: 200, json: body };
 }

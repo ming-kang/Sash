@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+- Disable controller redirects, strip hop-by-hop gateway headers, and expire idle browser sessions after 12 hours with sliding renewal.
 - Remove alternate controller sockets/pipes and tunnels from generated configurations, and reject custom listeners before changing a running Core.
 - Require authentication to read settings and profile metadata; redact subscription URLs from unauthenticated daemon status while preserving authorized CLI and dashboard access.
 - Record extracted Core binary SHA-256 digests and verify installed, staged and rollback files before execution or recovery. Authenticate existing version-only records against official release artifacts before adding their digests.
@@ -21,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Add authenticated upgrade reservations and private runtime handoffs. Preserve applied configuration, routing mode, node selections, proxy ownership and pending edits across controlled daemon replacement; exchange browser sessions only through a bounded upgrade continuation.
 - Report the daemon's startup Sash version and installation identity, and register its data directory under a shared installation startup gate for coordinated upgrades.
 - Back off failed scheduled profile updates, share in-flight updates across manual and scheduled callers, and keep profile downloads running when only Core is stopped.
 - Expose active and queued daemon mutations with slow-operation diagnostics; share short-lived status probes while keeping safety decisions fresh and requiring authentication for forced probes.

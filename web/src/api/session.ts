@@ -4,7 +4,7 @@ import {
   parseWebSessionInfo,
   type WebSessionInfo,
 } from "../../../src/contracts.js";
-import type { SashClient } from "../../../src/sash-client.js";
+import { SashApiError, type SashClient } from "../../../src/sash-client.js";
 
 const STORAGE_KEY = "sash.control-token";
 let credential: WebSessionInfo | null = null;
@@ -25,9 +25,9 @@ function readStoredSession(): WebSessionInfo | null {
   }
 }
 
-function setCredential(value: WebSessionInfo | null): void {
+function setCredential(value: WebSessionInfo | null, ready = value !== null): void {
   credential = value;
-  sessionReady.value = value !== null;
+  sessionReady.value = ready;
   try {
     if (value) window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(value));
     else window.sessionStorage.removeItem(STORAGE_KEY);
@@ -51,17 +51,18 @@ export const webSession = {
     initialized && !(typeof window !== "undefined" && /(?:^#|&)boot=/.test(window.location.hash)),
   markDisconnected(): void {
     initialized = false;
+    sessionReady.value = false;
   },
   matches(bootId: string): boolean {
-    if (credential?.daemonToken === bootId) return true;
+    if (credential?.daemonToken === bootId && sessionReady.value) return true;
     if (credential) {
       generation += 1;
-      setCredential(null);
+      sessionReady.value = false;
       initialized = false;
     }
     return false;
   },
-  token: (): string => credential?.token ?? "",
+  token: (): string => (sessionReady.value ? (credential?.token ?? "") : ""),
   generation: (): number => generation,
   startedAt: (): string | null => daemonStartedAt,
 
@@ -75,7 +76,7 @@ export const webSession = {
 
   reject(token: string): void {
     // An old request's 401 must not revoke a newer browser authorization.
-    if (token && token === credential?.token) {
+    if (token && token === credential?.token && sessionReady.value) {
       generation += 1;
       setCredential(null);
     }
@@ -89,10 +90,26 @@ export const webSession = {
     // Concurrent polls share a single-use exchange. Only the current poll may
     // adopt it, and explicit session clearing invalidates all pending results.
     const exchange = pendingExchange;
+    let candidate = credential ?? readStoredSession();
     try {
-      let candidate = credential ?? readStoredSession();
       if (exchange) candidate = await exchange.catch(() => null);
       const health = await client.health();
+      if (candidate && candidate.daemonToken !== health.token && current()) {
+        const continuation = health.webContinuation;
+        if (
+          continuation &&
+          Date.parse(continuation.expiresAt) > Date.now() &&
+          continuation.bootIds.includes(candidate.daemonToken)
+        ) {
+          try {
+            candidate = await client.continueWebSession(candidate);
+          } catch (error) {
+            if (error instanceof SashApiError && [400, 401, 403].includes(error.status))
+              candidate = null;
+            else throw error;
+          }
+        } else candidate = null;
+      }
       if (current()) {
         initialized = true;
         setCredential(candidate?.daemonToken === health.token ? candidate : null);
@@ -102,7 +119,7 @@ export const webSession = {
     } catch (error) {
       if (current()) {
         initialized = false;
-        setCredential(null);
+        setCredential(candidate, false);
         daemonStartedAt = null;
       }
       throw error;

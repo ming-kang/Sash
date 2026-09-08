@@ -28,6 +28,7 @@ import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../system-proxy-manager.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
 import type { DaemonScheduler } from "./scheduler.js";
+import { DaemonUpgradeService } from "./upgrade.js";
 import { WebAuthManager } from "./web-auth.js";
 
 export interface DaemonDeps {
@@ -111,6 +112,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     layout,
     state,
     commit: mutate,
+    assertMutable: () => gate.assertMutable(),
     fetchProfile: deps.fetchProfileFn,
   });
   const settingsService = new SettingsService({ state, commit: mutate, lifecycle, supervisor });
@@ -161,7 +163,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   };
 
   const updateCore = async (version?: string): Promise<CoreUpdateResult> => {
-    if (gate.isClosing) throw new Error("sashd is shutting down");
+    gate.assertMutable();
     if (downloading) throw new StateConflictError("A Core download is already in progress");
     requireRecoveredInstall();
     const { signal } = preparation;
@@ -205,6 +207,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   };
 
   const applyCore = async (onlyIfStopped = false) => {
+    gate.assertMutable();
     const { signal } = preparation;
     requireRecoveredInstall();
     await verifyInstalledIntegrity();
@@ -221,6 +224,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     });
   };
 
+  let upgrade: DaemonUpgradeService;
   const context: DaemonContext = {
     layout,
     state,
@@ -229,6 +233,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     version: packageInfo.version,
     installationId: installationId(packageRoot),
     webAuth: new WebAuthManager(),
+    get upgrade() {
+      return upgrade;
+    },
     profiles,
     settingsService,
     lifecycle,
@@ -262,5 +269,6 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     closeListener: () => Promise.reject(new Error("Listener is not ready")),
     ...(deps.onShutdown ? { onShutdown: deps.onShutdown } : {}),
   };
+  upgrade = new DaemonUpgradeService(context);
   return { context, supervisor, lifecycle, token };
 }

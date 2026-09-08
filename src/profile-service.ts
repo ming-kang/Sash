@@ -29,6 +29,7 @@ export interface ProfileServiceOptions {
   layout: SashLayout;
   state: SashStateStore;
   commit: ProfileCommitBoundary;
+  assertMutable?: () => void;
   fetchProfile?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
 }
 
@@ -81,6 +82,7 @@ export class ProfileService {
   }
 
   private async fetch(url: string): Promise<SubscriptionFetch> {
+    this.options.assertMutable?.();
     const controller = new AbortController();
     this.downloads.add(controller);
     try {

@@ -1,8 +1,41 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { WEB_BOOTSTRAP_TTL_MS, WebAuthManager } from "./web-auth.js";
+import { WEB_BOOTSTRAP_TTL_MS, WEB_SESSION_TTL_MS, WebAuthManager } from "./web-auth.js";
 
 describe("WebAuthManager", () => {
+  it("expires inactive sessions and slides the deadline only for accepted credentials", () => {
+    const auth = new WebAuthManager();
+    const now = Date.now();
+    const active = auth.redeemBootstrap(auth.createBootstrap(now).token, now);
+    const idle = auth.redeemBootstrap(auth.createBootstrap(now).token, now);
+    assert.ok(active && idle);
+    assert.equal(auth.isSession(active, now + WEB_SESSION_TTL_MS - 1), true);
+    assert.equal(auth.isSession(idle, now + WEB_SESSION_TTL_MS), false);
+    assert.equal(auth.isSession(active, now + WEB_SESSION_TTL_MS), true);
+    assert.equal(auth.isSession(active, now + WEB_SESSION_TTL_MS * 2), false);
+  });
+
+  it("requires a private old token and source boot for a bounded idempotent continuation", () => {
+    const now = Date.now();
+    const old = new WebAuthManager();
+    const session = old.redeemBootstrap(old.createBootstrap(now).token, now);
+    assert.ok(session);
+    const boot = "b".repeat(48);
+    const targetBoot = "c".repeat(48);
+    const next = new WebAuthManager();
+    next.installContinuation(old.sessionSeeds(boot, now), "d".repeat(64), targetBoot, now + 1000);
+    assert.equal(next.isSession(session, now), false);
+    assert.equal(next.isContinuationToken(session, now), true);
+    assert.equal(next.redeemContinuation(boot, boot, now), null);
+    assert.equal(next.redeemContinuation(session, targetBoot, now), null);
+    const renewed = next.redeemContinuation(session, boot, now);
+    assert.ok(renewed);
+    assert.notEqual(renewed, session);
+    assert.equal(next.isSession(renewed, now), true);
+    assert.equal(next.redeemContinuation(session, boot, now), renewed);
+    assert.equal(next.redeemContinuation(session, boot, now + 1000), null);
+    assert.equal(next.continuationInfo(now + 1000), undefined);
+  });
   it("redeems a bootstrap token exactly once and authorizes the session", () => {
     const auth = new WebAuthManager();
     const bootstrap = auth.createBootstrap();

@@ -6,7 +6,7 @@ Implementation tracking:
 
 - [x] Shared installation detection and exact package/Node version validation.
 - [x] Installation instance registration and stable daemon startup identity.
-- [ ] Runtime reservation, private handoff and browser continuation.
+- [x] Runtime reservation, private handoff and browser continuation.
 - [ ] Complete npm staging, standalone worker and recoverable package/bin activation.
 - [ ] Command wiring and end-to-end failure/recovery verification.
 

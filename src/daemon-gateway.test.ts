@@ -9,6 +9,38 @@ describe("daemon server", () => {
   const h = useDaemonTestHarness();
 
   describe("/core/api/* reverse proxy", () => {
+    it("removes hop-by-hop and Connection-nominated fields in both directions", async () => {
+      let received: http.IncomingHttpHeaders = {};
+      h.mockCoreServer = http.createServer((req, res) => {
+        received = req.headers;
+        res.writeHead(200, {
+          Connection: "close, x-upstream-hop",
+          "X-Upstream-Hop": "private",
+          "Proxy-Authenticate": "private",
+          "X-End-To-End": "retained",
+        });
+        res.end("{}");
+      });
+      await new Promise<void>((resolve) => h.mockCoreServer?.listen(0, "127.0.0.1", resolve));
+      const address = h.mockCoreServer.address();
+      assert.ok(address && typeof address === "object");
+      h.settings.controller = `127.0.0.1:${address.port}`;
+      await h.startServer();
+      const response = await h.rawHttpRequest("/core/api/version", {
+        headers: {
+          Authorization: `Bearer ${h.settings.daemonSecret}`,
+          Connection: "close, x-client-hop",
+          "X-Client-Hop": "private",
+          "Proxy-Authorization": "private",
+          "X-End-To-End": "retained",
+        },
+      });
+      assert.equal(received["x-client-hop"], undefined);
+      assert.equal(received["proxy-authorization"], undefined);
+      assert.equal(received["x-end-to-end"], "retained");
+      assert.doesNotMatch(response, /x-upstream-hop|proxy-authenticate/i);
+      assert.match(response, /x-end-to-end: retained/i);
+    });
     it("rejects every unauthenticated Core GET before opening an upstream request", async () => {
       let upstreamRequests = 0;
       h.mockCoreServer = http.createServer((_req, res) => {

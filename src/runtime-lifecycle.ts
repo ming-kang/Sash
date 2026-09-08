@@ -2,6 +2,7 @@ import { MihomoApi } from "./api.js";
 import type { CoreStartResult } from "./contracts.js";
 import type { StagedCore } from "./core.js";
 import { ensureCoreIntegrityRecords } from "./core-install-verification.js";
+import type { CoreRuntimeState } from "./core-runtime-state.js";
 import {
   type CoreUpdateOptions,
   type CoreUpdateResult,
@@ -29,6 +30,13 @@ export interface RuntimeLifecycleOptions {
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
   settings: () => SashSettings;
+}
+
+export interface RuntimeRestoreState {
+  configuration: RuntimeConfiguration | null;
+  running: boolean;
+  systemProxyApplied: boolean;
+  core: CoreRuntimeState | null;
 }
 
 /** All calls enter the daemon's single mutation queue. This class owns Core and proxy order. */
@@ -107,8 +115,35 @@ export class RuntimeLifecycle {
     this.runtimeRevision += 1;
   }
 
-  async reconcileSystemProxy(): Promise<void> {
-    if (!this.options.settings().systemProxy) {
+  /** Restore actual applied state without applying saved edits or proxy preferences. */
+  async restore(snapshot: RuntimeRestoreState): Promise<void> {
+    if (snapshot.running && (!snapshot.configuration || !snapshot.core))
+      throw new Error(
+        "Running Core restoration requires an applied configuration and runtime state",
+      );
+    if (!snapshot.running && snapshot.systemProxyApplied)
+      throw new Error("A stopped Core cannot restore an owned system proxy");
+    await this.stop();
+    if (snapshot.running) await this.requireVacantController();
+    this.runtimeSettings = { ...(snapshot.configuration?.settings ?? this.options.settings()) };
+    this.applied = snapshot.configuration ?? undefined;
+    if (snapshot.configuration)
+      atomicWriteFileSync(this.options.layout.configFile, snapshot.configuration.generated.yaml);
+    if (!snapshot.running) return;
+    if (!snapshot.core) throw new Error("Core runtime state is missing");
+    await this.startCore();
+    const owner = this.options.supervisor.ownedCoreSnapshot();
+    await new MihomoApi(
+      this.runtimeSettings.controller,
+      this.runtimeSettings.secret,
+    ).restoreRuntimeState(snapshot.core);
+    if (!owner || !this.options.supervisor.ownsCore(owner))
+      throw new Error("Core ownership changed during restoration");
+    await this.reconcileSystemProxy(snapshot.systemProxyApplied);
+  }
+
+  async reconcileSystemProxy(enabled = this.options.settings().systemProxy): Promise<void> {
+    if (!enabled) {
       await this.options.systemProxy.release();
       return;
     }

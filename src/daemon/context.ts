@@ -1,4 +1,4 @@
-import type { SashStateStore } from "../app-state.js";
+import { type SashStateStore, StateConflictError } from "../app-state.js";
 import type { AutostartController } from "../autostart.js";
 import type { CoreStartResult, MutationQueueStatus } from "../contracts.js";
 import type { CoreUpdateResult } from "../core-update.js";
@@ -10,6 +10,7 @@ import type { SettingsService } from "../settings-service.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../system-proxy-manager.js";
 import { ShuttingDownError } from "./errors.js";
+import type { DaemonUpgradeService } from "./upgrade.js";
 import type { WebAuthManager } from "./web-auth.js";
 
 export interface SlowMutationInfo {
@@ -26,6 +27,8 @@ export class DaemonGate {
   private cleanupPromise: Promise<void> | undefined;
   private active: MutationQueueStatus["active"] = null;
   private queued = 0;
+  private reservation: string | undefined;
+  private readonly liveMutations = new Set<Promise<void>>();
 
   constructor(
     private readonly cleanup: () => Promise<void>,
@@ -38,25 +41,78 @@ export class DaemonGate {
   get isClosing(): boolean {
     return this.closing;
   }
+  get isReserved(): boolean {
+    return this.reservation !== undefined;
+  }
+
+  assertMutable(): void {
+    if (this.closing) throw new ShuttingDownError();
+    if (this.reservation) throw new StateConflictError("A Sash upgrade is in progress");
+  }
+
+  /** Close admission synchronously, then drain already executing writes and controller RPCs. */
+  async reserve(transactionId: string): Promise<void> {
+    if (this.reservation !== transactionId) {
+      this.assertMutable();
+      this.reservation = transactionId;
+      this.cancel();
+    }
+    await Promise.allSettled([this.tail, ...this.liveMutations]);
+  }
+
+  releaseReservation(transactionId: string): void {
+    this.assertReserved(transactionId);
+    this.reservation = undefined;
+  }
+
+  private assertReserved(transactionId: string): void {
+    if (this.closing) throw new ShuttingDownError();
+    if (this.reservation !== transactionId)
+      throw new StateConflictError("Sash upgrade reservation does not match");
+  }
+
+  mutateReserved<T>(
+    transactionId: string,
+    purpose: string,
+    action: () => T | Promise<T>,
+  ): Promise<T> {
+    return this.enqueue(purpose, action, () => this.assertReserved(transactionId));
+  }
+
+  /** Runtime-only RPCs stay outside the state queue but participate in the upgrade drain. */
+  async runLiveMutation<T>(action: () => T | Promise<T>): Promise<T> {
+    this.assertMutable();
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    this.liveMutations.add(pending);
+    try {
+      return await action();
+    } finally {
+      this.liveMutations.delete(pending);
+      finish();
+    }
+  }
 
   snapshot(): MutationQueueStatus {
     return { active: this.active ? { ...this.active } : null, queued: this.queued };
   }
 
   mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T> {
-    return this.enqueue(purpose, action, false);
+    return this.enqueue(purpose, action, () => this.assertMutable());
   }
 
-  private enqueue<T>(
-    purpose: string,
-    action: () => T | Promise<T>,
-    allowClosing: boolean,
-  ): Promise<T> {
-    if (this.closing && !allowClosing) return Promise.reject(new ShuttingDownError());
+  private enqueue<T>(purpose: string, action: () => T | Promise<T>, admit: () => void): Promise<T> {
+    try {
+      admit();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     this.queued += 1;
     const next = this.tail.then(async () => {
       this.queued -= 1;
-      if (this.closing && !allowClosing) throw new ShuttingDownError();
+      admit();
       const started = performance.now();
       const active = { purpose, startedAt: new Date().toISOString() };
       this.active = active;
@@ -101,7 +157,14 @@ export class DaemonGate {
     if (this.cleanupPromise) return this.cleanupPromise;
     this.closing = true;
     this.cancel();
-    const attempt = this.enqueue("shut down daemon", this.cleanup, true);
+    const attempt = this.enqueue(
+      "shut down daemon",
+      async () => {
+        await Promise.allSettled(this.liveMutations);
+        await this.cleanup();
+      },
+      () => {},
+    );
     this.cleanupPromise = attempt;
     void attempt.catch(() => {
       if (this.cleanupPromise === attempt) {
@@ -126,6 +189,7 @@ export interface DaemonContext {
   readonly version: string;
   readonly installationId: string;
   readonly webAuth: WebAuthManager;
+  readonly upgrade: DaemonUpgradeService;
   readonly profiles: ProfileService;
   readonly settingsService: SettingsService;
   readonly lifecycle: RuntimeLifecycle;
