@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import net from "node:net";
 import { describe, it } from "node:test";
+import YAML from "yaml";
 import {
   parseDaemonStatus,
   parseProfileActionResponse,
@@ -56,6 +57,43 @@ describe("profile management API", () => {
     assert.equal(after.configuration.pending, false);
     assert.equal(after.core.pid, before.core.pid);
     assert.equal(fs.readFileSync(h.layout.configFile, "utf8"), config);
+  });
+  it("preserves source YAML but never publishes alternate controllers or tunnels", async () => {
+    await h.startServer();
+    const source = `${content}external-controller-unix: /tmp/unowned.sock\nexternal-controller-pipe: unowned-pipe\ntunnels: ['tcp,0.0.0.0:27894,example.com:80,DIRECT']\n`;
+    const profile = await add("managed endpoints", source);
+    assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
+    const published = YAML.parse(fs.readFileSync(h.layout.configFile, "utf8"));
+    assert.equal(published["external-controller"], h.settings.controller);
+    for (const key of ["external-controller-unix", "external-controller-pipe", "tunnels"]) {
+      assert.equal(Object.hasOwn(published, key), false);
+    }
+    assert.equal(
+      parseProfileContentResponse((await h.apiRequest(`/sash/profiles/${profile.id}/content`)).data)
+        .content,
+      source,
+    );
+  });
+  it("rejects custom listeners before replacing the running configuration", async () => {
+    await h.startServer();
+    const profile = await add("listener source");
+    assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
+    const before = fs.readFileSync(h.layout.configFile, "utf8");
+    const owner = (await status()).core.pid;
+    const saved = await h.apiRequest(`/sash/profiles/${profile.id}/content`, {
+      method: "PUT",
+      body: {
+        revision: profile.revision,
+        content: `${content}listeners: [{name: public, type: http, listen: 0.0.0.0, port: 27894}]\n`,
+      },
+    });
+    assert.equal(saved.statusCode, 200);
+    const apply = await h.apiRequest("/sash/core/restart", { method: "POST" });
+    assert.notEqual(apply.statusCode, 200);
+    assert.match(JSON.stringify(apply.data), /Custom listeners are not supported/);
+    assert.equal(fs.readFileSync(h.layout.configFile, "utf8"), before);
+    assert.equal((await status()).core.pid, owner);
+    assert.equal((await status()).configuration.pending, true);
   });
   it("keeps a saved selection pending until explicit Apply", async () => {
     await h.startServer();

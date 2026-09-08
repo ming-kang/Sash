@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- Remove alternate controller sockets/pipes and tunnels from generated configurations, and reject custom listeners before changing a running Core.
+- Require authentication to read settings and profile metadata; redact subscription URLs from unauthenticated daemon status while preserving authorized CLI and dashboard access.
+
 ### Changed
 
 - Automate release finalization in the publish workflow: verify published provenance on every run, smoke-test the registry package with a real Core on Windows, then tag the release commit and create the GitHub Release from its changelog section.

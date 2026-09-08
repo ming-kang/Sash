@@ -44,7 +44,7 @@ Saving source content validates bounded core-format YAML, atomically writes a ne
 
 The manifest is capped at 2 MiB, profile content at 8 MiB. Readers reject invalid schemas, duplicate IDs, invalid revisions, non-regular files and oversized content. Secrets must be nonblank, the controller must be loopback-only, and all listener ports must differ. No legacy formats or migrations are accepted. Existing invalid state is preserved.
 
-`runtime/config.yaml` is derived from the selected saved profile or the built-in DIRECT-only default. Source YAML is preserved verbatim. Sash overlays operational ports, controller credentials and LAN access, removes competing managed keys, disables TUN and rejects separate TUN listeners.
+`runtime/config.yaml` is derived from the selected saved profile or the built-in DIRECT-only default. Source YAML is preserved verbatim. Sash overlays operational ports, controller credentials and LAN access, removes competing controller sockets/pipes and tunnels, disables TUN and rejects all custom listeners before replacing the runtime configuration.
 
 ## Save, Apply and stop
 
@@ -100,7 +100,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | Endpoint | Method | Access / result |
 | --- | --- | --- |
 | `/sash/daemon/health` | GET | Public per-boot identity, PID and start time |
-| `/sash/daemon/status` | GET | Public management/runtime snapshot without secrets |
+| `/sash/daemon/status` | GET | Public management/runtime snapshot; subscription URLs require control authentication |
 | `/sash/daemon/shutdown` | POST | Control; complete cleanup, then `204` and listener close |
 | `/sash/web/bootstrap` | POST | Control; mint one-time browser handoff |
 | `/sash/web/session` | POST | Redeem the handoff token supplied in the body |
@@ -110,9 +110,9 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/core/update` | POST | Control; optional `{version}`, returns `{version}` |
 | `/sash/core/mode` | PUT | Control; `{mode}` changes running Core mode |
 | `/sash/proxy` | GET | Public desired/applied/observed state |
-| `/sash/settings` | GET / PATCH | Public settings / control save `{mixedPort?, allowLan?, systemProxy?}` |
+| `/sash/settings` | GET / PATCH | Control; read settings or save `{mixedPort?, allowLan?, systemProxy?}` |
 | `/sash/autostart` | GET / PUT | Control; inspect or set `{enabled}` |
-| `/sash/profiles` | GET / POST | Public metadata list / control remote import |
+| `/sash/profiles` | GET / POST | Control; metadata list or remote import |
 | `/sash/profiles/import` | POST | Control; local YAML import |
 | `/sash/profiles/order` | PUT | Control; save complete `{ids}` order |
 | `/sash/profiles/active` | PUT | Control; save `{id}` or `null`, without applying |

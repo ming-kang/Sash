@@ -89,6 +89,7 @@ export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
 export type RouteAuth = "public" | "control" | "gateway";
 
 export interface RouteRequest {
+  authorized: boolean;
   method: string;
   pathname: string;
   params: Record<string, string | undefined>;
@@ -185,14 +186,14 @@ export function buildRoutes(): readonly RouteDef[] {
       auth: "control",
       handler: writeAutostart,
     },
-    { methods: ["GET"], pattern: path("/sash/settings"), auth: "public", handler: readSettings },
+    { methods: ["GET"], pattern: path("/sash/settings"), auth: "control", handler: readSettings },
     {
       methods: ["PATCH"],
       pattern: path("/sash/settings"),
       auth: "control",
       handler: patchSettings,
     },
-    { methods: ["GET"], pattern: path("/sash/profiles"), auth: "public", handler: listProfiles },
+    { methods: ["GET"], pattern: path("/sash/profiles"), auth: "control", handler: listProfiles },
     { methods: ["POST"], pattern: path("/sash/profiles"), auth: "control", handler: addProfile },
     {
       methods: ["PUT"],
@@ -421,13 +422,11 @@ export async function dispatch(
     return;
   }
   const requiresAuth = route ? route.auth !== "public" : isControlMutation(method);
-  if (
-    requiresAuth &&
-    !isControlRequestAuthorized(req, {
-      daemonSecret: ctx.settings.committed().daemonSecret,
-      isSessionToken: (token) => ctx.webAuth.isSession(token),
-    })
-  ) {
+  const authorized = isControlRequestAuthorized(req, {
+    daemonSecret: ctx.settings.committed().daemonSecret,
+    isSessionToken: (token) => ctx.webAuth.isSession(token),
+  });
+  if (requiresAuth && !authorized) {
     sendError(res, 401, "unauthorized", "Unauthorized control request");
     return;
   }
@@ -454,6 +453,7 @@ export async function dispatch(
     }
     if (!route.handler) throw new Error(`Route has no handler: ${method} ${pathname}`);
     const request: RouteRequest = {
+      authorized,
       method,
       pathname,
       params: match.params,

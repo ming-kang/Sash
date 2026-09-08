@@ -9,11 +9,11 @@
 
 ### 安全加固
 
-- [ ] **S1 · 补全生成配置的受管键覆盖**（`src/mihomo-config.ts:362-399`，S）
+- [x] **S1 · 补全生成配置的受管键覆盖**（`src/mihomo-config.ts:362-399`，S）
   `MANAGED_KEYS` 增加 `external-controller-unix`、`external-controller-pipe`、`tunnels`；
   `overlayManagedKeys` 对 `listeners` 整体拒绝或剥离（当前仅拒 `type: "tun"`，其余
   监听器类型带自有 `listen:` 地址透传）。补测试：订阅含上述键时的发布行为。
-- [ ] **S2 · 收紧公开路由的读取面**（`src/daemon/router.ts:180-195`、`src/daemon/handlers/profiles.ts`、`handlers/daemon.ts`，S）
+- [x] **S2 · 收紧公开路由的读取面**（`src/daemon/router.ts:180-195`、`src/daemon/handlers/profiles.ts`、`handlers/daemon.ts`，S）
   `GET /sash/profiles`、`GET /sash/settings` 改为控制鉴权；`daemon/status` 中
   `activeProfile.url` / `appliedProfile.url` 脱敏或鉴权后才返回（订阅 URL 常含凭据）。
   落地前确认 CLI 与 WebUI bootstrap 流程不依赖未鉴权读取（`daemon-ui.test.ts`）。

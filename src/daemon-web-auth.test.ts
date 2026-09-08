@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseHealthInfo, parseWebBootstrapInfo, parseWebSessionInfo } from "./contracts.js";
+import {
+  parseDaemonStatus,
+  parseHealthInfo,
+  parseWebBootstrapInfo,
+  parseWebSessionInfo,
+} from "./contracts.js";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 
 describe("daemon browser authorization", () => {
@@ -17,6 +22,8 @@ describe("daemon browser authorization", () => {
       ["POST", "/sash/daemon/shutdown"],
       ["POST", "/sash/web/bootstrap"],
       ["GET", "/sash/autostart"],
+      ["GET", "/sash/settings"],
+      ["GET", "/sash/profiles"],
       ["GET", "/core/api/version"],
     ]) {
       assert.ok(method && pathname);
@@ -33,8 +40,36 @@ describe("daemon browser authorization", () => {
       "Sec-WebSocket-Protocol": `sash, sash-token.${health.token}`,
     });
     assert.match(upgrade, /^HTTP\/1\.1 401 /);
-    const profiles = await h.apiRequest("/sash/profiles", { token: "" });
-    assert.deepEqual(profiles.data, { profiles: [], activeId: null });
+  });
+
+  it("keeps subscription credentials private while CLI and browser reads remain authorized", async () => {
+    const url = "https://example.test/subscription?token=private-query";
+    await h.startServer({
+      fetchProfile: async () => ({ doc: { proxies: [] }, yamlText: "proxies: []\n" }),
+    });
+    assert.equal(
+      (await h.apiRequest("/sash/profiles", { method: "POST", body: { url, activate: true } }))
+        .statusCode,
+      200,
+    );
+    assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
+    const publicStatus = await h.apiRequest("/sash/daemon/status", { token: "" });
+    assert.equal(publicStatus.statusCode, 200);
+    assert.ok(!JSON.stringify(publicStatus.data).includes("private-query"));
+    const redacted = parseDaemonStatus(publicStatus.data);
+    assert.equal(redacted.activeProfile?.url, "");
+    assert.equal(redacted.configuration.appliedProfile?.url, "");
+    const session = await h.mintWebSession();
+    for (const credentials of [{ token: h.settings.daemonSecret }, { webToken: session }]) {
+      for (const endpoint of ["/sash/settings", "/sash/profiles"]) {
+        assert.equal((await h.apiRequest(endpoint, credentials)).statusCode, 200);
+      }
+      const status = parseDaemonStatus(
+        (await h.apiRequest("/sash/daemon/status", credentials)).data,
+      );
+      assert.equal(status.activeProfile?.url, url);
+      assert.equal(status.configuration.appliedProfile?.url, url);
+    }
   });
 
   it("issues non-cacheable credentials and redeems each bootstrap once under concurrency", async () => {

@@ -146,17 +146,18 @@ describe("mihomo-config", () => {
       assert.deepEqual(overlaid["rule-providers"], profile["rule-providers"]);
     });
 
-    it("rejects a TUN listener embedded in the profile without rejecting ordinary listeners", () => {
-      const listener = { name: "capture", type: "tun", "auto-route": true };
-      assert.throws(
-        () => overlayManagedKeys({ listeners: [listener] }, mockSettings),
-        /TUN listeners are not supported/,
-      );
-      assert.equal(listener.type, "tun");
-      const ordinary = { name: "local", type: "http", port: 27894 };
-      assert.deepEqual(overlayManagedKeys({ listeners: [ordinary] }, mockSettings).listeners, [
-        ordinary,
-      ]);
+    it("rejects every custom listener, including independent public and TUN listeners", () => {
+      for (const type of ["tun", "http", "socks", "mixed", "redirect", "tproxy"]) {
+        const listener = { name: "capture", type, listen: "0.0.0.0", port: 27894 };
+        assert.throws(
+          () => overlayManagedKeys({ listeners: [listener] }, mockSettings),
+          /Custom listeners are not supported/,
+        );
+        assert.equal(listener.type, type);
+      }
+      for (const listeners of [null, {}, "invalid"]) {
+        assert.throws(() => overlayManagedKeys({ listeners }, mockSettings), /Custom listeners/);
+      }
     });
 
     it("overrides managed keys while preserving unmanaged subscription keys", () => {
@@ -165,6 +166,10 @@ describe("mihomo-config", () => {
         port: 2222,
         "socks-port": 3333,
         "external-controller": "0.0.0.0:1111",
+        "external-controller-tls": "0.0.0.0:2222",
+        "external-controller-unix": "/tmp/controller.sock",
+        "external-controller-pipe": "controller-pipe",
+        tunnels: ["tcp,0.0.0.0:27894,example.com:80,DIRECT"],
         "external-ui": "old-ui",
         "external-ui-url": "https://example.com/ui.tar.gz",
         "external-ui-name": "old-ui-name",
@@ -199,6 +204,10 @@ describe("mihomo-config", () => {
       assert.equal("socks-port" in overlaid, false);
       assert.equal("external-ui-url" in overlaid, false);
       assert.equal("external-ui-name" in overlaid, false);
+      assert.equal("external-controller-tls" in overlaid, false);
+      assert.equal("external-controller-unix" in overlaid, false);
+      assert.equal("external-controller-pipe" in overlaid, false);
+      assert.equal("tunnels" in overlaid, false);
       assert.deepEqual(overlaid.tun, { enable: false });
 
       // Preserved unmanaged keys

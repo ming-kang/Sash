@@ -1,7 +1,6 @@
 import { isIP } from "node:net";
 import YAML from "yaml";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
-import { isPlainObject } from "./json-shape.js";
 import type { SashSettings } from "./settings.js";
 
 /**
@@ -368,11 +367,14 @@ const MANAGED_KEYS = new Set([
   "authentication",
   "external-controller",
   "external-controller-tls",
+  "external-controller-unix",
+  "external-controller-pipe",
   "external-ui",
   "external-ui-url",
   "external-ui-name",
   "secret",
   "tun",
+  "tunnels",
   "allow-lan",
 ]);
 
@@ -391,11 +393,8 @@ export function overlayManagedKeys(
   out.secret = settings.secret;
   // The generated runtime configuration always disables the TUN listener.
   out.tun = { enable: false };
-  if (
-    Array.isArray(out.listeners) &&
-    out.listeners.some((listener: unknown) => isPlainObject(listener) && listener.type === "tun")
-  ) {
-    throw new Error("TUN listeners are not supported");
+  if (out.listeners !== undefined) {
+    throw new Error("Custom listeners are not supported; Sash manages all listener endpoints");
   }
   return out;
 }

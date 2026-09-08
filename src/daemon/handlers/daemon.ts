@@ -80,7 +80,9 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
     },
     configuration: {
       pending: ctx.pendingApply(),
-      appliedProfile: applied?.profile ?? null,
+      appliedProfile: applied?.profile
+        ? { ...applied.profile, url: req.authorized ? applied.profile.url : "" }
+        : null,
       appliedSettings: applied
         ? { mixedPort: applied.settings.mixedPort, allowLan: applied.settings.allowLan }
         : null,
@@ -95,7 +97,9 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
       ...(proxyQueryError ? { queryError: proxyQueryError } : {}),
     },
     settings: publicSettings(settings),
-    activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
+    activeProfile: active
+      ? { id: active.id, name: active.name, url: req.authorized ? active.url : "" }
+      : null,
   };
   return { status: 200, json: status };
 }
