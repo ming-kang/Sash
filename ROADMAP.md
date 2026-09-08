@@ -64,6 +64,7 @@
   停机前准备完整依赖与恢复材料，通过安装目录外的 helper 执行 npm 安装和新版本验证。
   协调共享安装的多实例，自动恢复原 daemon/Core/代理状态与实际已应用配置，保留未 Apply 修改。
   安装或健康检查失败自动恢复；中断后可恢复事务。独立安装目录、数据目录与端口完成端到端验证。
+  实现约束与验收范围见 [自更新设计](docs/self-upgrade-design.md)。
 - [ ] **`sash stop --core`**（S）：与 WebUI "Stop Core"（保留 daemon）对齐
 - [ ] **status 探测并行化**（S–M）：daemon 查询、OS 代理检查、自启动检查无数据依赖，
   `Promise.all` 化，改善裸 `sash` 首因延迟（`src/status.ts:226-321`）
