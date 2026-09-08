@@ -3,6 +3,7 @@ import fs from "node:fs";
 import net from "node:net";
 import { describe, it } from "node:test";
 import YAML from "yaml";
+import { readState } from "./app-state.js";
 import {
   parseDaemonStatus,
   parseProfileActionResponse,
@@ -185,27 +186,47 @@ describe("profile management API", () => {
       socket.destroy();
     }
   });
-  it("cancels a slow preparation without holding the mutation queue", async () => {
-    const entered = deferred();
-    const release = deferred();
-    await h.startServer({
-      fetchProfile: async () => {
-        entered.resolve();
-        await release.promise;
-        return { yamlText: content, doc: {} };
-      },
+  for (const shutdown of [false, true])
+    it(`preserves profile downloads on Core stop and cancels them on daemon shutdown (shutdown=${shutdown})`, async () => {
+      const entered = deferred();
+      const release = deferred();
+      let downloadSignal: AbortSignal | undefined;
+      await h.startServer({
+        fetchProfile: async (_url, signal) => {
+          downloadSignal = signal;
+          entered.resolve();
+          await release.promise;
+          return { yamlText: content, doc: {} };
+        },
+      });
+      const pending = h
+        .apiRequest("/sash/profiles", {
+          method: "POST",
+          body: { url: "https://example.test/profile" },
+        })
+        .then(
+          (response) => response.statusCode,
+          (error: unknown) => {
+            assert.ok(shutdown);
+            assert.equal((error as { code?: unknown }).code, "UND_ERR_SOCKET");
+            return null;
+          },
+        );
+      await entered.promise;
+      assert.equal(
+        (
+          await h.apiRequest(shutdown ? "/sash/daemon/shutdown" : "/sash/core/stop", {
+            method: "POST",
+          })
+        ).statusCode,
+        204,
+      );
+      assert.equal(downloadSignal?.aborted, shutdown);
+      release.resolve();
+      const response = await pending;
+      if (shutdown) assert.ok(response === null || response === 409);
+      else assert.equal(response, 200);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(readState(h.layout)?.profiles.profiles.length, shutdown ? 0 : 1);
     });
-    const pending = h.apiRequest("/sash/profiles", {
-      method: "POST",
-      body: { url: "https://example.test/profile" },
-    });
-    await entered.promise;
-    assert.equal((await h.apiRequest("/sash/core/stop", { method: "POST" })).statusCode, 204);
-    release.resolve();
-    assert.notEqual((await pending).statusCode, 200);
-    assert.equal(
-      parseProfilesIndex((await h.apiRequest("/sash/profiles")).data).profiles.length,
-      0,
-    );
-  });
 });

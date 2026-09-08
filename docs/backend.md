@@ -42,6 +42,8 @@ The only supported application manifest is:
 
 `ProfileMeta` contains an ID, a content revision, a display name, source URL, update interval, timestamps and optional provider/error metadata. Content lives in `profiles/<id>/<revision>.yaml`. Names and paths are separate; clients cannot provide arbitrary file paths.
 
+Remote updates persist `lastAttemptAt` and `failureCount`. Scheduled retries back off from fifteen minutes to one day; manual updates bypass the delay. Success or an editor save clears the failure count. Manual, all-profile and scheduled requests share one in-flight update per profile ID, and cancellation does not count as a provider failure.
+
 Saving source content validates bounded core-format YAML, atomically writes a new immutable file, then atomically commits its reference with the rest of `sash.json`. A crash before the manifest commit leaves the previous source referenced. Deletion commits removal before cleanup. Unreferenced files may remain after interrupted cleanup; they are not a second source of truth. Identical remote bytes retain the content revision. Editor writes must include the revision read when opening the editor; stale writes return a conflict.
 
 The manifest is capped at 2 MiB, profile content at 8 MiB. Readers reject invalid schemas, duplicate IDs, invalid revisions, non-regular files and oversized content. Secrets must be nonblank, the controller must be loopback-only, and all listener ports must differ. No legacy formats or migrations are accepted. Existing invalid state is preserved.
@@ -65,7 +67,7 @@ Apply executes inside the daemon queue:
 
 Validation failure leaves the old runtime untouched. Failure after stopping does not roll back saved edits; management stays available and reports the unapplied configuration. There is no general settings/profile/runtime compensation transaction.
 
-Stop and shutdown cancel preparation work, including downloads and the configuration-test child. Shutdown rejects later mutations, drains the active operation, restores proxy state, stops Core, acknowledges with `204`, then closes the listener. Cleanup failure keeps the daemon available for retry. An active binary swap completes or rolls back in order.
+Core stop cancels Core downloads and the configuration-test child while allowing profile downloads to finish. Daemon shutdown also cancels profile downloads, rejects later mutations, drains the active operation, restores proxy state, stops Core, acknowledges with `204`, then closes the listener. Cleanup failure keeps the daemon available for retry. An active binary swap completes or rolls back in order.
 
 Unexpected Core exits trigger bounded proxy-restoration retries. Late child events cannot clear a replacement child. Status and proxy application verify that ownership remained the same across asynchronous probes. Unknown identity or uncertain termination preserves the PID record.
 

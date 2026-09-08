@@ -62,7 +62,7 @@ function validName(name: string): string {
 /** Saves immutable profile sources. Runtime changes are exclusively owned by App / Runtime. */
 export class ProfileService {
   private readonly downloads = new Set<AbortController>();
-  private updatingDue = false;
+  private readonly updates = new Map<string, Promise<ProfileUpdateResult>>();
   private downloadGeneration = 0;
 
   constructor(private readonly options: ProfileServiceOptions) {}
@@ -158,7 +158,11 @@ export class ProfileService {
     return next;
   }
 
-  private fetchedMeta(profile: ProfileMeta, fetched: SubscriptionFetch): ProfileMeta {
+  private fetchedMeta(
+    profile: ProfileMeta,
+    fetched: SubscriptionFetch,
+    attemptedAt: string,
+  ): ProfileMeta {
     const interval = fetched.intervalHours;
     return {
       ...profile,
@@ -174,6 +178,8 @@ export class ProfileService {
           ? interval
           : profile.intervalHours,
       lastError: undefined,
+      lastAttemptAt: attemptedAt,
+      failureCount: 0,
     };
   }
 
@@ -184,6 +190,7 @@ export class ProfileService {
     const normalized = url.trim();
     if (!normalized) throw new ProfileInputError("Missing required profile URL");
     const known = this.list().profiles.find((profile) => profile.url === normalized);
+    const attemptedAt = new Date().toISOString();
     const fetched = await this.fetch(normalized);
     return this.options.commit("save remote profile", () => {
       const index = this.list();
@@ -203,7 +210,7 @@ export class ProfileService {
       const activated = opts.activate === true || index.activeId === null;
       const profile = this.publishSource(
         index,
-        this.fetchedMeta(base, fetched),
+        this.fetchedMeta(base, fetched, attemptedAt),
         fetched.yamlText,
         activated,
       );
@@ -261,6 +268,7 @@ export class ProfileService {
           revision: before.revision + 1,
           updatedAt: new Date().toISOString(),
           lastError: undefined,
+          failureCount: 0,
         },
         content,
         false,
@@ -280,9 +288,20 @@ export class ProfileService {
     });
   }
 
-  async update(id: string): Promise<ProfileUpdateResult> {
+  update(id: string): Promise<ProfileUpdateResult> {
+    const existing = this.updates.get(id);
+    if (existing) return existing;
+    const pending = this.updateOnce(id).finally(() => {
+      if (this.updates.get(id) === pending) this.updates.delete(id);
+    });
+    this.updates.set(id, pending);
+    return pending;
+  }
+
+  private async updateOnce(id: string): Promise<ProfileUpdateResult> {
     const before = this.requireProfile(this.list(), id);
     if (!before.url) throw new ProfileInputError("Local profile has no URL to update from");
+    const attemptedAt = new Date().toISOString();
     try {
       const fetched = await this.fetch(before.url);
       return await this.options.commit("update profile", () => {
@@ -291,13 +310,14 @@ export class ProfileService {
         return {
           profile: this.publishSource(
             index,
-            this.fetchedMeta(current, fetched),
+            this.fetchedMeta(current, fetched, attemptedAt),
             fetched.yamlText,
             false,
           ),
         };
       });
     } catch (error) {
+      if (error instanceof StateConflictError) throw error;
       await this.options
         .commit("record profile error", () => {
           const state = this.options.state.snapshot();
@@ -310,7 +330,14 @@ export class ProfileService {
             profiles: {
               ...state.profiles,
               profiles: state.profiles.profiles.map((profile) =>
-                profile.id === id ? { ...profile, lastError: message } : profile,
+                profile.id === id
+                  ? {
+                      ...profile,
+                      lastError: message,
+                      lastAttemptAt: attemptedAt,
+                      failureCount: Math.min((profile.failureCount ?? 0) + 1, 31),
+                    }
+                  : profile,
               ),
             },
           });
@@ -357,15 +384,9 @@ export class ProfileService {
   }
 
   async updateDue(nowMs = Date.now()): Promise<ProfileUpdateAllResult> {
-    if (this.updatingDue) return { updated: 0, failed: [] };
-    this.updatingDue = true;
-    try {
-      return await this.updateProfiles(
-        this.list().profiles.filter((profile) => profileDueForUpdate(profile, nowMs)),
-      );
-    } finally {
-      this.updatingDue = false;
-    }
+    return this.updateProfiles(
+      this.list().profiles.filter((profile) => profileDueForUpdate(profile, nowMs)),
+    );
   }
 
   async remove(id: string): Promise<{ wasActive: boolean }> {

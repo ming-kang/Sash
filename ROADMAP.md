@@ -41,14 +41,14 @@
   认证路径 `router.ts:427` 每请求触发）；改缓存冻结快照，commit 失效
 - [x] **settings PATCH 乐观并发**（S）：接受 `expectedRevision`，复用 `assertCurrent`
   （`src/daemon/handlers/settings.ts:11-24`）；同时把 `revisions.profiles` 更名为状态 revision
-- [ ] **取消范围拆分**（S）：`stopCore` 不再取消 profile 下载（`src/daemon/app.ts:220-223`）
+- [x] **取消范围拆分**（S）：`stopCore` 不再取消 profile 下载（`src/daemon/app.ts:220-223`）
 - [ ] **`setCoreMode` 语义**（S–M）：controller 调用移出写队列（不写 daemon 状态），
   或将模式持久化进 settings 使 Apply 后不回退（`src/daemon/handlers/core.ts:42-46`）
 - [x] **status 探测缓存**（S）：core 状态加短 TTL 缓存；`fresh=1` 需鉴权
   （`src/daemon/handlers/daemon.ts:45,57`）
-- [ ] 订阅更新失败退避（M）：meta 增加 `lastAttemptAt` 或按 `lastError` 指数退避，
+- [x] 订阅更新失败退避（M）：meta 增加 `lastAttemptAt` 或按 `lastError` 指数退避，
   失败订阅不再每 15 分钟无限重试（`src/profiles.ts:78-84`、`src/daemon/scheduler.ts:22`）
-- [ ] `updateAll` 与 `updateDue` 共享 in-flight 守卫，按 profile id 去重（`src/profile-service.ts:355-369`）
+- [x] `updateAll` 与 `updateDue` 共享 in-flight 守卫，按 profile id 去重（`src/profile-service.ts:355-369`）
 
 ## 批次 3 — CLI 功能
 

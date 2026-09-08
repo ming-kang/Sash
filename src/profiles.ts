@@ -76,9 +76,12 @@ export function profileNameFromUrl(url: string): string {
 }
 
 export function profileDueForUpdate(profile: ProfileMeta, nowMs = Date.now()): boolean {
-  return Boolean(
-    profile.url &&
-      profile.intervalHours > 0 &&
-      nowMs - Date.parse(profile.updatedAt) >= profile.intervalHours * 3_600_000,
-  );
+  if (!profile.url || profile.intervalHours <= 0) return false;
+  let dueAt = Date.parse(profile.updatedAt) + profile.intervalHours * 3_600_000;
+  const failures = profile.failureCount ?? 0;
+  if (failures > 0 && profile.lastAttemptAt) {
+    const backoff = Math.min(24 * 3_600_000, 15 * 60_000 * 2 ** Math.min(failures - 1, 7));
+    dueAt = Math.max(dueAt, Date.parse(profile.lastAttemptAt) + backoff);
+  }
+  return nowMs >= dueAt;
 }

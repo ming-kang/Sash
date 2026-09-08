@@ -12,6 +12,8 @@ export interface ProfileMeta {
   subInfo?: SubscriptionUserinfo;
   homePage?: string;
   lastError?: string;
+  lastAttemptAt?: string;
+  failureCount?: number;
 }
 
 export interface ProfilesIndex {
@@ -100,6 +102,16 @@ export function parseProfileMeta(item: unknown): ProfileMeta {
   ) {
     throw new Error("Invalid profile update error");
   }
+  if (
+    (item.lastAttemptAt !== undefined && !isCanonicalIsoTimestamp(item.lastAttemptAt)) ||
+    (item.failureCount !== undefined &&
+      (typeof item.failureCount !== "number" ||
+        !Number.isSafeInteger(item.failureCount) ||
+        item.failureCount < 0 ||
+        item.failureCount > 31 ||
+        (item.failureCount > 0 && item.lastAttemptAt === undefined)))
+  )
+    throw new Error("Invalid profile retry metadata");
   return {
     id: item.id,
     revision: item.revision,
@@ -111,5 +123,7 @@ export function parseProfileMeta(item: unknown): ProfileMeta {
     ...(subInfo ? { subInfo } : {}),
     ...(typeof item.homePage === "string" ? { homePage: item.homePage } : {}),
     ...(typeof item.lastError === "string" ? { lastError: item.lastError } : {}),
+    ...(typeof item.lastAttemptAt === "string" ? { lastAttemptAt: item.lastAttemptAt } : {}),
+    ...(typeof item.failureCount === "number" ? { failureCount: item.failureCount } : {}),
   };
 }

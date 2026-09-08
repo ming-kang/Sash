@@ -175,6 +175,103 @@ describe("saved profiles", () => {
     assert.equal(profiles.list().profiles[1]?.lastError, "offline");
   });
 
+  it("shares one download and publication across manual, all and scheduled updates", async () => {
+    const entered = deferred();
+    const release = deferred();
+    let hold = false;
+    let downloads = 0;
+    const profiles = service(async () => {
+      downloads += 1;
+      if (hold) {
+        entered.resolve();
+        await release.promise;
+      }
+      return fetched(hold ? yamlB : yamlA);
+    });
+    const remote = (await profiles.addRemote("https://example.test/a")).profile;
+    const snapshot = state.snapshot();
+    state.commit({
+      ...snapshot,
+      profiles: {
+        ...snapshot.profiles,
+        profiles: snapshot.profiles.profiles.map((profile) => ({
+          ...profile,
+          updatedAt: "2000-01-01T00:00:00.000Z",
+        })),
+      },
+    });
+    const revision = state.snapshot().revision;
+    hold = true;
+    const manual = profiles.update(remote.id);
+    const all = profiles.updateAll();
+    const scheduled = profiles.updateDue();
+    await entered.promise;
+    assert.equal(profiles.update(remote.id), manual);
+    release.resolve();
+    const results = await Promise.all([manual, all, scheduled]);
+    assert.equal(downloads, 2);
+    assert.equal(results[1].updated, 1);
+    assert.equal(results[2].updated, 1);
+    assert.equal(state.snapshot().revision, revision + 1);
+    assert.equal(profiles.readContent(remote.id).content, yamlB);
+  });
+
+  it("backs off scheduled failures while allowing manual recovery", async () => {
+    let failing = false;
+    let downloads = 0;
+    const profiles = service(async () => {
+      downloads += 1;
+      if (failing) throw new Error("provider offline");
+      return fetched();
+    });
+    const remote = (await profiles.addRemote("https://example.test/a")).profile;
+    const snapshot = state.snapshot();
+    state.commit({
+      ...snapshot,
+      profiles: {
+        ...snapshot.profiles,
+        profiles: snapshot.profiles.profiles.map((profile) => ({
+          ...profile,
+          updatedAt: "2000-01-01T00:00:00.000Z",
+        })),
+      },
+    });
+    failing = true;
+    assert.equal((await profiles.updateDue()).failed.length, 1);
+    assert.equal(profiles.active()?.failureCount, 1);
+    assert.ok(profiles.active()?.lastAttemptAt);
+    assert.deepEqual(await profiles.updateDue(), { updated: 0, failed: [] });
+    assert.equal(downloads, 2);
+    await assert.rejects(profiles.update(remote.id), /provider offline/);
+    assert.equal(profiles.active()?.failureCount, 2);
+    failing = false;
+    await profiles.update(remote.id);
+    assert.equal(profiles.active()?.failureCount, 0);
+    assert.equal(profiles.active()?.lastError, undefined);
+    assert.equal(downloads, 4);
+  });
+
+  it("does not count cancelled updates as provider failures", async () => {
+    const profiles = service();
+    const remote = (await profiles.addRemote("https://example.test/a")).profile;
+    const entered = deferred();
+    const updating = service(async (_url, signal) => {
+      entered.resolve();
+      await new Promise((_resolve, reject) =>
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
+      );
+      return fetched();
+    });
+    const revision = state.snapshot().revision;
+    const pending = assert.rejects(updating.update(remote.id), /cancelled/);
+    await entered.promise;
+    updating.cancelDownloads();
+    await pending;
+    assert.equal(state.snapshot().revision, revision);
+    assert.equal(profiles.active()?.failureCount, 0);
+    assert.equal(profiles.active()?.lastError, undefined);
+  });
+
   it("cancels outstanding download bodies", async () => {
     const entered = deferred();
     const profiles = service(async (_url, signal) => {

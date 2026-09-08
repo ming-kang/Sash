@@ -46,6 +46,10 @@ describe("profile input boundaries", () => {
       { url: "file:///secret" },
       { homePage: "javascript:alert(1)" },
       { subInfo: { total: -1 } },
+      { lastAttemptAt: "today" },
+      { failureCount: 1 },
+      { failureCount: -1 },
+      { failureCount: 32, lastAttemptAt: meta.updatedAt },
     ]) {
       assert.throws(() =>
         parseProfilesIndex({ activeId: null, profiles: [{ ...meta, ...patch }] }),
@@ -69,5 +73,24 @@ describe("profile input boundaries", () => {
     assert.equal(profileDueForUpdate(meta, now - 1), false);
     assert.equal(profileDueForUpdate({ ...meta, url: "" }, now), false);
     assert.equal(profileDueForUpdate({ ...meta, intervalHours: 0 }, now), false);
+  });
+  it("doubles retry delays from fifteen minutes up to one day", () => {
+    const attempted = Date.parse(meta.updatedAt) + 6 * 3_600_000;
+    for (const [failureCount, minutes] of [
+      [1, 15],
+      [2, 30],
+      [3, 60],
+      [8, 1440],
+      [31, 1440],
+    ] as const) {
+      const failed = {
+        ...meta,
+        failureCount,
+        lastError: "offline",
+        lastAttemptAt: new Date(attempted).toISOString(),
+      };
+      assert.equal(profileDueForUpdate(failed, attempted + minutes * 60_000 - 1), false);
+      assert.equal(profileDueForUpdate(failed, attempted + minutes * 60_000), true);
+    }
   });
 });

@@ -29,7 +29,7 @@ export interface DaemonServerOverrides {
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
   autostart?: AutostartController;
-  fetchProfile?: (url: string) => Promise<SubscriptionFetch>;
+  fetchProfile?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
   validateConfig?: DaemonDeps["validateConfigFn"];
   scheduler?: DaemonScheduler;
 }

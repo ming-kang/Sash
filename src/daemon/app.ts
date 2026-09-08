@@ -92,9 +92,12 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   let verifyingIntegrity: Promise<void> | undefined;
   let preparation = new AbortController();
   let profiles: ProfileService;
-  const cancelPreparations = (): void => {
+  const cancelCorePreparation = (): void => {
     preparation.abort(new StateConflictError("Core operation cancelled"));
     preparation = new AbortController();
+  };
+  const cancelPreparations = (): void => {
+    cancelCorePreparation();
     profiles.cancelDownloads();
   };
   gate = new DaemonGate(() => lifecycle.stop(), cancelPreparations);
@@ -245,7 +248,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     restartCore: () => applyCore(),
     updateCore,
     stopCore: () => {
-      cancelPreparations();
+      cancelCorePreparation();
       return mutate("stop Core", () => lifecycle.stop());
     },
     shutdown: () => gate.shutdown(),
