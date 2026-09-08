@@ -33,6 +33,7 @@ const expectedNames = [
   "timer",
   "trash",
   "upload",
+  "warning",
   "x",
   "zap",
 ];

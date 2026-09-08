@@ -1,4 +1,5 @@
 import {
+  RiAlertLine,
   RiArrowLeftRightLine,
   RiCheckboxCircleLine,
   RiClipboardLine,
@@ -67,6 +68,7 @@ export const iconComponents = {
   timer: RiTimerLine,
   trash: RiDeleteBin6Line,
   upload: RiUpload2Line,
+  warning: RiAlertLine,
   x: RiCloseLine,
   zap: RiFlashlightLine,
 } satisfies Record<string, Component>;

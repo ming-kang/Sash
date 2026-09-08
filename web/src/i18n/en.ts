@@ -107,6 +107,7 @@ export const en: Messages = {
     pause: "Pause",
     resume: "Resume",
     sortTime: "Sort by start time",
+    sortLabel: "Sort connections",
     sortUpload: "Sort by upload",
     sortDownload: "Sort by download",
     sortHost: "Sort by destination",

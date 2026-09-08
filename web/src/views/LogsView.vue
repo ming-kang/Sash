@@ -93,7 +93,7 @@ const filteredLogs = computed(() => {
 function levelIcon(type: string): string {
   const level = type.toLowerCase();
   if (level === "error") return "alert";
-  if (level === "warning") return "info";
+  if (level === "warning") return "warning";
   if (level === "debug") return "terminal";
   return "check-circle";
 }
@@ -219,7 +219,7 @@ onBeforeUnmount(() => {
   color: var(--success);
 }
 .lv-warning {
-  color: var(--danger);
+  color: var(--warning);
 }
 .lv-error {
   color: var(--danger);

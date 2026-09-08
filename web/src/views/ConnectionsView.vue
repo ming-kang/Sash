@@ -19,7 +19,7 @@
     </PageHeader>
 
     <div class="connections-control">
-      <div class="sort-labels" role="toolbar" :aria-label="t('connections.colAction')">
+      <div class="sort-labels" role="toolbar" :aria-label="t('connections.sortLabel')">
         <button
           type="button"
           class="sort-label-btn"
@@ -75,10 +75,10 @@
         <button
           type="button"
           class="btn btn-sm btn-danger"
-          :disabled="activeConnections.length === 0"
+          :disabled="store.connections.length === 0"
           @click="closeAll"
         >
-          {{ t('connections.closeAll') }} ({{ activeConnections.length }})
+          {{ t('connections.closeAll') }} ({{ store.connections.length }})
         </button>
       </div>
     </div>
@@ -269,7 +269,7 @@ async function closeOne(id: string): Promise<void> {
 }
 
 async function closeAll(): Promise<void> {
-  const count = activeConnections.value.length;
+  const count = store.connections.length;
   const ok = await confirmDialog({
     title: t("connections.closeAll"),
     message: t("connections.closeAllConfirm", { n: count }),

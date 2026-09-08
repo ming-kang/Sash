@@ -105,6 +105,7 @@ export const zh = {
     pause: "暂停",
     resume: "继续",
     sortTime: "按时间排序",
+    sortLabel: "连接排序",
     sortUpload: "按上行流量排序",
     sortDownload: "按下行流量排序",
     sortHost: "按目标地址排序",

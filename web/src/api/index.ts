@@ -24,6 +24,7 @@ interface RequestOptions {
   method?: string;
   body?: unknown;
   response?: "json" | "void";
+  timeoutMs?: number;
 }
 
 const sash = new SashClient({
@@ -57,7 +58,7 @@ async function request(endpoint: string, options: RequestOptions = {}): Promise<
     method: options.method ?? "GET",
     headers,
     body,
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
   });
   const text = await res.text();
 
@@ -193,6 +194,7 @@ export const api = {
   ) =>
     request<{ delay: number }>(
       `/core/api/proxies/${encodeURIComponent(proxyName)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
+      { timeoutMs: Math.max(10_000, timeout + 5_000) },
     ),
   testGroupDelay: (
     groupName: string,
@@ -201,6 +203,7 @@ export const api = {
   ) =>
     request<Record<string, number>>(
       `/core/api/group/${encodeURIComponent(groupName)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
+      { timeoutMs: Math.max(60_000, timeout + 5_000) },
     ),
   getConnections: () => request<ConnectionsResponse>("/core/api/connections"),
   closeConnection: (id: string) =>
