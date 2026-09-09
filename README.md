@@ -68,6 +68,7 @@ This refactor introduces a new state format and API without migration support. U
 Comprehensive documentation is available in the [`docs/`](./docs) directory:
 
 - [**User & Operations Guide**](./docs/usage.md) — complete CLI command reference, configuration parameters and troubleshooting.
+- [**PowerShell Completion**](./docs/usage.md#powershell-completion) — bundled command, option and fixed-value completion for PowerShell 7.
 - [**High-level Architecture**](./docs/architecture-proposal.md) — the implemented design, ownership boundaries and save/apply flow.
 - [**Automatic Startup**](./docs/autostart.md) — login startup, OS registration state and failure diagnostics.
 - [**Backend Architecture**](./docs/backend.md) — supervisor daemon model (`sashd`), API endpoints, lifecycle management, system proxy adapters, and safety invariants.

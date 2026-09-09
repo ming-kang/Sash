@@ -116,14 +116,41 @@ SSE 使用共享观察、心跳和有限缓冲；输出管道关闭时先取消�
 ## 零散低优先级（顺手做）
 
 - [x] 后端：下载内联 SHA-256、下载归档权限 0o600、controller 客户端禁跟随重定向、镜像切换时进度不回跳
+- [x] 验收期依赖审计修复：生产 ZIP 读取改为 `yauzl` 流式解析，解压输出独占创建；
+  旧 ZIP 库只用于生成测试归档，不随生产依赖安装，保留尺寸/路径/哈希限制和取消处理
 - [x] daemon：网关剥离逐跳头、WebUI 会话 TTL 与滑动续期、listen 后挂常驻 error 日志、路由匹配首中即停
-- 后端：Apply 时缓存解析后的 profile 文档（revision 不可变，`src/profiles.ts:55`、
-  `profile-service.ts:92,130`，M）；temp 目录/孤儿 revision 定期清扫（S）；
-  YAML 解析选项统一 `maxAliasCount`（S）；订阅 userinfo 空值不当作 0（S）
-- daemon：静态服务 fd-once + UI 未安装时的明确 404 文案（S）；损坏状态文件报错带路径（S）
-- 产品：订阅格式检测（base64 分享链接给定向报错，S）；controller 延迟测试端点封装
-  供 status 使用（M）；PowerShell 缺失时 WinINET 刷新的回退与文档（S）；
-  Defender 首跑场景下新装二进制验证超时放宽到 15-20s（S）；PowerShell 完成脚本（M）
+- [x] Apply 时缓存解析后的 profile 文档（M）：daemon 共享冻结 LRU，最多 8 项 / 16 MiB 源文档；
+  每次读取校验文件身份及时间戳，替换、删除和非法文件类型使缓存失效
+- [x] temp / 孤儿 revision 定期清扫（S）：24 小时宽限期，只删除已知生成文件和旧的空目录；
+  保留当前引用、近期文件、未知文件及链接，Core 准备期间跳过临时文件
+- [x] YAML 解析统一 `maxAliasCount: 50`；订阅 userinfo 空值保持未知（S）
+- [x] 静态服务 fd-once、UI 未安装时明确 404 修复指引；状态文件读错带完整路径（S）
+- [x] 订阅格式检测（S）：原始/base64/base64url 分享链接给定向 YAML 提示，不回显凭据或转换订阅
+- [x] controller 延迟封装与 `sash status --delay <节点或组>`（M）：普通 status 不发起外网检测，
+  组测试当前出口，区分失败/超时/名称不存在；JSON 仅按需附加结果，watch 每 30 秒串行检测并支持取消
+- [x] PowerShell 缺失时 WinINet 通知回退与文档（S）：依次尝试两个 PowerShell 主机；
+  均不可用时保留注册表操作结果并提示重启相关应用，所有权与回滚约束保持不变
+- [x] doctor 检测额外的 Windows 独立连接代理记录并说明管理边界；不解码或改写系统二进制记录
+- [x] Defender 首跑验证超时放宽到 20 秒（S）；哈希验证仍先于执行
+- [x] PowerShell 7 补全脚本与安装说明（M）：命令/选项/固定取值、引号和光标位置支持，
+  补全不启动 Sash 或访问网络；脚本随 npm 包分发
+
+## 结项验收（2026-09-09）
+
+批次 1–5 与零散低优先级事项全部完成。自更新按完整体验交付，验收遵循
+[自更新设计](docs/self-upgrade-design.md)，未缩减为 MVP。
+
+- typecheck、lint、完整测试通过：**657 项，零失败**，含真实 Core 的升级成功与失败回滚，
+  以及共享安装多实例、中断恢复、未 Apply 修改、运行模式/选点和浏览器授权延续。
+- `npm audit --omit=dev --audit-level=moderate` 通过，生产依赖 **0 个已知漏洞**。
+  `adm-zip` 仅用于开发测试生成 ZIP；生产包使用只读 ZIP 解析器。
+- 构建与 `npm pack --dry-run` 通过；实际 tarball 在隔离 prefix 安装并校验 **405 个文件**、
+  Windows 两种命令 shim、CLI 帮助/版本和独立恢复 helper。
+- Chromium/Firefox 的明暗主题、桌面与 390/320px 布局、SSE 重连、分块加载失败恢复通过；
+  真实 daemon 的浏览器授权、刷新、保存/Apply、Core 停启、字体和布局验证通过。
+- PowerShell 7 实际补全验证通过；延迟测试与故障注入全部使用隔离目录、端口或模拟接口。
+
+版本仍为 **0.1.2**，变更记录在 Unreleased；本次结项不包含推送、版本升级或发布。
 
 ## 明确不做
 

@@ -21,9 +21,10 @@ Daemon startup also holds an installation admission lock while loading applicati
 | `app-state.ts` | The sole atomic application manifest commit |
 | `settings.ts`, `settings-service.ts` | Validate and save preferences; reconcile explicit proxy intent |
 | `profile-model.ts`, `profiles.ts`, `profile-service.ts` | Validate metadata/YAML, manage immutable sources and saved selection |
+| `core-yaml.ts`, `profile-source-cache.ts`, `profile-cleanup.ts` | Shared YAML limits, bounded parsed-source reuse and orphan maintenance |
 | `runtime-lifecycle.ts` | Order Core and proxy changes; retain the applied configuration and runtime revision |
 | `supervisor.ts`, `process.ts` | Owned child handles, version/health checks and verified termination |
-| `core.ts`, `core-update.ts`, `core-install-record.ts` | Trusted downloads and one executable/install-record transaction |
+| `core.ts`, `core-archive.ts`, `core-update.ts`, `core-install-record.ts` | Trusted downloads, bounded extraction and one executable/install-record transaction |
 | `self-upgrade.ts`, `upgrade-transaction.ts`, `upgrade-activation.ts` | npm preparation, coordinated installation decisions and recoverable package replacement |
 | `daemon/upgrade.ts`, `upgrade-handoff.ts` | Runtime reservation, private snapshots, restoration and browser continuation |
 | `system-proxy-manager.ts`, `sysproxy/` | Windows proxy snapshot, verification and conditional recovery |
@@ -31,6 +32,7 @@ Daemon startup also holds an installation admission lock while loading applicati
 | `daemon/router.ts`, `daemon/handlers/` | Route matching, authentication, parsing and domain dispatch |
 | `daemon/events.ts`, `daemon/event-observations.ts` | Shared status observer, bounded SSE delivery and cached desktop observations |
 | `contracts.ts`, `sash-client.ts`, `daemon-client.ts` | Shared browser-safe protocol and direct Node transport |
+| `core-delay.ts`, `status-delay.ts` | Explicit outbound observations and independent CLI sampling |
 
 Persistent locks cover resources shared by processes: daemon startup/singleton ownership, installation upgrades and per-user Windows proxy/autostart operations. Application mutations use the daemon's in-memory queue.
 
@@ -54,6 +56,12 @@ Remote updates persist `lastAttemptAt` and `failureCount`. Scheduled retries bac
 Saving source content validates bounded core-format YAML, atomically writes a new immutable file, then atomically commits its reference with the rest of `sash.json`. A crash before the manifest commit leaves the previous source referenced. Deletion commits removal before cleanup. Unreferenced files may remain after interrupted cleanup; they are not a second source of truth. Identical remote bytes retain the content revision. Editor writes must include the revision read when opening the editor; stale writes return a conflict.
 
 The manifest is capped at 2 MiB, profile content at 8 MiB. Readers reject invalid schemas, duplicate IDs, invalid revisions, non-regular files and oversized content. Secrets must be nonblank, the controller must be loopback-only, and all listener ports must differ. No legacy formats or migrations are accepted. Existing invalid state is preserved.
+
+Subscription, local-source and upgrade-handoff YAML parsing share `maxAliasCount: 50`. Share-link lists, including canonical base64/base64url encodings, are detected before parsing and rejected with a format hint without echoing their credentials. Empty subscription quota values are not interpreted as zero.
+
+The daemon shares a frozen parsed-source LRU across profile actions and Apply: at most eight entries and 16 MiB of source text. File identity, size and nanosecond modification/change timestamps are rechecked on every read; replacement, removal and non-regular paths cannot reuse a cached source. Rendering does not mutate cached documents.
+
+After scheduled updates, a non-overlapping maintenance tick enters the mutation queue, verifies the manifest is current, and prunes only recognized generated files older than 24 hours. Current profile references, unknown names, recent files and links remain intact; directories are removed only when old and empty. Paths must resolve inside the data directory. Cleanup does not recurse through arbitrary directories and skips temporary Core files during download or integrity preparation.
 
 Daemon readers share one deeply frozen snapshot per committed revision. A successful commit invalidates it; failed writes preserve the previous snapshot. Settings PATCH accepts `expectedRevision` and returns the committed `revision`. Stale writes fail with `409` before preference or OS changes. The dashboard supplies its observed revision and ignores older write responses.
 
@@ -84,7 +92,11 @@ Unexpected Core exits trigger bounded proxy-restoration retries. Late child even
 
 Core acquisition selects an unmodified upstream release artifact using official GitHub metadata. Mirrors transport bytes only. Initial URLs and redirects must be HTTPS and host-allowlisted; the complete archive must match the official SHA-256 digest. Archives are capped at 128 MiB, extraction at 512 MiB, ZIP paths cannot escape, and the staged executable must report the exact requested version.
 
+ZIP metadata and file contents are read through `yauzl`; Sash scans all entry names before creating output and streams the selected binary without buffering the archive. Both ZIP and gzip extraction exclusively create the temporary output, preserve pre-existing files/links, honor cancellation and remove only output created by that attempt. The ZIP reader closes before archive cleanup. `adm-zip` remains a development-only ZIP fixture generator; its extraction APIs are not used or installed with Sash.
+
 Extraction also hashes the decompressed executable. New install records and update journals retain this SHA-256; configuration validation and process startup check it before executing Core. Recovery authenticates each binary slot against its journal digest before moving or removing files. Executable probes serve as health checks.
+
+The first staged-executable probe permits 20 seconds for antivirus scanning; installed-binary probes retain their normal deadlines.
 
 Existing version-only install records remain readable. Before their next Core start or update, Sash obtains the same official release, verifies its archive, and compares the extracted digest with the installed file before adding the digest atomically. Existing interrupted journals receive the same verification before recovery. A failed lookup, cancellation, changed metadata or digest mismatch preserves the existing binary and its ownership records.
 
@@ -126,6 +138,10 @@ Recovery restores an exact owned target, or original/target-compatible partial v
 
 Proxy operations use asynchronous, bounded helper processes. Inspection is cached briefly, shared while in flight, and reports unknown while a local write is pending. Unstable journal observations are retried once and never cached. Desired, Sash-applied and OS-observed proxy state remain separate.
 
+After registry writes, WinINet notification tries the discovered PowerShell 7 executable and then the fixed Windows PowerShell host. Both `InternetSetOption` results are checked. If notification is unavailable, Sash preserves the registry operation's result and logs guidance to restart affected applications or repair PowerShell; it does not attempt undocumented `rundll32` entry points. Registry verification, ownership checks and rollback still apply.
+
+Doctor queries the current user's `Internet Settings\\Connections` registry key and detects binary records beyond `DefaultConnectionSettings` and `SavedLegacySettings`. It reports their count and the per-connection management limitation without exposing blob contents or claiming those connections are active. Invalid or inaccessible registry observations remain unknown. This check neither decodes Windows-owned blobs nor writes per-connection settings.
+
 Autostart uses a current-user registry entry and hidden launcher. See [Automatic Startup](./autostart.md). Other platforms report desktop integration as unsupported; portable CLI/Core primitives remain available.
 
 ## HTTP contract
@@ -149,6 +165,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/core/update` | POST | Control; optional `{version}`, returns `{version}` |
 | `/sash/core/update` | GET | Control; current update progress or `null` |
 | `/sash/core/mode` | PUT | Control; `{mode}` changes running Core mode |
+| `/sash/core/delay` | POST | Control; `{name}` requests one bounded outbound observation |
 | `/sash/proxy` | GET | Public desired/applied/observed state |
 | `/sash/settings` | GET / PATCH | Control; read settings or save `{mixedPort?, allowLan?, systemProxy?}` |
 | `/sash/autostart` | GET / PUT | Control; inspect or set `{enabled}` |
@@ -167,6 +184,8 @@ Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revi
 
 The CLI watch uses the same direct, non-redirecting event client, verifies the discovered PID/boot identity, and converts events into the usual schema-2 CLI status. It rediscovers management after disconnection and observes stopped instances without starting them. Output cancellation aborts active readers before normal process exit.
 
+Delay tests require an explicit `sash status --delay NAME`. The authenticated POST runs outside the state queue, participates in upgrade admission/draining, and verifies Core ownership before and after the controller request. It performs one non-retrying `/proxies/{name}/delay` request using direct transport, the fixed HTTP-204 test URL and a five-second Core timeout with request overhead. Success, timeout, missing names and failed tests are distinct validated observations; a Core replacement rejects the stale result. Client cancellation closes the daemon/controller request. Normal status and SSE observation never initiate these probes. `--watch --delay` samples independently every 30 seconds after completion and coalesces output while retaining only the latest observation.
+
 Success bodies are resources; empty mutations return `204`. Errors use `{error: {code, message}}`. Unknown required fields or malformed successful payloads are rejected by the shared client. Raw settings editing and config reload routes do not exist.
 
 The Core gateway permits queries, node selection and connection deletion. Managed configuration changes must use Sash controls. Mode uses `/sash/core/mode`; traffic and log WebSockets use `/core/api/traffic` and `/core/api/logs`.
@@ -174,6 +193,8 @@ The Core gateway permits queries, node selection and connection deletion. Manage
 ## Security and persistence
 
 The listener binds to `127.0.0.1`, validates loopback Host/Origin, and parses one canonical origin-form target for authentication and forwarding. Core requests use a direct dispatcher. Browser requests carry private per-boot sessions; the persistent CLI bearer never reaches the browser or Core gateway. Public health identity is not a credential. API responses are non-cacheable.
+
+Static dashboard responses open a file once, derive its size from that descriptor and stream from the same descriptor. HEAD and disconnects close it. Missing dashboard installations receive explicit repair guidance; security and cache headers remain in effect.
 
 `sash web` creates a 90-second single-use handoff in an owner-private local file. The browser removes its fragment before redemption, stores the session in tab storage and verifies the daemon boot. Only hashes are retained in the daemon, with bounded grant/session counts and a twelve-hour sliding idle limit. Restarting Core preserves sessions; ordinary daemon restarts invalidate them. A reserved self-upgrade transfers hashed session identity for a ten-minute continuation, requiring the old private token and boot identity. Protected routes return `409` until continuation succeeds. Public health metadata cannot authorize it.
 

@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add `sash status --delay <name>` for explicit node/group latency observations, with distinct timeout/failure states, JSON results and non-overlapping 30-second sampling with `--watch`. Ordinary status never initiates outbound tests.
+- Ship PowerShell 7 completion for command paths, options and fixed choices, including quoted arguments and cursor-aware parsing without executing Sash or network requests.
+- Detect additional Windows connection-specific proxy records in doctor and explain their management limits without exposing or editing the binary records.
 - Add authenticated `/sash/events` snapshots and `sash status --watch`, including reconnect across daemon replacement, terminal redraw and newline-delimited status JSON without starting a stopped instance.
 - Add persistent proxy-group collapse choices, latency sorting with distinct timeout/failure feedback, page jumps and first/last navigation, and recoverable dashboard chunk-loading errors.
 - Add isolated Chromium/Firefox dashboard smoke checks for desktop/mobile layouts, live interactions, traffic reconnects and rendered color contrast through `npm run smoke:ui`.
@@ -18,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+- Replace production ZIP parsing with the read-only `yauzl` reader and stream validated entries with cancellation and size checks. Exclusively create extraction output so existing files, hard links and symbolic links are preserved. Keep `adm-zip` only for test archive generation; its affected extraction APIs are unused and it is absent from production dependencies.
 - Disable controller redirects, strip hop-by-hop gateway headers, and expire idle browser sessions after 12 hours with sliding renewal.
 - Verify release downloads while streaming, keep downloaded archives private on POSIX, and retain integrity/ownership checks throughout npm package replacement and cleanup.
 - Remove alternate controller sockets/pipes and tunnels from generated configurations, and reject custom listeners before changing a running Core.
@@ -26,6 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Detect share-link subscription formats with credential-free YAML guidance, unify YAML alias limits and preserve unknown empty provider quota fields.
+- Serve dashboard bodies and lengths from one file descriptor, close it on HEAD/disconnect, explain missing UI assets and include the manifest path in state-read failures.
+- Try both installed PowerShell hosts for WinINet notification, retain verified registry changes with actionable fallback guidance if notification is unavailable, and allow 20 seconds for antivirus scanning during a new Core binary's first verification.
 - Cancel CLI stream readers before normal exit when their output pipe closes, avoiding a Windows Node assertion during forced exit while retaining exit code `0`.
 - Preserve traffic history through brief WebSocket reconnects, keep errors readable until dismissed, pause transient notices on hover/focus, and show snapshot failures without requiring hover.
 - Use accessible theme colors for secondary buttons and connection tags, expose sort/toggle state to assistive technology, and reflect profile-update exclusion in card controls.
@@ -42,6 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Reuse frozen parsed profile sources in a bounded per-daemon cache with file-identity invalidation; periodically prune recognized orphan/temp files after a 24-hour grace period while preserving active, recent, unknown and linked paths.
 - Replace dashboard status polling with authenticated SSE, share daemon observations across subscribers, bound slow-client buffers and keep desktop startup checks from delaying runtime progress.
 - Reuse unchanged proxy snapshots without hiding local selections or runtime replacement, memoize visible node/connection content, and keep large paused snapshots and busy sets shallow.
 - Trim unused dashboard icons, theme helpers and translations; annotate the official icon package's factories during builds so unused icons are removed. Reduce first-load JavaScript from about 2.74 MB to 200 KB.
