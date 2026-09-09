@@ -1,5 +1,6 @@
 import { once } from "node:events";
 import { cliOutputSignal } from "../cli-output.js";
+import { validateDelayTarget } from "../core-delay.js";
 import { log } from "../log.js";
 import {
   type CliRuntimeStatus,
@@ -8,16 +9,18 @@ import {
   markIncompleteObservation,
   runtimeStatusHeadline,
 } from "../status.js";
+import { observeStatusDelay, watchStatusWithDelay, withStatusDelay } from "../status-delay.js";
 import { watchRuntimeStatus } from "../status-watch.js";
 import { runtimeContext } from "./shared.js";
 
 export type RuntimeStatusCollector = () => Promise<CliRuntimeStatus>;
 
 export async function runStatus(
-  opts: { json?: boolean; watch?: boolean } = {},
+  opts: { json?: boolean; watch?: boolean; delay?: string } = {},
   collect: RuntimeStatusCollector = () => collectRuntimeStatus(runtimeContext()),
 ): Promise<void> {
-  if (opts.watch) {
+  if (opts.delay !== undefined) validateDelayTarget(opts.delay);
+  if (opts.watch || opts.delay !== undefined) {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, cliOutputSignal]);
     const stop = (): void => controller.abort();
@@ -26,13 +29,29 @@ export async function runStatus(
     const initialExitCode = process.exitCode;
     let last: CliRuntimeStatus | undefined;
     try {
-      for await (const status of watchRuntimeStatus(runtimeContext, {
-        signal,
-        onReconnect: (error) =>
-          log.warn(
-            `status stream disconnected; reconnecting: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-      })) {
+      if (!opts.watch && opts.delay !== undefined) {
+        const status = await collect();
+        const observed = withStatusDelay(
+          status,
+          await observeStatusDelay(runtimeContext(), status, opts.delay, signal),
+        );
+        last = observed;
+        if (!signal.aborted) await runStatus({ json: opts.json }, async () => observed);
+        return;
+      }
+      const statuses = (signal: AbortSignal) =>
+        watchRuntimeStatus(runtimeContext, {
+          signal,
+          onReconnect: (error) =>
+            log.warn(
+              `status stream disconnected; reconnecting: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        });
+      const snapshots =
+        opts.delay === undefined
+          ? statuses(signal)
+          : watchStatusWithDelay(runtimeContext, opts.delay, { signal, statuses });
+      for await (const status of snapshots) {
         last = status;
         if (opts.json) {
           if (!process.stdout.write(`${JSON.stringify(status)}\n`))
@@ -95,5 +114,12 @@ export async function runStatus(
       : "(none)",
   );
   log.kv("core version", status.core.installedVersion || "(not installed)");
+  if (status.delay) {
+    const delay = status.delay;
+    log.kv(
+      "delay",
+      `${delay.name}: ${delay.state === "ok" ? `${delay.delayMs} ms` : delay.state === "pending" ? "testing…" : delay.state.replaceAll("_", " ")}`,
+    );
+  }
   markIncompleteObservation(status.complete);
 }

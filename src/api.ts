@@ -1,4 +1,13 @@
+import {
+  CORE_DELAY_REQUEST_MS,
+  CORE_DELAY_TIMEOUT_MS,
+  CORE_DELAY_URL,
+  type CoreDelayOutcome,
+  type CoreDelayResult,
+  validateDelayTarget,
+} from "./core-delay.js";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
+import { isPlainObject } from "./json-shape.js";
 import { parseControllerAddress } from "./settings.js";
 
 /**
@@ -29,6 +38,7 @@ export class MihomoApi {
       body?: string;
       deadlineMs?: number;
       attempts?: number;
+      signal?: AbortSignal;
     } = {},
   ) {
     const url = `${this.baseUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
@@ -42,6 +52,7 @@ export class MihomoApi {
       direct: true,
       manualRedirect: true,
       attempts: options.attempts,
+      signal: options.signal,
       deadlineMs: options.deadlineMs ?? 5_000,
     });
   }
@@ -84,6 +95,80 @@ export class MihomoApi {
       throw new Error(`Core rejected mode change: HTTP ${response.statusCode}: ${message}`);
     }
     await response.discard();
+  }
+
+  /** One explicit outbound probe; a group uses its current outbound, never all members. */
+  async delay(name: string, signal?: AbortSignal): Promise<CoreDelayResult> {
+    validateDelayTarget(name);
+    signal?.throwIfAborted();
+    const budget = AbortSignal.timeout(CORE_DELAY_REQUEST_MS);
+    const requestSignal = signal ? AbortSignal.any([signal, budget]) : budget;
+    let outcome: CoreDelayOutcome;
+    try {
+      const query = new URLSearchParams({
+        url: CORE_DELAY_URL,
+        timeout: String(CORE_DELAY_TIMEOUT_MS),
+        expected: "204",
+      });
+      const response = await this.request(`/proxies/${encodeURIComponent(name)}/delay?${query}`, {
+        attempts: 1,
+        deadlineMs: CORE_DELAY_REQUEST_MS + 1000,
+        signal: requestSignal,
+      });
+      if (response.statusCode === 200) {
+        const text = await response.text(4096);
+        let data: unknown;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error("Core returned invalid JSON for the delay test");
+        }
+        if (
+          !isPlainObject(data) ||
+          typeof data.delay !== "number" ||
+          !Number.isSafeInteger(data.delay) ||
+          data.delay <= 0
+        )
+          throw new Error("Core returned an invalid delay measurement");
+        outcome = { state: "ok", delayMs: data.delay, error: null };
+      } else {
+        const summary = await readErrorSummary(response);
+        outcome = {
+          state:
+            response.statusCode === 404
+              ? "not_found"
+              : response.statusCode === 408 || response.statusCode === 504
+                ? "timeout"
+                : "failed",
+          delayMs: null,
+          error:
+            response.statusCode === 404
+              ? "No node or group has that exact name in the running configuration"
+              : `Core delay test returned HTTP ${response.statusCode}${summary ? `: ${summary}` : ""}`,
+        };
+      }
+    } catch (error) {
+      signal?.throwIfAborted();
+      outcome = {
+        state: budget.aborted ? "timeout" : "failed",
+        delayMs: null,
+        error: budget.aborted
+          ? "Core did not finish the delay test within its request deadline"
+          : error instanceof Error
+            ? error.message
+            : String(error),
+      };
+    }
+    signal?.throwIfAborted();
+    if (outcome.error !== null)
+      outcome.error = outcome.error.replace(/\p{Cc}/gu, " ").slice(0, 300);
+    return {
+      ...outcome,
+      name,
+      url: CORE_DELAY_URL,
+      timeoutMs: CORE_DELAY_TIMEOUT_MS,
+      testedAt: new Date().toISOString(),
+    };
   }
 
   async runtimeState(): Promise<CoreRuntimeState> {

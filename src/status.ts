@@ -11,6 +11,7 @@ import {
 import type { SashLayout } from "./paths.js";
 import { getActiveProfile, loadProfiles } from "./profiles.js";
 import type { SashSettings } from "./settings.js";
+import type { StatusDelayObservation } from "./status-delay.js";
 import type { SystemProxyState } from "./sysproxy.js";
 import { type SystemProxyInspection, SystemProxyManager } from "./system-proxy-manager.js";
 import { uiInstalled } from "./webui.js";
@@ -36,6 +37,8 @@ export interface CliObservedSystemProxy {
 
 export interface CliRuntimeStatus {
   schemaVersion: typeof CLI_STATUS_SCHEMA_VERSION;
+  /** Present only for an explicit status --delay request. */
+  delay?: StatusDelayObservation;
   /** True only when every runtime field required by this contract was observed. */
   complete: boolean;
   /** Overall daemon/Core health; null when the daemon status query is unavailable. */

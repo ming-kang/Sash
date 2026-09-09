@@ -1,4 +1,5 @@
 import { MihomoApi } from "../../api.js";
+import { validateDelayTarget } from "../../core-delay.js";
 import { validateCoreReleaseTag } from "../../core-install-record.js";
 import { HttpError } from "../../daemon-http.js";
 import type { DaemonContext } from "../context.js";
@@ -51,4 +52,30 @@ export async function setCoreMode(ctx: DaemonContext, req: RouteRequest): Promis
       throw new HttpError(409, "Core changed during the mode request; inspect its current mode");
   });
   return { status: 204 };
+}
+
+export async function testCoreDelay(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
+  const body = await req.readJson(4096);
+  let name: string;
+  try {
+    if (Object.keys(body).some((key) => key !== "name"))
+      throw new TypeError("Expected only a node or group name");
+    name = validateDelayTarget(body.name);
+  } catch (error) {
+    throw new HttpError(400, error instanceof Error ? error.message : String(error));
+  }
+  const result = await ctx.gate.runLiveMutation(async () => {
+    req.signal.throwIfAborted();
+    const owner = ctx.supervisor.ownedCoreSnapshot();
+    if (!owner) throw new HttpError(409, "A running owned Core is required for a delay test");
+    const settings = ctx.settings.runtime();
+    const result = await new MihomoApi(settings.controller, settings.secret).delay(
+      name,
+      req.signal,
+    );
+    if (!ctx.supervisor.ownsCore(owner))
+      throw new HttpError(409, "Core changed during the delay test; try again");
+    return result;
+  });
+  return { status: 200, json: result };
 }

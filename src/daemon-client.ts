@@ -18,6 +18,7 @@ import type {
   UpgradeRuntimeStatus,
   WebBootstrapInfo,
 } from "./contracts.js";
+import type { CoreDelayResult } from "./core-delay.js";
 import type { CoreUpdateProgress } from "./core-update-progress.js";
 import { directDispatcherForLoopback, ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 import { SashClient, type SashClientFetch } from "./sash-client.js";
@@ -40,6 +41,7 @@ const daemonFetch: SashClientFetch = async (url, init) => {
     deadlineMs: init.timeoutMs,
     headersTimeoutMs: init.timeoutMs,
     ...(init.attempts !== undefined ? { attempts: init.attempts } : {}),
+    signal: init.signal,
   });
   return {
     status: res.statusCode,
@@ -139,6 +141,9 @@ export class SashDaemonClient {
   }
   coreUpdateProgress(): Promise<CoreUpdateProgress | null> {
     return this.client.coreUpdateProgress();
+  }
+  testDelay(name: string, signal?: AbortSignal): Promise<CoreDelayResult> {
+    return this.client.testDelay(name, signal);
   }
 
   patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {

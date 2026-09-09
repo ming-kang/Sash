@@ -18,6 +18,7 @@ import {
   setCoreMode,
   startCore,
   stopCore,
+  testCoreDelay,
   updateCore,
 } from "./handlers/core.js";
 import {
@@ -105,6 +106,7 @@ export interface RouteRequest {
   search: string;
   searchParams: URLSearchParams;
   raw: IncomingMessage;
+  signal: AbortSignal;
   readJson(maxBytes?: number): Promise<JsonObject>;
 }
 
@@ -190,6 +192,12 @@ export function buildRoutes(): readonly RouteDef[] {
     },
     { methods: ["POST"], pattern: path("/sash/core/start"), auth: "control", handler: startCore },
     { methods: ["PUT"], pattern: path("/sash/core/mode"), auth: "control", handler: setCoreMode },
+    {
+      methods: ["POST"],
+      pattern: path("/sash/core/delay"),
+      auth: "control",
+      handler: testCoreDelay,
+    },
     { methods: ["POST"], pattern: path("/sash/core/stop"), auth: "control", handler: stopCore },
     {
       methods: ["POST"],
@@ -487,6 +495,10 @@ export async function dispatch(
       return;
     }
     if (!route.handler) throw new Error(`Route has no handler: ${method} ${pathname}`);
+    const controller = new AbortController();
+    const disconnect = (): void => controller.abort();
+    res.once("close", disconnect);
+    if (res.destroyed) disconnect();
     const request: RouteRequest = {
       authorized,
       method,
@@ -495,19 +507,24 @@ export async function dispatch(
       search: target.search,
       searchParams: target.searchParams,
       raw: req,
+      signal: controller.signal,
       readJson: async (maxBytes) => {
         const body = await parseJsonObjectBody(req, maxBytes);
         if (isControlMutation(method) && !route.allowReserved) ctx.gate.assertMutable();
         return body;
       },
     };
-    writeResponse(res, await route.handler(ctx, request));
+    try {
+      writeResponse(res, await route.handler(ctx, request));
+    } finally {
+      res.removeListener("close", disconnect);
+    }
   } catch (err) {
+    if (res.writableEnded || res.destroyed) return;
     const mapping = errorToHttp(err);
     if (mapping.status >= 500) {
       console.error(`[sashd] unhandled error in ${method} ${pathname}:`, err);
     }
-    if (res.writableEnded || res.destroyed) return;
     if (res.headersSent) {
       res.destroy();
       return;

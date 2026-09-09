@@ -38,6 +38,12 @@ import {
   type WebBootstrapInfo,
   type WebSessionInfo,
 } from "./contracts.js";
+import {
+  CORE_DELAY_REQUEST_MS,
+  type CoreDelayResult,
+  parseCoreDelayResult,
+  validateDelayTarget,
+} from "./core-delay.js";
 import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
 import { SashApiError } from "./sash-api-error.js";
 import { readSashEvents, type SashEventFetch } from "./sash-event-client.js";
@@ -65,6 +71,7 @@ export interface SashClientFetchInit {
   timeoutMs?: number;
   /** Honored only by retry-capable fetch adapters (the Node daemon client). */
   attempts?: number;
+  signal?: AbortSignal;
 }
 
 export type SashClientFetch = (
@@ -95,14 +102,16 @@ export interface SashRequestOptions {
   attempts?: number;
   /** Public credential exchanges must not send or invalidate a prior session. */
   authenticate?: boolean;
+  signal?: AbortSignal;
 }
 
 const defaultFetch: SashClientFetch = async (url, init) => {
+  const deadline = AbortSignal.timeout(init.timeoutMs ?? 5000);
   const response = await fetch(url, {
     method: init.method,
     headers: init.headers,
     ...(init.body !== undefined ? { body: init.body } : {}),
-    ...(init.timeoutMs !== undefined ? { signal: AbortSignal.timeout(init.timeoutMs) } : {}),
+    signal: init.signal ? AbortSignal.any([init.signal, deadline]) : deadline,
   });
   return { status: response.status, text: () => response.text() };
 };
@@ -147,6 +156,7 @@ export class SashClient {
       ...(body !== undefined ? { body } : {}),
       timeoutMs: options.timeoutMs ?? this.timeoutMs,
       ...(options.attempts !== undefined ? { attempts: options.attempts } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
     });
     const text = await response.text();
 
@@ -321,6 +331,20 @@ export class SashClient {
   async coreUpdateProgress(): Promise<CoreUpdateProgress | null> {
     return parseCoreUpdateProgress(
       await this.request("/sash/core/update", { timeoutMs: 2000, attempts: 1 }),
+    );
+  }
+
+  async testDelay(name: string, signal?: AbortSignal): Promise<CoreDelayResult> {
+    validateDelayTarget(name);
+    return parseCoreDelayResult(
+      await this.request("/sash/core/delay", {
+        method: "POST",
+        body: { name },
+        timeoutMs: CORE_DELAY_REQUEST_MS + 2000,
+        attempts: 1,
+        signal,
+      }),
+      name,
     );
   }
 

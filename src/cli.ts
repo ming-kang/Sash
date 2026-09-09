@@ -103,8 +103,11 @@ program
   .command("status")
   .description("show runtime state, versions, endpoints, and system proxy status")
   .option("--watch", "watch status changes until interrupted; --json emits one snapshot per line")
+  .option("--delay <name>", "test an exact node or group name; --watch samples every 30 seconds")
   .option("--json", "output machine-readable JSON")
-  .action(withCliErrors((opts: { json?: boolean; watch?: boolean }) => runStatus(opts)));
+  .action(
+    withCliErrors((opts: { json?: boolean; watch?: boolean; delay?: string }) => runStatus(opts)),
+  );
 
 program
   .command("doctor")
