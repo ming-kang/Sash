@@ -1,25 +1,20 @@
 import { execFileSync } from "node:child_process";
-import crypto, { type Hash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import zlib from "node:zlib";
-import AdmZip from "adm-zip";
+import { extractCoreArchive } from "./core-archive.js";
 import {
   currentCoreVersion,
   readInstallRecord,
   validateCoreReleaseTag,
   writeInstallRecord,
 } from "./core-install-record.js";
-import { assertCoreBinaryDigest, CORE_BINARY_SIZE_LIMIT } from "./core-integrity.js";
+import { assertCoreBinaryDigest } from "./core-integrity.js";
 import { containsCoreVersionToken } from "./core-version.js";
 import { pathEntryExists } from "./fs-atomic.js";
 import {
   downloadReleaseAsset,
   listReleaseAssets,
   MIHOMO_REPO,
-  RELEASE_ASSET_SIZE_LIMIT,
   resolveLatestTag,
 } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -68,94 +63,14 @@ export function mihomoAssetCandidates(
   return [`mihomo-${os}-arm64-${tag}.${ext}`];
 }
 
-function createCoreExtractionLimiter(hash: Hash): Transform {
-  let bytes = 0;
-  return new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      bytes += chunk.length;
-      if (bytes > CORE_BINARY_SIZE_LIMIT) {
-        callback(new Error("Extracted binary exceeds 512MB safety limit"));
-        return;
-      }
-      hash.update(chunk);
-      callback(null, chunk);
-    },
-  });
-}
-
-/** Extract the binary from a downloaded .zip (windows) or .gz (single file). */
-export async function extractCoreArchive(
-  archivePath: string,
-  assetName: string,
-  destExe: string,
-): Promise<string> {
-  const extracted = `${destExe}.extracted`;
-  const hash = crypto.createHash("sha256");
-  try {
-    if (assetName.endsWith(".zip")) {
-      if (fs.statSync(archivePath).size > RELEASE_ASSET_SIZE_LIMIT) {
-        throw new Error("Core archive exceeds the download safety limit");
-      }
-      const zip = new AdmZip(archivePath);
-      const entries = zip.getEntries();
-      if (
-        entries.some(
-          (entry) =>
-            entry.entryName.split(/[\\/]/).includes("..") ||
-            /^(?:[\\/]|[A-Za-z]:)/.test(entry.entryName),
-        )
-      ) {
-        throw new Error("Core archive contains an unsafe path");
-      }
-      const entry = entries.find(
-        (candidate) =>
-          !candidate.isDirectory && /^mihomo.*\.exe$/i.test(path.basename(candidate.entryName)),
-      );
-      if (!entry) throw new Error(`No mihomo*.exe found inside ${assetName}`);
-      if (entry.header.size > CORE_BINARY_SIZE_LIMIT) {
-        throw new Error("Extracted binary exceeds 512MB safety limit");
-      }
-      const header = entry.header as typeof entry.header & { readonly encrypted?: boolean };
-      if (header.encrypted) {
-        throw new Error("Encrypted Core archives are not supported");
-      }
-      if (header.method !== 0 && header.method !== 8) {
-        throw new Error(`Unsupported ZIP compression method: ${header.method}`);
-      }
-      const compressed = entry.getCompressedData();
-      const output = fs.createWriteStream(extracted, { mode: 0o755 });
-      if (header.method === 0) {
-        await pipeline(Readable.from([compressed]), createCoreExtractionLimiter(hash), output);
-      } else {
-        await pipeline(
-          Readable.from([compressed]),
-          zlib.createInflateRaw(),
-          createCoreExtractionLimiter(hash),
-          output,
-        );
-      }
-    } else if (assetName.endsWith(".gz")) {
-      // Stream decompression with a hard size cap instead of buffering the
-      // whole archive in memory.
-      await pipeline(
-        fs.createReadStream(archivePath),
-        zlib.createGunzip(),
-        createCoreExtractionLimiter(hash),
-        fs.createWriteStream(extracted, { mode: 0o755 }),
-      );
-    } else {
-      throw new Error(`Unsupported archive type: ${assetName}`);
-    }
-    fs.renameSync(extracted, destExe);
-    return hash.digest("hex");
-  } catch (err) {
-    fs.rmSync(extracted, { force: true });
-    throw err;
-  }
-}
-
 export type { InstallRecord } from "./core-install-record.js";
-export { currentCoreVersion, readInstallRecord, validateCoreReleaseTag, writeInstallRecord };
+export {
+  currentCoreVersion,
+  extractCoreArchive,
+  readInstallRecord,
+  validateCoreReleaseTag,
+  writeInstallRecord,
+};
 
 export interface CoreInstallOptions {
   signal?: AbortSignal;
@@ -225,12 +140,13 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
       onProgress: opts.onProgress,
     });
     opts.onStage?.("extracting", tag);
-    const sha256 = await extractCoreArchive(archivePath, assetName, stagedExe);
+    const sha256 = await extractCoreArchive(archivePath, assetName, stagedExe, opts.signal);
     opts.signal?.throwIfAborted();
     fs.chmodSync(stagedExe, 0o755);
     opts.onStage?.("verifying", tag);
     assertCoreBinaryDigest(stagedExe, sha256);
-    verifyCoreExecutable(stagedExe, 5000, tag);
+    // First execution can wait on the desktop antivirus scan of a new download.
+    verifyCoreExecutable(stagedExe, 20_000, tag);
     return { version: tag, exe: stagedExe, sha256 };
   } catch (err) {
     fs.rmSync(stagedExe, { force: true });

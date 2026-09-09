@@ -227,7 +227,10 @@ describe("core", () => {
       const archive = path.join(tmpDir, "traversal.zip");
       const target = path.join(tmpDir, "core.exe");
       fs.writeFileSync(archive, bytes);
-      await assert.rejects(extractCoreArchive(archive, "core.zip", target), /unsafe path/);
+      await assert.rejects(
+        extractCoreArchive(archive, "core.zip", target),
+        /unsafe path|invalid relative path/,
+      );
       assert.equal(fs.existsSync(target), false);
       assert.equal(fs.existsSync(`${target}.extracted`), false);
     });
@@ -244,6 +247,99 @@ describe("core", () => {
       fs.writeFileSync(archive, bytes);
       await assert.rejects(extractCoreArchive(archive, "core.zip", target), /512MB safety limit/);
       assert.equal(fs.existsSync(target), false);
+    });
+
+    it("checks unsafe entries after the executable before replacing any destination", async () => {
+      const zip = new AdmZip();
+      zip.addFile("mihomo.exe", Buffer.from("new core"));
+      zip.addFile("safe/notes.txt", Buffer.from("unrelated"));
+      const bytes = zip.toBuffer();
+      const name = Buffer.from("safe/notes.txt");
+      for (let at = bytes.indexOf(name); at >= 0; at = bytes.indexOf(name, at + name.length))
+        Buffer.from(".././notes.txt").copy(bytes, at);
+      const archive = path.join(tmpDir, "late-path.zip");
+      const target = path.join(tmpDir, "core.exe");
+      fs.writeFileSync(archive, bytes);
+      fs.writeFileSync(target, "previous core");
+      await assert.rejects(
+        extractCoreArchive(archive, "core.zip", target),
+        /unsafe path|invalid relative path/,
+      );
+      assert.equal(fs.readFileSync(target, "utf8"), "previous core");
+      assert.equal(fs.existsSync(`${target}.extracted`), false);
+    });
+
+    it("preserves pre-existing extraction files and links without writing through them", async () => {
+      const zip = new AdmZip();
+      zip.addFile("mihomo.exe", Buffer.from("new core"));
+      const archive = path.join(tmpDir, "existing.zip");
+      zip.writeZip(archive);
+      const original = path.join(tmpDir, "foreign-file");
+      fs.writeFileSync(original, "preserve this");
+      const existing = path.join(tmpDir, "existing.exe.extracted");
+      const linked = path.join(tmpDir, "linked.exe.extracted");
+      fs.writeFileSync(existing, "existing temporary data");
+      fs.linkSync(original, linked);
+      for (const file of [existing, linked]) {
+        await assert.rejects(
+          extractCoreArchive(archive, "core.zip", file.slice(0, -".extracted".length)),
+          /EEXIST/,
+        );
+        assert.equal(fs.existsSync(file), true);
+      }
+      assert.equal(fs.readFileSync(existing, "utf8"), "existing temporary data");
+      assert.equal(fs.readFileSync(original, "utf8"), "preserve this");
+      const directory = path.join(tmpDir, "foreign-directory");
+      fs.mkdirSync(directory);
+      const symbolic = path.join(tmpDir, "symbolic.exe.extracted");
+      fs.symlinkSync(directory, symbolic, process.platform === "win32" ? "junction" : "dir");
+      await assert.rejects(
+        extractCoreArchive(archive, "core.zip", symbolic.slice(0, -".extracted".length)),
+        /EEXIST/,
+      );
+      assert.equal(fs.lstatSync(symbolic).isSymbolicLink(), true);
+      assert.deepEqual(fs.readdirSync(directory), []);
+    });
+
+    it("rejects corrupt ZIP lengths, encrypted entries and unsupported methods without publishing", async () => {
+      const zip = new AdmZip();
+      zip.addFile("mihomo.exe", Buffer.alloc(4096, 42));
+      const original = zip.toBuffer();
+      const at = original.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+      assert.ok(at >= 0);
+      for (const reason of ["length", "encrypted", "compression"] as const) {
+        const bytes = Buffer.from(original);
+        if (reason === "length") bytes.writeUInt32LE(1, at + 24);
+        else if (reason === "encrypted")
+          bytes.writeUInt16LE(bytes.readUInt16LE(at + 8) | 1, at + 8);
+        else bytes.writeUInt16LE(99, at + 10);
+        const archive = path.join(tmpDir, `${reason}.zip`);
+        const target = path.join(tmpDir, `${reason}.exe`);
+        fs.writeFileSync(archive, bytes);
+        await assert.rejects(extractCoreArchive(archive, "core.zip", target));
+        assert.equal(fs.existsSync(target), false);
+        assert.equal(fs.existsSync(`${target}.extracted`), false);
+      }
+    });
+
+    it("cancels decompression and removes only the temporary output it created", async (t) => {
+      const archive = path.join(tmpDir, "cancel.gz");
+      const target = path.join(tmpDir, "core");
+      fs.writeFileSync(archive, zlib.gzipSync(crypto.randomBytes(128 * 1024)));
+      fs.writeFileSync(target, "previous core");
+      const cancellation = new AbortController();
+      const read = fs.createReadStream;
+      t.mock.method(fs, "createReadStream", (...args: Parameters<typeof fs.createReadStream>) => {
+        const stream = read(...args);
+        stream.once("data", () => cancellation.abort());
+        return stream;
+      });
+      await assert.rejects(
+        extractCoreArchive(archive, "core.gz", target, cancellation.signal),
+        /abort/i,
+      );
+      assert.equal(fs.readFileSync(target, "utf8"), "previous core");
+      assert.equal(fs.existsSync(`${target}.extracted`), false);
     });
   });
 
