@@ -23,8 +23,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    outputs:
-      release_sha: ${{ steps.provenance.outputs.release_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,7 +39,6 @@ jobs:
         run: npm install --global npm@11.15.0 --ignore-scripts
 
       - name: Verify release request
-        id: release
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -85,13 +82,6 @@ jobs:
           }
           NODE
 
-          if npm view "@astralyn/sash@$RELEASE_VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "@astralyn/sash@$RELEASE_VERSION is already published; resuming verification against its published provenance."
-            echo "already_published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "already_published=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Install dependencies
         run: |
           npm ci --ignore-scripts
@@ -120,133 +110,23 @@ jobs:
         run: node scripts/package-smoke.mjs "${{ steps.pack.outputs.tarball }}"
 
       - name: Publish verified artifact
-        if: steps.release.outputs.already_published != 'true'
         run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --provenance --registry=https://registry.npmjs.org
-
-      - name: Wait for registry metadata
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: |
-          for attempt in $(seq 1 12); do
-            published="$(npm view "@astralyn/sash@$RELEASE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
-            if [ "$published" = "$RELEASE_VERSION" ]; then
-              echo "Verified @astralyn/sash@$RELEASE_VERSION metadata on npm."
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "Published version was not visible on npm after two minutes." >&2
-          echo "If this release was staged, approve it on npmjs.com and dispatch this workflow again." >&2
-          exit 1
-
-      - name: Verify registry provenance
-        id: provenance
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-          ALREADY_PUBLISHED: ${{ steps.release.outputs.already_published }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync } from "node:fs";
-          const packageName = "@astralyn/sash";
-          const encodedPackageName = encodeURIComponent(packageName);
-          const url = `https://registry.npmjs.org/-/npm/v1/attestations/${encodedPackageName}@${process.env.RELEASE_VERSION}`;
-          let body;
-          for (let attempt = 1; ; attempt++) {
-            const response = await fetch(url);
-            if (response.ok) {
-              body = await response.json();
-              break;
-            }
-            if (attempt >= 6) {
-              throw new Error(`Failed to load npm attestations: ${response.status} ${response.statusText}`);
-            }
-            await new Promise((resolve) => setTimeout(resolve, 10_000));
-          }
-          const provenance = body.attestations?.find(
-            (attestation) => attestation.predicateType === "https://slsa.dev/provenance/v1",
-          );
-          if (!provenance) {
-            throw new Error("Published package has no SLSA provenance attestation.");
-          }
-          const statement = JSON.parse(
-            Buffer.from(provenance.bundle.dsseEnvelope.payload, "base64url").toString("utf8"),
-          );
-          const source = statement.predicate?.buildDefinition?.resolvedDependencies?.find(
-            (dependency) => dependency.uri === "git+https://github.com/ming-kang/Sash@refs/heads/main",
-          );
-          const publishedCommit = source?.digest?.gitCommit;
-          if (!/^[0-9a-f]{40}$/.test(publishedCommit ?? "")) {
-            throw new Error("Published provenance does not identify a source commit on main.");
-          }
-          if (process.env.ALREADY_PUBLISHED !== "true" && publishedCommit !== process.env.GITHUB_SHA) {
-            throw new Error(
-              `Published provenance identifies commit ${publishedCommit}, not ${process.env.GITHUB_SHA}.`,
-            );
-          }
-          console.log(`Published provenance identifies commit ${publishedCommit}.`);
-          appendFileSync(process.env.GITHUB_OUTPUT, `release_sha=${publishedCommit}\n`);
-          NODE
-
-      - name: Verify registry installation
-        env:
-          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: |
-          for attempt in $(seq 1 6); do
-            if node scripts/package-smoke.mjs "@astralyn/sash@$RELEASE_VERSION"; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 6 ]; then
-              echo "Registry installation attempt $attempt failed; retrying in 10 seconds."
-              sleep 10
-            fi
-          done
-          echo "Published package could not be installed and smoke-tested from npm." >&2
-          exit 1
-
-  runtime-smoke:
-    name: Verify registry runtime on Windows
-    needs: publish
-    runs-on: windows-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-
-      - name: Install and run the published package with a real Core
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/registry-runtime-smoke.mjs "${{ inputs.version }}"
 
   release:
     name: Tag and create the GitHub Release
-    needs: [publish, runtime-smoke]
+    needs: publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     env:
       RELEASE_VERSION: ${{ inputs.version }}
-      RELEASE_SHA: ${{ needs.publish.outputs.release_sha }}
+      RELEASE_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
-      - name: Verify the release commit is on main
-        run: |
-          test -n "$RELEASE_SHA"
-          git merge-base --is-ancestor "$RELEASE_SHA" "origin/main"
 
       - name: Extract release notes from CHANGELOG.md
         run: |

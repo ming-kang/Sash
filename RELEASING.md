@@ -13,7 +13,7 @@ The npm package uses this one-time configuration on npmjs.com (package Settings 
 - Environment: empty
 - Allowed actions: `npm publish` permitted (direct publishing)
 
-All fields are case-sensitive and a connection cannot be edited after creation; delete and recreate it to change any field. With direct publishing allowed, one dispatch publishes immediately. If the connection is ever recreated without direct publishing (stage-only), the first dispatch only stages the release: approve it on npmjs.com, then dispatch the same workflow again — it detects the published version and resumes with provenance and registry-install verification instead of failing.
+All fields are case-sensitive and a connection cannot be edited after creation; delete and recreate it to change any field. Direct publishing must be allowed. npm can accept an upload while it is still processing the package; public availability may follow later.
 
 ## Release checklist
 
@@ -43,16 +43,14 @@ All fields are case-sensitive and a connection cannot be edited after creation; 
    gh run watch --repo ming-kang/Sash --exit-status
    ```
 
-   The workflow completes the whole release: it verifies the release request, runs the full gate (audit, lint, tests, build), packs and smoke-tests the tarball, publishes it with provenance, verifies the published provenance and registry installation, runs a Windows runtime smoke against the registry package with a real Core (`scripts/registry-runtime-smoke.mjs`), then tags the release commit as `vx.y.z` and creates the GitHub Release from the version's `CHANGELOG.md` section. When the run is green, the release is finished.
-6. Optionally spot-check the result:
+   The workflow verifies the release request, runs the full gate (audit, lint, tests, build), packs and smoke-tests the exact tarball, then publishes it with provenance. A successful `npm publish` completes publication; the only following steps tag that workflow's source commit as `vx.y.z` and create the GitHub Release from the version's `CHANGELOG.md` section.
 
-   ```bash
-   npm view @astralyn/sash version dist-tags --json
-   node scripts/registry-runtime-smoke.mjs x.y.z
-   ```
-
-   The npm package page should show provenance from `.github/workflows/publish.yml` at the tagged commit. Core downloads use public release metadata; credentials from the login shell are deliberately scrubbed from the daemon environment.
+   There are no post-publication registry polls, provenance queries, repeat installs, or runtime smoke tests. npm processing delays do not fail the workflow. A green run records an accepted publication and completed GitHub release metadata, without promising immediate registry availability.
 
 ## Failed publication
 
-First check `npm view @astralyn/sash@x.y.z version`. If the version does not exist, fix the release commit and dispatch the workflow again. If it exists, npm has already accepted the immutable package; do not unpublish or try to overwrite it. Dispatching the workflow again resumes instead of republishing: it verifies the existing package's provenance (which must identify a commit on `main`), re-runs registry verification and the runtime smoke, then finishes the tag and GitHub Release. Tagging and Release creation are idempotent, so a rerun after partial finalization is safe. If the published package is defective, deprecate it and prepare the next patch version.
+If a pre-publication check fails, fix it and dispatch the workflow again. If `npm publish` fails, inspect its error before retrying; npm versions are immutable, and a processing notice or temporarily missing public version does not authorize another upload.
+
+If `npm publish` succeeded and only tag/Release creation failed, rerun the failed **Tag and create the GitHub Release** job in the original run. Do not redispatch the entire workflow or rerun its successful publish job. Tagging and Release creation are idempotent and retain the original run's source commit.
+
+For an older workflow that failed after a successful upload, finish only its tag and GitHub Release using the original run's `headSha` and that commit's changelog. Do not republish the package. If an accepted package is defective, deprecate it and prepare the next patch version.
