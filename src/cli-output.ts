@@ -1,3 +1,4 @@
+import { writeCliDebug } from "./cli-errors.js";
 import { errorMessage } from "./error-utils.js";
 
 /** Keep machine output as a single JSON result, including command failures. */
@@ -13,6 +14,7 @@ export async function commandOutput<T>(
   } catch (error) {
     if (!json) throw error;
     process.stdout.write(`${JSON.stringify({ error: errorMessage(error) })}\n`);
+    writeCliDebug(error);
     process.exitCode = 1;
   }
 }

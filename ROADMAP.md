@@ -66,13 +66,14 @@
   安装或健康检查失败自动恢复；中断后可恢复事务。独立安装目录、数据目录与端口完成端到端验证。
   实现约束与验收范围见 [自更新设计](docs/self-upgrade-design.md)。
 - [x] **`sash stop --core`**（S）：与 WebUI "Stop Core"（保留 daemon）对齐
-- [ ] **status 探测并行化**（S–M）：daemon 查询、OS 代理检查、自启动检查无数据依赖，
+- [x] **status 探测并行化**（S–M）：daemon 查询、OS 代理检查、自启动检查无数据依赖，
   `Promise.all` 化，改善裸 `sash` 首因延迟（`src/status.ts:226-321`）
-- [ ] `sash auto on|off` 顺带启动 daemon 时予以提示或用后停止（`src/commands/auto.ts:17`）
-- [ ] `sash auto status`、`sash update` 支持 `--json`（S）
-- [ ] `sash start` 区分"已在运行"与"新启动"：`CoreStartResult` 加 `alreadyRunning`（M）
-- [ ] `logs -f` 对 EPIPE 静默退出 0（S）；tail→follow 交接的重复行竞态（S）
-- [ ] `DEBUG` 改 `SASH_DEBUG` 并写入帮助（S）；`--help` 补充裸命令行为与退出码约定（S）
+- [x] `sash auto on|off` 顺带启动 daemon 时予以提示或用后停止（`src/commands/auto.ts:17`）
+- [x] `sash auto status` 支持 `--json`（S）
+- [ ] `sash update` 支持 `--json`（S）
+- [x] `sash start` 区分"已在运行"与"新启动"：`CoreStartResult` 加 `alreadyRunning`（M）
+- [x] `logs -f` 对 EPIPE 静默退出 0（S）；tail→follow 交接的重复行竞态（S）
+- [x] `DEBUG` 改 `SASH_DEBUG` 并写入帮助（S）；`--help` 补充裸命令行为与退出码约定（S）
 - [ ] `sash update --version` 与全局 `-v` 歧义：改位置参数或 `--tag`（S）
 - [ ] `sash doctor`（M）：汇总安装检查、UI 资产、核心版本/哈希、端口、代理状态与修复建议
 

@@ -1,8 +1,8 @@
-import fs from "node:fs";
+import { once } from "node:events";
 import { log } from "../log.js";
-import { followLogFile, logCursorAtEnd, normalizeLines } from "../log-follow.js";
+import { followLogFile, normalizeLines } from "../log-follow.js";
+import { readLogTail } from "../log-tail.js";
 import { sashLayout } from "../paths.js";
-import { tailFile } from "../process.js";
 
 /** Print the last N lines of logs; with follow, wait for and stream future files. */
 export async function runLogs(
@@ -29,12 +29,12 @@ export async function runLogs(
   }
 
   const lines = normalizeLines(opts.lines);
-  const cursor = logCursorAtEnd(file);
+  const { text, cursor } = readLogTail(file, lines);
   if (cursor.identity === null) {
     log.info(`${opts.follow ? "waiting for" : "no"} log file at ${file}`);
     if (!opts.follow) return;
   } else {
-    printTail(file, lines);
+    if (text) process.stdout.write(`${text}\n`);
   }
 
   if (!opts.follow) return;
@@ -48,18 +48,15 @@ export async function runLogs(
       signal: controller.signal,
       onChunk: async (chunk) => {
         if (process.stdout.write(chunk)) return;
-        await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
+        try {
+          await once(process.stdout, "drain", { signal: controller.signal });
+        } catch (error) {
+          if (!controller.signal.aborted) throw error;
+        }
       },
     });
   } finally {
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
   }
-}
-
-function printTail(file: string, lines: number): void {
-  if (!fs.existsSync(file)) return;
-  const tail = tailFile(file, lines);
-  if (!tail) return;
-  process.stdout.write(`${tail}\n`);
 }

@@ -9,6 +9,7 @@ import {
   evaluateDaemon,
   stopDaemonFromCli,
 } from "./daemon-lifecycle.js";
+import { errorMessage } from "./error-utils.js";
 import type { SashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
 
@@ -112,4 +113,24 @@ export async function setRuntimeMode(
       "A healthy running Core is required; inspect sash status and run sash start if stopped",
     );
   await owner.client.setMode(mode);
+}
+
+export async function setRuntimeAutostart(
+  ctx: RuntimeContext,
+  enabled: boolean,
+  onManagementStarted?: () => void,
+) {
+  const previous = await resolveRuntimeOwner(ctx);
+  const owner = await ensureManagement(ctx);
+  const managementStarted = previous.kind === "offline";
+  if (managementStarted) onManagementStarted?.();
+  try {
+    return { ...(await owner.client.setAutostart(enabled)), managementStarted };
+  } catch (error) {
+    if (managementStarted)
+      throw new Error(`${errorMessage(error)}. Management was started for this command`, {
+        cause: error,
+      });
+    throw error;
+  }
 }

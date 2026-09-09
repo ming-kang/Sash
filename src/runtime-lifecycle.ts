@@ -82,9 +82,13 @@ export class RuntimeLifecycle {
       );
   }
 
-  private startCore(): Promise<CoreStartResult> {
+  private async startCore(): Promise<CoreStartResult> {
     this.runtimeRevision += 1;
-    return this.options.supervisor.start();
+    return {
+      ...(await this.options.supervisor.start()),
+      alreadyRunning: false,
+      mixedPort: this.runtimeSettings.mixedPort,
+    };
   }
 
   /** Idempotent start for an already running Core; stopped starts go through Apply. */
@@ -93,7 +97,12 @@ export class RuntimeLifecycle {
     if (!core.running || !core.healthy || !core.pid)
       throw new Error("Core is no longer healthy; retry start");
     await this.reconcileSystemProxy();
-    return { pid: core.pid, ...(core.version ? { version: core.version } : {}) };
+    return {
+      pid: core.pid,
+      ...(core.version ? { version: core.version } : {}),
+      alreadyRunning: true,
+      mixedPort: this.runtimeSettings.mixedPort,
+    };
   }
 
   async apply(configuration: RuntimeConfiguration): Promise<CoreStartResult> {

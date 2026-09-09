@@ -137,7 +137,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/web/continue` | POST | Exchange a private upgrade session and its prior boot identity |
 | `/sash/upgrade/{reserve,status,verify,commit}` | POST | Control plus private transaction authority; runtime handoff state |
 | `/sash/upgrade/{stop,release,cleanup}` | POST | Control plus private transaction authority; lifecycle action, `204` |
-| `/sash/core/start` | POST | Control; idempotent start, applying saved state if stopped |
+| `/sash/core/start` | POST | Control; idempotent start, returning `alreadyRunning` and the applied `mixedPort` |
 | `/sash/core/restart` | POST | Control; Apply saved state and restart Core |
 | `/sash/core/stop` | POST | Control; stop Core, keep management; `204` |
 | `/sash/core/update` | POST | Control; optional `{version}`, returns `{version}` |

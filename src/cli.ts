@@ -37,6 +37,10 @@ function packageVersion(): string {
 }
 
 const program = new Command();
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EPIPE") process.exit(0);
+  throw error;
+});
 
 program
   .name("sash")
@@ -59,7 +63,10 @@ Examples:
   $ sash proxy on              enable the system proxy for a running Core
 
 Data directory: %LOCALAPPDATA%\\Sash (Windows), ~/Library/Application Support/Sash (macOS),
-$XDG_DATA_HOME/sash (Linux). Override with the SASH_HOME environment variable.`,
+$XDG_DATA_HOME/sash (Linux). Override with the SASH_HOME environment variable.
+
+Bare sash prints status. Exit codes: 0 success, 1 command failure, 2 incomplete observation.
+Set SASH_DEBUG=1 to print CLI error stacks to stderr.`,
   );
 
 program
@@ -84,7 +91,12 @@ program
   .addArgument(
     new Argument("[mode]", "set autostart or inspect its state").choices(["on", "off", "status"]),
   )
-  .action(withCliErrors((mode?: AutoMode) => runAuto(mode)));
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((mode: AutoMode | undefined, opts: { json?: boolean }) =>
+      runAuto(mode, undefined, opts),
+    ),
+  );
 
 program
   .command("status")

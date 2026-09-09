@@ -1,12 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileIdentity, type LogFileCursor } from "./log-tail.js";
+
+export type { LogFileCursor } from "./log-tail.js";
 
 export const LOG_FOLLOW_CHUNK_BYTES = 64 * 1024;
-
-export interface LogFileCursor {
-  identity: string | null;
-  offset: number;
-}
 
 export interface LogGrowth {
   chunks: Buffer[];
@@ -32,10 +30,6 @@ export function parseLogLineCount(value: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed)) throw new Error("must be a positive safe integer");
   return parsed;
-}
-
-function fileIdentity(stat: fs.Stats): string {
-  return `${stat.dev}:${stat.ino}:${stat.birthtimeMs}`;
 }
 
 function validateChunkBytes(chunkBytes: number): void {

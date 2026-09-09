@@ -21,6 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Capture log tail and follow position from the same open file to avoid repeated lines during append/rotation, clean up backpressure listeners on cancellation, and exit successfully when the CLI output pipe closes.
+- Distinguish a new Core start from an already-running instance and print its actual applied port while saved edits remain pending.
 - Keep installation discovery consistent during atomic instance publication and concurrent unregister, so a recovering upgrade does not mistake temporary files for unknown owners.
 - Retry installation lock acquisition when another owner releases between contention and inspection, without deleting another attempt's temporary file.
 - Keep mirror download progress monotonic and preserve Windows process paths containing Unicode during identity inspection.
@@ -32,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Run independent CLI status probes concurrently, expose JSON login startup status and management-start notices, and scope CLI stack traces to `SASH_DEBUG` with documented bare-command and exit-code behavior.
 - Add authenticated upgrade reservations and private runtime handoffs. Preserve applied configuration, routing mode, node selections, proxy ownership and pending edits across controlled daemon replacement; exchange browser sessions only through a bounded upgrade continuation.
 - Report the daemon's startup Sash version and installation identity, and register its data directory under a shared installation startup gate for coordinated upgrades.
 - Back off failed scheduled profile updates, share in-flight updates across manual and scheduled callers, and keep profile downloads running when only Core is stopped.

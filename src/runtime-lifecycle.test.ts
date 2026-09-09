@@ -67,6 +67,17 @@ describe("Core and proxy lifecycle", () => {
     assert.deepEqual(f.events, ["release", "stop"]);
     assert.equal(f.core.running, false);
   });
+  it("distinguishes an existing Core and returns its applied port despite saved edits", async () => {
+    const f = fixture();
+    const first = await f.lifecycle.apply(f.configuration);
+    assert.equal(first.alreadyRunning, false);
+    assert.equal(first.mixedPort, 18780);
+    f.settings.mixedPort = 18880;
+    const repeated = await f.lifecycle.start();
+    assert.equal(repeated.alreadyRunning, true);
+    assert.equal(repeated.mixedPort, 18780);
+    assert.equal(f.core.starts, 1);
+  });
   it("keeps a healthy Core when restoring the proxy fails", async () => {
     const f = fixture();
     await f.lifecycle.apply(f.configuration);

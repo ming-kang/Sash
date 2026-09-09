@@ -1,3 +1,4 @@
+import { writeCliDebug } from "../cli-errors.js";
 import { errorMessage } from "../error-utils.js";
 import { exactSashVersion } from "../package-info.js";
 import { executeSashUpgrade, inspectSashUpgrade } from "../self-upgrade.js";
@@ -47,6 +48,7 @@ export async function runUpgrade(
   } catch (error) {
     if (!options.json) throw error;
     process.stdout.write(`${JSON.stringify({ outcome: "failed", error: errorMessage(error) })}\n`);
+    writeCliDebug(error);
     process.exitCode = 1;
   }
 }

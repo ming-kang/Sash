@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +15,7 @@ import {
   readLogGrowth,
 } from "./log-follow.js";
 import { sashLayout } from "./paths.js";
+import { buildSanitizedEnv, killProcessGracefully } from "./process.js";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -155,6 +158,101 @@ describe("log file growth", () => {
 });
 
 describe("followLogFile", () => {
+  for (const change of ["append", "rotate"] as const) {
+    it(`prints each line once when ${change} occurs between tail capture and follow`, async (t) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-log-handoff-"));
+      const previousHome = process.env.SASH_HOME;
+      process.env.SASH_HOME = root;
+      const file = sashLayout(root).coreLogFile;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, "before\n");
+      const original = fs.fstatSync;
+      let changed = false;
+      t.mock.method(fs, "fstatSync", ((...args: Parameters<typeof fs.fstatSync>) => {
+        const stat = original(...args);
+        if (!changed) {
+          changed = true;
+          if (change === "rotate") fs.renameSync(file, `${file}.old`);
+          fs.appendFileSync(file, "between\n");
+        }
+        return stat;
+      }) as typeof fs.fstatSync);
+      let text = "";
+      const output = t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
+        text += String(chunk);
+        return true;
+      });
+      const listeners = process.listeners("SIGINT");
+      const following = runLogs({ follow: true });
+      try {
+        await waitFor(() => text.includes("between"));
+        assert.equal(text.match(/between/g)?.length, 1);
+        assert.equal(text.match(/before/g)?.length, 1);
+      } finally {
+        const stop = process.listeners("SIGINT").find((listener) => !listeners.includes(listener));
+        stop?.call(process, "SIGINT");
+        await following;
+        output.mock.restore();
+        if (previousHome === undefined) delete process.env.SASH_HOME;
+        else process.env.SASH_HOME = previousHome;
+        assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
+        await fs.promises.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("exits silently with zero when the CLI output pipe closes", { timeout: 15_000 }, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-log-pipe-"));
+    const file = sashLayout(root).coreLogFile;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, "first\n");
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", path.resolve("src/cli.ts"), "logs", "-f", "-n", "1"],
+      {
+        env: { ...buildSanitizedEnv(), SASH_HOME: root },
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let text = "";
+    let errors = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      text += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      errors += chunk.toString();
+    });
+    const closed = once(child, "close");
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await waitFor(() => text.includes("first"), 5000);
+      child.stdout.destroy();
+      fs.appendFileSync(file, "after pipe closed\n");
+      const [code] = await Promise.race([
+        closed,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error("log CLI did not exit after EPIPE")), 5000);
+        }),
+      ]);
+      assert.equal(code, 0, errors);
+      assert.equal(errors, "");
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (child.pid && child.exitCode === null && child.signalCode === null)
+        assert.equal(
+          await killProcessGracefully(child.pid, {
+            verify: () =>
+              child.exitCode === null && child.signalCode === null ? "match" : "mismatch",
+          }),
+          true,
+        );
+      await closed;
+      assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("watches the native canonical directory when following an aliased path", async (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-logs-alias-test-"));
     const directory = path.join(root, "logs");

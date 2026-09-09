@@ -68,6 +68,13 @@ describe("shared API boundaries", () => {
       version: "v1",
     });
     assert.throws(() => parseCoreStartResult({ pid: -1 }));
+    assert.deepEqual(parseCoreStartResult({ pid: 1234, alreadyRunning: true, mixedPort: 18880 }), {
+      pid: 1234,
+      alreadyRunning: true,
+      mixedPort: 18880,
+    });
+    assert.throws(() => parseCoreStartResult({ pid: 1234, alreadyRunning: "true" }));
+    assert.throws(() => parseCoreStartResult({ pid: 1234, mixedPort: 0 }));
     assert.deepEqual(parseCoreUpdateResponse({ version: "v2" }), { version: "v2" });
     assert.throws(() => parseCoreUpdateResponse({ version: "" }));
     assert.equal(

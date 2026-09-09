@@ -184,14 +184,19 @@ export async function observeSystemProxy(
   dependencies: StatusObservationDependencies,
   source: SystemProxyObservationSource | undefined,
   fallbackDaemonApplied: boolean | null,
+  observed?: PromiseSettledResult<SystemProxyInspection>,
 ): Promise<ResolvedSystemProxyObservation> {
   let inspection: SystemProxyInspection | undefined;
   let inspectionError: string | undefined;
   if (!source?.stateKnown || !source.state) {
     try {
-      inspection = dependencies.inspectSystemProxy
-        ? await dependencies.inspectSystemProxy(context)
-        : await new SystemProxyManager({ layout: context.layout }).inspect();
+      if (observed?.status === "rejected") throw observed.reason;
+      inspection =
+        observed?.status === "fulfilled"
+          ? observed.value
+          : dependencies.inspectSystemProxy
+            ? await dependencies.inspectSystemProxy(context)
+            : await new SystemProxyManager({ layout: context.layout }).inspect();
     } catch (err) {
       inspectionError = `OS proxy query failed: ${errorText(err)}`;
     }
@@ -228,6 +233,18 @@ export async function collectRuntimeStatus(
   dependencies: StatusObservationDependencies = {},
 ): Promise<CliRuntimeStatus> {
   const errors: string[] = [];
+  const probes = Promise.allSettled([
+    Promise.resolve().then(() =>
+      dependencies.inspectSystemProxy
+        ? dependencies.inspectSystemProxy(context)
+        : new SystemProxyManager({ layout: context.layout }).inspect(),
+    ),
+    Promise.resolve().then(() =>
+      dependencies.inspectAutostart
+        ? dependencies.inspectAutostart(context)
+        : new AutostartService({ layout: context.layout }).inspect(),
+    ),
+  ]);
   const daemonState = await evaluate(context, dependencies);
   let daemon = daemonObservation(daemonState);
   const installedVersion = dependencies.installedCoreVersion
@@ -291,11 +308,13 @@ export async function collectRuntimeStatus(
     addError(errors, "sashd control API is unavailable");
   }
 
+  const [proxyProbe, autostartProbe] = await probes;
   const proxyObservation = await observeSystemProxy(
     context,
     dependencies,
     proxySource,
     daemonState.running ? null : false,
+    proxyProbe,
   );
   addObservationErrors(errors, proxyObservation);
 
@@ -308,14 +327,10 @@ export async function collectRuntimeStatus(
       : null;
   const activeProfile = profile ? { id: profile.id, name: profile.name, url: profile.url } : null;
   const daemonPort = daemon.port || context.settings.daemonPort;
-  let autostart: AutostartStatus;
-  try {
-    autostart = await (dependencies.inspectAutostart
-      ? dependencies.inspectAutostart(context)
-      : new AutostartService({ layout: context.layout }).inspect());
-  } catch (error) {
-    autostart = { state: "unknown", canEnable: false, reason: errorText(error) };
-  }
+  const autostart: AutostartStatus =
+    autostartProbe.status === "fulfilled"
+      ? autostartProbe.value
+      : { state: "unknown", canEnable: false, reason: errorText(autostartProbe.reason) };
   if (autostart.state === "unknown") {
     addError(errors, `Autostart query failed: ${autostart.reason ?? "unknown error"}`);
   }

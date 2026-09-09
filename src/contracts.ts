@@ -54,6 +54,8 @@ export interface UpgradeRuntimeStatus {
 export interface CoreStartResult {
   pid: number;
   version?: string;
+  alreadyRunning?: boolean;
+  mixedPort?: number;
 }
 export interface CoreUpdateResponse {
   version: string;
@@ -245,7 +247,16 @@ export function parseUpgradeRuntimeStatus(value: unknown): UpgradeRuntimeStatus 
 export function parseCoreStartResult(value: unknown): CoreStartResult {
   const source = object(value, "Core start");
   const version = optionalString(source, "version");
-  return { pid: integer(source.pid, "pid", 1), ...(version !== undefined ? { version } : {}) };
+  return {
+    pid: integer(source.pid, "pid", 1),
+    ...(version !== undefined ? { version } : {}),
+    ...(source.alreadyRunning !== undefined
+      ? { alreadyRunning: boolean(source.alreadyRunning, "alreadyRunning") }
+      : {}),
+    ...(source.mixedPort !== undefined
+      ? { mixedPort: integer(source.mixedPort, "mixedPort", 1, 65535) }
+      : {}),
+  };
 }
 export function parseCoreUpdateResponse(value: unknown): CoreUpdateResponse {
   return { version: string(object(value, "Core update").version, "version") };

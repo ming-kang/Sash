@@ -7,10 +7,17 @@ export function withCliErrors<Args extends unknown[]>(
       await fn(...args);
     } catch (err) {
       console.error(`[sash] ✗ ${err instanceof Error ? err.message : String(err)}`);
-      if (process.env.DEBUG === "1" || process.env.DEBUG === "true") {
-        if (err instanceof Error && err.stack) console.error(err.stack);
-      }
+      writeCliDebug(err);
       process.exitCode = 1;
     }
   };
+}
+
+export function writeCliDebug(error: unknown): void {
+  if (
+    (process.env.SASH_DEBUG === "1" || process.env.SASH_DEBUG === "true") &&
+    error instanceof Error &&
+    error.stack
+  )
+    console.error(error.stack);
 }

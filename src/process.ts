@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
+import { readLogTail } from "./log-tail.js";
 
 /**
  * Low-level process toolkit: liveness probes, fail-closed identity
@@ -431,50 +432,14 @@ export function withPrivateAppendLogFds<T>(
   }
 }
 
-export const TAIL_FILE_CHUNK_BYTES = 64 * 1024;
-const MAX_TAIL_LINE_BYTES = 64 * 1024;
+export { TAIL_FILE_CHUNK_BYTES } from "./log-tail.js";
 
 /** Last non-empty lines of a file, for surfacing daemon/core startup errors. */
 export function tailFile(filePath: string, lineCount = 20): string {
-  if (!Number.isSafeInteger(lineCount) || lineCount <= 0) return "";
-  let fd: number | undefined;
   try {
-    const size = fs.statSync(filePath).size;
-    if (size <= 0) return "";
-    fd = fs.openSync(filePath, "r");
-    let position = size;
-    let pending = "";
-    const lines: string[] = [];
-
-    while (position > 0 && lines.length < lineCount) {
-      const bytesToRead = Math.min(TAIL_FILE_CHUNK_BYTES, position);
-      position -= bytesToRead;
-      const chunk = Buffer.allocUnsafe(bytesToRead);
-      const bytesRead = fs.readSync(fd, chunk, 0, bytesToRead, position);
-      const parts = (chunk.subarray(0, bytesRead).toString("utf8") + pending).split(/\r?\n/);
-      pending = parts.shift() ?? "";
-      // A pathological unterminated log line must not turn an error-reporting
-      // path back into a whole-file allocation.
-      if (Buffer.byteLength(pending) > MAX_TAIL_LINE_BYTES) {
-        pending = pending.slice(-MAX_TAIL_LINE_BYTES);
-      }
-      for (let index = parts.length - 1; index >= 0 && lines.length < lineCount; index--) {
-        const line = parts[index];
-        if (line?.trim()) lines.push(line);
-      }
-    }
-    if (lines.length < lineCount && pending.trim()) lines.push(pending);
-    return lines.reverse().join("\n");
+    return readLogTail(filePath, lineCount).text;
   } catch {
     return "";
-  } finally {
-    if (fd !== undefined) {
-      try {
-        fs.closeSync(fd);
-      } catch {
-        // ignore
-      }
-    }
   }
 }
 

@@ -19,7 +19,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 
 | Command | Behavior |
 | --- | --- |
-| `sash start` | Ensure management exists; start with saved configuration if stopped. Repeated starts check the running Core and proxy intent. |
+| `sash start` | Ensure management exists; start with saved configuration if stopped. Report an already-running Core separately, using its actual applied port. |
 | `sash restart` | Apply saved configuration and restart Core; keep the daemon and browser sessions. |
 | `sash stop` | Restore proxy, stop Core and exit management. Report an error if safe shutdown cannot be verified. |
 | `sash stop --core` | Restore proxy and stop Core while retaining management and browser access. |
@@ -35,10 +35,12 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash profile rename <profile> <name>` / `remove <profile>` | Rename or remove the saved profile identified by ID or exact name. |
 | `sash proxy [on\|off\|status] [--json]` | Set system-proxy intent or inspect desired, Sash-applied and OS-observed state. |
 | `sash mode rule\|global\|direct [--json]` | Change the running Core's mode; the next Apply restores the saved profile's mode. |
-| `sash auto [on\|off\|status]` | Set or inspect Windows login startup. No argument means status. |
+| `sash auto [on\|off\|status] [--json]` | Set or inspect Windows login startup. No argument means status; changes report when they start management. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | Read Core or daemon logs; follow waits for creation and handles rotation. |
 | `sash logs --startup [-n N] [-f]` | Read login attempts, including settings errors before daemon startup. |
 | `sash version` | Print the package version. |
+
+`sash logs -f` exits successfully when its output pipe closes. Log capture and follow share one file position, including when the log grows or rotates during startup.
 
 `sash stop --core` and WebUI **Stop Core** keep the management process open. `sash upgrade` replaces Sash program code and restarts affected management processes automatically. `restart` applies saved configuration to Core.
 
@@ -139,6 +141,8 @@ For manual package-manager maintenance, stop affected instances first, update us
 ## Status and troubleshooting
 
 `sash status --json` uses `schemaVersion: 2`. It includes `complete`, `healthy`, `queryError`, daemon/Core state, desired/applied/observed proxy state, autostart, endpoints, saved active profile and paths. Unknown observations remain `null`; no TUN fields are emitted. The running proxy endpoint comes from applied settings.
+
+Daemon, OS proxy and login startup probes run concurrently. Set `SASH_DEBUG=1` (or `true`) to include CLI error stacks on stderr; JSON command results stay on stdout. The generic `DEBUG` environment variable does not enable Sash diagnostics.
 
 | Exit code | Meaning |
 | --- | --- |

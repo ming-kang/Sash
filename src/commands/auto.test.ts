@@ -4,9 +4,31 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { testAutostartContext } from "../autostart/test-context.test.js";
 import { runSanitizedCommandAsync } from "../process.js";
-import { runAuto } from "./auto.js";
+import { type AutoController, runAuto } from "./auto.js";
 
 describe("sash auto", () => {
+  it("reports management startup before a failing write and keeps JSON output structured", async (t) => {
+    const logs: string[] = [];
+    t.mock.method(console, "log", (...args: unknown[]) => logs.push(args.map(String).join(" ")));
+    const controller: AutoController = {
+      inspect: async () => ({ state: "off", canEnable: true, reason: null }),
+      set: async (_enabled, onStarted) => {
+        onStarted?.();
+        throw new Error("registration failed");
+      },
+    };
+    await assert.rejects(runAuto("on", controller), /registration failed/);
+    assert.ok(logs.some((line) => /Management started/.test(line)));
+    let output = "";
+    t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
+      output += String(chunk);
+      return true;
+    });
+    logs.length = 0;
+    await runAuto("status", controller, { json: true });
+    assert.deepEqual(JSON.parse(output), { state: "off", canEnable: true, reason: null });
+    assert.deepEqual(logs, []);
+  });
   it("does not inspect state before explicit off and keeps status read-only", async (t) => {
     t.mock.method(console, "log", () => {});
     const writes: boolean[] = [];
