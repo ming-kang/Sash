@@ -66,12 +66,19 @@ describe("real isolated Sash daemon upgrades", () => {
       }
     };
     compile(path.join(repository, "src"));
-    for (const dependency of Object.keys(manifest.dependencies as Record<string, unknown>))
-      fs.cpSync(
-        path.join(repository, "node_modules", dependency),
-        path.join(template, "node_modules", dependency),
-        { recursive: true, dereference: true },
-      );
+    const lock = JSON.parse(
+      fs.readFileSync(path.join(repository, "package-lock.json"), "utf8"),
+    ) as {
+      packages: Record<string, { dev?: boolean; devOptional?: boolean }>;
+    };
+    // Preserve npm's complete installed production tree, including transitive dependencies.
+    for (const [location, info] of Object.entries(lock.packages)) {
+      if (!location.startsWith("node_modules/") || info.dev || info.devOptional) continue;
+      fs.cpSync(path.join(repository, location), path.join(template, location), {
+        recursive: true,
+        dereference: true,
+      });
+    }
     await runUpgradeCommand(
       process.execPath,
       [path.join(repository, "scripts", "build-upgrade-worker.mjs"), path.join(template, "dist")],
@@ -81,6 +88,10 @@ describe("real isolated Sash daemon upgrades", () => {
     fs.writeFileSync(
       path.join(template, "dist", "sysproxy", "factory.js"),
       "export function createSystemProxyBackend() { return { supported: false }; }\n",
+    );
+    fs.writeFileSync(
+      path.join(template, "dist", "sysproxy", "windows-connections.js"),
+      "export async function inspectWindowsProxyConnections() { return { supported: false }; }\n",
     );
     fs.writeFileSync(
       path.join(template, "dist", "autostart", "windows-registry.js"),

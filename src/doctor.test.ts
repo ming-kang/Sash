@@ -49,6 +49,7 @@ function fixture() {
     packageRoot,
     status,
     layout: sashLayout(path.join(root, "data")),
+    inspectProxyConnections: async () => ({ supported: true as const, additionalRecords: 0 }),
     cleanup: async () => {
       assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
       await fs.promises.rm(root, { recursive: true, force: true });
@@ -164,4 +165,30 @@ it("distinguishes an occupied loopback port from a free one", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   assert.equal((await inspectListenerPort("127.0.0.1", address.port)).available, true);
+});
+
+it("reports connection-specific proxy limitations without claiming active settings or changing state", async () => {
+  const f = fixture();
+  try {
+    for (const inspect of [
+      async () => ({ supported: true as const, additionalRecords: 2 }),
+      async () => {
+        throw new Error("access denied with private registry output");
+      },
+    ]) {
+      const result = await diagnoseSash({
+        ...f,
+        inspectProxyConnections: inspect,
+        inspectPort: async () => ({ available: true }),
+      });
+      const check = result.checks.find((check) => check.id === "proxy-connections");
+      assert.equal(check?.status, "warning");
+      assert.match(check?.advice ?? "", /per-connection/);
+      assert.doesNotMatch(JSON.stringify(check), /private registry output/);
+      assert.equal(result.complete, false);
+      assert.equal(fs.existsSync(f.layout.root), false);
+    }
+  } finally {
+    await f.cleanup();
+  }
 });

@@ -36,10 +36,31 @@ function valueName(command: RecordedCommand): string | undefined {
 }
 
 function isPowerShell(command: string): boolean {
-  return /(?:^|[\\/])powershell\.exe$/i.test(command);
+  return /(?:^|[\\/])(?:powershell|pwsh)\.exe$/i.test(command);
 }
 
 describe("Windows system proxy backend", () => {
+  it("keeps registry results and reports how to recover when neither notification host is available", async (t) => {
+    const warnings: string[] = [];
+    t.mock.method(console, "warn", (message: string) => warnings.push(message));
+    const writes: string[] = [];
+    await applyWindowsSnapshot(windowsSnapshot(), async (command, args) => {
+      if (isPowerShell(command)) throw Object.assign(new Error("host missing"), { code: "ENOENT" });
+      writes.push(args.join(" "));
+      return "";
+    });
+    assert.equal(writes.length, 4);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? "", /Restart affected applications/);
+    const failure = new Error("original registry error");
+    await assert.rejects(
+      applyWindowsSnapshot(windowsSnapshot(), async (command) => {
+        if (isPowerShell(command)) throw new Error("host missing");
+        throw failure;
+      }),
+      (error) => error === failure,
+    );
+  });
   it("captures the managed registry values through the injected runner", async () => {
     const calls: RecordedCommand[] = [];
     const snapshot = await captureWindowsSnapshot(async (command, args) => {

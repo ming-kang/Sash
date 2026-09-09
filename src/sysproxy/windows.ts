@@ -1,4 +1,4 @@
-import { windowsSystemExecutable } from "../process.js";
+import { findExecutableOnPath, windowsSystemExecutable } from "../process.js";
 import { formatHostPort, normalizeEnableOptions, parseProxyString, runCmd } from "./common.js";
 import { windowsSnapshot } from "./snapshot.js";
 import type {
@@ -163,25 +163,36 @@ export async function captureWindowsSnapshot(
 
 async function refreshWindowsWinINet(run: CommandRunner): Promise<void> {
   const script = [
+    "$ErrorActionPreference = 'Stop'",
     '$signature = @"',
     '[DllImport("wininet.dll", SetLastError = true)]',
     "public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);",
     '"@',
-    "$type = Add-Type -MemberDefinition $signature -Name WinINet -Namespace Interop -PassThru -ErrorAction SilentlyContinue",
-    "if ($type) {",
-    "  [Interop.WinINet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null",
-    "  [Interop.WinINet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null",
+    "Add-Type -MemberDefinition $signature -Name WinINet -Namespace Interop",
+    "foreach ($option in @(39, 37)) {",
+    "  if (-not [Interop.WinINet]::InternetSetOption([IntPtr]::Zero, $option, [IntPtr]::Zero, 0)) { throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error()) }",
     "}",
   ].join("\n");
+  const shells = [
+    () => findExecutableOnPath("pwsh.exe"),
+    () => windowsSystemExecutable("WindowsPowerShell/v1.0/powershell.exe"),
+  ];
+  for (const resolveShell of shells) {
+    try {
+      const shell = resolveShell();
+      if (!shell) continue;
+      await run(shell, ["-NoProfile", "-NonInteractive", "-Command", script]);
+      return;
+    } catch {
+      /* Try the other installed PowerShell host before falling back to registry-only changes. */
+    }
+  }
   try {
-    await run(windowsSystemExecutable("WindowsPowerShell/v1.0/powershell.exe"), [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      script,
-    ]);
+    console.warn(
+      "[sash] WinINet notification is unavailable. Restart affected applications to pick up proxy registry changes, or install PowerShell for immediate notification.",
+    );
   } catch {
-    // The registry values are authoritative even if the notification cannot run.
+    /* Notification diagnostics cannot replace a registry operation's result. */
   }
 }
 

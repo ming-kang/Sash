@@ -15,6 +15,10 @@ import {
   collectRuntimeStatus,
   type StatusObservationDependencies,
 } from "./status.js";
+import {
+  inspectWindowsProxyConnections,
+  type ProxyConnectionsObservation,
+} from "./sysproxy/windows-connections.js";
 
 export interface DoctorCheck {
   id: string;
@@ -69,6 +73,7 @@ export async function diagnoseSash(
     packageRoot?: string;
     status?: StatusObservationDependencies;
     inspectPort?: typeof inspectListenerPort;
+    inspectProxyConnections?: () => Promise<ProxyConnectionsObservation>;
   } = {},
 ): Promise<DoctorReport> {
   const layout = options.layout ?? sashLayout();
@@ -294,6 +299,27 @@ export async function diagnoseSash(
     }
   }
   if (!stateValid) add("runtime", "warning", "Runtime and port checks require a readable manifest");
+  try {
+    const connections = await (options.inspectProxyConnections ?? inspectWindowsProxyConnections)();
+    if (connections.supported)
+      add(
+        "proxy-connections",
+        connections.additionalRecords > 0 ? "warning" : "ok",
+        connections.additionalRecords > 0
+          ? `${connections.additionalRecords} additional Windows connection record(s) found; their proxy settings are outside Sash management`
+          : "No additional Windows per-connection proxy records detected",
+        connections.additionalRecords > 0
+          ? "Inspect Windows/VPN connection proxy settings. Sash manages the desktop LAN proxy/PAC settings and does not change per-connection records"
+          : undefined,
+      );
+  } catch {
+    add(
+      "proxy-connections",
+      "warning",
+      "Windows per-connection proxy settings could not be inspected",
+      "Check access to the current user's Internet Settings\\Connections registry key; Sash does not manage per-connection records",
+    );
+  }
   return {
     schemaVersion: 1,
     healthy: !checks.some((check) => check.status === "error" || check.status === "warning"),
