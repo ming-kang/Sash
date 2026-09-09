@@ -147,6 +147,7 @@ function assertPackedFiles(files) {
     "docs/usage.md",
     "docs/backend.md",
     "docs/frontend.md",
+    "docs/completions/sash.ps1",
     "docs/remix-icon-license.txt",
     "dist/cli.js",
     "dist/autostart-entry.js",
