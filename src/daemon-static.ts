@@ -50,7 +50,11 @@ export function serveStaticUi(
 
   const uiRoot = resolveUiDir(layout);
   if (!uiRoot) {
-    return false;
+    res.writeHead(404, { ...UI_SECURITY_HEADERS, "Content-Type": "text/plain; charset=utf-8" });
+    res.end(
+      "Dashboard assets are missing. Reinstall Sash, or run npm run build in a source checkout.",
+    );
+    return true;
   }
 
   let relative = pathname.startsWith("/ui/") ? pathname.slice("/ui/".length) : "";
@@ -66,31 +70,33 @@ export function serveStaticUi(
   const candidate = path.join(uiRoot, relative);
   const hasExt = Boolean(path.extname(relative));
 
-  const statFile = (file: string): fs.Stats | null => {
+  const openFile = (file: string): { fd: number; stats: fs.Stats } | null => {
+    let fd: number | undefined;
     try {
-      const stats = fs.statSync(file);
-      return stats.isFile() ? stats : null;
+      fd = fs.openSync(file, "r");
+      const stats = fs.fstatSync(fd);
+      if (stats.isFile()) return { fd, stats };
     } catch {
-      return null;
+      // Missing assets and non-files may fall back to the SPA document below.
     }
+    if (fd !== undefined) fs.closeSync(fd);
+    return null;
   };
 
-  let targetFile: string | null = null;
-  let targetStats = statFile(candidate);
-  if (targetStats) {
-    targetFile = candidate;
-  } else if (!hasExt) {
+  let targetFile = candidate;
+  let opened = openFile(targetFile);
+  if (!opened && !hasExt) {
     targetFile = path.join(uiRoot, "index.html");
-    targetStats = statFile(targetFile);
+    opened = openFile(targetFile);
   }
 
-  if (targetFile && targetStats) {
+  if (opened) {
     const ext = path.extname(targetFile);
     const mime = MIME_TYPES[ext] ?? "application/octet-stream";
     const headers: Record<string, string> = {
       ...UI_SECURITY_HEADERS,
       "Content-Type": mime,
-      "Content-Length": String(targetStats.size),
+      "Content-Length": String(opened.stats.size),
     };
     if (ext === ".html") {
       headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
@@ -102,15 +108,26 @@ export function serveStaticUi(
       headers["Cache-Control"] = "public, max-age=3600";
     }
     if (req.method === "HEAD") {
-      res.writeHead(200, headers);
-      res.end();
+      try {
+        res.writeHead(200, headers);
+        res.end();
+      } finally {
+        fs.closeSync(opened.fd);
+      }
       return true;
     }
-    const stream = fs.createReadStream(targetFile);
-    stream.once("open", () => {
-      res.writeHead(200, headers);
-      stream.pipe(res);
-    });
+    let stream: fs.ReadStream;
+    try {
+      stream = fs.createReadStream(targetFile, { fd: opened.fd, autoClose: true });
+    } catch (error) {
+      fs.closeSync(opened.fd);
+      throw error;
+    }
+    const disconnected = (): void => {
+      stream.destroy();
+    };
+    res.once("close", disconnected);
+    stream.once("close", () => res.off("close", disconnected));
     stream.once("error", () => {
       if (!res.headersSent) {
         res.writeHead(500, {
@@ -122,6 +139,8 @@ export function serveStaticUi(
         res.destroy();
       }
     });
+    res.writeHead(200, headers);
+    stream.pipe(res);
     return true;
   }
 

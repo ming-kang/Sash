@@ -4,11 +4,48 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { request } from "undici";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
+import { atomicWriteFileSync } from "./fs-atomic.js";
 
 describe("daemon server", () => {
   const h = useDaemonTestHarness();
 
   describe("web UI serving", () => {
+    it("uses one descriptor for the asset size and body across an atomic path replacement", async (t) => {
+      fs.mkdirSync(h.layout.uiDir, { recursive: true });
+      fs.writeFileSync(path.join(h.layout.uiDir, "index.html"), "<html>ui</html>");
+      const file = path.join(h.layout.uiDir, "asset.js");
+      fs.writeFileSync(file, "original");
+      const previous = path.join(h.layout.uiDir, "previous.js");
+      fs.writeFileSync(previous, "original");
+      await h.startServer();
+      const open = fs.openSync;
+      let opens = 0;
+      t.mock.method(fs, "openSync", (target: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
+        // Model a descriptor bound to the previous inode. Windows may forbid
+        // replacing an actually open destination, unlike POSIX rename.
+        const fd = open(String(target) === file ? previous : target, flags, mode);
+        if (String(target) === file) {
+          opens++;
+          atomicWriteFileSync(file, "replacement with a different length");
+        }
+        return fd;
+      });
+      const response = await request(`http://127.0.0.1:${h.boundPort}/ui/asset.js`);
+      assert.equal(await response.body.text(), "original");
+      assert.equal(response.headers["content-length"], "8");
+      assert.equal(opens, 1);
+    });
+
+    it("explains missing dashboard assets with a 404", async (t) => {
+      await h.startServer();
+      const exists = fs.existsSync;
+      t.mock.method(fs, "existsSync", (file: fs.PathLike) =>
+        String(file).endsWith("index.html") ? false : exists(file),
+      );
+      const response = await request(`http://127.0.0.1:${h.boundPort}/ui/`);
+      assert.equal(response.statusCode, 404);
+      assert.match(await response.body.text(), /Dashboard assets are missing/);
+    });
     it("redirects GET /ui to /ui/ preserving the query string", async () => {
       await h.startServer();
       const res = await request(`http://127.0.0.1:${h.boundPort}/ui?tab=proxies`);
