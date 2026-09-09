@@ -11,8 +11,8 @@ import {
   refreshStatus,
   saveNetworkSettings,
   setSystemProxyEnabled,
-  startRuntimePolling,
 } from "./runtime-actions.js";
+import { startRuntimeEvents } from "./runtime-events.js";
 import { adoptDaemonStatus, store } from "./state.js";
 
 const originalApi = { ...api };
@@ -300,15 +300,16 @@ describe("network mutation outcomes", () => {
   }
 });
 
-describe("stale polling failures", () => {
-  for (const phase of ["initialize", "status"] as const) {
+describe("stale subscription failures", () => {
+  for (const phase of ["initialize", "events"] as const) {
     for (const stopped of [false, true]) {
-      it(`ignores ${phase} failure after newer status (poll stopped: ${stopped})`, async () => {
+      it(`ignores ${phase} failure after newer status (subscription stopped: ${stopped})`, async () => {
         const originals = {
           initialize: api.initialize,
           getStatus: api.getStatus,
           getProfiles: api.getProfiles,
           markDisconnected: api.markDisconnected,
+          events: api.events,
         };
         const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
         const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
@@ -342,12 +343,12 @@ describe("stale polling failures", () => {
           }
           return { token: "test", pid: 100, startedAt: "2026-01-01T00:00:00.000Z" };
         };
-        api.getStatus = async () => {
+        api.events = async function* () {
           entered.resolve();
-          return pending.promise;
+          yield await pending.promise;
         };
         api.getProfiles = async () => ({ activeId: null, profiles: [] });
-        const stop = startRuntimePolling();
+        const stop = startRuntimeEvents();
         try {
           await entered.promise;
           if (stopped) stop();

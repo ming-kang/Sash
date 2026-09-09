@@ -29,6 +29,7 @@ Daemon startup also holds an installation admission lock while loading applicati
 | `system-proxy-manager.ts`, `sysproxy/` | Windows proxy snapshot, verification and conditional recovery |
 | `autostart.ts`, `autostart/` | Windows current-user registration and launcher validation |
 | `daemon/router.ts`, `daemon/handlers/` | Route matching, authentication, parsing and domain dispatch |
+| `daemon/events.ts`, `daemon/event-observations.ts` | Shared status observer, bounded SSE delivery and cached desktop observations |
 | `contracts.ts`, `sash-client.ts`, `daemon-client.ts` | Shared browser-safe protocol and direct Node transport |
 
 Persistent locks cover resources shared by processes: daemon startup/singleton ownership, installation upgrades and per-user Windows proxy/autostart operations. Application mutations use the daemon's in-memory queue.
@@ -135,6 +136,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | --- | --- | --- |
 | `/sash/daemon/health` | GET | Public per-boot identity, PID and start time |
 | `/sash/daemon/status` | GET | Public management/runtime snapshot; subscription URLs require control authentication |
+| `/sash/events` | GET | Control; SSE full status snapshots and startup observations |
 | `/sash/daemon/shutdown` | POST | Control; complete cleanup, then `204` and listener close |
 | `/sash/web/bootstrap` | POST | Control; mint one-time browser handoff |
 | `/sash/web/session` | POST | Redeem the handoff token supplied in the body |
@@ -160,6 +162,10 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/profiles/:id` | PATCH / DELETE | Control; rename or remove |
 
 Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required; no absent flag is guessed from an old protocol. Diagnostic Core probes share in-flight work and a 500ms cache bound to the owned Core generation. Safety decisions bypass settled Core observations. On status and proxy routes, `?fresh=1` requires control authentication and bypasses settled probe caches.
+
+`/sash/events` sends `event: status` with `{schemaVersion: 1, sequence, status, autostart}` and a per-boot SSE ID. Each subscription starts from a complete snapshot; clients do not need a replay log. Mutations and Core preparation progress notify one shared observer, coalesced over 40 ms. A five-second shared sample detects external health/OS changes only while clients are connected; unchanged idle samples send no data. Desktop startup inspection is cached and cannot delay runtime events. Ten-second heartbeats renew/check browser authorization. At most 64 subscribers are admitted; a blocked writer retains only the newest pending snapshot. Disconnect and daemon shutdown release timers and streams.
+
+The CLI watch uses the same direct, non-redirecting event client, verifies the discovered PID/boot identity, and converts events into the usual schema-2 CLI status. It rediscovers management after disconnection and observes stopped instances without starting them. Output cancellation aborts active readers before normal process exit.
 
 Success bodies are resources; empty mutations return `204`. Errors use `{error: {code, message}}`. Unknown required fields or malformed successful payloads are rejected by the shared client. Raw settings editing and config reload routes do not exist.
 

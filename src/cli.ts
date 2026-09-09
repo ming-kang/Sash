@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Argument, Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
+import { cliOutputSignal, handleCliOutputError } from "./cli-output.js";
 import { type AutoMode, runAuto } from "./commands/auto.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
@@ -39,8 +40,7 @@ function packageVersion(): string {
 
 const program = new Command();
 process.stdout.on("error", (error: NodeJS.ErrnoException) => {
-  if (error.code === "EPIPE") process.exit(0);
-  throw error;
+  if (!handleCliOutputError(error)) throw error;
 });
 
 program
@@ -102,8 +102,9 @@ program
 program
   .command("status")
   .description("show runtime state, versions, endpoints, and system proxy status")
+  .option("--watch", "watch status changes until interrupted; --json emits one snapshot per line")
   .option("--json", "output machine-readable JSON")
-  .action(withCliErrors((opts: { json?: boolean }) => runStatus(opts)));
+  .action(withCliErrors((opts: { json?: boolean; watch?: boolean }) => runStatus(opts)));
 
 program
   .command("doctor")
@@ -285,3 +286,4 @@ async function main(): Promise<void> {
 }
 
 await main();
+if (cliOutputSignal.aborted) process.exitCode = 0;

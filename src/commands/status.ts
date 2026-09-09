@@ -1,3 +1,5 @@
+import { once } from "node:events";
+import { cliOutputSignal } from "../cli-output.js";
 import { log } from "../log.js";
 import {
   type CliRuntimeStatus,
@@ -6,14 +8,53 @@ import {
   markIncompleteObservation,
   runtimeStatusHeadline,
 } from "../status.js";
+import { watchRuntimeStatus } from "../status-watch.js";
 import { runtimeContext } from "./shared.js";
 
 export type RuntimeStatusCollector = () => Promise<CliRuntimeStatus>;
 
 export async function runStatus(
-  opts: { json?: boolean } = {},
+  opts: { json?: boolean; watch?: boolean } = {},
   collect: RuntimeStatusCollector = () => collectRuntimeStatus(runtimeContext()),
 ): Promise<void> {
+  if (opts.watch) {
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, cliOutputSignal]);
+    const stop = (): void => controller.abort();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    const initialExitCode = process.exitCode;
+    let last: CliRuntimeStatus | undefined;
+    try {
+      for await (const status of watchRuntimeStatus(runtimeContext, {
+        signal,
+        onReconnect: (error) =>
+          log.warn(
+            `status stream disconnected; reconnecting: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      })) {
+        last = status;
+        if (opts.json) {
+          if (!process.stdout.write(`${JSON.stringify(status)}\n`))
+            await once(process.stdout, "drain", { signal });
+        } else {
+          if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
+          else console.log(`\n[sash] ${new Date().toISOString()}`);
+          await runStatus({}, async () => status);
+        }
+      }
+    } catch (error) {
+      if (!signal.aborted) throw error;
+    } finally {
+      controller.abort();
+      process.removeListener("SIGINT", stop);
+      process.removeListener("SIGTERM", stop);
+      if (cliOutputSignal.aborted) process.exitCode = 0;
+      else if (last?.complete && process.exitCode === 2) process.exitCode = initialExitCode;
+      else if (last) markIncompleteObservation(last.complete);
+    }
+    return;
+  }
   const status = await collect();
 
   if (opts.json) {

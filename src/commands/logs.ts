@@ -1,4 +1,5 @@
 import { once } from "node:events";
+import { cliOutputSignal } from "../cli-output.js";
 import { log } from "../log.js";
 import { followLogFile, normalizeLines } from "../log-follow.js";
 import { readLogTail } from "../log-tail.js";
@@ -39,19 +40,20 @@ export async function runLogs(
 
   if (!opts.follow) return;
   const controller = new AbortController();
+  const signal = AbortSignal.any([controller.signal, cliOutputSignal]);
   const stop = (): void => controller.abort();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
     await followLogFile(file, {
       cursor,
-      signal: controller.signal,
+      signal,
       onChunk: async (chunk) => {
         if (process.stdout.write(chunk)) return;
         try {
-          await once(process.stdout, "drain", { signal: controller.signal });
+          await once(process.stdout, "drain", { signal });
         } catch (error) {
-          if (!controller.signal.aborted) throw error;
+          if (!signal.aborted) throw error;
         }
       },
     });

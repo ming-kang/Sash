@@ -104,11 +104,14 @@
 
 ## 批次 5 — 事件通道与可见性
 
-- [ ] **`/sash/events`**（M）：SSE 或 WS 推送 revision 变更（单写者 + 单调 revision 已就绪），
+- [x] **`/sash/events`**（M）：SSE 推送完整状态与 revision 变更（单写者 + 单调 revision 已就绪），
   WebUI 从 1Hz 轮询迁移，附带解决批次 2 的探测压力
 - [x] **core update 进度暴露**（M）：`{downloading, stage}` 进 daemon status，
   CLI update 从 20 分钟静默改为阶段输出（`src/daemon/app.ts:88,138`、`src/sash-client.ts:100`）
-- [ ] `sash status --watch`（S，依赖 events）
+- [x] `sash status --watch`（S，依赖 events）；支持终端重绘、重连和逐行 JSON，停止态不启动管理进程
+
+批次 5 验证：628 项测试通过；真实 daemon 的 Chromium/Firefox 交互、授权、配置排序与自启动检查通过。
+SSE 使用共享观察、心跳和有限缓冲；输出管道关闭时先取消读取，再正常退出，避免 Windows Node 24 的强制退出断言。
 
 ## 零散低优先级（顺手做）
 

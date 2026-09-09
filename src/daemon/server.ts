@@ -144,6 +144,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       // Timers stay alive if either runtime cleanup or listener closure fails,
       // preserving retryability and scheduled updates after a failed close.
       scheduler?.stop();
+      context.events.close();
     })();
     listenerClosePromise = attempt;
     void attempt.catch(() => {

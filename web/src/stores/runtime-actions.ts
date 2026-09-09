@@ -1,7 +1,6 @@
-import { watch } from "vue";
 import type { SettingsPatch } from "../../../src/contracts.js";
 import { api } from "../api/index.js";
-import { currentRoute } from "../router.js";
+import type { SashStatus } from "../types/index.js";
 import { refreshVisibleCoreResources } from "./core-actions.js";
 import {
   adoptDaemonStatus,
@@ -28,7 +27,20 @@ export async function refreshStatus(
   request = requests.begin("runtime"),
 ): Promise<RuntimeRefreshResult> {
   const status = await api.getStatus();
+  return adoptRuntimeSnapshot(status, request);
+}
+
+export async function adoptRuntimeSnapshot(
+  status: SashStatus,
+  request = requests.begin("runtime"),
+): Promise<RuntimeRefreshResult> {
   if (!requests.isCurrent("runtime", request)) return "superseded";
+  if (
+    store.status?.daemon.bootId === status.daemon.bootId &&
+    (status.revisions.state < store.status.revisions.state ||
+      status.revisions.runtime < store.status.revisions.runtime)
+  )
+    return "superseded";
   adoptDaemonStatus(status);
   if (!api.sessionMatches(status.daemon.bootId)) {
     transitionRuntimeOwner(null);
@@ -57,81 +69,6 @@ export async function refreshStatus(
 
 export async function refreshRuntimeState(): Promise<void> {
   if ((await refreshStatus()) === "status") await refreshVisibleCoreResources(0, true);
-}
-
-/** One non-overlapping poll; session initialization is needed only on entry or reconnect. */
-export function startRuntimePolling(intervalMs = 2000): () => void {
-  const backgroundInterval = Math.max(intervalMs, 15_000);
-  let stopped = false;
-  let running = false;
-  let refreshWhenIdle = false;
-  let timer: number | null = null;
-  let cycle = 0;
-  let activeRequest = 0;
-  const clearTimer = (): void => {
-    if (timer !== null) window.clearTimeout(timer);
-    timer = null;
-  };
-  const schedule = (delay: number): void => {
-    clearTimer();
-    timer = window.setTimeout(() => {
-      timer = null;
-      void tick();
-    }, delay);
-  };
-  const tick = async (): Promise<void> => {
-    if (stopped || running) return;
-    running = true;
-    const request = requests.begin("runtime");
-    activeRequest = request;
-    const current = () => !stopped && requests.isCurrent("runtime", request);
-    try {
-      if (!api.isInitialized()) await api.initialize(current);
-      if (!current()) return;
-      const result = await refreshStatus(request);
-      if (!current()) return;
-      cycle += 1;
-      if (result === "status" && !document.hidden) await refreshVisibleCoreResources(cycle);
-    } catch {
-      if (current()) markDaemonOffline();
-    } finally {
-      running = false;
-      if (!stopped) {
-        if (refreshWhenIdle && !document.hidden) {
-          refreshWhenIdle = false;
-          schedule(0);
-        } else schedule(document.hidden || !api.hasSession() ? backgroundInterval : intervalMs);
-      }
-    }
-  };
-  const onVisibility = (): void => {
-    clearTimer();
-    if (document.hidden) {
-      refreshWhenIdle = false;
-      if (!running) schedule(backgroundInterval);
-    } else if (running) refreshWhenIdle = true;
-    else void tick();
-  };
-  document.addEventListener("visibilitychange", onVisibility);
-  const onHashChange = (): void => {
-    if (api.isInitialized()) return;
-    if (running) refreshWhenIdle = true;
-    else void tick();
-  };
-  window.addEventListener("hashchange", onHashChange);
-  const stopRouteWatch = watch(currentRoute, () => {
-    if (!stopped && !document.hidden && api.hasSession() && isCoreHealthy(store.status))
-      void refreshVisibleCoreResources(0, true);
-  });
-  void tick();
-  return () => {
-    stopped = true;
-    if (running && requests.isCurrent("runtime", activeRequest)) requests.invalidate("runtime");
-    clearTimer();
-    stopRouteWatch();
-    document.removeEventListener("visibilitychange", onVisibility);
-    window.removeEventListener("hashchange", onHashChange);
-  };
 }
 
 export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {

@@ -53,6 +53,16 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
   const fresh = req.searchParams.get("fresh") === "1";
   if (fresh && !req.authorized)
     throw new HttpError(401, "Fresh status requires control authentication");
+  const status = await readDaemonStatus(ctx, fresh);
+  if (!req.authorized) {
+    if (status.activeProfile) status.activeProfile.url = "";
+    if (status.configuration.appliedProfile) status.configuration.appliedProfile.url = "";
+  }
+  return { status: 200, json: status };
+}
+
+/** Complete control snapshot shared by HTTP reads and the authenticated event observer. */
+export async function readDaemonStatus(ctx: DaemonContext, fresh = false): Promise<DaemonStatus> {
   const ownership = ctx.supervisor.ownedCoreSnapshot();
   const runtimeCore = await ctx.supervisor.status({ fresh });
   const installedVersion = currentCoreVersion(ctx.layout);
@@ -98,9 +108,7 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
     mutationQueue: ctx.gate.snapshot(),
     configuration: {
       pending: ctx.pendingApply(),
-      appliedProfile: applied?.profile
-        ? { ...applied.profile, url: req.authorized ? applied.profile.url : "" }
-        : null,
+      appliedProfile: applied?.profile ? { ...applied.profile } : null,
       appliedSettings: applied
         ? { mixedPort: applied.settings.mixedPort, allowLan: applied.settings.allowLan }
         : null,
@@ -115,11 +123,9 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
       ...(proxyQueryError ? { queryError: proxyQueryError } : {}),
     },
     settings: publicSettings(settings),
-    activeProfile: active
-      ? { id: active.id, name: active.name, url: req.authorized ? active.url : "" }
-      : null,
+    activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
   };
-  return { status: 200, json: status };
+  return status;
 }
 
 export function shutdownDaemon(ctx: DaemonContext): Promise<RouteResponse> {

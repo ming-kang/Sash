@@ -11,6 +11,7 @@ import type { SettingsService } from "../settings-service.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../system-proxy-manager.js";
 import { ShuttingDownError } from "./errors.js";
+import type { DaemonEvents } from "./events.js";
 import type { DaemonUpgradeService } from "./upgrade.js";
 import type { WebAuthManager } from "./web-auth.js";
 
@@ -37,6 +38,7 @@ export class DaemonGate {
     private readonly options: {
       slowMutationMs?: number;
       onSlowMutation?: (info: SlowMutationInfo) => void;
+      onChange?: () => void;
     } = {},
   ) {}
   get isClosing(): boolean {
@@ -44,6 +46,14 @@ export class DaemonGate {
   }
   get isReserved(): boolean {
     return this.reservation !== undefined;
+  }
+
+  private changed(): void {
+    try {
+      this.options.onChange?.();
+    } catch {
+      /* Observation must never affect a mutation result. */
+    }
   }
 
   assertMutable(): void {
@@ -93,6 +103,7 @@ export class DaemonGate {
     } finally {
       this.liveMutations.delete(pending);
       finish();
+      this.changed();
     }
   }
 
@@ -111,12 +122,15 @@ export class DaemonGate {
       return Promise.reject(error);
     }
     this.queued += 1;
+    this.changed();
     const next = this.tail.then(async () => {
       this.queued -= 1;
+      this.changed();
       admit();
       const started = performance.now();
       const active = { purpose, startedAt: new Date().toISOString() };
       this.active = active;
+      this.changed();
       const slowMs = this.options.slowMutationMs ?? 5000;
       let reported = false;
       const reportSlow = (): void => {
@@ -144,6 +158,7 @@ export class DaemonGate {
       } finally {
         clearTimeout(timer);
         this.active = null;
+        this.changed();
         if (performance.now() - started >= slowMs) reportSlow();
       }
     });
@@ -199,6 +214,7 @@ export interface DaemonContext {
   readonly systemProxy: SystemProxyController;
   readonly autostart: AutostartController;
   readonly gate: DaemonGate;
+  readonly events: DaemonEvents;
   readonly settings: { committed(): SashSettings; runtime(): SashSettings };
   mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T>;
   stateRevision(): number;

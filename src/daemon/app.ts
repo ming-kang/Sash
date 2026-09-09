@@ -28,6 +28,8 @@ import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../system-proxy-manager.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
+import { createEventObserver } from "./event-observations.js";
+import { DaemonEvents } from "./events.js";
 import type { DaemonScheduler } from "./scheduler.js";
 import { DaemonUpgradeService } from "./upgrade.js";
 import { WebAuthManager } from "./web-auth.js";
@@ -72,6 +74,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   const systemProxy = deps.systemProxy ?? new SystemProxyManager({ layout });
   let lifecycle: RuntimeLifecycle;
   let gate: DaemonGate;
+  const events = new DaemonEvents(createEventObserver(() => context));
   const supervisor =
     deps.supervisor ??
     new CoreSupervisor({
@@ -108,7 +111,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     cancelCorePreparation();
     profiles.cancelDownloads();
   };
-  gate = new DaemonGate(() => lifecycle.stop(), cancelPreparations);
+  gate = new DaemonGate(() => lifecycle.stop(), cancelPreparations, {
+    onChange: () => events.notify(),
+  });
   const mutate = <T>(purpose: string, action: () => T | Promise<T>) => gate.mutate(purpose, action);
   profiles = new ProfileService({
     layout,
@@ -179,10 +184,12 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       total: null,
     };
     coreUpdateProgress = progress;
+    events.notify();
     const setStage = (stage: CoreUpdateStage, target?: string): void => {
       progress.stage = stage;
       progress.downloading = stage === "downloading";
       if (target) progress.target = target;
+      events.notify();
     };
     let staged: StagedCore | undefined;
     try {
@@ -204,6 +211,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
         onProgress: (downloaded, total) => {
           progress.downloaded = downloaded;
           progress.total = total ?? null;
+          events.notify();
         },
       });
       signal.throwIfAborted();
@@ -225,6 +233,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     } finally {
       downloading = false;
       coreUpdateProgress = null;
+      events.notify();
       if (staged) {
         fs.rmSync(staged.exe, { force: true });
         try {
@@ -276,6 +285,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     systemProxy,
     autostart: deps.autostart ?? new AutostartService({ layout }),
     gate,
+    events,
     mutate,
     settings: { committed: settings, runtime: () => lifecycle.settings() },
     stateRevision: () => state.snapshot().revision,

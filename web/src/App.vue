@@ -67,7 +67,7 @@ import {
   isCoreReady,
   resetTraffic,
   runtimeNotice,
-  startRuntimePolling,
+  startRuntimeEvents,
   store,
 } from "./stores/index.js";
 // OverviewView is the default route and stays in the entry chunk; the rest
@@ -85,7 +85,7 @@ const ProfilesView = asyncView(() => import("./views/ProfilesView.vue"));
 const RulesView = asyncView(() => import("./views/RulesView.vue"));
 const SettingsView = asyncView(() => import("./views/SettingsView.vue"));
 
-let stopPolling: (() => void) | null = null;
+let stopRuntime: (() => void) | null = null;
 let unsubTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
 let trafficGapTimer: number | null = null;
@@ -169,13 +169,13 @@ watch(
 
 onMounted(() => {
   document.addEventListener("visibilitychange", updateVisibility);
-  stopPolling = startRuntimePolling();
+  stopRuntime = startRuntimeEvents();
   window.addEventListener("scroll", handleScrollCapture, { capture: true, passive: true });
 });
 
 onUnmounted(() => {
   document.removeEventListener("visibilitychange", updateVisibility);
-  stopPolling?.();
+  stopRuntime?.();
   stopStreams();
   window.removeEventListener("scroll", handleScrollCapture, { capture: true });
 });

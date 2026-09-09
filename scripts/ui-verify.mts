@@ -10,6 +10,7 @@ import { chromium, firefox, type BrowserType, type Page } from "playwright";
 import { parseDaemonStatus, parseProfileActionResponse, parseWebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
 import { FakeCoreSupervisor } from "../src/test-state.test.js";
+import { buildSanitizedEnv } from "../src/process.js";
 
 const outDir = path.resolve(process.argv[2] ?? fs.mkdtempSync(path.join(os.tmpdir(), "sash-ui-verify-")));
 fs.mkdirSync(outDir, { recursive: true });
@@ -82,7 +83,7 @@ async function verify(engine: BrowserType, name: string) {
   const second = parseProfileActionResponse((await harness.apiRequest("/sash/profiles/import", { method: "POST", body: { name: "备用配置", content: yaml.replace("node-a", "node-b") } })).data).profile;
   assert.equal((await harness.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
   const base = `http://127.0.0.1:${harness.boundPort}/ui/`;
-  const browser = await engine.launch({ headless: true });
+  const browser = await engine.launch({ headless: true, env: buildSanitizedEnv() });
   const errors: string[] = [];
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "zh-CN" });
   try {

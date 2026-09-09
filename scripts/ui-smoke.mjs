@@ -94,6 +94,24 @@ async function exercise(fixture, label) {
     );
   }
   await page.locator(".toast-success").waitFor({ state: "detached" });
+  assert.equal(fixture.statusReads, 0, "connected WebUI receives status without polling");
+  fixture.status.configuration.pending = true;
+  fixture.status.revisions.state++;
+  fixture.events.publish();
+  await page.locator(".pending-config").waitFor();
+  fixture.status.configuration.pending = false;
+  fixture.status.revisions.state++;
+  fixture.events.publish();
+  await page.locator(".pending-config").waitFor({ state: "detached" });
+  const subscriptions = fixture.events.connections;
+  const reconnecting = page.waitForRequest(
+    (request) => new URL(request.url()).pathname === "/sash/events",
+  );
+  fixture.events.disconnect();
+  await reconnecting;
+  await page.locator(".pgroup").first().waitFor();
+  assert.ok(fixture.events.connections > subscriptions);
+  assert.equal(fixture.statusReads, 0, "reconnection also resumes a complete event snapshot");
 
   const chart = page.locator(".traffic-chart path[stroke='var(--chart-down)']").first();
   const flat = await chart.getAttribute("d");
@@ -209,7 +227,7 @@ async function exercise(fixture, label) {
 }
 
 async function exerciseChunkFailure(browser, label) {
-  const fixture = await fixturePage(browser, server.base, "light", { width: 1280, height: 900 });
+  const fixture = await fixturePage(browser, server, "light", { width: 1280, height: 900 });
   const { page, context } = fixture;
   try {
     await page.goto(`${server.base}/#/overview`);
@@ -243,7 +261,7 @@ try {
     const browser = await engine.launch({ env: buildSanitizedEnv() });
     try {
       for (const theme of ["light", "dark"]) {
-        const fixture = await fixturePage(browser, server.base, theme, {
+        const fixture = await fixturePage(browser, server, theme, {
           width: 1440,
           height: 900,
         });

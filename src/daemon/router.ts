@@ -10,6 +10,7 @@ import { forwardHttpToCore } from "../daemon-proxy.js";
 import { serveStaticUi } from "../daemon-static.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
+import { streamDaemonEvents } from "./events.js";
 import { readAutostart, writeAutostart } from "./handlers/autostart.js";
 import {
   coreUpdateProgress,
@@ -160,6 +161,7 @@ export function buildRoutes(): readonly RouteDef[] {
       handler: continueWebSession,
     },
     { methods: ["GET"], pattern: path("/sash/daemon/health"), auth: "public", handler: health },
+    { methods: ["GET"], pattern: path("/sash/events"), auth: "control", raw: streamDaemonEvents },
     {
       methods: ["GET"],
       pattern: path("/sash/daemon/status"),

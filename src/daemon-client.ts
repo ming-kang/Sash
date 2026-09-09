@@ -1,3 +1,4 @@
+import { request } from "undici";
 import type { AutostartStatus } from "./autostart-contract.js";
 import type {
   CoreStartResult,
@@ -18,8 +19,10 @@ import type {
   WebBootstrapInfo,
 } from "./contracts.js";
 import type { CoreUpdateProgress } from "./core-update-progress.js";
-import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
+import { directDispatcherForLoopback, ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 import { SashClient, type SashClientFetch } from "./sash-client.js";
+import type { SashEventFetch } from "./sash-event-client.js";
+import type { DaemonEvent } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { UpgradeAccess } from "./upgrade-access.js";
 
@@ -49,6 +52,24 @@ const daemonFetch: SashClientFetch = async (url, init) => {
   };
 };
 
+// Event streams are deliberately long-lived. They use idle/header deadlines,
+// cancellation and the direct dispatcher, with no redirects or mutation retries.
+const daemonEventFetch: SashEventFetch = async (url, init) => {
+  const response = await request(url, {
+    method: "GET",
+    ...init,
+    dispatcher: directDispatcherForLoopback(),
+    headersTimeout: 8000,
+    bodyTimeout: 25_000,
+  });
+  response.body.on("error", () => undefined);
+  return {
+    status: response.statusCode,
+    contentType: String(response.headers["content-type"] ?? ""),
+    body: response.body,
+  };
+};
+
 /** CLI-facing daemon client: SashClient with the Node transport defaults. */
 export class SashDaemonClient {
   readonly baseUrl: string;
@@ -61,6 +82,7 @@ export class SashDaemonClient {
       baseUrl: this.baseUrl,
       token: () => trimmed,
       fetchFn: daemonFetch,
+      eventFetchFn: daemonEventFetch,
     });
   }
 
@@ -82,6 +104,10 @@ export class SashDaemonClient {
 
   status(fresh = false): Promise<DaemonStatus> {
     return this.client.status(fresh);
+  }
+
+  events(signal: AbortSignal): AsyncGenerator<DaemonEvent> {
+    return this.client.events(signal);
   }
 
   autostartStatus(): Promise<AutostartStatus> {

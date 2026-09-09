@@ -12,6 +12,7 @@ import YAML from "yaml";
 import { parseWebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
 import { loadProfiles } from "../src/profiles.js";
+import { buildSanitizedEnv } from "../src/process.js";
 import { FakeCoreSupervisor } from "../src/test-state.test.js";
 import type { ProxyItem } from "../web/src/types/index.js";
 
@@ -199,7 +200,7 @@ async function drag(page: Page, from: number, to: number, cancel = false): Promi
 
 try {
   for (const engine of process.argv.includes("--touch-only") ? [] : [chromium, firefox]) {
-    const browser = await engine.launch();
+    const browser = await engine.launch({ env: buildSanitizedEnv() });
     const tag = engine.name();
     try {
       await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids: initialIds } });
@@ -371,7 +372,7 @@ try {
   }
 
   // Drive actual touch events in Chromium; quick vertical gestures must remain scrollable.
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ env: buildSanitizedEnv() });
   try {
     await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids: initialIds } });
     const context = await browser.newContext({

@@ -8,7 +8,8 @@ Sash retains its Vue 3 / Vite WebUI, built into `dist/ui/` and served by the dae
 
 | Module | Responsibility |
 | --- | --- |
-| `stores/runtime-actions.ts` | Non-overlapping status polling, boot changes and settings actions |
+| `stores/runtime-actions.ts` | Status adoption, boot changes and settings actions |
+| `stores/runtime-events.ts` | Authenticated status subscription, reconnect and visible Core resource scheduling |
 | `stores/profile-actions.ts` | Saved profile mutations and metadata refresh |
 | `stores/core-actions.ts` | Independent Core resource loads and mode/node/connection controls |
 | `stores/state-ownership.ts` | Request generations, runtime identity and pure selectors |
@@ -26,7 +27,9 @@ Each resource has its own loaded flag and error. A failed rules query does not d
 
 ## Refresh and performance
 
-Status polls every two seconds after the previous cycle finishes. Hidden or unauthorized tabs use a slower interval; returning to the foreground refreshes promptly. Session initialization runs on entry/reconnect, with public status boot identity detecting daemon restarts.
+Authorized tabs receive full status snapshots through `/sash/events`, with no periodic status requests. Entry and reconnection validate the daemon identity and restore or continue the private session. A new stream starts with a complete snapshot; old requests cannot overwrite a newer revision. Unauthorized tabs probe slowly for availability; a new browser handoff connects immediately.
+
+Core resource snapshots retain a separate, non-overlapping two-second schedule while visible. They pause in hidden tabs and refresh promptly on return. Metadata reads retry independently when their observed revision could not be loaded.
 
 | Visible page | Core requests |
 | --- | --- |
@@ -38,7 +41,9 @@ Status polls every two seconds after the previous cycle finishes. Hidden or unau
 
 Entering a page loads its resources immediately. Profile saves only refresh management metadata. Explicit Apply refreshes the resources visible after Core replacement. Traffic is one shared stream for visible consumers; traffic/log sockets pause when the page is hidden or the runtime/session is unavailable.
 
-Existing optimizations remain: async route/editor chunks, shallow collections, collapsed node groups unmounting their cards, paginated connections/rules, separate manual latency results, and roughly 100 ms log batches capped at 600 rows. Font slices load only for rendered glyph ranges.
+Unchanged proxy responses retain their references; a local selection or runtime replacement invalidates that reuse. Node cards use content visibility and memoization that includes labels, selection, metadata, latency, testing and language. Group collapse choices persist locally, with only the first four groups expanded by default. Connection rows include visible metadata and relative time in their memoization keys; paused snapshots and busy sets remain shallow.
+
+Routes and the editor display loading, failure and reload states. Pagination supports first/last and direct page jumps. Errors remain until dismissed; transient notices pause while hovered or focused. Brief traffic socket disconnections retain history for one reconnect interval. Log batches remain capped at 600 rows and font slices load only for rendered glyph ranges.
 
 ## Views and shared controls
 
@@ -48,7 +53,7 @@ Existing optimizations remain: async route/editor chunks, shallow collections, c
 
 Profile selection and edits are saved first. The pending bar indicates that the running configuration differs. Overview displays the applied profile/port; Profiles shows the saved selection. The YAML editor submits the content revision read on open, preventing another tab's later edits from being overwritten. The raw `sash.json` editor is removed.
 
-Settings drafts remain local until Save and survive status polling. A saved port/LAN change waits for Apply. The system-proxy switch performs its own operation and remains available for recovery when Core is stopped. The login-startup card uses the observed OS registration and explicit enable/remove actions.
+Settings drafts remain local until Save and survive status updates. A saved port/LAN change waits for Apply. The system-proxy switch performs its own operation and remains available for recovery when Core is stopped. The login-startup card uses the observed OS registration and explicit enable/remove actions.
 
 `PageHeader`, `ProxyGroupSection`, the shared code editor, pagination, confirmation service and focus/scroll-lock composables remain reusable building blocks. Light/dark themes, Chinese/English copy and mobile navigation are retained. There is no generic table framework or event bus.
 
@@ -60,6 +65,8 @@ The browser consumes and immediately removes the private handoff fragment, excha
 
 Core HTTP requests carry `X-Sash-Token`; streams use private WebSocket subprotocol authentication. The daemon replaces these credentials with its internal controller bearer. Frames require finite nonnegative counters or known textual log records. Each stream owns one reconnect timer and ignores frames from older runtime generations.
 
+Daemon SSE uses `X-Sash-Token` through a streaming fetch, with credentials kept out of URLs. Frames carry a monotonic sequence, full daemon status and a desktop startup observation. Decoding is bounded, validates the shared contract and rejects a boot change or regressing sequence within a connection. Idle deadlines and cancellation release the reader before reconnecting.
+
 ## Development and verification
 
 ```sh
@@ -67,13 +74,14 @@ npm run typecheck
 npm run lint
 npm test
 npm run build
+npm run smoke:ui
 node --import tsx scripts/ui-verify.mts
 node --import tsx scripts/profile-ui-verify.mts
 node --import tsx scripts/web-auth-ui-verify.mts
 node --import tsx scripts/autostart-ui-verify.mts
 ```
 
-The browser scripts use isolated data, non-default ports and fake Core/OS adapters in Chromium and Firefox. The main script checks saved/applied state, authentication, font loading, request counts and layouts with 300 nodes, 10,000 rules and 500 connections. Other scripts retain focused profile, private-file authorization and autostart interaction coverage. These are behavioral checks, not a real-Core CPU/memory benchmark.
+The browser scripts use isolated data, non-default ports and fake Core/OS adapters in Chromium and Firefox. The main script checks saved/applied state, authentication, font loading, request counts and layouts with 300 nodes, 10,000 rules and 500 connections. `smoke:ui` additionally verifies SSE recovery without status polling, latency results, pagination, paused snapshots, contrast and failed route chunks through isolated HTTP/WS fixtures. Other scripts retain focused profile, private-file authorization and autostart interaction coverage. These are behavioral checks, not a real-Core CPU/memory benchmark.
 
 For local source development:
 

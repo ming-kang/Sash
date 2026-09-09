@@ -7,6 +7,7 @@ import { chromium, firefox, type Page } from "playwright";
 import type { AutostartStatus } from "../src/autostart-contract.js";
 import { parseWebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
+import { buildSanitizedEnv } from "../src/process.js";
 
 const output = await mkdtemp(join(tmpdir(), "sash-autostart-ui-"));
 const results: string[] = [];
@@ -55,7 +56,7 @@ try {
   for (const engine of [chromium, firefox]) {
     console.log(`Verifying ${engine.name()}`);
     state = { state: "off", canEnable: true, reason: null };
-    const browser = await engine.launch();
+    const browser = await engine.launch({ env: buildSanitizedEnv() });
     try {
       const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
       page.setDefaultTimeout(10_000);

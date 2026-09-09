@@ -13,6 +13,7 @@ import { FakeCoreSupervisor } from "../src/test-state.test.js";
 import { SashDaemonClient } from "../src/daemon-client.js";
 import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
 import { writeBootstrapFile } from "../src/web-bootstrap.js";
+import { buildSanitizedEnv } from "../src/process.js";
 
 const output = await mkdtemp(join(tmpdir(), "sash-web-auth-ui-"));
 const h = new DaemonTestHarness();
@@ -24,6 +25,7 @@ const results: string[] = [];
 const versions: Record<string, string> = {};
 const credentials = new Set([h.settings.daemonSecret, h.settings.secret]);
 const coreSockets = new Set<Duplex>();
+const eventStreams = new Set<http.ServerResponse>();
 const supervisor = new FakeCoreSupervisor(h.layout, h.settings);
 
 h.mockCoreServer = http.createServer((req, res) => {
@@ -75,6 +77,14 @@ const coreAddress = h.mockCoreServer.address();
 assert.ok(coreAddress && typeof coreAddress === "object");
 h.settings.controller = `127.0.0.1:${coreAddress.port}`;
 await h.startServer({ supervisor });
+function trackEventStreams(): void {
+  h.instance?.server.on("request", (req, res) => {
+    if (req.url !== "/sash/events") return;
+    eventStreams.add(res);
+    res.once("close", () => eventStreams.delete(res));
+  });
+}
+trackEventStreams();
 assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
 const port = h.boundPort;
 assert.ok(![7890, 9090, 19090].includes(port));
@@ -143,7 +153,7 @@ async function capture(page: Page, name: string): Promise<void> {
 let failure: unknown;
 try {
   for (const engine of [chromium, firefox]) {
-    const browser = await engine.launch({ headless: true });
+    const browser = await engine.launch({ headless: true, env: buildSanitizedEnv() });
     versions[engine.name()] = browser.version();
     try {
       for (const viewport of [
@@ -159,7 +169,6 @@ try {
             serviceWorkers: "block",
           });
           const pageErrors: string[] = [];
-          let failNextStatus = false;
           try {
             await context.addInitScript(
               ({ theme }) => {
@@ -178,13 +187,6 @@ try {
               if (url.origin !== origin) {
                 violations.push("Unexpected external browser request");
                 await route.abort();
-              } else if (url.pathname === "/sash/daemon/status" && failNextStatus) {
-                failNextStatus = false;
-                await route.fulfill({
-                  status: 503,
-                  contentType: "application/json",
-                  body: JSON.stringify({ error: { code: "internal", message: "Fixture status unavailable" } }),
-                });
               } else await route.continue();
             });
             context.on("page", (page) => {
@@ -265,12 +267,13 @@ try {
             );
             await capture(page, `${name}-reloaded`);
 
-            failNextStatus = true;
+            assert.ok(eventStreams.size > 0, "authorized page subscribes to status events");
+            for (const stream of eventStreams) stream.destroy();
             await page.locator(".runtime-banner.offline").waitFor();
             assert.equal(
               await page.evaluate(() => JSON.parse(sessionStorage.getItem("sash.control-token") ?? "{}").token),
               session.token,
-              "a status failure must not revoke browser authorization",
+              "an event disconnect must not revoke browser authorization",
             );
             await page.locator(".runtime-banner.offline").waitFor({ state: "hidden" });
             await capture(page, `${name}-status-recovered`);
@@ -291,8 +294,10 @@ try {
             await h.instance?.close();
             for (const socket of coreSockets) socket.destroy();
             await h.startServer({ supervisor }, port);
+            trackEventStreams();
             assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
             await page.locator(".connection-panel").waitFor();
+            await page.waitForFunction(() => sessionStorage.getItem("sash.control-token") === null);
             assert.equal(
               await page.evaluate(() => sessionStorage.getItem("sash.control-token")),
               null,

@@ -31,8 +31,8 @@ export {
   refreshStatus,
   saveNetworkSettings,
   setSystemProxyEnabled,
-  startRuntimePolling,
 } from "./runtime-actions.js";
+export { startRuntimeEvents } from "./runtime-events.js";
 export type { StoredLogMessage, StoreState, ToastItem } from "./state.js";
 export {
   canToggleSystemProxy,

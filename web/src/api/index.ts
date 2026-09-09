@@ -155,6 +155,7 @@ export const api = {
 
   getHealth: () => sash.health(),
   getStatus: () => sash.status(),
+  events: (signal: AbortSignal) => sash.events(signal),
   getAutostart: () => sash.autostartStatus(),
   setAutostart: (enabled: boolean) => sash.setAutostart(enabled),
   getSessionGeneration: webSession.generation,

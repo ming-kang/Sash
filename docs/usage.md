@@ -23,7 +23,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash restart` | Apply saved configuration and restart Core; keep the daemon and browser sessions. |
 | `sash stop` | Restore proxy, stop Core and exit management. Report an error if safe shutdown cannot be verified. |
 | `sash stop --core` | Restore proxy and stop Core while retaining management and browser access. |
-| `sash status [--json]` | Read runtime, endpoint, saved profile, proxy and autostart observations. Bare `sash` does the same. |
+| `sash status [--json] [--watch]` | Read runtime, endpoint, saved profile, proxy and autostart observations; optionally follow changes. Bare `sash` reads once. |
 | `sash doctor [--json]` | Check installation, dashboard, saved state, Core integrity, ports and desktop integration; print repair suggestions. |
 | `sash web` | Start management if needed and authorize/open the dashboard. |
 | `sash web --no-open` | Start management and print its address without authorizing a browser. |
@@ -155,6 +155,8 @@ Run `sash doctor` before changing a damaged installation. Checks continue indepe
 `doctor --json` reports `schemaVersion: 1`, `healthy`, `complete`, and named checks with `ok`, `info`, `warning` or `error` status and optional advice. Exit code `1` indicates a definite fault; `2` indicates an incomplete observation without a definite fault. A clean stopped or uninitialized installation can return `0` with informational setup guidance.
 
 `sash status --json` uses `schemaVersion: 2`. It includes `complete`, `healthy`, `queryError`, daemon/Core state, desired/applied/observed proxy state, autostart, endpoints, saved active profile and paths. Unknown observations remain `null`; no TUN fields are emitted. The running proxy endpoint comes from applied settings.
+
+`sash status --watch` follows daemon events until interrupted, reconnects after management restarts or upgrades, and waits for a stopped instance without starting it. Interactive terminals redraw; redirected text appends snapshots. `--watch --json` emits one compact schema-2 status object per line, suppressing unchanged observations. The last observation determines the exit code on interruption; a closed output pipe exits `0` after cancelling the stream.
 
 Daemon, OS proxy and login startup probes run concurrently. Set `SASH_DEBUG=1` (or `true`) to include CLI error stacks on stderr; JSON command results stay on stdout. The generic `DEBUG` environment variable does not enable Sash diagnostics.
 

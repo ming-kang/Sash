@@ -39,8 +39,13 @@ import {
   type WebSessionInfo,
 } from "./contracts.js";
 import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
+import { SashApiError } from "./sash-api-error.js";
+import { readSashEvents, type SashEventFetch } from "./sash-event-client.js";
+import type { DaemonEvent } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { UpgradeAccess } from "./upgrade-access.js";
+
+export { SashApiError } from "./sash-api-error.js";
 
 /**
  * Browser-safe client for the daemon-owned /sash/* HTTP API. Every response
@@ -75,6 +80,7 @@ export interface SashClientOptions {
   /** Header carrying the credential; defaults to the CLI bearer. */
   tokenHeader?: "authorization" | "x-sash-token";
   fetchFn?: SashClientFetch;
+  eventFetchFn?: SashEventFetch;
   /** Default per-request deadline. */
   timeoutMs?: number;
   /** Called when the daemon rejects the configured credential with 401. */
@@ -103,23 +109,12 @@ const defaultFetch: SashClientFetch = async (url, init) => {
 
 const CORE_OPERATION_TIMEOUT_MS = 20 * 60_000;
 
-/** HTTP failure from the daemon API, carrying the error-envelope fields. */
-export class SashApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string | undefined,
-    message: string,
-  ) {
-    super(message);
-    this.name = "SashApiError";
-  }
-}
-
 export class SashClient {
   private readonly baseUrl: string;
   private readonly token?: () => string;
   private readonly tokenHeader: "authorization" | "x-sash-token";
   private readonly fetchFn: SashClientFetch;
+  private readonly eventFetchFn?: SashEventFetch;
   private readonly timeoutMs: number;
   private readonly onUnauthorized?: (token: string) => void;
 
@@ -128,6 +123,7 @@ export class SashClient {
     if (options.token) this.token = options.token;
     this.tokenHeader = options.tokenHeader ?? "authorization";
     this.fetchFn = options.fetchFn ?? defaultFetch;
+    this.eventFetchFn = options.eventFetchFn;
     this.timeoutMs = options.timeoutMs ?? 5_000;
     if (options.onUnauthorized) this.onUnauthorized = options.onUnauthorized;
   }
@@ -216,6 +212,17 @@ export class SashClient {
         timeoutMs: 8000,
       }),
     );
+  }
+
+  events(signal: AbortSignal): AsyncGenerator<DaemonEvent> {
+    return readSashEvents({
+      url: `${this.baseUrl}/sash/events`,
+      token: this.token?.() ?? "",
+      tokenHeader: this.tokenHeader,
+      signal,
+      fetchFn: this.eventFetchFn,
+      onUnauthorized: this.onUnauthorized,
+    });
   }
 
   async continueWebSession(session: WebSessionInfo): Promise<WebSessionInfo> {

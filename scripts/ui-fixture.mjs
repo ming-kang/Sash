@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { testProfile, testStatus } from "../src/test-state.test.ts";
 
-/** Static assets only: unmocked API requests can never reach a running daemon. */
+/** Static assets and registered SSE fixtures only; never forwards to a running daemon. */
 export async function serveUi() {
   const root = fileURLToPath(new URL("../dist/ui", import.meta.url));
   const mime = {
@@ -15,9 +16,29 @@ export async function serveUi() {
     ".woff2": "font/woff2",
     ".svg": "image/svg+xml",
   };
+  const eventSources = new Map();
   const server = http.createServer(async (req, res) => {
     try {
       const pathname = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
+      if (pathname === "/sash/events") {
+        const source = eventSources.get(req.headers["x-sash-token"]);
+        if (!source) {
+          res.writeHead(401);
+          res.end();
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+        source.responses.add(res);
+        source.connections++;
+        res.write(source.frame());
+        const timer = setInterval(() => res.write(": heartbeat\n\n"), 10_000);
+        timer.unref();
+        res.once("close", () => {
+          clearInterval(timer);
+          source.responses.delete(res);
+        });
+        return;
+      }
       const file = path.resolve(root, `.${pathname === "/" ? "/index.html" : pathname}`);
       if (!file.startsWith(`${root}${path.sep}`)) throw new Error("Invalid asset path");
       const body = await readFile(file);
@@ -36,6 +57,37 @@ export async function serveUi() {
   });
   return {
     base: `http://127.0.0.1:${server.address().port}`,
+    registerEvents(token, status) {
+      const source = {
+        responses: new Set(),
+        connections: 0,
+        sequence: 0,
+        frame: () =>
+          `event: status\ndata: ${JSON.stringify({
+            schemaVersion: 1,
+            sequence: ++source.sequence,
+            status: status(),
+            autostart: { state: "off", canEnable: true, reason: null },
+          })}\n\n`,
+      };
+      eventSources.set(token, source);
+      return {
+        get connections() {
+          return source.connections;
+        },
+        publish() {
+          const frame = source.frame();
+          for (const res of source.responses) res.write(frame);
+        },
+        disconnect() {
+          for (const res of source.responses) res.destroy();
+        },
+        close() {
+          for (const res of source.responses) res.destroy();
+          eventSources.delete(token);
+        },
+      };
+    },
     close: () =>
       new Promise((resolve, reject) => {
         server.closeAllConnections();
@@ -44,11 +96,15 @@ export async function serveUi() {
   };
 }
 
-export async function fixturePage(browser, base, theme, viewport) {
+export async function fixturePage(browser, server, theme, viewport) {
+  const { base } = server;
   const context = await browser.newContext({ viewport, reducedMotion: "reduce" });
   const page = await context.newPage();
   page.setDefaultTimeout(8000);
   const status = testStatus();
+  const token = randomUUID();
+  const events = server.registerEvents(token, () => status);
+  context.on("close", () => events.close());
   const nodes = [
     "Node slow",
     "Node fast",
@@ -94,6 +150,8 @@ export async function fixturePage(browser, base, theme, viewport) {
     context,
     page,
     status,
+    events,
+    statusReads: 0,
     proxies,
     connections,
     trafficSockets: [],
@@ -104,18 +162,18 @@ export async function fixturePage(browser, base, theme, viewport) {
   };
   page.on("pageerror", (error) => fixture.errors.push(error.message));
   await page.addInitScript(
-    ({ theme, bootId }) => {
+    ({ theme, bootId, token }) => {
       localStorage.setItem("sash.theme", theme);
       localStorage.setItem("sash.locale", "en");
       sessionStorage.setItem(
         "sash.control-token",
         JSON.stringify({
-          token: "ui-fixture-token",
+          token,
           daemonToken: bootId,
         }),
       );
     },
-    { theme, bootId: status.daemon.bootId },
+    { theme, bootId: status.daemon.bootId, token },
   );
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -133,20 +191,19 @@ export async function fixturePage(browser, base, theme, viewport) {
         pid: status.daemon.pid,
         startedAt: status.daemon.startedAt,
       });
-    assert.equal(request.headers()["x-sash-token"], "ui-fixture-token");
-    if (endpoint === "/sash/daemon/status") return reply(status);
+    assert.equal(request.headers()["x-sash-token"], token);
+    if (endpoint === "/sash/events") return route.continue();
+    if (endpoint === "/sash/daemon/status") {
+      fixture.statusReads++;
+      return reply(status);
+    }
     if (endpoint === "/sash/profiles") return reply({ activeId: null, profiles });
     if (endpoint === "/sash/profiles/1/update") {
       if (fixture.updateGate) await fixture.updateGate;
       return reply({ profile: profiles[0] });
     }
     if (endpoint === "/sash/autostart")
-      return reply({
-        supported: true,
-        enabled: false,
-        stateKnown: true,
-        stale: false,
-      });
+      return reply({ state: "off", canEnable: true, reason: null });
     if (endpoint === "/core/api/configs")
       return fixture.failConfigs
         ? reply({ error: "Fixture snapshot unavailable" }, 502)
