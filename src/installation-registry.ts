@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { readBoundedJsonFile } from "./bounded-file.js";
 import { errnoCode } from "./error-utils.js";
-import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
+import { atomicWriteFileSync, durableRemoveFileSync, pathEntryExists } from "./fs-atomic.js";
 import { assertAbsolutePath, canonicalPath, installationId, pathsEqual } from "./installation.js";
 import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import { exactSashVersion } from "./package-info.js";
@@ -162,6 +162,17 @@ export function listInstallationInstances(id: string, packageRoot: string): Inst
     throw error;
   }
   if (entries.length > 1024) throw new Error("Too many installation instance records");
+  let expectedPackageRoot: string;
+  try {
+    expectedPackageRoot = canonicalPath(packageRoot);
+  } catch (error) {
+    if (errnoCode(error) !== "ENOENT" || pathEntryExists(packageRoot)) throw error;
+    // Package activation may temporarily remove the leaf; its parent still identifies the slot.
+    expectedPackageRoot = path.join(
+      canonicalPath(path.dirname(packageRoot)),
+      path.basename(packageRoot),
+    );
+  }
   return entries.flatMap((entry): InstallationInstance[] => {
     // Atomic publication is visible as a temporary file before the final record exists.
     // It has no authority; startup leases and the process census still cover live writers.
@@ -178,7 +189,7 @@ export function listInstallationInstances(id: string, packageRoot: string): Inst
       throw error;
     }
     if (
-      !pathsEqual(record.packageRoot, packageRoot) ||
+      !pathsEqual(record.packageRoot, expectedPackageRoot) ||
       path.basename(recordPath(record)) !== entry.name
     )
       throw new Error("Installation instance record has a mismatched owner");

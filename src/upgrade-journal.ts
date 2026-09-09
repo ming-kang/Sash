@@ -4,6 +4,7 @@ import { errnoCode } from "./error-utils.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import {
   assertAbsolutePath,
+  canonicalPath,
   installationIdFromCanonicalPath,
   type NpmInstallation,
   npmPackageRoot,
@@ -182,15 +183,15 @@ export function parseUpgradeJournal(value: unknown, prefix: string): UpgradeJour
 }
 
 export function readUpgradeJournal(prefix: string): UpgradeJournal | undefined {
+  let value: unknown;
   try {
-    return parseUpgradeJournal(
-      readBoundedJsonFile(upgradePaths(prefix).journal, MAX_JOURNAL_BYTES),
-      prefix,
-    );
+    value = readBoundedJsonFile(upgradePaths(prefix).journal, MAX_JOURNAL_BYTES);
   } catch (error) {
     if (errnoCode(error) === "ENOENT") return undefined;
     throw error;
   }
+  // Normalize caller aliases, while keeping every persisted installation role strictly checked.
+  return parseUpgradeJournal(value, canonicalPath(prefix));
 }
 
 export function writeUpgradeJournal(journal: UpgradeJournal): void {
