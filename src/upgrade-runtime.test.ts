@@ -164,7 +164,7 @@ describe("real isolated Sash daemon upgrades", () => {
   for (const { name, badDaemon, boundary } of scenarios) {
     it(`preserves two management daemons and exact saved state: ${name}`, {
       timeout: 180_000,
-    }, async () => {
+    }, async (t) => {
       const prefix = path.join(root, `${name} 中文`);
       const packageRoot = await install(prefix, "1.0.0");
       const installation = inspectInstallation({ packageRoot });
@@ -310,6 +310,9 @@ describe("real isolated Sash daemon upgrades", () => {
           if (!boundary?.startsWith("instance-reserved:"))
             assert.ok(!before.some((record) => record.bootId === health.token));
         }
+      } catch (error) {
+        t.diagnostic(error instanceof Error ? (error.stack ?? error.message) : String(error));
+        throw error;
       } finally {
         const authorization = readUpgradeAuthorization(installation.id);
         for (const instance of instances) {
@@ -333,7 +336,14 @@ describe("real isolated Sash daemon upgrades", () => {
           }
           assert.equal(await stopDaemonFromCli(instance), true);
         }
-        assert.equal(listInstallationInstances(installation.id, packageRoot).length, 0);
+        const remaining = listInstallationInstances(installation.id, packageRoot);
+        assert.equal(
+          remaining.length,
+          0,
+          JSON.stringify(
+            remaining.map(({ pid, dataDir }) => ({ pid, dataDir, alive: isProcessAlive(pid) })),
+          ),
+        );
       }
     });
   }

@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Keep installation discovery consistent during atomic instance publication and concurrent unregister, so a recovering upgrade does not mistake temporary files for unknown owners.
 - Retry installation lock acquisition when another owner releases between contention and inspection, without deleting another attempt's temporary file.
 - Keep mirror download progress monotonic and preserve Windows process paths containing Unicode during identity inspection.
 - Recheck process liveness before treating a stale process-census entry as an unidentified upgrade owner, and preserve subprocess JSON error details in upgrade diagnostics.

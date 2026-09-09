@@ -72,6 +72,34 @@ describe("installation instance registry", () => {
     unregisterInstallationInstance(instance);
   });
 
+  it("ignores unpublished atomic-write files while preserving unknown entries", () => {
+    const instance = registerInstallationInstance(record("data"));
+    const directory = installationRegistryPaths(id).instancesDir;
+    const name = fs.readdirSync(directory)[0];
+    assert.ok(name);
+    const temporary = path.join(directory, `.${name}.${process.pid}.012345abcdef.tmp`);
+    fs.writeFileSync(temporary, "{ partial");
+    assert.deepEqual(listInstallationInstances(id, packageRoot), [instance]);
+    assert.equal(fs.readFileSync(temporary, "utf8"), "{ partial");
+    fs.writeFileSync(path.join(directory, "unknown.tmp"), "preserve");
+    assert.throws(() => listInstallationInstances(id, packageRoot), /Unrecognized/);
+    assert.equal(fs.readFileSync(path.join(directory, "unknown.tmp"), "utf8"), "preserve");
+  });
+
+  it("tolerates an instance unregistering after directory enumeration", (t) => {
+    registerInstallationInstance(record("data"));
+    const directory = installationRegistryPaths(id).instancesDir;
+    const name = fs.readdirSync(directory)[0];
+    assert.ok(name);
+    const target = path.join(directory, name);
+    const open = fs.openSync;
+    t.mock.method(fs, "openSync", (file: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
+      if (String(file) === target) fs.unlinkSync(target);
+      return open(file, flags, mode);
+    });
+    assert.deepEqual(listInstallationInstances(id, packageRoot), []);
+  });
+
   it("rejects corrupt and misattributed registry records without erasing them", () => {
     registerInstallationInstance(record("data"));
     const directory = installationRegistryPaths(id).instancesDir;

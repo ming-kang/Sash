@@ -162,16 +162,26 @@ export function listInstallationInstances(id: string, packageRoot: string): Inst
     throw error;
   }
   if (entries.length > 1024) throw new Error("Too many installation instance records");
-  return entries.map((entry) => {
+  return entries.flatMap((entry): InstallationInstance[] => {
+    // Atomic publication is visible as a temporary file before the final record exists.
+    // It has no authority; startup leases and the process census still cover live writers.
+    if (entry.isFile() && /^\.[a-f0-9]{64}\.json\.[1-9][0-9]*\.[a-f0-9]{12}\.tmp$/.test(entry.name))
+      return [];
     if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/.test(entry.name))
       throw new Error("Unrecognized installation registry entry");
     const file = path.join(directory, entry.name);
-    const record = parseInstallationInstance(readBoundedJsonFile(file, 16 * 1024), id);
+    let record: InstallationInstance;
+    try {
+      record = parseInstallationInstance(readBoundedJsonFile(file, 16 * 1024), id);
+    } catch (error) {
+      if (errnoCode(error) === "ENOENT") return [];
+      throw error;
+    }
     if (
       !pathsEqual(record.packageRoot, packageRoot) ||
       path.basename(recordPath(record)) !== entry.name
     )
       throw new Error("Installation instance record has a mismatched owner");
-    return record;
+    return [record];
   });
 }
