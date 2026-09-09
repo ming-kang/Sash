@@ -81,3 +81,35 @@ export async function restartRuntime(ctx: RuntimeContext) {
   const owner = await ensureManagement(ctx);
   return { owner, result: await owner.client.restartCore() };
 }
+
+export async function stopCoreRuntime(
+  ctx: RuntimeContext,
+): Promise<{ managementRunning: boolean }> {
+  const owner = await resolveRuntimeOwner(ctx);
+  if (owner.kind === "unhealthy")
+    throw new Error("Cannot verify the management daemon; refusing an unverified Core stop");
+  if (owner.kind === "offline") {
+    if (
+      ![
+        ctx.layout.pidFile,
+        ctx.layout.systemProxyStateFile,
+        ctx.layout.coreUpdateTransactionFile,
+      ].some((file) => fs.existsSync(file))
+    )
+      return { managementRunning: false };
+    await (await ensureManagement(ctx)).client.stopCore();
+  } else await owner.client.stopCore();
+  return { managementRunning: true };
+}
+
+export async function setRuntimeMode(
+  ctx: RuntimeContext,
+  mode: "rule" | "global" | "direct",
+): Promise<void> {
+  const owner = await resolveRuntimeOwner(ctx);
+  if (owner.kind !== "daemon")
+    throw new Error(
+      "A healthy running Core is required; inspect sash status and run sash start if stopped",
+    );
+  await owner.client.setMode(mode);
+}

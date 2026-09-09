@@ -22,17 +22,25 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash start` | Ensure management exists; start with saved configuration if stopped. Repeated starts check the running Core and proxy intent. |
 | `sash restart` | Apply saved configuration and restart Core; keep the daemon and browser sessions. |
 | `sash stop` | Restore proxy, stop Core and exit management. Report an error if safe shutdown cannot be verified. |
+| `sash stop --core` | Restore proxy and stop Core while retaining management and browser access. |
 | `sash status [--json]` | Read runtime, endpoint, saved profile, proxy and autostart observations. Bare `sash` does the same. |
 | `sash web` | Start management if needed and authorize/open the dashboard. |
 | `sash web --no-open` | Start management and print its address without authorizing a browser. |
 | `sash update [--version TAG]` | Download, verify and install a Core release through the daemon. |
 | `sash upgrade [version] [--check] [--json]` | Update the Sash package and dashboard, then restore all instances sharing its installation. |
+| `sash profile [list]` | List saved profiles; `list --json` returns their metadata and saved selection. |
+| `sash profile use <profile>` / `use --default` | Select an ID or unique exact name, or the built-in configuration, for the next Apply. |
+| `sash profile add <url> [--name NAME] [--use]` | Download and save a remote profile; the first profile is selected automatically. |
+| `sash profile update [profile] [--all]` | Update the specified or selected remote profile, or all remote profiles. |
+| `sash profile rename <profile> <name>` / `remove <profile>` | Rename or remove the saved profile identified by ID or exact name. |
+| `sash proxy [on\|off\|status] [--json]` | Set system-proxy intent or inspect desired, Sash-applied and OS-observed state. |
+| `sash mode rule\|global\|direct [--json]` | Change the running Core's mode; the next Apply restores the saved profile's mode. |
 | `sash auto [on\|off\|status]` | Set or inspect Windows login startup. No argument means status. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | Read Core or daemon logs; follow waits for creation and handles rotation. |
 | `sash logs --startup [-n N] [-f]` | Read login attempts, including settings errors before daemon startup. |
 | `sash version` | Print the package version. |
 
-WebUI **Stop Core** keeps the management process open. `sash upgrade` replaces Sash program code and restarts affected management processes automatically. `restart` applies saved configuration to Core.
+`sash stop --core` and WebUI **Stop Core** keep the management process open. `sash upgrade` replaces Sash program code and restarts affected management processes automatically. `restart` applies saved configuration to Core.
 
 ## Browser access
 
@@ -41,6 +49,17 @@ Run `sash web` as the same user and with the same `SASH_HOME` as the instance. A
 An authorized tab survives refresh and Core restarts/updates. Sessions expire after twelve idle hours and renew while used. A normal daemon restart needs a new authorization; `sash upgrade` provides a ten-minute continuation for already authorized tabs. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address displays connection instructions.
 
 ## Settings and profiles
+
+Profile commands accept a complete ID or a unique exact display name. Use the ID when names collide. They save changes through management without applying them to Core. `sash profile list` also works while management is stopped and does not initialize a missing data directory. All profile subcommands support `--json`; a partially failed `update --all` returns exit code `1` and per-profile errors.
+
+```sh
+sash profile add https://example.com/profile.yaml --name Work --use
+sash profile list
+sash profile update Work
+sash restart               # apply the saved selection, content and network settings
+sash mode global           # change only the running routing mode
+sash proxy on              # requires a healthy running Core
+```
 
 The Settings page saves the mixed proxy port and LAN access for the next Apply. The system-proxy switch takes effect separately and requires a healthy Core to enable. A failed disable keeps the saved off intent; retry it after resolving the OS problem.
 

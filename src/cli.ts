@@ -8,6 +8,16 @@ import { withCliErrors } from "./cli-errors.js";
 import { type AutoMode, runAuto } from "./commands/auto.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
+import { type RoutingMode, runMode } from "./commands/mode.js";
+import {
+  runProfileAdd,
+  runProfileList,
+  runProfileRemove,
+  runProfileRename,
+  runProfileUpdate,
+  runProfileUse,
+} from "./commands/profile.js";
+import { type ProxyAction, runProxy } from "./commands/proxy.js";
 import { runStatus } from "./commands/status.js";
 import { runUpdate } from "./commands/update.js";
 import { runUpgrade } from "./commands/upgrade.js";
@@ -44,6 +54,9 @@ Examples:
   $ sash web                   open the web dashboard
   $ sash status                show runtime state, endpoints, and system proxy status
   $ sash update                upgrade the core binary
+  $ sash upgrade               upgrade Sash and restore running instances
+  $ sash profile list          list saved profiles
+  $ sash proxy on              enable the system proxy for a running Core
 
 Data directory: %LOCALAPPDATA%\\Sash (Windows), ~/Library/Application Support/Sash (macOS),
 $XDG_DATA_HOME/sash (Linux). Override with the SASH_HOME environment variable.`,
@@ -57,7 +70,8 @@ program
 program
   .command("stop")
   .description("stop sash (shuts down core and disables system proxy)")
-  .action(withCliErrors(() => runStop()));
+  .option("--core", "stop Core and keep management available")
+  .action(withCliErrors((opts: { core?: boolean }) => runStop(opts)));
 
 program
   .command("restart")
@@ -77,6 +91,88 @@ program
   .description("show runtime state, versions, endpoints, and system proxy status")
   .option("--json", "output machine-readable JSON")
   .action(withCliErrors((opts: { json?: boolean }) => runStatus(opts)));
+
+const profile = program
+  .command("profile")
+  .description("manage saved profiles; sash restart applies changes")
+  .action(withCliErrors(() => runProfileList()));
+profile
+  .command("list")
+  .description("list saved profiles and the saved selection")
+  .option("--json", "output machine-readable JSON")
+  .action(withCliErrors((opts: { json?: boolean }) => runProfileList(opts)));
+profile
+  .command("use [profile]")
+  .description("select a saved profile by ID or exact name")
+  .option("--default", "select the built-in configuration")
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((reference: string | undefined, opts: { default?: boolean; json?: boolean }) =>
+      runProfileUse(reference, opts),
+    ),
+  );
+profile
+  .command("add <url>")
+  .description("download and save a remote profile")
+  .option("--name <name>", "saved display name")
+  .option("--use", "select the saved profile for the next Apply")
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((url: string, opts: { name?: string; use?: boolean; json?: boolean }) =>
+      runProfileAdd(url, opts),
+    ),
+  );
+profile
+  .command("update [profile]")
+  .description("update a profile by ID/name, or the saved selection if omitted")
+  .option("--all", "update every remote profile")
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((reference: string | undefined, opts: { all?: boolean; json?: boolean }) =>
+      runProfileUpdate(reference, opts),
+    ),
+  );
+profile
+  .command("rename <profile> <name>")
+  .description("rename a saved profile by ID or exact name")
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((reference: string, name: string, opts: { json?: boolean }) =>
+      runProfileRename(reference, name, opts),
+    ),
+  );
+profile
+  .command("remove <profile>")
+  .description("remove a saved profile by ID or exact name")
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((reference: string, opts: { json?: boolean }) =>
+      runProfileRemove(reference, opts),
+    ),
+  );
+
+program
+  .command("proxy")
+  .description("inspect or set the system proxy")
+  .addArgument(
+    new Argument("[action]", "set proxy intent or inspect its state").choices([
+      "on",
+      "off",
+      "status",
+    ]),
+  )
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((action: ProxyAction | undefined, opts: { json?: boolean }) =>
+      runProxy(action, opts),
+    ),
+  );
+program
+  .command("mode")
+  .description("change the running Core routing mode")
+  .addArgument(new Argument("<mode>", "runtime routing mode").choices(["rule", "global", "direct"]))
+  .option("--json", "output machine-readable JSON")
+  .action(withCliErrors((mode: RoutingMode, opts: { json?: boolean }) => runMode(mode, opts)));
 
 program
   .command("logs")

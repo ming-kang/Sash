@@ -1,5 +1,5 @@
 import { log } from "../log.js";
-import { ensureRunning, restartRuntime, stopRuntime } from "../runtime-owner.js";
+import { ensureRunning, restartRuntime, stopCoreRuntime, stopRuntime } from "../runtime-owner.js";
 import { type RuntimeContext, runtimeContext } from "./shared.js";
 
 export async function runStart(): Promise<void> {
@@ -8,7 +8,14 @@ export async function runStart(): Promise<void> {
   log.ok(`core started (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`);
   printEndpoints(ctx, owner.daemon.port);
 }
-export async function runStop(): Promise<void> {
+export async function runStop(options: { core?: boolean } = {}): Promise<void> {
+  if (options.core) {
+    const result = await stopCoreRuntime(runtimeContext());
+    log.info(
+      result.managementRunning ? "Core stopped; management remains available" : "Core is stopped",
+    );
+    return;
+  }
   const result = await stopRuntime(runtimeContext());
   log.info(
     result.wasRunning ? "sash stopped; previous system proxy state restored" : "sash is stopped",

@@ -308,6 +308,13 @@ try {
   const upgradeHelp = runCli(["upgrade", "--help"]);
   assert.match(upgradeHelp, /Usage:\s+sash upgrade/);
   assert.match(upgradeHelp, /--check/);
+  const profiles = JSON.parse(runCli(["profile", "list", "--json"]));
+  assert.deepEqual(profiles, { activeId: null, profiles: [] });
+  assert.equal(
+    fs.existsSync(homeDir),
+    false,
+    "Read-only commands must not initialize application data",
+  );
   const probe = JSON.parse(
     run(process.execPath, [path.join(installedRoot, "dist", "upgrade-probe-entry.js")], {
       env: cliEnv,

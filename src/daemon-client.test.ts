@@ -2,8 +2,36 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { describe, it } from "node:test";
 import { SashDaemonClient } from "./daemon-client.js";
+import { testProfile } from "./test-state.test.js";
 
 describe("SashDaemonClient mutation requests", () => {
+  it("reads a profile library that fits the application manifest limit", async () => {
+    const index = {
+      activeId: null,
+      profiles: Array.from({ length: 6000 }, (_, i) => testProfile(String(i + 1))),
+    };
+    const body = JSON.stringify(index);
+    assert.ok(Buffer.byteLength(body) > 1024 * 1024);
+    assert.ok(Buffer.byteLength(body) < 2 * 1024 * 1024);
+    const server = http.createServer((req, res) => {
+      assert.equal(req.url, "/sash/profiles");
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(body);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    try {
+      assert.deepEqual(
+        await new SashDaemonClient(address.port, "fixture-secret").listProfiles(),
+        index,
+      );
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("authenticates daemon shutdown", async () => {
     let authorization: string | undefined;
     const server = http.createServer((req, res) => {

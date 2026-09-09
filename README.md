@@ -9,7 +9,7 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 - **Supervisor daemon (`sashd`)** — background supervisor on port `19090` managing the core lifecycle, recovery, and reverse proxying
 - **Zero-download web dashboard** — built-in modern Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
 - **Windows system proxy** — snapshots and conditionally restores the current user's prior proxy/PAC settings
-- **One-command lifecycle** — `sash start`, `stop`, `restart`, `status`, `logs`
+- **CLI controls** — `sash start`, `stop --core`, `restart`, `profile`, `proxy`, `mode`, `status`, `logs`
 - **Windows login startup** — configure it through `sash auto on/off` or the dashboard settings
 - **Explicit save and apply** — import, edit and update profiles, then apply saved changes with one Core restart
 - **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)

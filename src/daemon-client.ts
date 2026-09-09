@@ -4,8 +4,16 @@ import type {
   CoreUpdateResponse,
   DaemonStatus,
   HealthInfo,
+  ProfileActionResponse,
+  ProfileActivateResponse,
+  ProfileRemoveResponse,
+  ProfileRenameResponse,
+  ProfilesIndex,
+  ProfilesUpdateAllResponse,
+  ProfileUpdateResponse,
   SettingsPatch,
   SettingsWriteResult,
+  SystemProxyStatusResponse,
   UpgradeRuntimeStatus,
   WebBootstrapInfo,
 } from "./contracts.js";
@@ -14,7 +22,8 @@ import { SashClient, type SashClientFetch } from "./sash-client.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { UpgradeAccess } from "./upgrade-access.js";
 
-const DAEMON_SUCCESS_BODY_LIMIT = 1024 * 1024;
+// Profile metadata can occupy most of the supported 2 MiB application manifest.
+const DAEMON_SUCCESS_BODY_LIMIT = 2 * 1024 * 1024;
 
 /** Loopback-only fetch with retries, deadlines, and body caps for the CLI. */
 const daemonFetch: SashClientFetch = async (url, init) => {
@@ -89,6 +98,15 @@ export class SashDaemonClient {
   restartCore(): Promise<CoreStartResult> {
     return this.client.restartCore();
   }
+  stopCore(): Promise<void> {
+    return this.client.stopCore();
+  }
+  setMode(mode: "rule" | "global" | "direct"): Promise<void> {
+    return this.client.setMode(mode);
+  }
+  proxyStatus(): Promise<SystemProxyStatusResponse> {
+    return this.client.proxyStatus();
+  }
   updateCore(version?: string): Promise<CoreUpdateResponse> {
     return this.client.updateCore(version);
   }
@@ -99,6 +117,30 @@ export class SashDaemonClient {
 
   getSettings(): Promise<PublicSashSettings> {
     return this.client.getSettings();
+  }
+  listProfiles(): Promise<ProfilesIndex> {
+    return this.client.listProfiles();
+  }
+  addProfile(
+    url: string,
+    options: { name?: string; activate?: boolean } = {},
+  ): Promise<ProfileActionResponse> {
+    return this.client.addProfile(url, options);
+  }
+  activateProfile(id: string | null): Promise<ProfileActivateResponse> {
+    return this.client.activateProfile(id);
+  }
+  updateProfile(id: string): Promise<ProfileUpdateResponse> {
+    return this.client.updateProfile(id);
+  }
+  updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
+    return this.client.updateAllProfiles();
+  }
+  renameProfile(id: string, name: string): Promise<ProfileRenameResponse> {
+    return this.client.renameProfile(id, name);
+  }
+  removeProfile(id: string): Promise<ProfileRemoveResponse> {
+    return this.client.removeProfile(id);
   }
   upgradeRuntime(
     action: "reserve" | "status" | "verify" | "commit",

@@ -52,11 +52,11 @@
 
 ## 批次 3 — CLI 功能
 
-- [ ] **`sash profile` 命令组**（M–L）：list / use / add <url> / update [--all] / rename / remove。
+- [x] **`sash profile` 命令组**（M–L）：list / use / add <url> / update [--all] / rename / remove。
   daemon API 已完备（`src/sash-client.ts:297-383`），`SashDaemonClient` 加封装 + 薄命令模块。
   这是 CLI-first 定位下最大的功能缺口
-- [ ] **`sash proxy on|off|status`**（S–M）：`SettingsPatch.systemProxy` 与 `patchSettings` 已就绪
-- [ ] **`sash mode rule|global|direct`**（S）：`setMode` 已实现未接线（`src/sash-client.ts:273-277`）；
+- [x] **`sash proxy on|off|status`**（S–M）：`SettingsPatch.systemProxy` 与 `patchSettings` 已就绪
+- [x] **`sash mode rule|global|direct`**（S）：`setMode` 已实现未接线（`src/sash-client.ts:273-277`）；
   依赖批次 2 的 setCoreMode 语义决定
 - [ ] **`sash update --check`**（M）：只查不装；同时给 update 加进度输出（见批次 5 的状态暴露）
 - [x] **`sash upgrade [version]` 完整自更新**（L）：一步更新 Sash npm 包、daemon 与内置 WebUI；
@@ -65,7 +65,7 @@
   协调共享安装的多实例，自动恢复原 daemon/Core/代理状态与实际已应用配置，保留未 Apply 修改。
   安装或健康检查失败自动恢复；中断后可恢复事务。独立安装目录、数据目录与端口完成端到端验证。
   实现约束与验收范围见 [自更新设计](docs/self-upgrade-design.md)。
-- [ ] **`sash stop --core`**（S）：与 WebUI "Stop Core"（保留 daemon）对齐
+- [x] **`sash stop --core`**（S）：与 WebUI "Stop Core"（保留 daemon）对齐
 - [ ] **status 探测并行化**（S–M）：daemon 查询、OS 代理检查、自启动检查无数据依赖，
   `Promise.all` 化，改善裸 `sash` 首因延迟（`src/status.ts:226-321`）
 - [ ] `sash auto on|off` 顺带启动 daemon 时予以提示或用后停止（`src/commands/auto.ts:17`）
