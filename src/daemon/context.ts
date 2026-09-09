@@ -2,6 +2,7 @@ import { type SashStateStore, StateConflictError } from "../app-state.js";
 import type { AutostartController } from "../autostart.js";
 import type { CoreStartResult, MutationQueueStatus } from "../contracts.js";
 import type { CoreUpdateResult } from "../core-update.js";
+import type { CoreUpdateProgress } from "../core-update-progress.js";
 import type { SashLayout } from "../paths.js";
 import type { ProfileService } from "../profile-service.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
@@ -194,6 +195,7 @@ export interface DaemonContext {
   readonly settingsService: SettingsService;
   readonly lifecycle: RuntimeLifecycle;
   readonly supervisor: CoreSupervisor;
+  readonly coreUpdate: CoreUpdateProgress | null;
   readonly systemProxy: SystemProxyController;
   readonly autostart: AutostartController;
   readonly gate: DaemonGate;

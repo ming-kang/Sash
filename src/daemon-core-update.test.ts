@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import { parseDaemonStatus } from "./contracts.js";
 import { readInstallRecord } from "./core-install-record.js";
 import { readCoreUpdateTransaction } from "./core-update.js";
+import { parseCoreUpdateProgress } from "./core-update-progress.js";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import { deferred, FakeCoreSupervisor } from "./test-state.test.js";
 
@@ -17,6 +18,84 @@ describe("daemon-owned Core updates", () => {
     fs.writeFileSync(exe, "v2-core");
     return { exe, version: "v2", sha256: crypto.hash("sha256", "v2-core") };
   }
+  it("publishes authenticated progress during preparation and clears it after completion", async () => {
+    const entered = deferred();
+    const released = deferred();
+    await h.startServer({
+      stageCore: async (options) => {
+        options?.onStage?.("downloading", "v2");
+        options?.onProgress?.(100, 200);
+        entered.resolve();
+        await released.promise;
+        return stage();
+      },
+    });
+    const saved = fs.readFileSync(h.layout.settingsFile);
+    const updating = h.apiRequest("/sash/core/update", { method: "POST", body: { version: "v2" } });
+    await entered.promise;
+    try {
+      assert.equal((await h.apiRequest("/sash/core/update", { token: "" })).statusCode, 401);
+      const progress = parseCoreUpdateProgress((await h.apiRequest("/sash/core/update")).data);
+      assert.equal(progress?.stage, "downloading");
+      assert.equal(progress?.downloaded, 100);
+      assert.equal(progress?.total, 200);
+      assert.deepEqual(
+        parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data).coreUpdate,
+        progress,
+      );
+      assert.equal((await h.apiRequest("/sash/core/update", { method: "POST" })).statusCode, 409);
+      assert.deepEqual(fs.readFileSync(h.layout.settingsFile), saved);
+    } finally {
+      released.resolve();
+    }
+    assert.equal((await updating).statusCode, 200);
+    assert.equal((await h.apiRequest("/sash/core/update")).data, null);
+  });
+
+  it("does not let a cancelled download publish progress into its successor", async () => {
+    const firstEntered = deferred();
+    const firstReleased = deferred();
+    const nextEntered = deferred();
+    const nextReleased = deferred();
+    let lateProgress: ((downloaded: number, total: number | undefined) => void) | undefined;
+    let count = 0;
+    await h.startServer({
+      stageCore: async (options) => {
+        count += 1;
+        options?.onStage?.("downloading", "v2");
+        if (count === 1) {
+          lateProgress = options?.onProgress;
+          firstEntered.resolve();
+          await firstReleased.promise;
+        } else {
+          options?.onProgress?.(20, 200);
+          nextEntered.resolve();
+          await nextReleased.promise;
+        }
+        return stage();
+      },
+    });
+    const first = h.apiRequest("/sash/core/update", { method: "POST" });
+    await firstEntered.promise;
+    await h.apiRequest("/sash/core/stop", { method: "POST" });
+    firstReleased.resolve();
+    assert.notEqual((await first).statusCode, 200);
+    assert.equal((await h.apiRequest("/sash/core/update")).data, null);
+    const next = h.apiRequest("/sash/core/update", { method: "POST" });
+    await nextEntered.promise;
+    try {
+      lateProgress?.(199, 200);
+      assert.equal(
+        parseCoreUpdateProgress((await h.apiRequest("/sash/core/update")).data)?.downloaded,
+        20,
+      );
+    } finally {
+      nextReleased.resolve();
+    }
+    assert.equal((await next).statusCode, 200);
+    assert.equal((await h.apiRequest("/sash/core/update")).data, null);
+  });
+
   it("rejects modified installed bytes before config validation or Core execution", async () => {
     let validations = 0;
     await h.startServer({

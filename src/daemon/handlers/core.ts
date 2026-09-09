@@ -14,6 +14,9 @@ export async function stopCore(ctx: DaemonContext): Promise<RouteResponse> {
 export async function restartCore(ctx: DaemonContext): Promise<RouteResponse> {
   return { status: 200, json: await ctx.restartCore() };
 }
+export function coreUpdateProgress(ctx: DaemonContext): RouteResponse {
+  return { status: 200, json: ctx.coreUpdate };
+}
 export async function updateCore(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
   const body = await req.readJson(1024);
   if (

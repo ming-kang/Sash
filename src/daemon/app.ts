@@ -15,6 +15,7 @@ import { readInstallRecord } from "../core-install-record.js";
 import { ensureCoreIntegrityRecords } from "../core-install-verification.js";
 import { assertCoreBinaryDigest } from "../core-integrity.js";
 import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
+import type { CoreUpdateProgress, CoreUpdateStage } from "../core-update-progress.js";
 import { installationId } from "../installation.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
@@ -95,6 +96,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     controllerProbe: deps.controllerProbe,
   });
   let downloading = false;
+  let coreUpdateProgress: CoreUpdateProgress | null = null;
   let verifyingIntegrity: Promise<void> | undefined;
   let preparation = new AbortController();
   let profiles: ProfileService;
@@ -168,6 +170,20 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     requireRecoveredInstall();
     const { signal } = preparation;
     downloading = true;
+    const progress: CoreUpdateProgress = {
+      stage: "checking",
+      startedAt: new Date().toISOString(),
+      target: version ?? null,
+      downloading: false,
+      downloaded: 0,
+      total: null,
+    };
+    coreUpdateProgress = progress;
+    const setStage = (stage: CoreUpdateStage, target?: string): void => {
+      progress.stage = stage;
+      progress.downloading = stage === "downloading";
+      if (target) progress.target = target;
+    };
     let staged: StagedCore | undefined;
     try {
       await verifyInstalledIntegrity();
@@ -179,15 +195,28 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
         ? lifecycle.configuration()
         : savedConfiguration();
       if (!configuration) throw new Error("Running Core configuration is unknown");
-      staged = await (deps.stageCoreFn ?? stageCore)({ layout, tag: version, signal });
+      setStage("resolving");
+      staged = await (deps.stageCoreFn ?? stageCore)({
+        layout,
+        tag: version,
+        signal,
+        onStage: setStage,
+        onProgress: (downloaded, total) => {
+          progress.downloaded = downloaded;
+          progress.total = total ?? null;
+        },
+      });
       signal.throwIfAborted();
+      setStage("validating", staged.version);
       await validate(configuration.generated, staged.exe, signal, staged.sha256);
       const candidate = staged;
+      setStage("waiting");
       return await mutate("update Core", async () => {
         signal.throwIfAborted();
         state.assertCurrent(revision);
         if (lifecycle.revision !== epoch)
           throw new StateConflictError("Core changed during download; retry the update");
+        setStage("installing");
         return lifecycle.update(candidate, configuration);
       });
     } catch (error) {
@@ -195,6 +224,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       throw error;
     } finally {
       downloading = false;
+      coreUpdateProgress = null;
       if (staged) {
         fs.rmSync(staged.exe, { force: true });
         try {
@@ -240,6 +270,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     settingsService,
     lifecycle,
     supervisor,
+    get coreUpdate() {
+      return coreUpdateProgress ? { ...coreUpdateProgress } : null;
+    },
     systemProxy,
     autostart: deps.autostart ?? new AutostartService({ layout }),
     gate,

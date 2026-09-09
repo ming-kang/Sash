@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add `sash update [tag] --check` and `--json`, with live preparation/download/verification progress from the daemon. Keep checks free of installation and management startup, and keep progress reads independent of the update result.
 - Add saved-profile CLI operations (`list`, `use`, `add`, `update`, `rename`, `remove`), system-proxy controls, runtime routing modes and `sash stop --core`. Preserve explicit Apply semantics, support profile IDs or unique names and JSON results, and keep stopped profile queries free of initialization writes.
 - Add `sash upgrade [version] [--check] [--json]` for complete Sash self-upgrades. Prepare and verify npm dependencies before downtime, coordinate shared instances, restore applied Core/proxy state and browser access, preserve pending edits and login startup, and recover failures or interruptions through an independent worker and durable command launcher.
 
@@ -34,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Select Core release tags through the positional `sash update [tag]` argument instead of the ambiguous `--version` option; stop route matching at the first compatible route while preserving method-mismatch metadata.
 - Run independent CLI status probes concurrently, expose JSON login startup status and management-start notices, and scope CLI stack traces to `SASH_DEBUG` with documented bare-command and exit-code behavior.
 - Add authenticated upgrade reservations and private runtime handoffs. Preserve applied configuration, routing mode, node selections, proxy ownership and pending edits across controlled daemon replacement; exchange browser sessions only through a bounded upgrade continuation.
 - Report the daemon's startup Sash version and installation identity, and register its data directory under a shared installation startup gate for coordinated upgrades.

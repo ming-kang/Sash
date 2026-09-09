@@ -58,7 +58,7 @@
 - [x] **`sash proxy on|off|status`**（S–M）：`SettingsPatch.systemProxy` 与 `patchSettings` 已就绪
 - [x] **`sash mode rule|global|direct`**（S）：`setMode` 已实现未接线（`src/sash-client.ts:273-277`）；
   依赖批次 2 的 setCoreMode 语义决定
-- [ ] **`sash update --check`**（M）：只查不装；同时给 update 加进度输出（见批次 5 的状态暴露）
+- [x] **`sash update --check`**（M）：只查不装；同时给 update 加进度输出（见批次 5 的状态暴露）
 - [x] **`sash upgrade [version]` 完整自更新**（L）：一步更新 Sash npm 包、daemon 与内置 WebUI；
   支持 `--check`，验证当前安装来源、prefix、目标版本与 Node 兼容性。
   停机前准备完整依赖与恢复材料，通过安装目录外的 helper 执行 npm 安装和新版本验证。
@@ -70,11 +70,11 @@
   `Promise.all` 化，改善裸 `sash` 首因延迟（`src/status.ts:226-321`）
 - [x] `sash auto on|off` 顺带启动 daemon 时予以提示或用后停止（`src/commands/auto.ts:17`）
 - [x] `sash auto status` 支持 `--json`（S）
-- [ ] `sash update` 支持 `--json`（S）
+- [x] `sash update` 支持 `--json`（S）
 - [x] `sash start` 区分"已在运行"与"新启动"：`CoreStartResult` 加 `alreadyRunning`（M）
 - [x] `logs -f` 对 EPIPE 静默退出 0（S）；tail→follow 交接的重复行竞态（S）
 - [x] `DEBUG` 改 `SASH_DEBUG` 并写入帮助（S）；`--help` 补充裸命令行为与退出码约定（S）
-- [ ] `sash update --version` 与全局 `-v` 歧义：改位置参数或 `--tag`（S）
+- [x] `sash update --version` 与全局 `-v` 歧义：改位置参数或 `--tag`（S）
 - [ ] `sash doctor`（M）：汇总安装检查、UI 资产、核心版本/哈希、端口、代理状态与修复建议
 
 ## 批次 4 — WebUI 性能与 UX
@@ -101,19 +101,18 @@
 
 - [ ] **`/sash/events`**（M）：SSE 或 WS 推送 revision 变更（单写者 + 单调 revision 已就绪），
   WebUI 从 1Hz 轮询迁移，附带解决批次 2 的探测压力
-- [ ] **core update 进度暴露**（M）：`{downloading, stage}` 进 daemon status，
+- [x] **core update 进度暴露**（M）：`{downloading, stage}` 进 daemon status，
   CLI update 从 20 分钟静默改为阶段输出（`src/daemon/app.ts:88,138`、`src/sash-client.ts:100`）
 - [ ] `sash status --watch`（S，依赖 events）
 
 ## 零散低优先级（顺手做）
 
 - [x] 后端：下载内联 SHA-256、下载归档权限 0o600、controller 客户端禁跟随重定向、镜像切换时进度不回跳
-- [x] daemon：网关剥离逐跳头、WebUI 会话 TTL 与滑动续期、listen 后挂常驻 error 日志
+- [x] daemon：网关剥离逐跳头、WebUI 会话 TTL 与滑动续期、listen 后挂常驻 error 日志、路由匹配首中即停
 - 后端：Apply 时缓存解析后的 profile 文档（revision 不可变，`src/profiles.ts:55`、
   `profile-service.ts:92,130`，M）；temp 目录/孤儿 revision 定期清扫（S）；
   YAML 解析选项统一 `maxAliasCount`（S）；订阅 userinfo 空值不当作 0（S）
-- daemon：静态服务 fd-once + UI 未安装时的明确 404 文案（S）；损坏状态文件报错带路径（S）；
-  路由匹配首中即停（S）
+- daemon：静态服务 fd-once + UI 未安装时的明确 404 文案（S）；损坏状态文件报错带路径（S）
 - 产品：订阅格式检测（base64 分享链接给定向报错，S）；controller 延迟测试端点封装
   供 status 使用（M）；PowerShell 缺失时 WinINET 刷新的回退与文档（S）；
   Defender 首跑场景下新装二进制验证超时放宽到 15-20s（S）；PowerShell 完成脚本（M）

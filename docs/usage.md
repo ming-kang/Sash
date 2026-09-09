@@ -26,7 +26,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash status [--json]` | Read runtime, endpoint, saved profile, proxy and autostart observations. Bare `sash` does the same. |
 | `sash web` | Start management if needed and authorize/open the dashboard. |
 | `sash web --no-open` | Start management and print its address without authorizing a browser. |
-| `sash update [--version TAG]` | Download, verify and install a Core release through the daemon. |
+| `sash update [tag] [--check] [--json]` | Check a Core release or install it through the daemon, with preparation/download/verification progress. |
 | `sash upgrade [version] [--check] [--json]` | Update the Sash package and dashboard, then restore all instances sharing its installation. |
 | `sash profile [list]` | List saved profiles; `list --json` returns their metadata and saved selection. |
 | `sash profile use <profile>` / `use --default` | Select an ID or unique exact name, or the built-in configuration, for the next Apply. |
@@ -115,6 +115,15 @@ ui/                             optional custom dashboard override
 The manifest and sources use atomic publication. Old source revisions may be cleaned after successful saves; this is not a version-history feature. Do not edit generated runtime configuration. POSIX private state/logs use `0600`.
 
 ## Updates
+
+```sh
+sash update --check         # inspect Core release metadata without starting management
+sash update                # install the latest Core release with progress
+sash update v1.19.30        # select an exact Core release tag
+sash update --json         # one JSON result, without progress text
+```
+
+The Core tag is a positional argument; the former `sash update --version TAG` option is replaced. Global `sash --version` prints the Sash package version. `--check` reads the recorded Core version and official release metadata, verifies a compatible artifact and digest are available, and does not download or install the binary. Updates show their current stage and downloaded bytes; JSON mode suppresses these messages.
 
 Core updates keep the dashboard available and preserve whether Core was running. Even an initially stopped update performs a temporary startup/health check, then stops again. `.bak` is retained until the new binary passes verification and the original running state is restored. Failure rolls back the executable and install record; saved profiles/settings are not part of this transaction.
 

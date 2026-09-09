@@ -1,3 +1,4 @@
+import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
 import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import { type ProfileMeta, type ProfilesIndex, parseProfileMeta } from "./profile-model.js";
 import type { PublicSashSettings } from "./settings.js";
@@ -110,6 +111,7 @@ export interface MutationQueueStatus {
   queued: number;
 }
 export interface DaemonStatus {
+  coreUpdate?: CoreUpdateProgress | null;
   daemon: { pid: number; bootId: string; startedAt: string; port: number } & InstallationIdentity;
   revisions: { state: number; runtime: number };
   mutationQueue: MutationQueueStatus;
@@ -393,6 +395,9 @@ export function parseDaemonStatus(value: unknown): DaemonStatus {
   const version = optionalString(core, "version");
   const queryError = optionalString(proxy, "queryError");
   return {
+    ...(source.coreUpdate !== undefined
+      ? { coreUpdate: parseCoreUpdateProgress(source.coreUpdate) }
+      : {}),
     daemon: {
       pid: integer(daemon.pid, "daemon.pid", 1),
       bootId: string(daemon.bootId, "daemon.bootId"),

@@ -11,7 +11,14 @@ import { serveStaticUi } from "../daemon-static.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
 import { readAutostart, writeAutostart } from "./handlers/autostart.js";
-import { restartCore, setCoreMode, startCore, stopCore, updateCore } from "./handlers/core.js";
+import {
+  coreUpdateProgress,
+  restartCore,
+  setCoreMode,
+  startCore,
+  stopCore,
+  updateCore,
+} from "./handlers/core.js";
 import {
   createWebBootstrap,
   daemonStatus,
@@ -193,6 +200,12 @@ export function buildRoutes(): readonly RouteDef[] {
       pattern: path("/sash/core/update"),
       auth: "control",
       handler: updateCore,
+    },
+    {
+      methods: ["GET"],
+      pattern: path("/sash/core/update"),
+      auth: "control",
+      handler: coreUpdateProgress,
     },
     { methods: ["GET"], pattern: path("/sash/proxy"), auth: "public", handler: proxyStatus },
     { methods: ["GET"], pattern: path("/sash/autostart"), auth: "control", handler: readAutostart },
@@ -388,23 +401,18 @@ export function matchRoute(
   method: string,
   pathname: string,
 ): RouteMatch {
-  const matches: Array<{ route: RouteDef; params: Record<string, string | undefined> }> = [];
+  const allowed = new Set<string>();
+  let found = false;
   for (const route of routes) {
     const result = route.pattern.exec({ pathname });
-    if (result) matches.push({ route, params: result.pathname.groups });
+    if (!result) continue;
+    found = true;
+    if (route.methods === "*" || route.methods.includes(method))
+      return { kind: "matched", route, params: result.pathname.groups };
+    for (const allowedMethod of route.methods) allowed.add(allowedMethod);
   }
-  const matched = matches.find(
-    (candidate) => candidate.route.methods === "*" || candidate.route.methods.includes(method),
-  );
-  if (matched) return { kind: "matched", ...matched };
-  if (matches.length === 0) return { kind: "notFound" };
-  const allow = [
-    ...new Set(
-      matches.flatMap((candidate) =>
-        candidate.route.methods === "*" ? METHOD_ORDER : candidate.route.methods,
-      ),
-    ),
-  ].sort((left, right) => methodOrder(left) - methodOrder(right));
+  if (!found) return { kind: "notFound" };
+  const allow = [...allowed].sort((left, right) => methodOrder(left) - methodOrder(right));
   return { kind: "methodNotAllowed", allow };
 }
 
@@ -521,10 +529,10 @@ export function matchWebSocketUpgrade(
   method: string,
   target: ParsedDaemonRequestTarget,
 ): WebSocketRouteMatch {
-  const gateways = routes.filter(
+  const gateway = routes.some(
     (route) => route.auth === "gateway" && route.pattern.test({ pathname: target.routePathname }),
   );
-  if (gateways.length === 0) return { kind: "notFound" };
+  if (!gateway) return { kind: "notFound" };
   if (method.toUpperCase() !== "GET") return { kind: "methodNotAllowed", allow: ["GET"] };
   return { kind: "gateway", target: coreApiTarget(target) };
 }

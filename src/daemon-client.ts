@@ -17,6 +17,7 @@ import type {
   UpgradeRuntimeStatus,
   WebBootstrapInfo,
 } from "./contracts.js";
+import type { CoreUpdateProgress } from "./core-update-progress.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 import { SashClient, type SashClientFetch } from "./sash-client.js";
 import type { PublicSashSettings } from "./settings.js";
@@ -109,6 +110,9 @@ export class SashDaemonClient {
   }
   updateCore(version?: string): Promise<CoreUpdateResponse> {
     return this.client.updateCore(version);
+  }
+  coreUpdateProgress(): Promise<CoreUpdateProgress | null> {
+    return this.client.coreUpdateProgress();
   }
 
   patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {

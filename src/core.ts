@@ -163,6 +163,10 @@ export interface CoreInstallOptions {
   /** Specific tag to install (e.g. v1.19.30); defaults to latest. */
   tag?: string;
   onProgress?: (downloaded: number, total: number | undefined) => void;
+  onStage?: (
+    stage: "resolving" | "downloading" | "extracting" | "verifying",
+    target?: string,
+  ) => void;
 }
 
 export interface StagedCore {
@@ -197,6 +201,7 @@ export function verifyCoreExecutable(
 /** Download, extract and validate a core binary without changing installed state. */
 export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCore> {
   const layout = opts.layout ?? sashLayout();
+  opts.onStage?.("resolving");
   const tag = validateCoreReleaseTag(
     opts.tag ?? (await resolveLatestTag(MIHOMO_REPO, opts.signal)),
   );
@@ -209,6 +214,7 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
   const archivePath = path.join(directory, "archive.download");
   const stagedExe = path.join(directory, path.basename(layout.coreExe));
   try {
+    opts.onStage?.("downloading", tag);
     const assetName = await downloadReleaseAsset({
       signal: opts.signal,
       repo: MIHOMO_REPO,
@@ -218,9 +224,11 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
       dest: archivePath,
       onProgress: opts.onProgress,
     });
+    opts.onStage?.("extracting", tag);
     const sha256 = await extractCoreArchive(archivePath, assetName, stagedExe);
     opts.signal?.throwIfAborted();
     fs.chmodSync(stagedExe, 0o755);
+    opts.onStage?.("verifying", tag);
     assertCoreBinaryDigest(stagedExe, sha256);
     verifyCoreExecutable(stagedExe, 5000, tag);
     return { version: tag, exe: stagedExe, sha256 };

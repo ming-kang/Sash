@@ -82,6 +82,7 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
     core = { running: false };
   const applied = ctx.lifecycle.configuration();
   const status: DaemonStatus = {
+    coreUpdate: ctx.coreUpdate,
     daemon: {
       pid: process.pid,
       bootId: ctx.token,

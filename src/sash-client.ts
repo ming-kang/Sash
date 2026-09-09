@@ -38,6 +38,7 @@ import {
   type WebBootstrapInfo,
   type WebSessionInfo,
 } from "./contracts.js";
+import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { UpgradeAccess } from "./upgrade-access.js";
 
@@ -307,6 +308,12 @@ export class SashClient {
         body: version ? { version } : {},
         timeoutMs: CORE_OPERATION_TIMEOUT_MS,
       }),
+    );
+  }
+
+  async coreUpdateProgress(): Promise<CoreUpdateProgress | null> {
+    return parseCoreUpdateProgress(
+      await this.request("/sash/core/update", { timeoutMs: 2000, attempts: 1 }),
     );
   }
 

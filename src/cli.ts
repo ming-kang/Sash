@@ -214,10 +214,15 @@ program
   );
 
 program
-  .command("update")
+  .command("update [tag]")
   .description("upgrade the core binary")
-  .option("--version <tag>", "install a specific core version, e.g. v1.19.30")
-  .action(withCliErrors((opts: { version?: string }) => runUpdate(opts)));
+  .option("--check", "check the Core release without installing or starting management")
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((tag: string | undefined, opts: { check?: boolean; json?: boolean }) =>
+      runUpdate({ ...opts, version: tag }),
+    ),
+  );
 
 program
   .command("upgrade [version]")

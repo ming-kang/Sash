@@ -96,7 +96,9 @@ describe("profile and runtime CLI controls", () => {
           appliedKnown: true,
           stateKnown: true,
         };
-      else if (url === "/sash/core/mode" || url === "/sash/core/stop") {
+      else if (url === "/sash/core/update") {
+        result = method === "GET" ? null : { version: String(body.version ?? "v2.0.0") };
+      } else if (url === "/sash/core/mode" || url === "/sash/core/stop") {
         res.writeHead(204);
         res.end();
         return;
@@ -203,5 +205,13 @@ describe("profile and runtime CLI controls", () => {
   it("returns a failing exit status when a batch profile update is incomplete", async () => {
     failUpdate = true;
     await assert.rejects(cli(["profile", "update", "--all"]), /provider unavailable/);
+  });
+
+  it("accepts a positional Core tag and produces a single JSON result", async () => {
+    assert.deepEqual(JSON.parse(await cli(["update", "v2.0.0", "--json"])), { version: "v2.0.0" });
+    assert.deepEqual(requests.find((request) => request.url === "/sash/core/update")?.body, {
+      version: "v2.0.0",
+    });
+    await assert.rejects(cli(["update", "--version", "v2.0.0"]), /unknown option.*--version/i);
   });
 });

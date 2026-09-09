@@ -87,6 +87,8 @@ Existing version-only install records remain readable. Before their next Core st
 
 App captures the applied configuration when Core is running, or saved configuration when it is stopped. Download and candidate config validation leave management responsive. Before publication the queue rechecks saved-state and runtime revisions.
 
+Transient `coreUpdate` status reports the stage, target, start time, download activity and byte counts. The authenticated `GET /sash/core/update` endpoint returns this progress directly, avoiding controller/proxy probes for CLI progress reads. Completion or cancellation clears it; callbacks retain their own operation object and cannot modify a successor's progress. Supplemental progress failures never retry or alter the Core update mutation.
+
 `core-update.ts` receives only the staged executable and runtime callbacks. Its fixed journal contains previous/target install records and three phases:
 
 | Phase | Meaning |
@@ -141,6 +143,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/core/restart` | POST | Control; Apply saved state and restart Core |
 | `/sash/core/stop` | POST | Control; stop Core, keep management; `204` |
 | `/sash/core/update` | POST | Control; optional `{version}`, returns `{version}` |
+| `/sash/core/update` | GET | Control; current update progress or `null` |
 | `/sash/core/mode` | PUT | Control; `{mode}` changes running Core mode |
 | `/sash/proxy` | GET | Public desired/applied/observed state |
 | `/sash/settings` | GET / PATCH | Control; read settings or save `{mixedPort?, allowLan?, systemProxy?}` |
