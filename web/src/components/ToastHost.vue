@@ -2,7 +2,16 @@
   <Teleport to="body">
     <div class="toast-host" aria-live="polite" aria-atomic="false" aria-relevant="additions text">
       <TransitionGroup name="toast">
-        <div v-for="item in store.toasts" :key="item.id" class="toast" :class="`toast-${item.kind}`">
+        <div
+          v-for="item in store.toasts"
+          :key="item.id"
+          class="toast"
+          :class="`toast-${item.kind}`"
+          @pointerenter="setToastPaused(item.id, 'pointer', true)"
+          @pointerleave="setToastPaused(item.id, 'pointer', false)"
+          @focusin="setToastPaused(item.id, 'focus', true)"
+          @focusout="setToastPaused(item.id, 'focus', false)"
+        >
           <span class="toast-icon">
             <Icon :name="iconFor(item.kind)" :size="14" />
           </span>
@@ -24,6 +33,7 @@
 <script setup lang="ts">
 import { t } from "../i18n/index.js";
 import { dismissToast, store, type ToastItem } from "../stores/index.js";
+import { setToastPaused } from "../stores/toast.js";
 import Icon from "./Icon.vue";
 
 function iconFor(kind: ToastItem["kind"]): string {

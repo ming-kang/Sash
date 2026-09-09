@@ -44,11 +44,6 @@ export function setTheme(next: Theme): void {
   applyTheme();
 }
 
-export function cycleTheme(): void {
-  const themes: Theme[] = ["system", "light", "dark"];
-  setTheme(themes[(themes.indexOf(theme.value) + 1) % themes.length] ?? "system");
-}
-
 if (mediaQuery) {
   mediaQuery.addEventListener("change", (event) => {
     systemTheme.value = event.matches ? "dark" : "light";

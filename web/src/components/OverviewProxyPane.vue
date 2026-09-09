@@ -120,7 +120,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, shallowRef } from "vue";
+import { useProxyGroupCollapse } from "../composables/proxy-group-collapse.js";
 import { useProxyLatency } from "../composables/proxy-latency.js";
 import { t } from "../i18n/index.js";
 import {
@@ -137,15 +138,10 @@ import ProxyGroupSection from "./ProxyGroupSection.vue";
 const { testingGroups, testingNodes, testGroup, testSingle } = useProxyLatency();
 const filterQuery = ref("");
 const normalizedFilter = computed(() => filterQuery.value.trim().toLowerCase());
-const collapsedGroups = ref(new Set<string>());
-const hideTimeoutGroups = ref(new Set<string>());
-
-function toggleCollapse(group: string): void {
-  const next = new Set(collapsedGroups.value);
-  if (next.has(group)) next.delete(group);
-  else next.add(group);
-  collapsedGroups.value = next;
-}
+const { collapsedGroups, toggleCollapse } = useProxyGroupCollapse(
+  computed(() => [...selectorGroups.value, ...autoGroups.value, "GLOBAL"]),
+);
+const hideTimeoutGroups = shallowRef(new Set<string>());
 
 function toggleHideTimeout(group: string): void {
   const next = new Set(hideTimeoutGroups.value);

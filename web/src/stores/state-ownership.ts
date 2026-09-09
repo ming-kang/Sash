@@ -1,4 +1,10 @@
-import type { LogMessage, ProxyItem, SashStatus, TrafficMessage } from "../types/index.js";
+import type {
+  LogMessage,
+  ProxyDelay,
+  ProxyItem,
+  SashStatus,
+  TrafficMessage,
+} from "../types/index.js";
 
 export class RequestGenerations {
   private readonly values = new Map<string, number>();
@@ -36,7 +42,7 @@ export interface CoreOwnedState {
     historyUp: number[];
     historyDown: number[];
   };
-  manualProxyDelays: Record<string, number>;
+  manualProxyDelays: Record<string, ProxyDelay>;
   activeGroup: string;
   runtimeGeneration: number;
 }
@@ -143,8 +149,8 @@ export function canSetSystemProxyTarget(status: SashStatus | null, target: boole
 export function resolvedProxyDelay(
   name: string,
   proxies: Record<string, ProxyItem>,
-  manualDelays: Record<string, number>,
-): number | undefined {
+  manualDelays: Record<string, ProxyDelay>,
+): ProxyDelay | undefined {
   const manual = manualDelays[name];
   if (manual !== undefined) return manual;
   return proxies[name]?.history?.at(-1)?.delay;

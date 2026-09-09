@@ -5,6 +5,9 @@ export type { ProfileMeta, ProfilesResponse } from "../../../src/contracts.js";
 export type OutboundMode = "rule" | "global" | "direct";
 export type SashStatus = DaemonStatus;
 
+/** Zero is a measured timeout; request failures have no measured latency. */
+export type ProxyDelay = number | "failed";
+
 export interface ProxyItem {
   name: string;
   type: string;

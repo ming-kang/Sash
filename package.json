@@ -29,6 +29,7 @@
     "audit:prod": "npm audit --omit=dev --audit-level=moderate",
     "test": "npm run typecheck && node scripts/run-tests.mjs",
     "smoke:package": "node scripts/package-smoke.mjs",
+    "smoke:ui": "node --import tsx scripts/ui-smoke.mjs",
     "prepublishOnly": "npm run audit:prod && npm run lint && npm test && npm run build && npm run smoke:package"
   },
   "engines": {

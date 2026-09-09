@@ -1,16 +1,35 @@
 <template>
   <section class="pgroup">
-    <div class="pgroup-head" @click="emit('toggle-collapse')">
-      <span class="pgroup-name">{{ group }}</span>
-      <span class="pgroup-type">{{ typeBadge }}</span>
-      <span class="pgroup-now" :title="current">{{ current }}</span>
-      <span class="pgroup-spacer"></span>
+    <div class="pgroup-head">
+      <button
+        type="button"
+        class="pgroup-toggle"
+        :aria-expanded="!collapsed"
+        @click="emit('toggle-collapse')"
+      >
+        <span class="pgroup-name">{{ group }}</span>
+        <span class="pgroup-type">{{ typeBadge }}</span>
+        <span class="pgroup-now" :title="current">{{ current }}</span>
+      </button>
+      <button
+        type="button"
+        class="icon-btn group-action"
+        :class="{ active: sortByLatency }"
+        :title="t('proxies.sortLatency')"
+        :aria-label="t('proxies.sortLatency')"
+        :aria-pressed="sortByLatency"
+        :disabled="!hasDelays"
+        @click="sortByLatency = !sortByLatency"
+      >
+        <Icon name="list-filter" :size="15" />
+      </button>
       <button
         type="button"
         class="icon-btn group-action"
         :class="{ active: hideTimeout }"
         :title="t('proxies.hideTimeout')"
         :aria-label="t('proxies.hideTimeout')"
+        :aria-pressed="hideTimeout ?? false"
         @click.stop="emit('toggle-hide-timeout')"
       >
         <Icon name="timer" :size="15" />
@@ -20,7 +39,7 @@
         class="icon-btn group-test"
         :title="t('proxies.testAll')"
         :aria-label="`${t('proxies.testAll')}: ${group}`"
-        :disabled="testing"
+        :disabled="testing || members.some((name) => testingNodes?.has(name))"
         @click.stop="emit('test-group')"
       >
         <Icon :name="testing ? 'loader' : 'zap'" :size="15" :class="{ spin: testing }" />
@@ -29,7 +48,8 @@
         type="button"
         class="icon-btn group-action"
         :title="t('proxies.toggleGroup')"
-        :aria-label="t('proxies.toggleGroup')"
+        :aria-label="`${t('proxies.toggleGroup')}: ${group}`"
+        :aria-expanded="!collapsed"
         @click.stop="emit('toggle-collapse')"
       >
         <Icon :name="collapsed ? 'eye-off' : 'eye'" :size="15" />
@@ -38,40 +58,41 @@
     <div v-if="!collapsed" class="pgroup-grid">
       <article
         v-for="member in visibleMembers"
-        :key="member"
+        :key="member.name"
+        v-memo="[member.name, member.selected, member.meta, member.udp, member.text, member.cls, member.testing, busy, selectable, locale]"
         class="node-card"
-        :class="{ selected: current === member, static: !selectable }"
+        :class="{ selected: member.selected, static: !selectable }"
       >
         <component
           :is="selectable ? 'button' : 'div'"
           class="node-main"
           :type="selectable ? 'button' : undefined"
-          :aria-pressed="selectable ? current === member : undefined"
+          :aria-pressed="selectable ? member.selected : undefined"
           :disabled="selectable ? busy : undefined"
-          @click="selectable && !busy && emit('select', member)"
+          @click="selectable && !busy && emit('select', member.name)"
         >
           <div class="node-top">
-            <span class="node-name" :title="member">{{ member }}</span>
+            <span class="node-name" :title="member.name">{{ member.name }}</span>
           </div>
           <div class="node-sub">
             <span class="node-meta">
-              {{ typeOf(member) }}<template v-if="isGroup(member) && nowOf(member)"> · {{ nowOf(member) }}</template>
+              {{ member.meta }}
             </span>
             <span class="node-badges">
-              <span v-if="hasUdp(member)" class="node-badge udp-tag">UDP</span>
+              <span v-if="member.udp" class="node-badge udp-tag">UDP</span>
             </span>
           </div>
         </component>
         <button
           type="button"
           class="node-delay"
-          :class="[delayFor(member).cls, { testing: isNodeTesting(member) }]"
-          :aria-label="t('proxies.testNode', { name: member })"
-          :disabled="isNodeTesting(member)"
-          @click="requestNodeTest(member)"
+          :class="[member.cls, { testing: member.testing }]"
+          :aria-label="`${t('proxies.testNode', { name: member.name })}: ${member.text}`"
+          :disabled="member.testing"
+          @click="emit('test-node', member.name)"
         >
-          <Icon v-if="isNodeTesting(member)" name="refresh" :size="11" class="delay-spinner" />
-          <template v-else>{{ delayFor(member).text }}</template>
+          <Icon v-if="member.testing" name="refresh" :size="11" class="delay-spinner" />
+          <template v-else>{{ member.text }}</template>
         </button>
       </article>
     </div>
@@ -79,8 +100,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import { t } from "../i18n/index.js";
+import { computed, ref } from "vue";
+import { locale, t } from "../i18n/index.js";
 import { proxyDelay, store } from "../stores/index.js";
 import { delayLevel } from "../utils/format.js";
 import Icon from "./Icon.vue";
@@ -107,64 +128,31 @@ const emit = defineEmits<{
 const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
 const current = computed(() => store.proxies[props.group]?.now ?? "");
 const typeBadge = computed(() => (store.proxies[props.group]?.type ?? "S").charAt(0));
+const sortByLatency = ref(false);
+const hasDelays = computed(() => props.members.some((name) => proxyDelay(name) !== undefined));
 
 const visibleMembers = computed(() => {
-  if (!props.hideTimeout) return props.members;
-  return props.members.filter((member) => {
-    const delay = proxyDelay(member);
-    return delay === undefined || delay > 0;
-  });
+  const members = props.members.map((name) => {
+    const proxy = store.proxies[name];
+    const delay = proxyDelay(name);
+    const level = typeof delay === "number" ? delayLevel(delay) : "bad";
+    return {
+      name,
+      selected: current.value === name,
+      meta: `${proxy?.type ?? ""}${groupTypes.has(proxy?.type ?? "") && proxy?.now ? ` · ${proxy.now}` : ""}`,
+      udp: proxy?.udp ?? false,
+      testing: props.testing || (props.testingNodes?.has(name) ?? false),
+      timeout: delay === 0,
+      rank: typeof delay === "number" && delay > 0 ? delay : Number.POSITIVE_INFINITY,
+      cls: delay === undefined ? "delay-none" : `delay-${level}`,
+      text: delay === undefined ? t("common.untested")
+        : delay === "failed" ? t("common.failed")
+        : delay <= 0 ? t("common.timeout") : `${delay} ms`,
+    };
+  }).filter((member) => !props.hideTimeout || !member.timeout);
+  // Stable sorting leaves equal, failed and untested entries in source order.
+  return sortByLatency.value ? members.sort((a, b) => a.rank - b.rank) : members;
 });
-
-function nowOf(name: string): string {
-  return store.proxies[name]?.now ?? "";
-}
-
-function typeOf(name: string): string {
-  return store.proxies[name]?.type ?? "";
-}
-
-function isGroup(name: string): boolean {
-  return groupTypes.has(typeOf(name));
-}
-
-function hasUdp(name: string): boolean {
-  return store.proxies[name]?.udp ?? false;
-}
-
-function isNodeTesting(name: string): boolean {
-  return props.testingNodes?.has(name) ?? false;
-}
-
-function requestNodeTest(name: string): void {
-  if (!isNodeTesting(name)) emit("test-node", name);
-}
-
-interface DelayDisplay {
-  cls: string;
-  text: string;
-}
-
-const delayDisplays = computed(() => {
-  const map = new Map<string, DelayDisplay>();
-  for (const member of props.members) {
-    const delay = proxyDelay(member);
-    if (delay === undefined) {
-      map.set(member, { cls: "delay-none", text: t("common.untested") });
-    } else {
-      const level = delayLevel(delay);
-      map.set(member, {
-        cls: level === "good" ? "delay-good" : level === "mid" ? "delay-mid" : "delay-bad",
-        text: delay <= 0 ? t("common.timeout") : `${delay} ms`,
-      });
-    }
-  }
-  return map;
-});
-
-function delayFor(name: string): DelayDisplay {
-  return delayDisplays.value.get(name) ?? { cls: "delay-none", text: t("common.untested") };
-}
 </script>
 
 <style scoped>
@@ -178,8 +166,18 @@ function delayFor(name: string): DelayDisplay {
   gap: 9px;
   min-width: 0;
   margin-bottom: 7px;
-  cursor: pointer;
   user-select: none;
+}
+.pgroup-toggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
 .pgroup-name {
   min-width: 0;
@@ -211,9 +209,6 @@ function delayFor(name: string): DelayDisplay {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pgroup-spacer {
-  flex: 1;
-}
 .group-test {
   color: var(--text-secondary);
 }
@@ -237,6 +232,8 @@ function delayFor(name: string): DelayDisplay {
   gap: 8px 12px;
 }
 .node-card {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 72px;
   position: relative;
   display: grid;
   width: 100%;
@@ -429,6 +426,9 @@ function delayFor(name: string): DelayDisplay {
   .node-card,
   .node-main {
     min-height: 78px;
+  }
+  .node-card {
+    contain-intrinsic-block-size: auto 80px;
   }
 }
 </style>

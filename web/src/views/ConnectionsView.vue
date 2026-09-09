@@ -21,44 +21,18 @@
     <div class="connections-control">
       <div class="sort-labels" role="toolbar" :aria-label="t('connections.sortLabel')">
         <button
+          v-for="option in sortOptions"
+          :key="option.key"
           type="button"
           class="sort-label-btn"
-          :class="sortBtnClass('time')"
-          :title="t('connections.sortTime')"
-          @click="setSort('time')"
+          :class="{ active: sortKey === option.key, reverse: sortKey === option.key && !sortDesc }"
+          :aria-pressed="sortKey === option.key"
+          :aria-label="`${t(option.label)}${sortKey === option.key ? `: ${t(sortDesc ? 'common.descending' : 'common.ascending')}` : ''}`"
+          @click="setSort(option.key)"
         >
-          <Icon name="timer" :size="13" />
-          <span>{{ t('connections.sortTime') }}</span>
-        </button>
-        <button
-          type="button"
-          class="sort-label-btn"
-          :class="sortBtnClass('upload')"
-          :title="t('connections.sortUpload')"
-          @click="setSort('upload')"
-        >
-          <Icon name="upload" :size="13" />
-          <span>{{ t('connections.sortUpload') }}</span>
-        </button>
-        <button
-          type="button"
-          class="sort-label-btn"
-          :class="sortBtnClass('download')"
-          :title="t('connections.sortDownload')"
-          @click="setSort('download')"
-        >
-          <Icon name="download" :size="13" />
-          <span>{{ t('connections.sortDownload') }}</span>
-        </button>
-        <button
-          type="button"
-          class="sort-label-btn"
-          :class="sortBtnClass('host')"
-          :title="t('connections.sortHost')"
-          @click="setSort('host')"
-        >
-          <Icon name="monitor" :size="13" />
-          <span>{{ t('connections.sortHost') }}</span>
+          <Icon :name="option.icon" :size="13" />
+          <span>{{ t(option.label) }}</span>
+          <span v-if="sortKey === option.key" aria-hidden="true">{{ sortDesc ? '↓' : '↑' }}</span>
         </button>
       </div>
 
@@ -67,6 +41,7 @@
           type="button"
           class="btn btn-sm btn-pause"
           :class="{ 'btn-paused': paused }"
+          :aria-pressed="paused"
           @click="togglePause"
         >
           <Icon :name="paused ? 'play' : 'pause'" :size="13" />
@@ -84,7 +59,12 @@
     </div>
 
     <div class="connection-list">
-      <article v-for="connection in pagedConnections" :key="connection.id" class="connection-row">
+      <article
+        v-for="connection in pagedConnections"
+        :key="connection.id"
+        v-memo="[connection.upload, connection.download, JSON.stringify(connection.metadata), connection.chains.join('\0'), connection.rule, connection.rulePayload, formatAgo(connection.start, locale), locale]"
+        class="connection-row"
+      >
         <div class="connection-main">
           <div class="connection-host mono" :title="hostOf(connection)">
             {{ hostOf(connection) }}
@@ -133,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
@@ -152,13 +132,19 @@ import { formatAgo, formatBytes } from "../utils/format.js";
 
 const PAGE_SIZE = 80;
 type SortKey = "time" | "upload" | "download" | "host";
+const sortOptions = [
+  { key: "time", label: "connections.sortTime", icon: "timer" },
+  { key: "upload", label: "connections.sortUpload", icon: "upload" },
+  { key: "download", label: "connections.sortDownload", icon: "download" },
+  { key: "host", label: "connections.sortHost", icon: "monitor" },
+] as const;
 
 const searchQuery = ref("");
 const currentPage = ref(1);
 const sortKey = ref<SortKey>("time");
 const sortDesc = ref(true);
 const paused = ref(false);
-const pausedSnapshot = ref<ConnectionItem[]>([]);
+const pausedSnapshot = shallowRef<ConnectionItem[]>([]);
 
 function togglePause(): void {
   if (!paused.value) {
@@ -174,13 +160,6 @@ function setSort(key: SortKey): void {
     sortKey.value = key;
     sortDesc.value = true;
   }
-}
-
-function sortBtnClass(key: SortKey): Record<string, boolean> {
-  return {
-    active: sortKey.value === key,
-    reverse: sortKey.value === key && !sortDesc.value,
-  };
 }
 
 const activeConnections = computed(() =>

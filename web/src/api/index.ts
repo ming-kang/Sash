@@ -98,8 +98,9 @@ function connectStream(
   let closed = false;
 
   const scheduleReconnect = () => {
+    if (closed) return;
     onDisconnect?.();
-    if (closed || !webSession.token() || timer !== null) return;
+    if (!webSession.token() || timer !== null) return;
     timer = window.setTimeout(() => {
       timer = null;
       connect();

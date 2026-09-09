@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add persistent proxy-group collapse choices, latency sorting with distinct timeout/failure feedback, page jumps and first/last navigation, and recoverable dashboard chunk-loading errors.
+- Add isolated Chromium/Firefox dashboard smoke checks for desktop/mobile layouts, live interactions, traffic reconnects and rendered color contrast through `npm run smoke:ui`.
 - Add `sash doctor [--json]` to diagnose installation/assets, manifest corruption, Core hashes, runtime/desktop integration and listener conflicts without initializing or repairing application state. Include specific repair advice and preserve unknown observations.
 - Add `sash update [tag] --check` and `--json`, with live preparation/download/verification progress from the daemon. Keep checks free of installation and management startup, and keep progress reads independent of the update result.
 - Add saved-profile CLI operations (`list`, `use`, `add`, `update`, `rename`, `remove`), system-proxy controls, runtime routing modes and `sash stop --core`. Preserve explicit Apply semantics, support profile IDs or unique names and JSON results, and keep stopped profile queries free of initialization writes.
@@ -23,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Preserve traffic history through brief WebSocket reconnects, keep errors readable until dismissed, pause transient notices on hover/focus, and show snapshot failures without requiring hover.
+- Use accessible theme colors for secondary buttons and connection tags, expose sort/toggle state to assistive technology, and reflect profile-update exclusion in card controls.
 - Capture log tail and follow position from the same open file to avoid repeated lines during append/rotation, clean up backpressure listeners on cancellation, and exit successfully when the CLI output pipe closes.
 - Distinguish a new Core start from an already-running instance and print its actual applied port while saved edits remain pending.
 - Keep installation discovery consistent during atomic instance publication and concurrent unregister, so a recovering upgrade does not mistake temporary files for unknown owners.
@@ -36,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Reuse unchanged proxy snapshots without hiding local selections or runtime replacement, memoize visible node/connection content, and keep large paused snapshots and busy sets shallow.
+- Trim unused dashboard icons, theme helpers and translations; annotate the official icon package's factories during builds so unused icons are removed. Reduce first-load JavaScript from about 2.74 MB to 194 KB.
 - Select Core release tags through the positional `sash update [tag]` argument instead of the ambiguous `--version` option; stop route matching at the first compatible route while preserving method-mismatch metadata.
 - Run independent CLI status probes concurrently, expose JSON login startup status and management-start notices, and scope CLI stack traces to `SASH_DEBUG` with documented bare-command and exit-code behavior.
 - Add authenticated upgrade reservations and private runtime handoffs. Preserve applied configuration, routing mode, node selections, proxy ownership and pending edits across controlled daemon replacement; exchange browser sessions only through a bounded upgrade continuation.

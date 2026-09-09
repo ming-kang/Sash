@@ -6,6 +6,7 @@ import type {
   OutboundMode,
   ProfileMeta,
   ProfilesResponse,
+  ProxyDelay,
   ProxyItem,
   RuleItem,
   SashStatus,
@@ -39,7 +40,7 @@ export interface StoreState {
   traffic: { up: number; down: number; historyUp: number[]; historyDown: number[] };
   proxies: Record<string, ProxyItem>;
   proxyGroups: string[];
-  manualProxyDelays: Record<string, number>;
+  manualProxyDelays: Record<string, ProxyDelay>;
   runtimeGeneration: number;
   connections: ConnectionItem[];
   connectionsUploadTotal: number;

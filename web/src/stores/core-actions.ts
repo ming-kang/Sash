@@ -5,6 +5,7 @@ import type {
   ConnectionItem,
   ConnectionsResponse,
   OutboundMode,
+  ProxyDelay,
   ProxyItem,
 } from "../types/index.js";
 import {
@@ -16,6 +17,12 @@ import {
   visibleCoreResources,
 } from "./state.js";
 import { isCoreHealthy, resolvedProxyDelay, runtimeOwnerKey } from "./state-ownership.js";
+
+let adoptedProxies: {
+  value: Record<string, ProxyItem>;
+  owner: string | null;
+  text: string;
+} | null = null;
 
 export function normalizeConnections(value: ConnectionsResponse["connections"]): ConnectionItem[] {
   if (value === null) return [];
@@ -39,11 +46,22 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
     )
   )
     throw new Error("Invalid Core proxies");
+  const text = JSON.stringify(proxies);
+  const owner = runtimeOwnerKey(store.status);
+  // Local selections and runtime resets replace the reference. An identical
+  // response must still be adopted after either, even if the wire data repeats.
+  if (
+    adoptedProxies?.value === store.proxies &&
+    adoptedProxies.owner === owner &&
+    adoptedProxies.text === text
+  )
+    return;
   const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
   const groups = Object.keys(proxies).filter(
     (name) => groupTypes.has(proxies[name]?.type ?? "") || Array.isArray(proxies[name]?.all),
   );
   store.proxies = proxies;
+  adoptedProxies = { value: proxies, owner, text };
   store.proxyGroups = groups;
   if (!store.activeGroup || !groups.includes(store.activeGroup)) {
     store.activeGroup =
@@ -202,16 +220,16 @@ export async function selectGroupProxy(groupName: string, proxyName: string): Pr
   }
 }
 
-export function updateProxyDelay(name: string, delay: number, generation: number): void {
+export function updateProxyDelay(name: string, delay: ProxyDelay, generation: number): void {
   if (generation === store.runtimeGeneration && store.proxies[name])
     store.manualProxyDelays = { ...store.manualProxyDelays, [name]: delay };
 }
-export function updateProxyDelays(delays: Record<string, number>, generation: number): void {
+export function updateProxyDelays(delays: Record<string, ProxyDelay>, generation: number): void {
   if (generation !== store.runtimeGeneration) return;
   const merged = { ...store.manualProxyDelays };
   for (const [name, delay] of Object.entries(delays)) if (store.proxies[name]) merged[name] = delay;
   store.manualProxyDelays = merged;
 }
-export function proxyDelay(name: string): number | undefined {
+export function proxyDelay(name: string): ProxyDelay | undefined {
   return resolvedProxyDelay(name, store.proxies, store.manualProxyDelays);
 }

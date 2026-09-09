@@ -165,7 +165,7 @@
             class="icon-btn"
             :title="t('profiles.update')"
             :aria-label="`${t('profiles.update')}: ${p.name}`"
-            :disabled="profileBusy"
+            :disabled="profileBusy || updatingAll || updatingId !== ''"
             @click.stop="updateOne(p)"
           >
             <Icon name="refresh" :size="14" :class="{ spin: updatingId === p.id }" />
@@ -201,7 +201,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { asyncView } from "../components/async-view.js";
 import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
@@ -224,7 +225,7 @@ import type { ProfileMeta } from "../types/index.js";
 import { formatAgo, formatBytes, formatDate } from "../utils/format.js";
 
 // CodeMirror rides along with the editor dialog chunk, not the profiles page.
-const ProfileEditorDialog = defineAsyncComponent(
+const ProfileEditorDialog = asyncView(
   () => import("../components/ProfileEditorDialog.vue"),
 );
 

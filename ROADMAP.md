@@ -79,23 +79,28 @@
 
 ## 批次 4 — WebUI 性能与 UX
 
-- [ ] **overview 渲染成本**（分三步）：
-  - [ ] 响应未变则跳过 `setProxies` adoption（对比响应文本/哈希，`web/src/stores/core-actions.ts:46-47,145`，S）
-  - [ ] 节点卡 `content-visibility: auto`（日志页已有同款，S）
-  - [ ] 节点卡 `v-memo`（键含 member/选中态/延迟文本/测试态，M）
-- [ ] 组折叠状态持久化到 `localStorage`，超过 N 组默认折叠（`OverviewProxyPane.vue:140-155`，S–M）
-- [ ] 大快照改 `shallowRef`：连接暂停快照、latency Set 等（`ConnectionsView.vue:161`、`composables/proxy-latency.ts:7-8`，S）
-- [ ] 连接行 `v-memo` 按 `[upload, download]`（S）
-- [ ] **对比度修复**（S）：`.btn-secondary`（3.7:1）与连接标签色（2.8-3.3:1）不达 WCAG AA，
+- [x] **overview 渲染成本**（分三步）：
+  - [x] 响应未变则跳过 `setProxies` adoption（对比响应文本/哈希，`web/src/stores/core-actions.ts:46-47,145`，S）；本地选点与运行实例变更仍重新接收状态
+  - [x] 节点卡 `content-visibility: auto`（日志页已有同款，S）
+  - [x] 节点卡 `v-memo`（键含 member/选中态/延迟文本/测试态，M）
+- [x] 组折叠状态持久化到 `localStorage`，默认展开前 4 组，其余折叠；显式选择优先（`OverviewProxyPane.vue:140-155`，S–M）
+- [x] 大快照改 `shallowRef`：连接暂停快照、latency Set 等（`ConnectionsView.vue:161`、`composables/proxy-latency.ts:7-8`，S）
+- [x] 连接行 `v-memo` 按流量、显示元数据及语言/相对时间失效（S）
+- [x] **对比度修复**（S）：`.btn-secondary`（3.7:1）与连接标签色（2.8-3.3:1）不达 WCAG AA，
   且硬编码 hex 绕过主题变量（`web/src/styles/main.css:394-403, 78-83`）
-- [ ] 错误 toast 常驻或延长 + 悬停暂停（`web/src/stores/toast.ts:8`，S）
-- [ ] 分页加页码跳转/首末页（`PaginationFooter.vue`，10k 规则时 125 页，S）
-- [ ] 异步路由 chunk 加 loading/error 组件与重载提示（`App.vue:79-83`，S）
-- [ ] a11y：`aria-pressed`（隐藏超时/暂停按钮）、排序方向语义、快照错误文本非 hover-only（S）
-- [ ] 延迟测试后支持按延迟排序；失败与超时区分并给 toast（M）
-- [ ] profile 卡片更新按钮反映互斥锁禁用态（`ProfilesView.vue:300-302`，S）
-- [ ] WS 短暂断连不清空流量历史（容忍一个丢失间隔，`App.vue:126-131`，S）
-- [ ] 清理死代码：未使用的图标、`cycleTheme`、未用 i18n 键；改用图标的独立组件入口，避免全量图标进入首页包（S）
+- [x] 错误 toast 常驻或延长 + 悬停暂停（`web/src/stores/toast.ts:8`，S）；普通提示在悬停或键盘焦点期间暂停计时
+- [x] 分页加页码跳转/首末页（`PaginationFooter.vue`，10k 规则时 125 页，S）
+- [x] 异步路由 chunk 加 loading/error 组件与重载提示（`App.vue:79-83`，S）
+- [x] a11y：`aria-pressed`（隐藏超时/暂停按钮）、排序方向语义、快照错误文本非 hover-only（S）
+- [x] 延迟测试后支持按延迟排序；失败与超时区分并给 toast（M）
+- [x] profile 卡片更新按钮反映互斥锁禁用态（`ProfilesView.vue:300-302`，S）
+- [x] WS 短暂断连不清空流量历史（容忍一个丢失间隔，`App.vue:126-131`，S）
+- [x] 清理死代码：未使用的图标、`cycleTheme`、未用 i18n 键；按实际使用组件裁剪图标，避免全量图标进入首页包（S）
+  当前 `@remixicon/vue` 4.9 只发布总入口，无法使用独立组件子路径；构建时定向补全图标工厂的 PURE 注解，
+  保留官方组件与现有依赖，首次加载 JS 从约 2.74 MB 降至 194 KB。
+
+批次 4 验证：615 项测试、typecheck/lint、构建通过。`npm run smoke:ui` 使用隔离静态服务与 API/WS fixtures，
+在 Chromium/Firefox、明暗主题、桌面及 390/320px 视口验证交互与布局；相关文字对比度最低 5.30:1。
 
 ## 批次 5 — 事件通道与可见性
 

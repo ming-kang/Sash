@@ -36,6 +36,9 @@
   --text-secondary: #4f5964;
   --text-muted: #5f6a76;
   --text-inverse: #ffffff;
+  --secondary-bg: #686868;
+  --secondary-hover: #555555;
+  --secondary-text: #ffffff;
   --general-title: #2c3e50;
 
   /* Indigo-violet is reserved for selected modes and primary actions. */
@@ -75,14 +78,14 @@
   --chart-4: #c38a27;
   --chart-5: #cb5f8e;
   --chart-6: #557fbb;
-  --tag-network: #ce7838;
-  --tag-process: #bd8b32;
-  --tag-chain: #389d69;
-  --tag-rule: #69a95b;
-  --tag-time: #3b88df;
+  --tag-network: #99521e;
+  --tag-process: #81601e;
+  --tag-chain: #23764d;
+  --tag-rule: #43743a;
+  --tag-time: #2869b0;
   --tag-traffic: #4d14b8;
-  --pause-bg: #3b88df;
-  --pause-bg-hover: #2b77cc;
+  --pause-bg: #2869b0;
+  --pause-bg-hover: #205992;
   --log-debug: #7a7a02;
 
   --radius-xs: 3px;
@@ -146,6 +149,9 @@ html[data-theme="dark"] {
   --text-secondary: #cdc9d0;
   --text-muted: #aaa6b0;
   --text-inverse: #191722;
+  --secondary-bg: #b3afba;
+  --secondary-hover: #cdc9d0;
+  --secondary-text: #191722;
 
   --accent: #8f91f3;
   --accent-hover: #a8abf7;
@@ -186,7 +192,7 @@ html[data-theme="dark"] {
   --tag-chain: #3ba26e;
   --tag-rule: #62a854;
   --tag-time: #4a8fe0;
-  --tag-traffic: #7a5cd0;
+  --tag-traffic: #ab94f0;
   --pause-bg: #4a8fe0;
   --pause-bg-hover: #3b7ed0;
   --log-debug: #d8d84b;
@@ -392,14 +398,14 @@ textarea:disabled {
   background: var(--accent-pressed);
 }
 .btn-secondary {
-  background: #858585;
-  border-color: #858585;
-  color: #ffffff;
+  background: var(--secondary-bg);
+  border-color: var(--secondary-bg);
+  color: var(--secondary-text);
 }
 .btn-secondary:hover:not(:disabled) {
-  background: #747474;
-  border-color: #747474;
-  color: #ffffff;
+  background: var(--secondary-hover);
+  border-color: var(--secondary-hover);
+  color: var(--secondary-text);
 }
 .btn-ghost {
   background: transparent;

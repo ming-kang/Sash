@@ -11,10 +11,12 @@
             :class="bannerNotice"
             role="status"
             aria-live="polite"
-            :title="coreSnapshotError ?? undefined"
           >
             <Icon name="alert" :size="13" />
-            <span>{{ t(`status.${bannerNotice}`) }}</span>
+            <span>
+              {{ t(`status.${bannerNotice}`) }}
+              <span v-if="coreSnapshotError" class="snapshot-error">{{ coreSnapshotError }}</span>
+            </span>
           </div>
         </Transition>
 
@@ -48,9 +50,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { api, sessionReady } from "./api/index.js";
 import AppSidebar from "./components/AppSidebar.vue";
+import { asyncView } from "./components/async-view.js";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import CoreControls from "./components/CoreControls.vue";
 import Icon from "./components/Icon.vue";
@@ -76,15 +79,16 @@ const bannerNotice = computed(() =>
   store.daemonOnline && !sessionReady.value ? "unauthorized" : runtimeNotice.value,
 );
 
-const ConnectionsView = defineAsyncComponent(() => import("./views/ConnectionsView.vue"));
-const LogsView = defineAsyncComponent(() => import("./views/LogsView.vue"));
-const ProfilesView = defineAsyncComponent(() => import("./views/ProfilesView.vue"));
-const RulesView = defineAsyncComponent(() => import("./views/RulesView.vue"));
-const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
+const ConnectionsView = asyncView(() => import("./views/ConnectionsView.vue"));
+const LogsView = asyncView(() => import("./views/LogsView.vue"));
+const ProfilesView = asyncView(() => import("./views/ProfilesView.vue"));
+const RulesView = asyncView(() => import("./views/RulesView.vue"));
+const SettingsView = asyncView(() => import("./views/SettingsView.vue"));
 
 let stopPolling: (() => void) | null = null;
 let unsubTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
+let trafficGapTimer: number | null = null;
 const visible = ref(!document.hidden);
 const updateVisibility = () => { visible.value = !document.hidden; };
 
@@ -112,6 +116,8 @@ function stopStreams(): void {
   unsubLogs?.();
   unsubTraffic = null;
   unsubLogs = null;
+  if (trafficGapTimer !== null) window.clearTimeout(trafficGapTimer);
+  trafficGapTimer = null;
   resetTraffic();
 }
 
@@ -124,9 +130,20 @@ watch(
     stopStreams();
     if (generation === null) return;
     unsubTraffic = api.connectTraffic(
-      (message) => addTraffic(message, generation),
+      (message) => {
+        if (generation !== store.runtimeGeneration) return;
+        if (trafficGapTimer !== null) window.clearTimeout(trafficGapTimer);
+        trafficGapTimer = null;
+        addTraffic(message, generation);
+      },
       () => {
-        if (generation === store.runtimeGeneration) resetTraffic();
+        if (generation !== store.runtimeGeneration || trafficGapTimer !== null) return;
+        // Keep one reconnect interval of history, but never display a stale rate.
+        store.traffic = { ...store.traffic, up: 0, down: 0 };
+        trafficGapTimer = window.setTimeout(() => {
+          trafficGapTimer = null;
+          if (generation === store.runtimeGeneration) resetTraffic();
+        }, 5000);
       },
     );
   },
@@ -223,6 +240,11 @@ onUnmounted(() => {
   background: var(--warning-soft);
   border-bottom-color: var(--warning-border);
   color: var(--warning);
+}
+.snapshot-error {
+  display: block;
+  overflow-wrap: anywhere;
+  font-weight: 400;
 }
 .page-container {
   --page-gutter: 30px;

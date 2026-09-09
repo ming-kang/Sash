@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { api } from "../api/index.js";
 import { store } from "../stores/state.js";
+import { toast } from "../stores/toast.js";
 import { useProxyLatency } from "./proxy-latency.js";
 
 const originalGroupDelay = api.testGroupDelay;
 const originalProxyDelay = api.testProxyDelay;
 let originalGeneration = 0;
 
-beforeEach(() => {
+beforeEach((t) => {
+  assert.ok("mock" in t);
+  t.mock.method(toast, "success", () => {});
+  t.mock.method(toast, "error", () => {});
   originalGeneration = store.runtimeGeneration;
   store.proxies = {
     node: { name: "node", type: "Direct", udp: true, history: [] },
@@ -25,6 +29,40 @@ afterEach(() => {
 });
 
 describe("proxy latency ownership", () => {
+  it("distinguishes measured timeouts from request failures and preserves the error message", async (t) => {
+    const messages: string[] = [];
+    t.mock.method(toast, "error", (message: string) => messages.push(message));
+    const latency = useProxyLatency();
+    api.testProxyDelay = async () => ({ delay: 0 });
+    await latency.testSingle("node");
+    assert.equal(store.manualProxyDelays.node, 0);
+    api.testProxyDelay = async () => {
+      throw new Error("connection refused");
+    };
+    await latency.testSingle("node");
+    assert.equal(store.manualProxyDelays.node, "failed");
+    assert.match(messages.at(-1) ?? "", /connection refused/);
+    api.testProxyDelay = async () => {
+      throw new DOMException("deadline", "TimeoutError");
+    };
+    await latency.testSingle("node");
+    assert.equal(store.manualProxyDelays.node, 0);
+  });
+
+  it("does not keep a stale success when the group response omits a member", async () => {
+    store.proxies.PROXY = {
+      name: "PROXY",
+      type: "Selector",
+      udp: true,
+      history: [],
+      all: ["node"],
+    };
+    store.manualProxyDelays.node = 42;
+    api.testGroupDelay = async () => ({});
+    await useProxyLatency().testGroup("PROXY");
+    assert.equal(store.manualProxyDelays.node, "failed");
+  });
+
   it("applies group delays to the captured current runtime", async () => {
     api.testGroupDelay = async () => ({ node: 42 });
     const latency = useProxyLatency();

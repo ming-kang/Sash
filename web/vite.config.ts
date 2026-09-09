@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, type Plugin } from "vite";
+import { remixIconsPlugin } from "./remix-icons.js";
 
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -70,7 +71,7 @@ function fontSplitPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [fontSplitPlugin(), vue()],
+  plugins: [fontSplitPlugin(), remixIconsPlugin(), vue()],
   base: "./",
   root: webRoot,
   build: {
