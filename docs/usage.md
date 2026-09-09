@@ -26,18 +26,19 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash web` | Start management if needed and authorize/open the dashboard. |
 | `sash web --no-open` | Start management and print its address without authorizing a browser. |
 | `sash update [--version TAG]` | Download, verify and install a Core release through the daemon. |
+| `sash upgrade [version] [--check] [--json]` | Update the Sash package and dashboard, then restore all instances sharing its installation. |
 | `sash auto [on\|off\|status]` | Set or inspect Windows login startup. No argument means status. |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | Read Core or daemon logs; follow waits for creation and handles rotation. |
 | `sash logs --startup [-n N] [-f]` | Read login attempts, including settings errors before daemon startup. |
 | `sash version` | Print the package version. |
 
-WebUI **Stop Core** keeps the management process open. To reload updated Sash program code, use stop followed by start/web. `restart` only replaces Core.
+WebUI **Stop Core** keeps the management process open. `sash upgrade` replaces Sash program code and restarts affected management processes automatically. `restart` applies saved configuration to Core.
 
 ## Browser access
 
 Run `sash web` as the same user and with the same `SASH_HOME` as the instance. A private local handoff authorizes the browser without printing credentials. It expires after 90 seconds and works once; rerun the command if needed.
 
-An authorized tab survives refresh and Core restarts/updates. A daemon restart needs a new authorization. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address displays connection instructions.
+An authorized tab survives refresh and Core restarts/updates. Sessions expire after twelve idle hours and renew while used. A normal daemon restart needs a new authorization; `sash upgrade` provides a ten-minute continuation for already authorized tabs. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address displays connection instructions.
 
 ## Settings and profiles
 
@@ -82,6 +83,7 @@ runtime/config.yaml             generated runtime configuration
 bin/                            Core executable and temporary update backup
 state/install.json              installed version
 state/core-update-transaction.json  active binary update/recovery
+state/sash-upgrade-handoff.json  private runtime snapshot during Sash replacement
 state/system-proxy.json         original proxy snapshot and recovery phase
 state/sash.pid, state/sashd.pid  process discovery records
 state/sashd*.lock               daemon singleton/startup ownership
@@ -97,16 +99,23 @@ Core updates keep the dashboard available and preserve whether Core was running.
 
 Downloads require official SHA-256 metadata, trusted HTTPS origins and bounded extraction. If verification cannot complete, the update fails rather than executing unverifiable bytes.
 
-Update Sash itself through npm:
+Update Sash itself:
 
 ```sh
-sash stop
-npm install -g @astralyn/sash
-sash start
-sash web
+sash upgrade --check       # inspect the latest release and compatibility
+sash upgrade               # update Sash and restore affected instances
+sash upgrade --json        # machine-readable result; progress is suppressed
 ```
 
-`sash upgrade` and `sash update --force` are removed. Damaged installations are diagnosed and preserved; use a clean data directory for reinstalling after stopping the existing instance.
+The default target is the official npm `latest` release. An optional exact published version selects an upgrade or downgrade. An already-current version exits successfully. `--check` leaves the installation and data directories unchanged and never starts management. Source checkouts, linked packages and other package managers receive guidance for their installation method.
+
+Sash checks Node compatibility and prepares the package, dependencies and recovery files before stopping anything. It coordinates all data directories sharing the installation, restarts their original management/Core state, preserves the actual applied configuration, and keeps saved but unapplied edits pending. Core's version remains unchanged. Working login startup and Sash-owned proxy settings are restored with the runtime; the dashboard reconnects through its private session continuation. Connections are briefly interrupted while running Core instances restart.
+
+Installation or health failures restore the previous package and runtime without a network download. After an interrupted upgrade, run `sash upgrade` again to finish recovery. The command remains available through a recovery launcher even if the package directory was temporarily moved. Keep the reported recovery files when ownership cannot be verified, resolve the reported conflict and retry. A recovered transaction exits before starting a new version change.
+
+`--check --json` reports `current`, `target`, `available`, `compatible`, `supported` and any pending recovery. Execution JSON also reports an `outcome`; completed transactions include the installed `version`, restored instance count and `recoveryRequired`. Exit code `0` means a successful check, no-op, upgrade or recovery; `1` means an unsupported/incompatible execution or failure. Check `compatible` and `supported` when consuming a successful check.
+
+For manual package-manager maintenance, stop affected instances first, update using their installation method, then start them again. `sash update --force` is unavailable. Damaged Core installations are diagnosed and preserved; stop the existing instance before using a clean data directory for reinstallation.
 
 ## Status and troubleshooting
 
@@ -123,6 +132,7 @@ sash web
 - **Proxy restoration blocked:** keep the ownership journal and inspect the current Windows settings. Sash will not overwrite third-party changes or stop a healthy Core while restoration fails.
 - **Daemon ownership unknown:** inspect its logs and PID/lease records; Sash will not kill an unverified process or start a competitor.
 - **Interrupted update:** stop and start the daemon so its startup recovery can run. Corrupt or unrecognized backup/metadata files are preserved for inspection.
+- **Interrupted Sash upgrade:** run `sash upgrade`; `sash upgrade --check` reports the pending phase without changing it.
 - **Login startup failed:** read `sash auto status` and `sash logs --startup`; repair the entry with `sash auto on`.
 - **Shutdown failed:** the management API remains available for retry. Resolve the reported proxy/Core failure and repeat `sash stop`.
 

@@ -79,6 +79,25 @@ describe("state locks", () => {
     }
   });
 
+  it("retries when a contender releases the lock between EEXIST and inspection", async (t) => {
+    const link = fs.linkSync;
+    let raced = false;
+    t.mock.method(fs, "linkSync", (source: fs.PathLike, target: fs.PathLike) => {
+      if (target === lockFile && !raced) {
+        raced = true;
+        throw Object.assign(new Error("contender just released"), { code: "EEXIST" });
+      }
+      link(source, target);
+    });
+    const lease = await acquireStateLock(lockFile, {
+      purpose: "acquire after release race",
+      timeoutMs: 0,
+    });
+    assert.equal(raced, true);
+    lease.release();
+    assert.equal(fs.existsSync(lockFile), false);
+  });
+
   it("retries when a lock disappears between inspection and reading", async () => {
     const owner = acquireStateLockSync(lockFile, { purpose: "racing owner" });
     const originalReadFileSync = fs.readFileSync;

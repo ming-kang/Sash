@@ -6,15 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add `sash upgrade [version] [--check] [--json]` for complete Sash self-upgrades. Prepare and verify npm dependencies before downtime, coordinate shared instances, restore applied Core/proxy state and browser access, preserve pending edits and login startup, and recover failures or interruptions through an independent worker and durable command launcher.
+
 ### Security
 
 - Disable controller redirects, strip hop-by-hop gateway headers, and expire idle browser sessions after 12 hours with sliding renewal.
+- Verify release downloads while streaming, keep downloaded archives private on POSIX, and retain integrity/ownership checks throughout npm package replacement and cleanup.
 - Remove alternate controller sockets/pipes and tunnels from generated configurations, and reject custom listeners before changing a running Core.
 - Require authentication to read settings and profile metadata; redact subscription URLs from unauthenticated daemon status while preserving authorized CLI and dashboard access.
 - Record extracted Core binary SHA-256 digests and verify installed, staged and rollback files before execution or recovery. Authenticate existing version-only records against official release artifacts before adding their digests.
 
 ### Fixed
 
+- Retry installation lock acquisition when another owner releases between contention and inspection, without deleting another attempt's temporary file.
+- Keep mirror download progress monotonic and preserve Windows process paths containing Unicode during identity inspection.
+- Recheck process liveness before treating a stale process-census entry as an unidentified upgrade owner, and preserve subprocess JSON error details in upgrade diagnostics.
 - Keep runtime routing-mode requests outside the application mutation queue and reject missing or changed Core ownership.
 - Preserve HTTP status errors when controller, release or subscription error bodies are oversized or unreadable, and stop release lookup fallback after cancellation.
 - Keep all CLI logs readable when settings are corrupt and separate long status labels from their values.

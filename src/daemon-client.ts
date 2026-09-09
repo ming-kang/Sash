@@ -6,10 +6,13 @@ import type {
   HealthInfo,
   SettingsPatch,
   SettingsWriteResult,
+  UpgradeRuntimeStatus,
   WebBootstrapInfo,
 } from "./contracts.js";
 import { ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
 import { SashClient, type SashClientFetch } from "./sash-client.js";
+import type { PublicSashSettings } from "./settings.js";
+import type { UpgradeAccess } from "./upgrade-access.js";
 
 const DAEMON_SUCCESS_BODY_LIMIT = 1024 * 1024;
 
@@ -20,6 +23,7 @@ const daemonFetch: SashClientFetch = async (url, init) => {
     headers: init.headers,
     ...(init.body !== undefined ? { body: init.body } : {}),
     direct: true,
+    manualRedirect: true,
     deadlineMs: init.timeoutMs,
     headersTimeoutMs: init.timeoutMs,
     ...(init.attempts !== undefined ? { attempts: init.attempts } : {}),
@@ -91,6 +95,22 @@ export class SashDaemonClient {
 
   patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {
     return this.client.patchSettings(patch);
+  }
+
+  getSettings(): Promise<PublicSashSettings> {
+    return this.client.getSettings();
+  }
+  upgradeRuntime(
+    action: "reserve" | "status" | "verify" | "commit",
+    access: UpgradeAccess,
+  ): Promise<UpgradeRuntimeStatus> {
+    return this.client.upgradeRuntime(action, access);
+  }
+  upgradeRuntimeAction(
+    action: "stop" | "release" | "cleanup",
+    access: UpgradeAccess,
+  ): Promise<void> {
+    return this.client.upgradeRuntimeAction(action, access);
   }
 
   async shutdown(): Promise<void> {

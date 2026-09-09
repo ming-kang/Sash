@@ -48,7 +48,7 @@ export interface UpgradeRuntimeStatus {
   transactionId: string;
   bootId: string;
   version: string;
-  phase: "reserved" | "stopping" | "stopped" | "restoring" | "restored" | "committed";
+  phase: "none" | "reserved" | "stopping" | "stopped" | "restoring" | "restored" | "committed";
   running: boolean;
 }
 export interface CoreStartResult {
@@ -229,7 +229,7 @@ export function parseUpgradeRuntimeStatus(value: unknown): UpgradeRuntimeStatus 
   const source = object(value, "upgrade runtime");
   if (
     typeof source.phase !== "string" ||
-    !["reserved", "stopping", "stopped", "restoring", "restored", "committed"].includes(
+    !["none", "reserved", "stopping", "stopped", "restoring", "restored", "committed"].includes(
       source.phase,
     )
   )

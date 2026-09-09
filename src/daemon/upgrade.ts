@@ -69,13 +69,16 @@ export class DaemonUpgradeService {
   }
 
   status(access: UpgradeAccess): UpgradeRuntimeStatus {
-    const handoff = this.requireCurrent(access);
+    this.authorize(access);
+    const handoff = readUpgradeHandoff(this.ctx.layout, access);
+    if (handoff && !this.current)
+      throw new StateConflictError("This daemon has not restored its Sash upgrade handoff");
     return {
       transactionId: access.transactionId,
       bootId: this.ctx.token,
       version: this.ctx.version,
-      phase: handoff.phase,
-      running: handoff.runtime.running,
+      phase: handoff?.phase ?? "none",
+      running: handoff?.runtime.running ?? this.ctx.supervisor.isRunning(),
     };
   }
 
@@ -130,6 +133,7 @@ export class DaemonUpgradeService {
             sourceVersion: ctx.version,
             targetVersion: authorization.targetVersion,
             nodePath: canonicalPath(process.execPath),
+            nodeHistory: [canonicalPath(process.execPath)],
             createdAt: new Date().toISOString(),
             stateRevision: state.revision,
             stateSha256: crypto.hash(
@@ -205,9 +209,25 @@ export class DaemonUpgradeService {
       access.transactionId,
       "restore Sash upgrade runtime",
       async () => {
-        this.checkpoint(access, { ...handoff, phase: "restoring", restoredBootId: this.ctx.token });
+        const nodeHistory = [...handoff.nodeHistory];
+        if (!nodeHistory.some((node) => pathsEqual(node, process.execPath)))
+          nodeHistory.push(canonicalPath(process.execPath));
+        this.checkpoint(access, {
+          ...handoff,
+          nodeHistory,
+          phase: "restoring",
+          restoredBootId: this.ctx.token,
+        });
         await this.ctx.lifecycle.recoverStartup();
         await this.ctx.lifecycle.restore(handoff.runtime);
+        if (
+          handoff.autostart.state === "on" &&
+          (await this.ctx.autostart.inspect()).state !== "on"
+        ) {
+          if (!this.ctx.autostart.repairAfterUpgrade)
+            throw new Error("Cannot preserve login startup with the changed Node executable");
+          await this.ctx.autostart.repairAfterUpgrade(nodeHistory);
+        }
         this.ctx.webAuth.installContinuation(
           handoff.sessions,
           access.grant,
@@ -215,7 +235,11 @@ export class DaemonUpgradeService {
           Date.parse(handoff.continuationExpiresAt),
         );
         await this.verifyRuntime(handoff);
-        this.checkpoint(access, { ...handoff, phase: "restored", restoredBootId: this.ctx.token });
+        this.checkpoint(access, {
+          ...this.requireCurrent(access),
+          phase: "restored",
+          restoredBootId: this.ctx.token,
+        });
       },
     );
   }
@@ -241,6 +265,20 @@ export class DaemonUpgradeService {
       throw new Error("Sash upgrade system proxy verification failed");
     if (handoff.autostart.state === "on" && autostart.state !== "on")
       throw new Error("Sash upgrade login startup verification failed");
+  }
+
+  async verify(access: UpgradeAccess): Promise<UpgradeRuntimeStatus> {
+    return this.ctx.gate.mutateReserved(
+      access.transactionId,
+      "verify Sash upgrade runtime",
+      async () => {
+        const handoff = this.requireCurrent(access);
+        if (handoff.phase !== "restored")
+          throw new StateConflictError("Sash runtime has not been restored");
+        await this.verifyRuntime(handoff);
+        return this.status(access);
+      },
+    );
   }
 
   async commit(access: UpgradeAccess): Promise<UpgradeRuntimeStatus> {

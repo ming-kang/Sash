@@ -191,8 +191,10 @@ function tryCreateStateLock(
   );
 
   let fd: number | undefined;
+  let tempCreated = false;
   try {
     fd = fs.openSync(temp, "wx", 0o600);
+    tempCreated = true;
     fs.writeFileSync(fd, `${JSON.stringify(record)}\n`, "utf8");
     fs.fsyncSync(fd);
     fs.closeSync(fd);
@@ -203,7 +205,7 @@ function tryCreateStateLock(
     fs.linkSync(temp, file);
     return createLease(file, record);
   } catch (err) {
-    if (errnoCode(err) === "EEXIST" && fs.existsSync(file)) return undefined;
+    if (tempCreated && errnoCode(err) === "EEXIST") return undefined;
     throw lockError(file, `could not create (${errorMessage(err)})`, record);
   } finally {
     if (fd !== undefined) {
@@ -214,7 +216,7 @@ function tryCreateStateLock(
       }
     }
     try {
-      fs.unlinkSync(temp);
+      if (tempCreated) fs.unlinkSync(temp);
     } catch {
       // The linked canonical record, when present, remains valid.
     }

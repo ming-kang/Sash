@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Transform } from "node:stream";
@@ -275,6 +276,8 @@ export interface DownloadOptions {
   requireHttps?: boolean;
   /** Every initial and redirected download host must be in this set. */
   allowedHosts: ReadonlySet<string>;
+  /** Authenticate bytes as they stream, before a completed download can be used. */
+  integrity?: { algorithm: "sha256" | "sha512"; digest: string };
 }
 
 function validateRedirectTarget(
@@ -319,6 +322,15 @@ export async function downloadToFile(
   let res: Awaited<ReturnType<typeof request>> | undefined;
 
   try {
+    const integrity = opts.integrity;
+    if (
+      integrity &&
+      !new RegExp(`^[a-f0-9]{${integrity.algorithm === "sha256" ? 64 : 128}}$`).test(
+        integrity.digest,
+      )
+    )
+      throw new Error("Invalid expected download digest");
+    const hash = integrity ? crypto.createHash(integrity.algorithm) : undefined;
     let currentUrl = validateRedirectTarget(url, url, opts.allowedHosts, opts.requireHttps);
     let hops = 0;
     for (;;) {
@@ -377,13 +389,18 @@ export async function downloadToFile(
           return;
         }
         opts.onProgress?.(downloaded, total);
+        hash?.update(chunk);
         callback(null, chunk);
       },
     });
 
     outputStarted = true;
-    await pipeline(res.body, limiter, fs.createWriteStream(dest, { mode: 0o755 }));
+    await pipeline(res.body, limiter, fs.createWriteStream(dest, { mode: 0o600 }));
     if (downloaded === 0) throw new Error(`Empty download from ${currentUrl}`);
+    if (integrity && hash?.digest("hex") !== integrity.digest)
+      throw new Error(
+        `${integrity.algorithm === "sha256" ? "SHA-256" : "SHA-512"} mismatch for downloaded artifact`,
+      );
     return downloaded;
   } catch (err) {
     if (res) abortResponseBody(res.body);

@@ -40,7 +40,11 @@ export function pathsEqual(left: string, right: string): boolean {
 }
 
 export function installationId(packageRoot: string): string {
-  const root = canonicalPath(packageRoot);
+  return installationIdFromCanonicalPath(canonicalPath(packageRoot));
+}
+
+export function installationIdFromCanonicalPath(root: string): string {
+  assertAbsolutePath(root);
   return crypto.hash("sha256", process.platform === "win32" ? root.toLowerCase() : root);
 }
 
@@ -58,6 +62,16 @@ export function npmShimPaths(prefix: string, platform = process.platform): strin
   return platform === "win32"
     ? [path.join(prefix, "sash"), path.join(prefix, "sash.cmd"), path.join(prefix, "sash.ps1")]
     : [path.join(prefix, "bin", "sash")];
+}
+
+/** Structural lookup also works while the active package slot is temporarily absent. */
+export function npmPrefixForPackage(
+  packageRoot: string,
+  platform = process.platform,
+): string | undefined {
+  const modules = path.dirname(path.dirname(packageRoot));
+  const prefix = platform === "win32" ? path.dirname(modules) : path.dirname(path.dirname(modules));
+  return pathsEqual(npmPackageRoot(prefix, platform), packageRoot) ? prefix : undefined;
 }
 
 /** Read-only installation ownership detection shared by startup and self-upgrade. */

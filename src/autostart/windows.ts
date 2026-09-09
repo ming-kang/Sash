@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import path from "node:path";
+import { pathsEqual } from "../installation.js";
 import {
   type AutostartBackend,
   type AutostartContext,
@@ -49,10 +51,14 @@ export function windowsAutostart(ctx: AutostartContext): AutostartBackend {
     async inspect() {
       const registration = await readWindowsRegistration(ctx);
       if (registration.command === null) return "off";
+      const target = parseWindowsLauncher(readRegistration(file));
       if (
         !launcherFilesExist(ctx) ||
         registration.command.toLowerCase() !== launcherCommand().toLowerCase() ||
-        !readRegistration(file)?.equals(contents())
+        !target ||
+        !sameTargetPath(target.nodePath, ctx.nodePath) ||
+        !sameTargetPath(target.entryPath, ctx.entryPath) ||
+        !sameTargetPath(target.dataDir, ctx.dataDir)
       ) {
         return "stale";
       }
@@ -68,4 +74,35 @@ export function windowsAutostart(ctx: AutostartContext): AutostartBackend {
       }
     },
   };
+}
+
+export interface WindowsLauncherTarget {
+  nodePath: string;
+  entryPath: string;
+  dataDir: string;
+}
+
+/** Only accept our complete generated script, never arbitrary executable VBScript. */
+export function parseWindowsLauncher(
+  contents: Buffer | undefined,
+): WindowsLauncherTarget | undefined {
+  if (!contents) return undefined;
+  const text = contents.toString("utf16le");
+  const nodePath = text.match(/environment\("SASH_AUTOSTART_NODE"\) = "([^"\r\n]+)"/)?.[1];
+  const entryPath = text.match(/environment\("SASH_AUTOSTART_ENTRY"\) = "([^"\r\n]+)"/)?.[1];
+  const dataDir = text.match(/environment\("SASH_HOME"\) = "([^"\r\n]+)"/)?.[1];
+  if (!nodePath || !entryPath || !dataDir || ![nodePath, entryPath, dataDir].every(path.isAbsolute))
+    return undefined;
+  return contents.equals(windowsLauncherContents(nodePath, entryPath, dataDir))
+    ? { nodePath, entryPath, dataDir }
+    : undefined;
+}
+
+function sameTargetPath(left: string, right: string): boolean {
+  if (pathsEqual(left, right)) return true;
+  try {
+    return pathsEqual(fs.realpathSync.native(left), fs.realpathSync.native(right));
+  } catch {
+    return false;
+  }
 }

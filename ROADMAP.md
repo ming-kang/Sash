@@ -59,7 +59,7 @@
 - [ ] **`sash mode rule|global|direct`**（S）：`setMode` 已实现未接线（`src/sash-client.ts:273-277`）；
   依赖批次 2 的 setCoreMode 语义决定
 - [ ] **`sash update --check`**（M）：只查不装；同时给 update 加进度输出（见批次 5 的状态暴露）
-- [ ] **`sash upgrade [version]` 完整自更新**（L）：一步更新 Sash npm 包、daemon 与内置 WebUI；
+- [x] **`sash upgrade [version]` 完整自更新**（L）：一步更新 Sash npm 包、daemon 与内置 WebUI；
   支持 `--check`，验证当前安装来源、prefix、目标版本与 Node 兼容性。
   停机前准备完整依赖与恢复材料，通过安装目录外的 helper 执行 npm 安装和新版本验证。
   协调共享安装的多实例，自动恢复原 daemon/Core/代理状态与实际已应用配置，保留未 Apply 修改。
@@ -94,7 +94,7 @@
 - [ ] 延迟测试后支持按延迟排序；失败与超时区分并给 toast（M）
 - [ ] profile 卡片更新按钮反映互斥锁禁用态（`ProfilesView.vue:300-302`，S）
 - [ ] WS 短暂断连不清空流量历史（容忍一个丢失间隔，`App.vue:126-131`，S）
-- [ ] 清理死代码：未使用的图标、`cycleTheme`、未用 i18n 键（S）
+- [ ] 清理死代码：未使用的图标、`cycleTheme`、未用 i18n 键；改用图标的独立组件入口，避免全量图标进入首页包（S）
 
 ## 批次 5 — 事件通道与可见性
 
@@ -106,14 +106,13 @@
 
 ## 零散低优先级（顺手做）
 
+- [x] 后端：下载内联 SHA-256、下载归档权限 0o600、controller 客户端禁跟随重定向、镜像切换时进度不回跳
+- [x] daemon：网关剥离逐跳头、WebUI 会话 TTL 与滑动续期、listen 后挂常驻 error 日志
 - 后端：Apply 时缓存解析后的 profile 文档（revision 不可变，`src/profiles.ts:55`、
-  `profile-service.ts:92,130`，M）；下载内联 SHA-256 免二次全文件读（`src/http.ts:363-373`，S）；
-  temp 目录/孤儿 revision 定期清扫（S）；下载归档权限 0o600（S）；controller 客户端禁跟随
-  重定向（`src/api.ts:38-45`，S）；YAML 解析选项统一 `maxAliasCount`（S）；
-  订阅 userinfo 空值不当作 0（S）；镜像切换时进度不回跳（S）
-- daemon：网关剥离逐跳头（`src/daemon-proxy.ts:27-33`，S）；WebUI 会话 TTL 与滑动续期（S–M）；
-  静态服务 fd-once + UI 未安装时的明确 404 文案（S）；损坏状态文件报错带路径（S）；
-  路由匹配首中即停（S）；listen 后挂常驻 error 日志（S）
+  `profile-service.ts:92,130`，M）；temp 目录/孤儿 revision 定期清扫（S）；
+  YAML 解析选项统一 `maxAliasCount`（S）；订阅 userinfo 空值不当作 0（S）
+- daemon：静态服务 fd-once + UI 未安装时的明确 404 文案（S）；损坏状态文件报错带路径（S）；
+  路由匹配首中即停（S）
 - 产品：订阅格式检测（base64 分享链接给定向报错，S）；controller 延迟测试端点封装
   供 status 使用（M）；PowerShell 缺失时 WinINET 刷新的回退与文档（S）；
   Defender 首跑场景下新装二进制验证超时放宽到 15-20s（S）；PowerShell 完成脚本（M）

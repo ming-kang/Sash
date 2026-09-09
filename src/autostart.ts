@@ -9,11 +9,13 @@ import { installationIssue } from "./autostart/installation.js";
 import { windowsAutostart } from "./autostart/windows.js";
 import type { AutostartStatus } from "./autostart-contract.js";
 import { errorMessage } from "./error-utils.js";
+import { pathsEqual } from "./installation.js";
 import { StateMutationQueue } from "./state-lock.js";
 
 export interface AutostartController {
   inspect(): Promise<AutostartStatus>;
   set(enabled: boolean): Promise<AutostartStatus>;
+  repairAfterUpgrade?(previousNodePaths: readonly string[]): Promise<AutostartStatus>;
 }
 
 interface AutostartServiceOptions extends AutostartOptions {
@@ -82,6 +84,32 @@ export class AutostartService implements AutostartController {
       if (status.state !== "on") {
         throw new Error(`Could not verify autostart: ${status.reason ?? status.state}`);
       }
+      return status;
+    });
+  }
+
+  /** Repair a changed Node path only while the original registration is still ours. */
+  async repairAfterUpgrade(previousNodePaths: readonly string[]): Promise<AutostartStatus> {
+    if (this.context.platform !== "win32" || !this.backend)
+      throw new AutostartUnavailableError("Cannot restore login startup on this platform");
+    return this.queue.run("restore login startup after upgrade", async () => {
+      const current = await this.inspect();
+      if (current.state === "on") return current;
+      let owned = false;
+      for (const nodePath of previousNodePaths) {
+        if (pathsEqual(nodePath, this.context.nodePath)) continue;
+        if ((await windowsAutostart({ ...this.context, nodePath }).inspect()) === "on") {
+          owned = true;
+          break;
+        }
+      }
+      if (!owned)
+        throw new Error("Login startup changed outside Sash; its registration was preserved");
+      const issue = this.checkInstallation(this.context);
+      if (issue) throw new AutostartUnavailableError(issue);
+      await this.backend?.set(true);
+      const status = await this.inspect();
+      if (status.state !== "on") throw new Error("Cannot verify repaired login startup");
       return status;
     });
   }

@@ -229,7 +229,7 @@ export class SashClient {
   }
 
   async upgradeRuntime(
-    action: "reserve" | "status" | "commit",
+    action: "reserve" | "status" | "verify" | "commit",
     access: UpgradeAccess,
   ): Promise<UpgradeRuntimeStatus> {
     return parseUpgradeRuntimeStatus(

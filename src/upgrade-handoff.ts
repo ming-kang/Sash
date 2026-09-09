@@ -35,6 +35,7 @@ export interface UpgradeHandoff {
   sourceVersion: string;
   targetVersion: string;
   nodePath: string;
+  nodeHistory: string[];
   createdAt: string;
   stateRevision: number;
   stateSha256: string;
@@ -113,6 +114,7 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
       "sourceVersion",
       "targetVersion",
       "nodePath",
+      "nodeHistory",
       "createdAt",
       "stateRevision",
       "stateSha256",
@@ -150,6 +152,15 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
     throw new Error("Invalid Sash handoff identity");
   assertAbsolutePath(value.dataDir);
   assertAbsolutePath(value.nodePath);
+  if (
+    !Array.isArray(value.nodeHistory) ||
+    value.nodeHistory.length < 1 ||
+    value.nodeHistory.length > 16 ||
+    value.nodeHistory.some((node: unknown) => typeof node !== "string")
+  )
+    throw new Error("Invalid Node executable handoff history");
+  const nodeHistory = value.nodeHistory as string[];
+  nodeHistory.forEach(assertAbsolutePath);
   const coreInstallation =
     value.coreInstallation === null ? null : parseInstallRecord(value.coreInstallation);
   if (coreInstallation === undefined || (coreInstallation && !coreInstallation.sha256))
@@ -179,6 +190,7 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
     sourceVersion: exactSashVersion(value.sourceVersion),
     targetVersion: exactSashVersion(value.targetVersion),
     nodePath: value.nodePath,
+    nodeHistory: [...nodeHistory],
     createdAt: value.createdAt,
     stateRevision: value.stateRevision,
     stateSha256: value.stateSha256,

@@ -10,7 +10,7 @@ Sash manages one local Core through one loopback daemon. The [high-level archite
 
 Daemon status exposes `mutationQueue: {active: {purpose, startedAt} | null, queued}`. Operations lasting at least five seconds produce one diagnostic, including synchronous work that delayed the timer. Counters remain accurate across cancellation, errors and shutdown retries.
 
-CLI commands use `runtime-owner.ts` and `daemon-lifecycle.ts` for read-only discovery, management startup and API calls. A live but unverified daemon blocks competing startup and cannot be stopped by an unverified signal. CLI discovery uses the observed daemon port. The private browser handoff and startup diagnostics are the only incidental CLI files.
+CLI commands use `runtime-owner.ts` and `daemon-lifecycle.ts` for read-only discovery, management startup and API calls. A live but unverified daemon blocks competing startup and cannot be stopped by an unverified signal. CLI discovery uses the observed daemon port. Self-upgrade additionally owns installation files; application state and private runtime handoffs remain daemon-written.
 
 Daemon startup also holds an installation admission lock while loading application code and publishing its instance record. The per-user installation registry is independent of `SASH_HOME`, so separate data directories using the same package can be discovered together. Records identify the package, Node executable, data directory, PID and boot; cleanup only removes the matching boot. Health and status expose the version captured at startup and the installation ID, which remain stable if package files change afterward.
 
@@ -22,12 +22,14 @@ Daemon startup also holds an installation admission lock while loading applicati
 | `runtime-lifecycle.ts` | Order Core and proxy changes; retain the applied configuration and runtime revision |
 | `supervisor.ts`, `process.ts` | Owned child handles, version/health checks and verified termination |
 | `core.ts`, `core-update.ts`, `core-install-record.ts` | Trusted downloads and one executable/install-record transaction |
+| `self-upgrade.ts`, `upgrade-transaction.ts`, `upgrade-activation.ts` | npm preparation, coordinated installation decisions and recoverable package replacement |
+| `daemon/upgrade.ts`, `upgrade-handoff.ts` | Runtime reservation, private snapshots, restoration and browser continuation |
 | `system-proxy-manager.ts`, `sysproxy/` | Windows proxy snapshot, verification and conditional recovery |
 | `autostart.ts`, `autostart/` | Windows current-user registration and launcher validation |
 | `daemon/router.ts`, `daemon/handlers/` | Route matching, authentication, parsing and domain dispatch |
 | `contracts.ts`, `sash-client.ts`, `daemon-client.ts` | Shared browser-safe protocol and direct Node transport |
 
-Persistent locks remain only where separate processes share a resource: daemon startup/singleton ownership and per-user Windows proxy/autostart operations. There are no runtime, settings or offline mutation locks and no CLI maintenance handoff.
+Persistent locks cover resources shared by processes: daemon startup/singleton ownership, installation upgrades and per-user Windows proxy/autostart operations. Application mutations use the daemon's in-memory queue.
 
 ## Saved state
 
@@ -97,6 +99,20 @@ The old executable remains `.bak` until the final phase. Even a stopped update o
 
 Profile sources, metadata and settings never participate in this transaction. There is no deferred health decision, force-repair quarantine or coordinated second journal.
 
+## Sash self-upgrades
+
+`sash upgrade [version]` resolves the official npm release, validates the installation, exact version, Node requirement and handoff protocol, and launches a bundled worker outside the package directory. `--check` performs only reads. npm installs the verified SHA-512 tarball and dependencies into an isolated prefix on the installation filesystem, using private npm configuration and a scrubbed environment. Candidate checks execute its own CLI, daemon imports and independent worker, and verify dashboard build references before reserving any runtime.
+
+The installation upgrade lock excludes other updaters. A startup barrier and the per-user admission lock exclude competing daemon starts during replacement. Discovery verifies registered PID/lease, executable, boot, version and authenticated API identity; unregistered live owners block replacement. Every instance is reserved before any is stopped. Reservation closes mutation admission immediately, cancels preparation and drains application writes plus runtime-only controller/gateway mutations.
+
+The bounded installation journal at `<prefix>/.sash-upgrade/journal.json` records fixed package/shim roles, per-file SHA-256 manifests and instance references. It contains no subscription content or credentials. Private authority lives in the per-user installation registry; each daemon writes an authenticated `state/sash-upgrade-handoff.json` containing the applied configuration, runtime mode/selections, actual owned proxy state, browser continuation and saved-state identity. Restoring never implicitly applies saved edits or upgrades Core.
+
+A permanent small launcher and temporary npm shims reach the standalone worker while the active package slot is absent. Activation moves the original package to its transaction slot, installs the complete candidate and restores npm's native shims. The original package remains until all restored daemons report the exact target version and pass runtime health checks. Failures before replacement release reservations; later failures restore the prior package and runtime offline. Recovery follows actual verified file placement. A durable commit is never rolled back because cleanup was interrupted; separate cleanup phases safely resume after authority removal, and completed ownership markers identify residual helper files.
+
+Login startup maintenance uses a short-lived daemon writer and the existing OS-user ownership lock. It preserves a working registration and its Node executable when compatible, conditionally repairs that executable when required, and restores the original on rollback. This also handles stopped installations without creating application state or starting Core.
+
+`upgrade-runtime.test.ts` covers real isolated management processes and abrupt updater exits across instance reservation, stop, restore, commit and cleanup. Supplying `SASH_TEST_CORE_ARCHIVE`, its official `SASH_TEST_CORE_SHA256` and `SASH_TEST_CORE_VERSION` additionally runs real Core upgrade/rollback smoke tests. Use an independently verified archive inside a temporary directory, run through `scripts/run-tests.mjs`, and keep OS adapters, data directories and ports isolated. The complete contract is in [self-upgrade-design.md](./self-upgrade-design.md).
+
 ## Windows integration
 
 System-proxy ownership uses `state/system-proxy.json` with `prepared`, `applied` and `restoring` phases. Before OS writes it stores the original and target Windows registry values. Managed values are proxy enable/server, bypass list and PAC URL; Windows owns `AutoDetect`, which is observed but not written or compared for ownership.
@@ -118,6 +134,9 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/daemon/shutdown` | POST | Control; complete cleanup, then `204` and listener close |
 | `/sash/web/bootstrap` | POST | Control; mint one-time browser handoff |
 | `/sash/web/session` | POST | Redeem the handoff token supplied in the body |
+| `/sash/web/continue` | POST | Exchange a private upgrade session and its prior boot identity |
+| `/sash/upgrade/{reserve,status,verify,commit}` | POST | Control plus private transaction authority; runtime handoff state |
+| `/sash/upgrade/{stop,release,cleanup}` | POST | Control plus private transaction authority; lifecycle action, `204` |
 | `/sash/core/start` | POST | Control; idempotent start, applying saved state if stopped |
 | `/sash/core/restart` | POST | Control; Apply saved state and restart Core |
 | `/sash/core/stop` | POST | Control; stop Core, keep management; `204` |
@@ -145,6 +164,6 @@ The Core gateway permits queries, node selection and connection deletion. Manage
 
 The listener binds to `127.0.0.1`, validates loopback Host/Origin, and parses one canonical origin-form target for authentication and forwarding. Core requests use a direct dispatcher. Browser requests carry private per-boot sessions; the persistent CLI bearer never reaches the browser or Core gateway. Public health identity is not a credential. API responses are non-cacheable.
 
-`sash web` creates a 90-second single-use handoff in an owner-private local file. The browser removes its fragment before redemption, stores the session in tab storage and verifies the daemon boot. Only hashes are retained in the daemon, with bounded grant/session counts. Restarting Core preserves sessions; restarting the daemon invalidates them.
+`sash web` creates a 90-second single-use handoff in an owner-private local file. The browser removes its fragment before redemption, stores the session in tab storage and verifies the daemon boot. Only hashes are retained in the daemon, with bounded grant/session counts and a twelve-hour sliding idle limit. Restarting Core preserves sessions; ordinary daemon restarts invalidate them. A reserved self-upgrade transfers hashed session identity for a ten-minute continuation, requiring the old private token and boot identity. Protected routes return `409` until continuation succeeds. Public health metadata cannot authorize it.
 
 All helper children receive scrubbed environments. Sensitive state/logs use POSIX `0600`; browser handoffs also use owner-only Windows ACLs. Atomic publication uses a same-directory temporary file, file fsync, rename and POSIX directory fsync. Windows sharing violations are retried without deleting unverified files. Use a local filesystem supporting atomic rename and hard links.

@@ -67,7 +67,7 @@ function recordPath(record: Pick<InstallationInstance, "installationId" | "dataD
   );
 }
 
-function parseInstance(value: unknown, id: string): InstallationInstance {
+export function parseInstallationInstance(value: unknown, id: string): InstallationInstance {
   if (
     !isPlainObject(value) ||
     !hasExactOwnKeys(value, [
@@ -123,7 +123,7 @@ function parseInstance(value: unknown, id: string): InstallationInstance {
 
 /** Called by the daemon holding the data-directory lease and installation startup gate. */
 export function registerInstallationInstance(record: InstallationInstance): InstallationInstance {
-  const normalized = parseInstance(
+  const normalized = parseInstallationInstance(
     {
       ...record,
       packageRoot: canonicalPath(record.packageRoot),
@@ -141,7 +141,10 @@ export function registerInstallationInstance(record: InstallationInstance): Inst
 export function unregisterInstallationInstance(record: InstallationInstance): void {
   const file = recordPath(record);
   try {
-    const current = parseInstance(readBoundedJsonFile(file, 16 * 1024), record.installationId);
+    const current = parseInstallationInstance(
+      readBoundedJsonFile(file, 16 * 1024),
+      record.installationId,
+    );
     if (current.pid === record.pid && current.bootId === record.bootId) durableRemoveFileSync(file);
   } catch (error) {
     if (errnoCode(error) !== "ENOENT") throw error;
@@ -163,7 +166,7 @@ export function listInstallationInstances(id: string, packageRoot: string): Inst
     if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/.test(entry.name))
       throw new Error("Unrecognized installation registry entry");
     const file = path.join(directory, entry.name);
-    const record = parseInstance(readBoundedJsonFile(file, 16 * 1024), id);
+    const record = parseInstallationInstance(readBoundedJsonFile(file, 16 * 1024), id);
     if (
       !pathsEqual(record.packageRoot, packageRoot) ||
       path.basename(recordPath(record)) !== entry.name

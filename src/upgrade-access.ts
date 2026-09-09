@@ -110,15 +110,21 @@ export function writeUpgradeAuthorization(value: UpgradeAuthorization): void {
   atomicWriteFileSync(installationRegistryPaths(value.installationId).upgradeAuthFile, text, 0o600);
 }
 
-export function authorizeUpgrade(access: UpgradeAccess, dataDir: string): UpgradeAuthorization {
+export function authorizeInstallationUpgrade(access: UpgradeAccess): UpgradeAuthorization {
   const expected = readUpgradeAuthorization(access.installationId);
-  const directory = canonicalPath(dataDir);
   if (
     !expected ||
     expected.transactionId !== access.transactionId ||
-    !crypto.timingSafeEqual(Buffer.from(expected.grant, "hex"), Buffer.from(access.grant, "hex")) ||
-    !expected.instances.some((instance) => pathsEqual(instance.dataDir, directory))
+    !crypto.timingSafeEqual(Buffer.from(expected.grant, "hex"), Buffer.from(access.grant, "hex"))
   )
+    throw new Error("Sash upgrade authority does not match this installation");
+  return expected;
+}
+
+export function authorizeUpgrade(access: UpgradeAccess, dataDir: string): UpgradeAuthorization {
+  const expected = authorizeInstallationUpgrade(access);
+  const directory = canonicalPath(dataDir);
+  if (!expected.instances.some((instance) => pathsEqual(instance.dataDir, directory)))
     throw new Error("Sash upgrade authority does not match this instance");
   return expected;
 }

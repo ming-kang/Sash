@@ -79,6 +79,7 @@ export default defineConfig({
     target: "es2022",
     minify: true,
     cssMinify: true,
+    manifest: true,
     // Font chunks stay discrete files: they are fingerprinted, fetched in
     // parallel and cached immutably by the daemon, never inlined into CSS.
     assetsInlineLimit: (filePath) => (filePath.endsWith(".woff2") ? false : undefined),

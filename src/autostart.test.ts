@@ -1,11 +1,50 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
 import { testAutostartContext } from "./autostart/test-context.test.js";
 import { AutostartService } from "./autostart.js";
 import type { RegisteredAutostartState } from "./autostart-contract.js";
 
 describe("AutostartService", () => {
+  it("repairs and rolls back the Node path only while a recorded launcher still owns startup", async (t) => {
+    let command: string | null = null;
+    let writes = 0;
+    const { root, options, ctx } = testAutostartContext(t, "win32", async (_file, _args, env) => {
+      if (env.SASH_AUTOSTART_MODE) {
+        writes += 1;
+        command = env.SASH_AUTOSTART_MODE === "on" ? (env.SASH_AUTOSTART_COMMAND ?? "") : null;
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          run: command === null ? null : Buffer.from(command).toString("base64"),
+          approval: null,
+        }),
+        stderr: "",
+      };
+    });
+    const node = path.join(root, "new-node.exe");
+    fs.writeFileSync(node, "fixture Node path");
+    const original = new AutostartService({ ...options, checkInstallation: () => null });
+    const replacement = new AutostartService({
+      ...options,
+      nodePath: node,
+      checkInstallation: () => null,
+    });
+    await original.set(true);
+    assert.equal((await replacement.inspect()).state, "stale");
+    const history = [ctx.nodePath, node];
+    assert.equal((await replacement.repairAfterUpgrade(history)).state, "on");
+    assert.equal((await original.repairAfterUpgrade(history)).state, "on");
+    const before = fs.readFileSync(path.join(ctx.controlDir, "start.vbs"));
+    const previousWrites = writes;
+    command = "another application";
+    await assert.rejects(replacement.repairAfterUpgrade(history), /changed outside Sash/);
+    assert.equal(writes, previousWrites);
+    assert.deepEqual(fs.readFileSync(path.join(ctx.controlDir, "start.vbs")), before);
+  });
   it("enables and repairs registrations using the explicit target state", async (t) => {
     const { options, ctx } = testAutostartContext(t, "win32");
     let state: RegisteredAutostartState = "off";

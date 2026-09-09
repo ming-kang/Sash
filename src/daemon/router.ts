@@ -140,7 +140,7 @@ export function buildRoutes(): readonly RouteDef[] {
   return [
     {
       methods: ["POST"],
-      pattern: path("/sash/upgrade/:action(reserve|status|stop|release|commit|cleanup)"),
+      pattern: path("/sash/upgrade/:action(reserve|status|verify|stop|release|commit|cleanup)"),
       auth: "control",
       allowReserved: true,
       handler: upgradeAction,

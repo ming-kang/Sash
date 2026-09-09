@@ -1,5 +1,5 @@
 import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
-import { canonicalPath, installationId } from "../installation.js";
+import { canonicalPath, installationId, npmPrefixForPackage } from "../installation.js";
 import {
   type InstallationInstance,
   installationRegistryPaths,
@@ -14,6 +14,8 @@ import {
   readUpgradeAuthorization,
   takeUpgradeStartupAccess,
 } from "../upgrade-access.js";
+import { clearUpgradeHandoff, readUpgradeHandoff } from "../upgrade-handoff.js";
+import { readUpgradeBarrier } from "../upgrade-journal.js";
 import type { DaemonInstance } from "./server.js";
 
 export interface DaemonPidRecord {
@@ -29,6 +31,8 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
   const packageRoot = canonicalPath(currentPackageRoot());
   const registry = installationRegistryPaths(installationId(packageRoot));
   const upgradeAccess = takeUpgradeStartupAccess(installationId(packageRoot));
+  const cleanupOnly = process.env.SASH_UPGRADE_CLEANUP === "1";
+  delete process.env.SASH_UPGRADE_CLEANUP;
   const lease = await acquireStateLock(layout.daemonLeaseFile, {
     purpose: "sashd singleton",
     timeoutMs: 0,
@@ -38,7 +42,30 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
   let registered: InstallationInstance | undefined;
   let instance: DaemonInstance | undefined;
   try {
+    const prefix = npmPrefixForPackage(packageRoot);
+    const barrier = prefix ? readUpgradeBarrier(prefix) : undefined;
+    if (
+      barrier &&
+      (!upgradeAccess ||
+        upgradeAccess.transactionId !== barrier.transactionId ||
+        upgradeAccess.installationId !== barrier.installationId)
+    )
+      throw new Error("A Sash upgrade is unfinished; run sash upgrade to recover it");
+    if (upgradeAccess && !barrier)
+      throw new Error("Sash upgrade startup has no matching installation barrier");
+    if (cleanupOnly) {
+      if (!upgradeAccess) throw new Error("Sash handoff cleanup requires upgrade authorization");
+      authorizeUpgrade(upgradeAccess, layout.root);
+      const handoff = readUpgradeHandoff(layout, upgradeAccess);
+      if (handoff && handoff.phase !== "committed")
+        throw new Error("Cannot clean an uncommitted Sash handoff");
+      clearUpgradeHandoff(layout, upgradeAccess);
+      return;
+    }
     const start = async () => {
+      // Recheck after waiting for the per-user startup lock as well.
+      if (!upgradeAccess && prefix && readUpgradeBarrier(prefix))
+        throw new Error("A Sash upgrade is unfinished; run sash upgrade to recover it");
       if (upgradeAccess) authorizeUpgrade(upgradeAccess, layout.root);
       else if (readUpgradeAuthorization(installationId(packageRoot)))
         throw new Error("A Sash upgrade is unfinished; run sash upgrade to recover it");

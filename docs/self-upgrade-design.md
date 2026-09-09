@@ -7,8 +7,10 @@ Implementation tracking:
 - [x] Shared installation detection and exact package/Node version validation.
 - [x] Installation instance registration and stable daemon startup identity.
 - [x] Runtime reservation, private handoff and browser continuation.
-- [ ] Complete npm staging, standalone worker and recoverable package/bin activation.
-- [ ] Command wiring and end-to-end failure/recovery verification.
+- [x] Complete npm staging, standalone worker and recoverable package/bin activation.
+- [x] Command wiring and end-to-end failure/recovery verification.
+
+Verified on Windows with isolated npm prefixes and data directories: package activation, cancellation and rollback process-exit boundaries; two real management daemons; real Core upgrade/rollback preserving applied YAML, pending edits, routing mode, selections and browser continuation; login startup maintenance; and installation of the actual npm tarball with both Windows command shims. The package stays at its current version until an approved release.
 
 ## Installation and preparation
 

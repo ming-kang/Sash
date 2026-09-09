@@ -10,6 +10,7 @@ import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
 import { runStatus } from "./commands/status.js";
 import { runUpdate } from "./commands/update.js";
+import { runUpgrade } from "./commands/upgrade.js";
 import { runWeb } from "./commands/web.js";
 import { parseLogLineCount } from "./log-follow.js";
 
@@ -109,6 +110,17 @@ program
   .description("upgrade the core binary")
   .option("--version <tag>", "install a specific core version, e.g. v1.19.30")
   .action(withCliErrors((opts: { version?: string }) => runUpdate(opts)));
+
+program
+  .command("upgrade [version]")
+  .description("upgrade Sash and restore its running instances")
+  .option("--check", "check Sash version and compatibility without changing anything")
+  .option("--json", "output machine-readable JSON")
+  .action(
+    withCliErrors((version: string | undefined, opts: { check?: boolean; json?: boolean }) =>
+      runUpgrade(version, opts),
+    ),
+  );
 
 program
   .command("web")

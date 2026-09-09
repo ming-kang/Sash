@@ -7,7 +7,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "sash-package-smoke-")));
+const temporaryParent = fs.realpathSync(os.tmpdir());
+const tempRoot = fs.realpathSync(fs.mkdtempSync(path.join(temporaryParent, "sash-package-smoke-")));
+const npmConfig = path.join(tempRoot, "npmrc");
+const npmGlobalConfig = path.join(tempRoot, "global-npmrc");
+fs.writeFileSync(npmConfig, "", { mode: 0o600 });
+fs.writeFileSync(npmGlobalConfig, "", { mode: 0o600 });
 
 function sanitizedEnv(extra = {}) {
   const env = { ...process.env, ...extra };
@@ -68,9 +73,19 @@ function run(command, args, options = {}) {
 }
 
 function runNpm(args, options = {}) {
+  const isolatedArgs = [
+    "--userconfig",
+    npmConfig,
+    "--globalconfig",
+    npmGlobalConfig,
+    "--cache",
+    path.join(tempRoot, "npm-cache"),
+    "--registry=https://registry.npmjs.org",
+    ...args,
+  ];
   const npmExecPath = process.env.npm_execpath;
   if (npmExecPath && fs.existsSync(npmExecPath)) {
-    return run(process.execPath, [npmExecPath, ...args], options);
+    return run(process.execPath, [npmExecPath, ...isolatedArgs], options);
   }
   const bundledCli = path.join(
     path.dirname(process.execPath),
@@ -80,9 +95,9 @@ function runNpm(args, options = {}) {
     "npm-cli.js",
   );
   if (fs.existsSync(bundledCli)) {
-    return run(process.execPath, [bundledCli, ...args], options);
+    return run(process.execPath, [bundledCli, ...isolatedArgs], options);
   }
-  return run(process.platform === "win32" ? "npm.cmd" : "npm", args, options);
+  return run(process.platform === "win32" ? "npm.cmd" : "npm", isolatedArgs, options);
 }
 
 function assertNonEmptyFile(file) {
@@ -93,6 +108,7 @@ function assertNonEmptyFile(file) {
 
 function walkFiles(directory, base = directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === "node_modules") return [];
     const file = path.join(directory, entry.name);
     if (entry.isDirectory()) return walkFiles(file, base);
     if (entry.isFile()) return [path.relative(base, file).replaceAll(path.sep, "/")];
@@ -103,6 +119,9 @@ function walkFiles(directory, base = directory) {
 function assertBuiltTree() {
   assertNonEmptyFile(path.join(root, "dist", "cli.js"));
   assertNonEmptyFile(path.join(root, "dist", "autostart-entry.js"));
+  assertNonEmptyFile(path.join(root, "dist", "upgrade-worker.mjs"));
+  assertNonEmptyFile(path.join(root, "dist", "upgrade-worker.LICENSE.md"));
+  assertNonEmptyFile(path.join(root, "dist", "ui", ".vite", "manifest.json"));
   assertNonEmptyFile(path.join(root, "dist", "ui", "index.html"));
   const assetsDir = path.join(root, "dist", "ui", "assets");
   const assets = fs.readdirSync(assetsDir);
@@ -131,9 +150,14 @@ function assertPackedFiles(files) {
     "docs/remix-icon-license.txt",
     "dist/cli.js",
     "dist/autostart-entry.js",
+    "dist/autostart-upgrade-entry.js",
+    "dist/upgrade-probe-entry.js",
+    "dist/upgrade-worker.mjs",
+    "dist/upgrade-worker.LICENSE.md",
     "dist/autostart.js",
     "dist/webui.js",
     "dist/ui/index.html",
+    "dist/ui/.vite/manifest.json",
   ];
   for (const file of required) {
     const entry = byPath.get(file);
@@ -196,8 +220,25 @@ try {
   }
   assertPackedFiles(packedFiles);
 
-  runNpm(["install", "--prefix", installDir, "--omit=dev", "--no-audit", "--no-fund", spec]);
-  const installedRoot = path.join(installDir, "node_modules", "@astralyn", "sash");
+  runNpm([
+    "install",
+    "--global",
+    "--prefix",
+    installDir,
+    "--install-strategy=nested",
+    "--omit=dev",
+    "--no-audit",
+    "--no-fund",
+    spec,
+  ]);
+  runNpm(["ls", "--global", "--prefix", installDir, "--all", "--omit=dev", "--json"]);
+  const installedRoot = path.join(
+    installDir,
+    ...(process.platform === "win32" ? [] : ["lib"]),
+    "node_modules",
+    "@astralyn",
+    "sash",
+  );
   assert.equal(fs.statSync(installedRoot).isDirectory(), true);
   const installedFiles = walkFiles(installedRoot).sort();
   const expectedFiles = packedFiles.map((entry) => entry.path.replaceAll("\\", "/")).sort();
@@ -207,6 +248,10 @@ try {
     "installed package differs from the packed file set",
   );
   assertNonEmptyFile(path.join(installedRoot, "dist", "ui", "index.html"));
+  const { inspectInstallation } = await import(
+    pathToFileURL(path.join(installedRoot, "dist", "installation.js")).href
+  );
+  assert.equal(inspectInstallation().kind, "npm-global");
   assert.match(
     fs.readFileSync(path.join(installedRoot, "THIRD_PARTY_NOTICES.md"), "utf8"),
     /Vue\.js[\s\S]*Remix Icon/,
@@ -227,27 +272,60 @@ try {
     else process.env.SASH_HOME = previousHome;
   }
 
-  const cliEnv = { SASH_HOME: homeDir };
-  const version = runNpm(
-    ["exec", "--offline", "--yes=false", "--prefix", installDir, "--", "sash", "--version"],
-    { env: cliEnv },
-  ).trim();
+  const cliEnv = {
+    SASH_HOME: homeDir,
+    LOCALAPPDATA: path.join(tempRoot, "local"),
+    XDG_STATE_HOME: path.join(tempRoot, "xdg-state"),
+  };
+  const runCli = (args, extension = ".ps1") =>
+    process.platform === "win32"
+      ? run(
+          "pwsh",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$ErrorActionPreference = 'Stop'; $sashSmokeArgs = @(ConvertFrom-Json -InputObject $env:SASH_PACKAGE_SMOKE_ARGS); & $env:SASH_PACKAGE_SMOKE_SHIM @sashSmokeArgs; exit $LASTEXITCODE",
+          ],
+          {
+            env: {
+              ...cliEnv,
+              SASH_PACKAGE_SMOKE_SHIM: path.join(installDir, `sash${extension}`),
+              SASH_PACKAGE_SMOKE_ARGS: JSON.stringify(args),
+            },
+          },
+        )
+      : run(path.join(installDir, "bin", "sash"), args, { env: cliEnv });
+  const version = runCli(["--version"]).trim();
   assert.equal(version, expectedVersion);
-  const help = runNpm(
-    ["exec", "--offline", "--yes=false", "--prefix", installDir, "--", "sash", "--help"],
-    { env: cliEnv },
-  );
+  if (process.platform === "win32")
+    assert.equal(runCli(["--version"], ".cmd").trim(), expectedVersion);
+  const help = runCli(["--help"]);
   assert.match(help, /Usage:\s+sash/);
   assert.match(help, /show runtime state/);
-  const autoHelp = runNpm(
-    ["exec", "--offline", "--yes=false", "--prefix", installDir, "--", "sash", "auto", "--help"],
-    { env: cliEnv },
-  );
+  const autoHelp = runCli(["auto", "--help"]);
   assert.match(autoHelp, /Usage:\s+sash auto/);
+  const upgradeHelp = runCli(["upgrade", "--help"]);
+  assert.match(upgradeHelp, /Usage:\s+sash upgrade/);
+  assert.match(upgradeHelp, /--check/);
+  const probe = JSON.parse(
+    run(process.execPath, [path.join(installedRoot, "dist", "upgrade-probe-entry.js")], {
+      env: cliEnv,
+    }),
+  );
+  assert.equal(probe.version, expectedVersion);
+  assert.equal(probe.ui, true);
+  const standalone = path.join(tempRoot, "worker.mjs");
+  fs.copyFileSync(path.join(installedRoot, "dist", "upgrade-worker.mjs"), standalone);
+  const worker = JSON.parse(
+    run(process.execPath, [standalone, "--self-test"], { cwd: tempRoot, env: cliEnv }),
+  );
+  assert.equal(worker.upgradeProtocol, 1);
 
   console.log(
     `[package-smoke] installed and verified ${installSpec ?? "the freshly packed tarball"} as ${packageJson.name}@${expectedVersion} (${packedFiles.length} files)`,
   );
 } finally {
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  assert.equal(path.dirname(fs.realpathSync(tempRoot)), temporaryParent);
+  await fs.promises.rm(tempRoot, { recursive: true, force: true });
 }

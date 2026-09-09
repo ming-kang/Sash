@@ -11,6 +11,7 @@ export interface SashPackageInfo {
   name: typeof SASH_PACKAGE_NAME;
   version: string;
   nodeRange: string;
+  upgradeProtocol?: number;
 }
 
 export function currentPackageRoot(): string {
@@ -38,7 +39,18 @@ export function parseSashPackageInfo(value: unknown): SashPackageInfo {
   const range = isPlainObject(value.engines) ? value.engines.node : undefined;
   if (typeof range !== "string" || range.length > 256 || !semver.validRange(range))
     throw new Error("The Sash package has no valid Node requirement");
-  return { name: SASH_PACKAGE_NAME, version: exactSashVersion(value.version), nodeRange: range };
+  const protocol = value.sashUpgradeProtocol;
+  if (
+    protocol !== undefined &&
+    (typeof protocol !== "number" || !Number.isSafeInteger(protocol) || protocol < 1)
+  )
+    throw new Error("The Sash package has an invalid upgrade protocol");
+  return {
+    name: SASH_PACKAGE_NAME,
+    version: exactSashVersion(value.version),
+    nodeRange: range,
+    ...(protocol === undefined ? {} : { upgradeProtocol: protocol }),
+  };
 }
 
 export function readSashPackageInfo(root = currentPackageRoot()): SashPackageInfo {

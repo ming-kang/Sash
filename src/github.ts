@@ -223,6 +223,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
   const deadlineAt = Date.now() + deadlineMs;
 
   let lastError: Error | undefined;
+  let reportedBytes = 0;
   for (const url of urls) {
     opts.signal?.throwIfAborted();
     const remainingMs = deadlineAt - Date.now();
@@ -236,16 +237,14 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
         allowedHosts: GITHUB_DOWNLOAD_HOSTS,
         maxBytes: RELEASE_ASSET_SIZE_LIMIT,
         requireHttps: true,
-        onProgress: opts.onProgress,
+        onProgress: (downloaded) => {
+          reportedBytes = Math.max(reportedBytes, Math.min(downloaded, chosen.size));
+          opts.onProgress?.(reportedBytes, chosen.size);
+        },
+        integrity: { algorithm: "sha256", digest: expectedDigest },
         stallMs: 60_000,
         deadlineMs: remainingMs,
       });
-      const actualDigest = await sha256File(opts.dest);
-      if (actualDigest !== expectedDigest) {
-        throw new Error(
-          `SHA-256 mismatch for ${chosen.name}: expected ${expectedDigest}, got ${actualDigest}`,
-        );
-      }
       return chosen.name;
     } catch (err) {
       fs.rmSync(opts.dest, { force: true });

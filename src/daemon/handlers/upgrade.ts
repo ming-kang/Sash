@@ -16,6 +16,8 @@ export async function upgradeAction(ctx: DaemonContext, req: RouteRequest): Prom
       return { status: 200, json: await ctx.upgrade.reserve(access) };
     case "status":
       return { status: 200, json: ctx.upgrade.status(access) };
+    case "verify":
+      return { status: 200, json: await ctx.upgrade.verify(access) };
     case "commit":
       return { status: 200, json: await ctx.upgrade.commit(access) };
     case "release":

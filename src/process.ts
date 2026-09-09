@@ -83,7 +83,7 @@ function runPowerShell(script: string, timeoutMs = 5000): string | undefined {
     path.join("WindowsPowerShell", "v1.0", "powershell.exe"),
   );
   const pwsh = findExecutableOnPath("pwsh.exe");
-  const candidates = [windowsPowerShell, ...(pwsh ? [pwsh] : [])];
+  const candidates = [...(pwsh ? [pwsh] : []), windowsPowerShell];
   const shells = cachedPowerShell
     ? [cachedPowerShell, ...candidates.filter((shell) => shell !== cachedPowerShell)]
     : candidates;
@@ -91,7 +91,12 @@ function runPowerShell(script: string, timeoutMs = 5000): string | undefined {
     try {
       const output = runSanitizedCommand(
         shell,
-        ["-NoProfile", "-NonInteractive", "-Command", script],
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); ${script}`,
+        ],
         { timeoutMs },
       ).trim();
       cachedPowerShell = shell;
@@ -243,6 +248,9 @@ const STRIPPED_ENV_KEYS = new Set([
   "NPM_ID_TOKEN",
   "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
   "ACTIONS_ID_TOKEN_REQUEST_URL",
+  "SASH_UPGRADE_GRANT",
+  "SASH_UPGRADE_TRANSACTION",
+  "SASH_UPGRADE_CLEANUP",
 ]);
 
 export function buildSanitizedEnv(sourceEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
