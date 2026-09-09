@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import YAML from "yaml";
 import { readState, type SashState } from "./app-state.js";
+import { parseCoreYaml, rejectShareLinkSubscription } from "./core-yaml.js";
 import {
   buildDefaultConfig,
   type GeneratedConfig,
@@ -26,7 +26,8 @@ export function parseProfileText(text: string): Record<string, unknown> {
   if (!text.trim() || Buffer.byteLength(text) > PROFILE_DOWNLOAD_SIZE_LIMIT) {
     throw new Error("Profile content must be non-empty and no larger than 8 MiB");
   }
-  const doc: unknown = YAML.parse(text, { maxAliasCount: 50 });
+  rejectShareLinkSubscription(text);
+  const doc = parseCoreYaml(text);
   if (!isValidMihomoConfig(doc))
     throw new Error("Content is not a valid core configuration (missing proxies/rules)");
   return doc;
@@ -52,10 +53,18 @@ export function getActiveProfile(index: ProfilesIndex): ProfileMeta | null {
   return index.profiles.find((profile) => profile.id === index.activeId) ?? null;
 }
 
-export function renderActiveConfig(state: SashState, layout: SashLayout): GeneratedConfig {
+export function renderActiveConfig(
+  state: SashState,
+  layout: SashLayout,
+  sources?: {
+    read(profile: Pick<ProfileMeta, "id" | "revision">): ReturnType<typeof readProfileSource>;
+  },
+): GeneratedConfig {
   const active = getActiveProfile(state.profiles);
   return renderConfig(
-    active ? readProfileSource(layout, active).doc : buildDefaultConfig(),
+    active
+      ? (sources ? sources.read(active) : readProfileSource(layout, active)).doc
+      : buildDefaultConfig(),
     state.settings,
     active ? "subscription" : "default",
   );

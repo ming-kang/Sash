@@ -21,6 +21,7 @@ import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
 import { ProfileService } from "../profile-service.js";
+import { ProfileSourceCache } from "../profile-source-cache.js";
 import { getActiveProfile, renderActiveConfig } from "../profiles.js";
 import { type RuntimeConfiguration, RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { SashSettings } from "../settings.js";
@@ -69,6 +70,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   const packageRoot = deps.packageRoot ?? currentPackageRoot();
   const packageInfo = readSashPackageInfo(packageRoot);
   const state = deps.state ?? new SashStateStore(layout, deps.settings);
+  const sources = new ProfileSourceCache(layout);
   const settings = () => state.snapshot().settings;
   const token = deps.token ?? crypto.randomBytes(24).toString("hex");
   const systemProxy = deps.systemProxy ?? new SystemProxyManager({ layout });
@@ -118,6 +120,8 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   profiles = new ProfileService({
     layout,
     state,
+    sources,
+    canCleanTemp: () => !downloading && !verifyingIntegrity,
     commit: mutate,
     assertMutable: () => gate.assertMutable(),
     fetchProfile: deps.fetchProfileFn,
@@ -141,7 +145,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     const snapshot = state.snapshot();
     const profile = getActiveProfile(snapshot.profiles);
     return {
-      generated: renderActiveConfig(snapshot, layout),
+      generated: renderActiveConfig(snapshot, layout, sources),
       settings: snapshot.settings,
       profile: profile
         ? { id: profile.id, revision: profile.revision, name: profile.name, url: profile.url }

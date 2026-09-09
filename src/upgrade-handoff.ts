@@ -1,12 +1,12 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import YAML from "yaml";
 import { type AutostartStatus, parseAutostartStatus } from "./autostart-contract.js";
 import { readBoundedJsonFile } from "./bounded-file.js";
 import { type InstallRecord, parseInstallRecord } from "./core-install-record.js";
 import { isSha256 } from "./core-integrity.js";
 import { parseCoreRuntimeState } from "./core-runtime-state.js";
+import { parseCoreYaml } from "./core-yaml.js";
 import { parseWebSessionSeeds, type WebSessionSeed } from "./daemon/web-auth.js";
 import { errnoCode } from "./error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
@@ -77,7 +77,7 @@ function parseConfiguration(value: unknown): RuntimeConfiguration | null {
   )
     throw new Error("Invalid generated configuration handoff");
   const settings = validateSettingsCandidate(value.settings);
-  const doc: unknown = YAML.parse(generated.yaml, { maxAliasCount: 100 });
+  const doc = parseCoreYaml(generated.yaml);
   if (!isValidMihomoConfig(doc) || !isDeepStrictEqual(doc, overlayManagedKeys(doc, settings)))
     throw new Error("Runtime handoff violates managed configuration constraints");
   const profile = value.profile;

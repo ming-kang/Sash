@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import YAML from "yaml";
+import { parseCoreYaml, rejectShareLinkSubscription } from "./core-yaml.js";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
 import type { SashSettings } from "./settings.js";
 
@@ -81,7 +82,8 @@ export function parseSubscriptionUserinfo(
     const [k, v] = pair.split("=", 2);
     const key = k?.trim() ?? "";
     if (!knownKeys.has(key)) continue;
-    const n = Number(v?.trim());
+    if (!v?.trim()) continue;
+    const n = Number(v.trim());
     if (Number.isFinite(n) && n >= 0) nums[key as keyof SubscriptionUserinfo] = n;
   }
   if (nums.upload === undefined || nums.download === undefined || nums.total === undefined) {
@@ -333,18 +335,17 @@ export async function fetchSubscriptionProfile(
     throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
   }
   const text = await res.text(PROFILE_DOWNLOAD_SIZE_LIMIT);
+  rejectShareLinkSubscription(text);
   let doc: unknown;
   try {
-    doc = YAML.parse(text);
+    doc = parseCoreYaml(text);
   } catch (err) {
-    throw new Error(
-      `Subscription is not valid YAML (Clash/mihomo format required): ${(err as Error).message}`,
-    );
+    throw new Error(`Subscription is not valid core-format YAML: ${(err as Error).message}`);
   }
   if (!isValidMihomoConfig(doc)) {
     throw new Error(
-      "Subscription content is not a Clash/mihomo config (missing proxies/rules). " +
-        "Convert non-Clash subscriptions with a subconverter first.",
+      "Subscription content is not a valid core configuration (missing proxies/rules). " +
+        "Request a core-format YAML subscription from the provider.",
     );
   }
   return {

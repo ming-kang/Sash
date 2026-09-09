@@ -25,13 +25,19 @@ export function startProfileUpdateScheduler(
   const clearScheduledInterval = scheduler.clearInterval ?? clearInterval;
   const scheduleTimeout = scheduler.setTimeout ?? setTimeout;
   const clearScheduledTimeout = scheduler.clearTimeout ?? clearTimeout;
+  let running = false;
+  let stopped = false;
 
   const autoUpdateProfiles = async (): Promise<void> => {
-    if (!isActive()) return;
+    if (stopped || running || !isActive()) return;
+    running = true;
     try {
       await profiles.updateDue();
     } catch {
       // Individual profile failures are recorded by ProfileService.
+    } finally {
+      if (!stopped && isActive()) await profiles.cleanup().catch(() => undefined);
+      running = false;
     }
   };
 
@@ -44,7 +50,6 @@ export function startProfileUpdateScheduler(
   }, kickoffMs);
   kickoffTimer.unref();
 
-  let stopped = false;
   return {
     stop: () => {
       if (stopped) return;

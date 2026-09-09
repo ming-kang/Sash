@@ -95,11 +95,20 @@ describe("canonical Sash state", () => {
     const layout = sashLayout(root);
     for (const text of ["{ broken", '{"schemaVersion":1}', "null", '"text"']) {
       fs.writeFileSync(layout.settingsFile, text);
-      assert.throws(() => new SashStateStore(layout));
+      assert.throws(
+        () => new SashStateStore(layout),
+        (error) => error instanceof Error && error.message.includes(layout.settingsFile),
+      );
       assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), text);
     }
     fs.truncateSync(layout.settingsFile, 2 * 1024 * 1024 + 1);
-    assert.throws(() => readState(layout), /bounded/);
+    assert.throws(
+      () => readState(layout),
+      (error) =>
+        error instanceof Error &&
+        error.message.includes(layout.settingsFile) &&
+        /bounded/.test(error.message),
+    );
     fs.unlinkSync(layout.settingsFile);
     fs.mkdirSync(layout.settingsFile);
     assert.throws(() => readState(layout), /bounded/);

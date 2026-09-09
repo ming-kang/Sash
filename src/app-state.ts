@@ -39,7 +39,10 @@ function readStateText(layout: SashLayout): string | undefined {
     return bytes.toString("utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
+    throw new Error(
+      `Cannot read Sash state at ${layout.settingsFile}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
   }
 }
 
