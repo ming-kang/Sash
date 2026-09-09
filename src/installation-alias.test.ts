@@ -11,7 +11,12 @@ import {
 } from "./installation-registry.js";
 import { readUpgradeJournal } from "./upgrade-journal.js";
 import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
-import { upgradeFixture } from "./upgrade-test-fixture.test.js";
+import {
+  fakeUpgradeRuntimes,
+  upgradeFixture,
+  writeFixturePackage,
+} from "./upgrade-test-fixture.test.js";
+import { SashUpgradeTransaction } from "./upgrade-transaction.js";
 
 it("recognizes package aliases through an absent slot and rejects a foreign link target", () => {
   const f = upgradeFixture();
@@ -82,3 +87,31 @@ it("reads recovery journals through prefix aliases without relaxing fixed instal
     f.cleanup();
   }
 });
+
+for (const foreign of [false, true]) {
+  it(`accepts only a preparation alias resolving to the owned staging slot (foreign=${foreign})`, async () => {
+    const f = upgradeFixture();
+    const runtime = fakeUpgradeRuntimes(f.root, f.installation, 0);
+    try {
+      const result = await new SashUpgradeTransaction(f.journal, {
+        runtime: runtime.runtime,
+        discoverInstances: async () => [],
+        verifyPackage: async () => {},
+        stagePackage: async ({ prefix, transactionId }) => {
+          const stage = foreign
+            ? path.join(f.root, "foreign-stage")
+            : upgradeTransactionPaths(prefix, transactionId).stage;
+          writeFixturePackage(stage, "2.0.0");
+          const alias = path.join(f.root, "stage-alias");
+          fs.symlinkSync(stage, alias, process.platform === "win32" ? "junction" : "dir");
+          return npmPackageRoot(alias);
+        },
+      }).run(f.target);
+      assert.equal(result.outcome, foreign ? "failed" : "upgraded", result.error);
+      assert.equal(result.recoveryRequired, false, result.error);
+      if (foreign) assert.match(result.error ?? "", /fixed staging slot/);
+    } finally {
+      f.cleanup();
+    }
+  });
+}

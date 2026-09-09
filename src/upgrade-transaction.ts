@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { errorMessage } from "./error-utils.js";
 import { pathEntryExists } from "./fs-atomic.js";
-import { npmPackageRoot } from "./installation.js";
+import { canonicalPath, npmPackageRoot, pathsEqual } from "./installation.js";
 import { installationRegistryPaths } from "./installation-registry.js";
 import { isPlainObject } from "./json-shape.js";
 import type { SashPackageInfo } from "./package-info.js";
@@ -137,7 +137,7 @@ export class SashUpgradeTransaction {
       );
       if (!isPlainObject(proof) || proof.upgradeProtocol !== 1)
         throw new Error("Sash recovery worker has an incompatible protocol");
-      const staged = await (this.options.stagePackage ?? stageSashPackage)({
+      const prepared = await (this.options.stagePackage ?? stageSashPackage)({
         prefix: j.installation.prefix,
         transactionId: j.transactionId,
         nodePath: j.installation.nodePath,
@@ -146,7 +146,8 @@ export class SashUpgradeTransaction {
         onStage: this.options.onStage,
         onProgress: this.options.onDownload,
       });
-      if (staged !== npmPackageRoot(paths.stage))
+      const staged = canonicalPath(prepared);
+      if (!pathsEqual(staged, npmPackageRoot(paths.stage)))
         throw new Error("Prepared Sash package escaped its fixed staging slot");
       const candidate = fingerprintTree(staged);
       const candidateShims = verifyStagedShims(paths.stage, staged);

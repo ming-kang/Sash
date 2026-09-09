@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
 import { readLogTail } from "./log-tail.js";
+import { commandLineContainsPath } from "./process-command-path.js";
 
 /**
  * Low-level process toolkit: liveness probes, fail-closed identity
@@ -232,8 +233,7 @@ export function readProcessCommandLine(pid: number): string | undefined {
 export function commandLineContains(pid: number, marker: string): boolean {
   const cmdline = readProcessCommandLine(pid);
   if (!cmdline) return false;
-  const normalize = (s: string) => s.replace(/\\/g, "/").toLowerCase();
-  return normalize(cmdline).includes(normalize(marker));
+  return commandLineContainsPath(cmdline, marker);
 }
 
 const STRIPPED_ENV_KEYS = new Set([

@@ -32,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- Resolve Windows short paths and directory aliases before installation-registry and upgrade-journal ownership checks, including recovery while the package slot is temporarily absent.
+- Resolve Windows short paths and directory aliases during registry, journal, staging and process-owner checks, including recovery while the package slot is temporarily absent; retain executable, lease, boot and authenticated API verification.
 - Detect share-link subscription formats with credential-free YAML guidance, unify YAML alias limits and preserve unknown empty provider quota fields.
 - Serve dashboard bodies and lengths from one file descriptor, close it on HEAD/disconnect, explain missing UI assets and include the manifest path in state-read failures.
 - Try both installed PowerShell hosts for WinINet notification, retain verified registry changes with actionable fallback guidance if notification is unavailable, and allow 20 seconds for antivirus scanning during a new Core binary's first verification.

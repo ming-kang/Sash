@@ -6,6 +6,7 @@ import {
   runSanitizedCommandAsync,
   windowsSystemExecutable,
 } from "./process.js";
+import { commandLineContainsPath } from "./process-command-path.js";
 
 export interface ProcessObservation {
   pid: number;
@@ -79,8 +80,7 @@ export function assertNoUnknownSashDaemons(
   nodePaths: string[],
   knownPids: ReadonlySet<number>,
 ): void {
-  const normalize = (value: string) => value.replaceAll("\\", "/").toLowerCase();
-  const marker = normalize(path.join(packageRoot, "dist", "daemon-entry.js"));
+  const marker = path.join(packageRoot, "dist", "daemon-entry.js");
   const names = new Set(nodePaths.map((node) => path.basename(node).toLowerCase()));
   const unknown = observations.filter(
     (row) =>
@@ -89,7 +89,7 @@ export function assertNoUnknownSashDaemons(
       row.pid !== process.pid &&
       row.pid !== process.ppid &&
       (row.commandLine
-        ? normalize(row.commandLine).includes(marker)
+        ? commandLineContainsPath(row.commandLine, marker)
         : names.has(row.name.toLowerCase())),
   );
   if (unknown.length)
