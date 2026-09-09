@@ -75,7 +75,7 @@
 - [x] `logs -f` 对 EPIPE 静默退出 0（S）；tail→follow 交接的重复行竞态（S）
 - [x] `DEBUG` 改 `SASH_DEBUG` 并写入帮助（S）；`--help` 补充裸命令行为与退出码约定（S）
 - [x] `sash update --version` 与全局 `-v` 歧义：改位置参数或 `--tag`（S）
-- [ ] `sash doctor`（M）：汇总安装检查、UI 资产、核心版本/哈希、端口、代理状态与修复建议
+- [x] `sash doctor`（M）：汇总安装检查、UI 资产、核心版本/哈希、端口、代理状态与修复建议
 
 ## 批次 4 — WebUI 性能与 UX
 

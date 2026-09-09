@@ -24,6 +24,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash stop` | Restore proxy, stop Core and exit management. Report an error if safe shutdown cannot be verified. |
 | `sash stop --core` | Restore proxy and stop Core while retaining management and browser access. |
 | `sash status [--json]` | Read runtime, endpoint, saved profile, proxy and autostart observations. Bare `sash` does the same. |
+| `sash doctor [--json]` | Check installation, dashboard, saved state, Core integrity, ports and desktop integration; print repair suggestions. |
 | `sash web` | Start management if needed and authorize/open the dashboard. |
 | `sash web --no-open` | Start management and print its address without authorizing a browser. |
 | `sash update [tag] [--check] [--json]` | Check a Core release or install it through the daemon, with preparation/download/verification progress. |
@@ -148,6 +149,10 @@ Installation or health failures restore the previous package and runtime without
 For manual package-manager maintenance, stop affected instances first, update using their installation method, then start them again. `sash update --force` is unavailable. Damaged Core installations are diagnosed and preserved; stop the existing instance before using a clean data directory for reinstallation.
 
 ## Status and troubleshooting
+
+Run `sash doctor` before changing a damaged installation. Checks continue independently when the manifest or Core files are corrupt. Doctor reads metadata and verifies a recorded Core hash, observes the current runtime and desktop integration, and briefly checks whether stopped listener ports are available. It does not initialize state, install components, start management or apply repairs.
+
+`doctor --json` reports `schemaVersion: 1`, `healthy`, `complete`, and named checks with `ok`, `info`, `warning` or `error` status and optional advice. Exit code `1` indicates a definite fault; `2` indicates an incomplete observation without a definite fault. A clean stopped or uninitialized installation can return `0` with informational setup guidance.
 
 `sash status --json` uses `schemaVersion: 2`. It includes `complete`, `healthy`, `queryError`, daemon/Core state, desired/applied/observed proxy state, autostart, endpoints, saved active profile and paths. Unknown observations remain `null`; no TUN fields are emitted. The running proxy endpoint comes from applied settings.
 

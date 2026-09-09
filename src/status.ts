@@ -260,6 +260,7 @@ export async function collectRuntimeStatus(
   let coreVersion: string | null = null;
   let desiredProxy = context.settings.systemProxy;
   let mixedEndpoint = `127.0.0.1:${context.settings.mixedPort}`;
+  let controllerEndpoint = context.settings.controller;
   let proxySource: SystemProxyObservationSource | undefined;
   let queriedDaemon = false;
 
@@ -269,6 +270,7 @@ export async function collectRuntimeStatus(
       queriedDaemon = true;
       daemon = daemonObservation(daemonState, "healthy");
       desiredProxy = status.systemProxy.desired;
+      controllerEndpoint = status.settings.controller;
       mixedEndpoint = status.core.running
         ? status.configuration.appliedSettings
           ? `127.0.0.1:${status.configuration.appliedSettings.mixedPort}`
@@ -357,7 +359,7 @@ export async function collectRuntimeStatus(
     uiInstalled: dependencies.hasUi ? dependencies.hasUi(context) : uiInstalled(context.layout),
     endpoints: {
       mixedProxy: mixedEndpoint,
-      controller: context.settings.controller,
+      controller: controllerEndpoint,
       daemonApi: `http://127.0.0.1:${daemonPort}`,
       dashboard: `http://127.0.0.1:${daemonPort}/ui/`,
     },

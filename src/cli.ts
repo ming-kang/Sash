@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Argument, Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
 import { type AutoMode, runAuto } from "./commands/auto.js";
+import { runDoctor } from "./commands/doctor.js";
 import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
 import { runLogs } from "./commands/logs.js";
 import { type RoutingMode, runMode } from "./commands/mode.js";
@@ -103,6 +104,12 @@ program
   .description("show runtime state, versions, endpoints, and system proxy status")
   .option("--json", "output machine-readable JSON")
   .action(withCliErrors((opts: { json?: boolean }) => runStatus(opts)));
+
+program
+  .command("doctor")
+  .description("check installation, state, Core integrity, ports and desktop integration")
+  .option("--json", "output machine-readable JSON")
+  .action(withCliErrors((opts: { json?: boolean }) => runDoctor(opts)));
 
 const profile = program
   .command("profile")

@@ -145,6 +145,63 @@ describe("real isolated Sash daemon upgrades", () => {
     return packageRoot;
   }
 
+  it("runs doctor JSON against an isolated installed package without starting management", async () => {
+    const prefix = path.join(root, "doctor-prefix");
+    const packageRoot = await install(prefix, "1.0.0");
+    const layout = sashLayout(path.join(root, "doctor-data"));
+    const sockets = await Promise.all(
+      [0, 1, 2].map(async () => {
+        const server = net.createServer();
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        return server;
+      }),
+    );
+    const ports = sockets.map((server) => {
+      const address = server.address();
+      assert.ok(address && typeof address === "object");
+      return address.port;
+    });
+    await Promise.all(
+      sockets.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+    );
+    const [daemonPort, mixedPort, controllerPort] = ports;
+    assert.ok(daemonPort && mixedPort && controllerPort);
+    createTestState(
+      layout,
+      testSettings({ daemonPort, mixedPort, controller: `127.0.0.1:${controllerPort}` }),
+    );
+    const saved = fs.readFileSync(layout.settingsFile);
+    const output = await runUpgradeCommand(
+      process.execPath,
+      [path.join(packageRoot, "dist", "cli.js"), "doctor", "--json"],
+      {
+        cwd: root,
+        purpose: "Inspect an isolated installation",
+        env: { ...process.env, SASH_HOME: layout.root },
+      },
+    );
+    const result = JSON.parse(output) as { healthy: boolean; complete: boolean };
+    assert.equal(result.healthy, true);
+    assert.equal(result.complete, true);
+    assert.deepEqual(fs.readFileSync(layout.settingsFile), saved);
+    assert.equal(fs.existsSync(layout.daemonPidFile), false);
+    assert.equal(fs.existsSync(layout.coreExe), false);
+    fs.writeFileSync(layout.settingsFile, "{ corrupt");
+    await assert.rejects(
+      runUpgradeCommand(
+        process.execPath,
+        [path.join(packageRoot, "dist", "cli.js"), "doctor", "--json"],
+        {
+          cwd: root,
+          purpose: "Diagnose an isolated damaged manifest",
+          env: { ...process.env, SASH_HOME: layout.root },
+        },
+      ),
+      /manifest.*error/,
+    );
+    assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), "{ corrupt");
+  });
+
   const scenarios = [
     { name: "success", badDaemon: false, boundary: undefined },
     { name: "health-failure", badDaemon: true, boundary: undefined },

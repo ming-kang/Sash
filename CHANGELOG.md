@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add `sash doctor [--json]` to diagnose installation/assets, manifest corruption, Core hashes, runtime/desktop integration and listener conflicts without initializing or repairing application state. Include specific repair advice and preserve unknown observations.
 - Add `sash update [tag] --check` and `--json`, with live preparation/download/verification progress from the daemon. Keep checks free of installation and management startup, and keep progress reads independent of the update result.
 - Add saved-profile CLI operations (`list`, `use`, `add`, `update`, `rename`, `remove`), system-proxy controls, runtime routing modes and `sash stop --core`. Preserve explicit Apply semantics, support profile IDs or unique names and JSON results, and keep stopped profile queries free of initialization writes.
 - Add `sash upgrade [version] [--check] [--json]` for complete Sash self-upgrades. Prepare and verify npm dependencies before downtime, coordinate shared instances, restore applied Core/proxy state and browser access, preserve pending edits and login startup, and recover failures or interruptions through an independent worker and durable command launcher.

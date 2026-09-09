@@ -242,6 +242,7 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.complete, true);
     assert.equal(status.healthy, true);
     assert.equal(status.queryError, null);
+    assert.equal(status.endpoints.controller, "127.0.0.1:9090");
     assert.deepEqual(status.core, {
       running: true,
       healthy: true,

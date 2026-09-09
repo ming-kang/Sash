@@ -308,6 +308,7 @@ try {
   const upgradeHelp = runCli(["upgrade", "--help"]);
   assert.match(upgradeHelp, /Usage:\s+sash upgrade/);
   assert.match(upgradeHelp, /--check/);
+  assert.match(runCli(["doctor", "--help"]), /Usage:\s+sash doctor/);
   const profiles = JSON.parse(runCli(["profile", "list", "--json"]));
   assert.deepEqual(profiles, { activeId: null, profiles: [] });
   assert.equal(
