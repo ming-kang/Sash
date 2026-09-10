@@ -8,6 +8,7 @@ import {
   readInstallRecord,
   writeInstallRecord,
 } from "./core-install-record.js";
+import { errorMessage } from "./error-utils.js";
 import {
   atomicWriteFileSync,
   durableRemoveFileSync,
@@ -70,10 +71,7 @@ export function readCoreUpdateTransaction(layout: SashLayout): CoreUpdateTransac
   return { version: 1, phase: value.phase as CoreUpdateTransaction["phase"], previous, target };
 }
 
-export function writeCoreUpdateTransaction(
-  layout: SashLayout,
-  transaction: CoreUpdateTransaction,
-): void {
+function writeCoreUpdateTransaction(layout: SashLayout, transaction: CoreUpdateTransaction): void {
   atomicWriteFileSync(
     layout.coreUpdateTransactionFile,
     `${JSON.stringify(transaction, null, 2)}\n`,
@@ -133,7 +131,7 @@ function finishVerified(layout: SashLayout, transaction: CoreUpdateTransaction):
     clearJournal(layout);
   } catch (error) {
     console.warn(
-      `[sashd] Core update succeeded; cleanup retained for retry: ${error instanceof Error ? error.message : String(error)}`,
+      `[sashd] Core update succeeded; cleanup retained for retry: ${errorMessage(error)}`,
     );
   }
 }
@@ -213,10 +211,9 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
       }
       clearJournal(layout);
     } catch (rollback) {
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}; Core rollback failed: ${rollback instanceof Error ? rollback.message : String(rollback)}`,
-        { cause: error },
-      );
+      throw new Error(`${errorMessage(error)}; Core rollback failed: ${errorMessage(rollback)}`, {
+        cause: error,
+      });
     }
     throw error;
   }

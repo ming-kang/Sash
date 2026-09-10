@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import semver from "semver";
 import { readBoundedFile } from "./bounded-file.js";
+import { errorMessage } from "./error-utils.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import {
   canonicalPath,
@@ -217,9 +218,7 @@ export async function executeSashUpgrade(
     fs.unlinkSync(worker);
     fs.rmdirSync(temporary);
   } catch (error) {
-    console.warn(
-      `[sash upgrade] Temporary bootstrap files retained: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.warn(`[sash upgrade] Temporary bootstrap files retained: ${errorMessage(error)}`);
   }
   if ("error" in outcome) throw outcome.error;
   return outcome.code;

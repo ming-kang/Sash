@@ -1,16 +1,13 @@
 import { AutostartUnavailableError } from "../autostart.js";
 import type { ApiErrorCode } from "../contracts.js";
 import { HttpError } from "../daemon-http.js";
+import { errorMessage } from "../error-utils.js";
 import {
   ProfileConflictError,
   ProfileInputError,
   ProfileNotFoundError,
 } from "../profile-service.js";
-import {
-  CoreUnhealthyError,
-  SettingsConflictError,
-  SettingsInputError,
-} from "../settings-service.js";
+import { CoreUnhealthyError, SettingsInputError } from "../settings-service.js";
 
 /** Rejects state mutations once the daemon shutdown gate has closed. */
 export class ShuttingDownError extends Error {
@@ -45,13 +42,12 @@ export function errorToHttp(err: unknown): HttpErrorMapping {
       message: err.message,
     };
   }
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   if (err instanceof AutostartUnavailableError) return { status: 409, code: "conflict", message };
   if (err instanceof ProfileNotFoundError) return { status: 404, code: "not_found", message };
   if (err instanceof ProfileInputError) return { status: 400, code: "invalid_input", message };
   if (err instanceof SettingsInputError) return { status: 400, code: "invalid_input", message };
   if (err instanceof ProfileConflictError) return { status: 409, code: "conflict", message };
-  if (err instanceof SettingsConflictError) return { status: 409, code: "conflict", message };
   if (err instanceof CoreUnhealthyError) return { status: 409, code: "core_unhealthy", message };
   if (err instanceof ShuttingDownError) return { status: 503, code: "shutting_down", message };
   return { status: 500, code: "internal", message };

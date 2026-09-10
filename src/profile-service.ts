@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { type SashStateStore, StateConflictError } from "./app-state.js";
-import { errorDetail } from "./error-utils.js";
+import { errorDetail, errorMessage } from "./error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
 import { fetchSubscriptionProfile, type SubscriptionFetch } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
@@ -18,8 +18,18 @@ import {
   profileNameFromUrl,
 } from "./profiles.js";
 
-export class ProfileInputError extends Error {}
-export class ProfileNotFoundError extends Error {}
+export class ProfileInputError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = "ProfileInputError";
+  }
+}
+export class ProfileNotFoundError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = "ProfileNotFoundError";
+  }
+}
 export { StateConflictError as ProfileConflictError } from "./app-state.js";
 
 export type ProfileCommitBoundary = <T>(
@@ -53,7 +63,7 @@ function profileInput(content: string): Record<string, unknown> {
   try {
     return parseProfileText(content);
   } catch (error) {
-    throw new ProfileInputError(error instanceof Error ? error.message : String(error));
+    throw new ProfileInputError(errorMessage(error));
   }
 }
 
@@ -379,7 +389,7 @@ export class ProfileService {
             result.failed.push({
               id: profile.id,
               name: profile.name,
-              error: error instanceof Error ? error.message : String(error),
+              error: errorMessage(error),
             });
           }
         }),

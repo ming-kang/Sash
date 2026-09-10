@@ -4,7 +4,7 @@ import type { Duplex } from "node:stream";
 import { coreWebSocketProtocols, webSocketAuthResponseProtocol } from "./daemon-auth.js";
 import { parseControllerAddress } from "./settings.js";
 
-export function parseHostPort(address: string): { host: string; port: number } {
+function parseHostPort(address: string): { host: string; port: number } {
   const parsed = parseControllerAddress(address);
   if (!parsed) {
     throw new Error(`Invalid controller address: ${address} (expected loopback host:port)`);

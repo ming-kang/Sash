@@ -40,7 +40,12 @@ interface AutostartServiceOptions extends AutostartOptions {
   checkInstallation?: (context: AutostartContext) => string | null;
 }
 
-export class AutostartUnavailableError extends Error {}
+export class AutostartUnavailableError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = "AutostartUnavailableError";
+  }
+}
 
 /** One registration per OS user, serialized across daemon instances. */
 export class AutostartService implements AutostartController {

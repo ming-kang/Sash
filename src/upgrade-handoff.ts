@@ -102,7 +102,7 @@ function parseConfiguration(value: unknown): RuntimeConfiguration | null {
   };
 }
 
-export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
+function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
   if (
     !isPlainObject(value) ||
     !hasExactOwnKeys(value, [

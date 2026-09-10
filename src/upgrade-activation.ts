@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readBoundedJsonFile } from "./bounded-file.js";
+import { errorMessage } from "./error-utils.js";
 import {
   atomicWriteFileSync,
   durableRemoveFileSync,
@@ -146,7 +147,7 @@ export async function cleanUpgradeInstallation(
   }
   await boundary("startup-admission-released");
   const retained = (error: unknown): string =>
-    `Installation settled; temporary files retained at ${directory}: ${error instanceof Error ? error.message : String(error)}`;
+    `Installation settled; temporary files retained at ${directory}: ${errorMessage(error)}`;
   try {
     const marker = paths.root.replaceAll("\\", "/").toLowerCase();
     const busy = (await observeUpgradeProcesses()).filter(

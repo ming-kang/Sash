@@ -58,6 +58,12 @@ export async function ensureRunning(ctx: RuntimeContext) {
   return { owner, result: await owner.client.startCore() };
 }
 
+function hasRuntimeLeftovers(layout: SashLayout): boolean {
+  return [layout.pidFile, layout.systemProxyStateFile, layout.coreUpdateTransactionFile].some(
+    (file) => fs.existsSync(file),
+  );
+}
+
 export async function stopRuntime(ctx: RuntimeContext): Promise<{ wasRunning: boolean }> {
   const initial = await resolveRuntimeOwner(ctx);
   if (initial.kind === "unhealthy")
@@ -65,12 +71,7 @@ export async function stopRuntime(ctx: RuntimeContext): Promise<{ wasRunning: bo
       "sashd is unresponsive or its ownership is unknown; refusing an unverified stop",
     );
   if (initial.kind === "offline") {
-    const leftovers = [
-      ctx.layout.pidFile,
-      ctx.layout.systemProxyStateFile,
-      ctx.layout.coreUpdateTransactionFile,
-    ];
-    if (!leftovers.some((file) => fs.existsSync(file))) return { wasRunning: false };
+    if (!hasRuntimeLeftovers(ctx.layout)) return { wasRunning: false };
     await ensureManagement(ctx);
   }
   if (!(await stopDaemonFromCli({ layout: ctx.layout, settings: ctx.settings })))
@@ -90,14 +91,7 @@ export async function stopCoreRuntime(
   if (owner.kind === "unhealthy")
     throw new Error("Cannot verify the management daemon; refusing an unverified Core stop");
   if (owner.kind === "offline") {
-    if (
-      ![
-        ctx.layout.pidFile,
-        ctx.layout.systemProxyStateFile,
-        ctx.layout.coreUpdateTransactionFile,
-      ].some((file) => fs.existsSync(file))
-    )
-      return { managementRunning: false };
+    if (!hasRuntimeLeftovers(ctx.layout)) return { managementRunning: false };
     await (await ensureManagement(ctx)).client.stopCore();
   } else await owner.client.stopCore();
   return { managementRunning: true };

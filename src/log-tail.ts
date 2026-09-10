@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { errnoCode } from "./error-utils.js";
 
-export const TAIL_FILE_CHUNK_BYTES = 64 * 1024;
+const TAIL_FILE_CHUNK_BYTES = 64 * 1024;
 const MAX_TAIL_LINE_BYTES = 64 * 1024;
 export interface LogFileCursor {
   identity: string | null;

@@ -6,7 +6,7 @@ export interface CoreRuntimeState {
   selections: Record<string, string>;
 }
 
-export function parseCoreMode(value: unknown): CoreMode {
+function parseCoreMode(value: unknown): CoreMode {
   if (value !== "rule" && value !== "global" && value !== "direct")
     throw new Error("Core returned an invalid routing mode");
   return value;

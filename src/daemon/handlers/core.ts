@@ -2,6 +2,7 @@ import { MihomoApi } from "../../api.js";
 import { validateDelayTarget } from "../../core-delay.js";
 import { validateCoreReleaseTag } from "../../core-install-record.js";
 import { HttpError } from "../../daemon-http.js";
+import { errorMessage } from "../../error-utils.js";
 import type { DaemonContext } from "../context.js";
 import type { RouteRequest, RouteResponse } from "../router.js";
 
@@ -30,7 +31,7 @@ export async function updateCore(ctx: DaemonContext, req: RouteRequest): Promise
   try {
     version = typeof body.version === "string" ? validateCoreReleaseTag(body.version) : undefined;
   } catch (error) {
-    throw new HttpError(400, error instanceof Error ? error.message : String(error));
+    throw new HttpError(400, errorMessage(error));
   }
   return { status: 200, json: await ctx.updateCore(version) };
 }
@@ -62,7 +63,7 @@ export async function testCoreDelay(ctx: DaemonContext, req: RouteRequest): Prom
       throw new TypeError("Expected only a node or group name");
     name = validateDelayTarget(body.name);
   } catch (error) {
-    throw new HttpError(400, error instanceof Error ? error.message : String(error));
+    throw new HttpError(400, errorMessage(error));
   }
   const result = await ctx.gate.runLiveMutation(async () => {
     req.signal.throwIfAborted();

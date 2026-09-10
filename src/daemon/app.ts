@@ -13,6 +13,7 @@ import {
 import { validateCoreConfig } from "../core-config-validation.js";
 import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
 import type { CoreUpdateProgress, CoreUpdateStage } from "../core-update-progress.js";
+import { errorMessage } from "../error-utils.js";
 import { installationId } from "../installation.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
@@ -83,9 +84,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
         gate
           .mutate("recover Core exit", () => lifecycle.handleUnexpectedCoreExit())
           .catch((error: unknown) => {
-            console.error(
-              `[sashd] Core exit cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
+            console.error(`[sashd] Core exit cleanup failed: ${errorMessage(error)}`);
           }),
     });
   lifecycle = new RuntimeLifecycle({

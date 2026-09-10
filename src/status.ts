@@ -17,7 +17,7 @@ import type { SystemProxyState } from "./sysproxy.js";
 import { type SystemProxyInspection, SystemProxyManager } from "./system-proxy-manager.js";
 import { uiInstalled } from "./webui.js";
 
-export const CLI_STATUS_SCHEMA_VERSION = 2 as const;
+const CLI_STATUS_SCHEMA_VERSION = 2 as const;
 
 export type CliDaemonState = "healthy" | "stopped" | "unhealthy";
 
@@ -177,7 +177,7 @@ export function resolveObservedSystemProxy(
   return { daemonApplied, osObserved, errors };
 }
 
-export async function observeSystemProxy(
+async function observeSystemProxy(
   context: StatusObservationContext,
   dependencies: StatusObservationDependencies,
   source: SystemProxyObservationSource | undefined,

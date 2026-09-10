@@ -7,6 +7,7 @@ import {
   delayFailureState,
   validateDelayTarget,
 } from "./core-delay.js";
+import { type CoreRuntimeState, captureCoreRuntimeState } from "./core-runtime-state.js";
 import { errorDetail } from "./error-utils.js";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
@@ -208,5 +209,3 @@ export class MihomoApi {
       throw new Error("Core runtime verification failed after restoration");
   }
 }
-
-import { type CoreRuntimeState, captureCoreRuntimeState } from "./core-runtime-state.js";

@@ -1,5 +1,6 @@
 import { parseSettingsPatch } from "../../contracts.js";
 import { HttpError } from "../../daemon-http.js";
+import { errorMessage } from "../../error-utils.js";
 import { publicSettings } from "../../settings.js";
 import type { DaemonContext } from "../context.js";
 import type { RouteRequest, RouteResponse } from "../router.js";
@@ -14,7 +15,7 @@ export async function patchSettings(ctx: DaemonContext, req: RouteRequest): Prom
   try {
     patch = parseSettingsPatch(body);
   } catch (error) {
-    throw new HttpError(400, error instanceof Error ? error.message : String(error));
+    throw new HttpError(400, errorMessage(error));
   }
   const result = await ctx.settingsService.apply(patch);
   return {

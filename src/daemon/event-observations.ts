@@ -1,4 +1,5 @@
 import type { AutostartStatus } from "../autostart-contract.js";
+import { errorMessage } from "../error-utils.js";
 import type { DaemonContext } from "./context.js";
 import { readDaemonStatus } from "./handlers/daemon.js";
 
@@ -21,7 +22,7 @@ export function createEventObserver(context: () => DaemonContext) {
           (error: unknown): AutostartStatus => ({
             state: "unknown",
             canEnable: false,
-            reason: error instanceof Error ? error.message : String(error),
+            reason: errorMessage(error),
           }),
         )
         .then((next) => {

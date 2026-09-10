@@ -21,7 +21,7 @@ import {
 } from "./upgrade-files.js";
 import { upgradePaths } from "./upgrade-paths.js";
 
-export const UPGRADE_PHASES = [
+const UPGRADE_PHASES = [
   "preparing",
   "prepared",
   "reserving",
@@ -94,7 +94,7 @@ function parseInstallation(value: unknown, prefix: string): NpmInstallation {
   return { ...installation };
 }
 
-export function parseUpgradeJournal(value: unknown, prefix: string): UpgradeJournal {
+function parseUpgradeJournal(value: unknown, prefix: string): UpgradeJournal {
   if (
     !isPlainObject(value) ||
     !hasExactOwnKeys(value, [

@@ -1,6 +1,6 @@
 import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 
-export const CORE_UPDATE_STAGES = [
+const CORE_UPDATE_STAGES = [
   "checking",
   "resolving",
   "downloading",

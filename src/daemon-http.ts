@@ -25,7 +25,7 @@ export function requiredParam(
   return value;
 }
 
-export function parseJsonBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<unknown> {
+function parseJsonBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let bytes = 0;

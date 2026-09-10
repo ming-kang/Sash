@@ -1,4 +1,5 @@
 import { HttpError } from "../../daemon-http.js";
+import { errorMessage } from "../../error-utils.js";
 import { parseUpgradeAccess } from "../../upgrade-access.js";
 import type { DaemonContext } from "../context.js";
 import type { RouteRequest, RouteResponse } from "../router.js";
@@ -8,7 +9,8 @@ export async function upgradeAction(ctx: DaemonContext, req: RouteRequest): Prom
   let access: ReturnType<typeof parseUpgradeAccess>;
   try {
     access = parseUpgradeAccess(body);
-  } catch {
+  } catch (error) {
+    console.error(`[sashd] Invalid upgrade request: ${errorMessage(error)}`);
     throw new HttpError(400, "Invalid Sash upgrade request");
   }
   switch (req.params.action) {

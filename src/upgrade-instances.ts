@@ -23,7 +23,7 @@ import { isInsideDirectory } from "./upgrade-files.js";
 import type { UpgradeInstanceReference } from "./upgrade-journal.js";
 import { assertNoUnknownSashDaemons, observeUpgradeProcesses } from "./upgrade-processes.js";
 
-export async function verifyUpgradeInstance(
+async function verifyUpgradeInstance(
   record: InstallationInstance,
   options: { processIdentity?: boolean } = {},
 ): Promise<SashDaemonClient> {

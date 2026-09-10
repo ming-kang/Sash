@@ -14,7 +14,7 @@ import {
 import { runUpgradeCommand, upgradeChildEnv } from "./upgrade-command.js";
 import { upgradeTransactionPaths } from "./upgrade-paths.js";
 
-export const NPM_REGISTRY = "https://registry.npmjs.org";
+const NPM_REGISTRY = "https://registry.npmjs.org";
 export type SashNpmTarget = SashPackageInfo;
 
 export async function resolveSashNpmTarget(

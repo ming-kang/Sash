@@ -1,3 +1,5 @@
+import { errorMessage } from "./error-utils.js";
+
 /** Uniform CLI error presentation for command actions. */
 export function withCliErrors<Args extends unknown[]>(
   fn: (...args: Args) => Promise<void> | void,
@@ -6,7 +8,7 @@ export function withCliErrors<Args extends unknown[]>(
     try {
       await fn(...args);
     } catch (err) {
-      console.error(`[sash] ✗ ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[sash] ✗ ${errorMessage(err)}`);
       writeCliDebug(err);
       process.exitCode = 1;
     }

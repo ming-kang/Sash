@@ -6,6 +6,7 @@ import type {
 } from "../../contracts.js";
 import { currentCoreVersion } from "../../core.js";
 import { HttpError } from "../../daemon-http.js";
+import { errorMessage } from "../../error-utils.js";
 import { UPGRADE_PROTOCOL } from "../../package-info.js";
 import { publicSettings } from "../../settings.js";
 import type { SystemProxyState } from "../../sysproxy.js";
@@ -83,7 +84,7 @@ export async function readDaemonStatus(ctx: DaemonContext, fresh = false): Promi
     actualProxy = inspection.state;
     proxyQueryError = inspection.queryError;
   } catch (err) {
-    proxyQueryError = err instanceof Error ? err.message : String(err);
+    proxyQueryError = errorMessage(err);
   }
   // Read saved values and their revision together after asynchronous observations.
   const settings = ctx.settings.committed();

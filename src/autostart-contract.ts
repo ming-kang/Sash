@@ -1,13 +1,6 @@
 import { hasExactOwnKeys, isPlainObject } from "./json-shape.js";
 
-export const AUTOSTART_STATES = [
-  "on",
-  "off",
-  "stale",
-  "disabled",
-  "unknown",
-  "unsupported",
-] as const;
+const AUTOSTART_STATES = ["on", "off", "stale", "disabled", "unknown", "unsupported"] as const;
 export type AutostartState = (typeof AUTOSTART_STATES)[number];
 export type RegisteredAutostartState = Exclude<AutostartState, "unknown" | "unsupported">;
 

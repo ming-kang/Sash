@@ -40,7 +40,7 @@ export function parseProfilesIndex(value: unknown): ProfilesIndex {
   return { activeId: value.activeId, profiles };
 }
 
-export function parseProfileMeta(item: unknown): ProfileMeta {
+function parseProfileMeta(item: unknown): ProfileMeta {
   if (
     !isPlainObject(item) ||
     typeof item.id !== "string" ||

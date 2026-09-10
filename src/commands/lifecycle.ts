@@ -33,7 +33,7 @@ export async function runRestart(): Promise<void> {
   log.ok(`core restarted (PID=${result.pid})`);
   printEndpoints(ctx, owner.daemon.port, result.mixedPort);
 }
-export function printEndpoints(
+function printEndpoints(
   ctx: RuntimeContext,
   daemonPort: number,
   mixedPort = ctx.settings.mixedPort,

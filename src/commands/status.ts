@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { cliOutputSignal } from "../cli-output.js";
 import { validateDelayTarget } from "../core-delay.js";
+import { errorMessage } from "../error-utils.js";
 import { log } from "../log.js";
 import {
   type CliRuntimeStatus,
@@ -13,7 +14,7 @@ import { observeStatusDelay, watchStatusWithDelay, withStatusDelay } from "../st
 import { watchRuntimeStatus } from "../status-watch.js";
 import { runtimeContext } from "./shared.js";
 
-export type RuntimeStatusCollector = () => Promise<CliRuntimeStatus>;
+type RuntimeStatusCollector = () => Promise<CliRuntimeStatus>;
 
 export async function runStatus(
   opts: { json?: boolean; watch?: boolean; delay?: string } = {},
@@ -43,9 +44,7 @@ export async function runStatus(
         watchRuntimeStatus(runtimeContext, {
           signal,
           onReconnect: (error) =>
-            log.warn(
-              `status stream disconnected; reconnecting: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+            log.warn(`status stream disconnected; reconnecting: ${errorMessage(error)}`),
         });
       const snapshots =
         opts.delay === undefined

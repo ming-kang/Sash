@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { errorMessage } from "./error-utils.js";
 import { currentPackageRoot, SASH_CLI_ENTRY } from "./package-info.js";
 
 export interface NpmInstallation {
@@ -158,9 +159,6 @@ export function inspectInstallation(
       platform,
     };
   } catch (error) {
-    return unsupported(
-      "unknown",
-      `Cannot verify the installation: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    return unsupported("unknown", `Cannot verify the installation: ${errorMessage(error)}`);
   }
 }

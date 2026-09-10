@@ -1,12 +1,23 @@
 import type { SashStateStore } from "./app-state.js";
 import type { SettingsPatch } from "./contracts.js";
+import { errorMessage } from "./error-utils.js";
 import type { ProfileCommitBoundary } from "./profile-service.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { type SashSettings, validateSettingsCandidate } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 
-export class SettingsInputError extends Error {}
-export class CoreUnhealthyError extends Error {}
+export class SettingsInputError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = "SettingsInputError";
+  }
+}
+export class CoreUnhealthyError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = "CoreUnhealthyError";
+  }
+}
 export { StateConflictError as SettingsConflictError } from "./app-state.js";
 
 export interface SettingsApplyResult {
@@ -34,7 +45,7 @@ export class SettingsService {
       try {
         settings = validateSettingsCandidate({ ...state.settings, ...changes });
       } catch (error) {
-        throw new SettingsInputError(error instanceof Error ? error.message : String(error));
+        throw new SettingsInputError(errorMessage(error));
       }
       if (patch.systemProxy === true) {
         const core = await this.options.supervisor.status();
