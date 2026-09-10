@@ -260,8 +260,11 @@ try {
   if (process.platform === "win32")
     assert.equal(runCli(["--version"], ".cmd").trim(), expectedVersion);
   const help = runCli(["--help"]);
+  // Assert the wiring, not the wording: command presence survives copy edits.
   assert.match(help, /Usage:\s+sash/);
-  assert.match(help, /show runtime state/);
+  for (const command of ["start", "stop", "restart", "doctor", "status", "profile", "upgrade"]) {
+    assert.match(help, new RegExp(`^\\s+${command}\\b`, "m"), `help is missing ${command}`);
+  }
   const profiles = JSON.parse(runCli(["profile", "list", "--json"]));
   assert.deepEqual(profiles, { activeId: null, profiles: [] });
   assert.equal(
@@ -269,7 +272,7 @@ try {
     false,
     "Read-only commands must not initialize application data",
   );
-  assert.match(runCli(["upgrade", "--help"]), /upgrade Sash through npm/);
+  assert.match(runCli(["upgrade", "--help"]), /upgrade Sash with npm/);
 
   console.log(
     `[package-smoke] installed and verified ${installSpec ?? "the freshly packed tarball"} as ${packageJson.name}@${expectedVersion} (${packedFiles.length} files)`,
