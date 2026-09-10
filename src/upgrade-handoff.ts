@@ -7,7 +7,7 @@ import { parseCoreYaml } from "./core-yaml.js";
 import { parseWebSessionSeeds, type WebSessionSeed } from "./daemon/web-auth.js";
 import { durableRemoveFileSync } from "./fs-atomic.js";
 import { assertAbsolutePath, canonicalPath, pathsEqual } from "./installation.js";
-import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
+import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject, isSha256 } from "./json-shape.js";
 import { isValidMihomoConfig, overlayManagedKeys } from "./mihomo-config.js";
 import { exactSashVersion, UPGRADE_PROTOCOL } from "./package-info.js";
 import type { SashLayout } from "./paths.js";
@@ -23,6 +23,11 @@ export type UpgradeHandoffPhase =
   | "restoring"
   | "restored"
   | "committed";
+export interface UpgradeHandoffLegacyTail {
+  nodePath: string;
+  stateSha256: string;
+  restoredBootId: string | null;
+}
 export interface UpgradeHandoff {
   protocol: typeof UPGRADE_PROTOCOL;
   transactionId: string;
@@ -40,6 +45,8 @@ export interface UpgradeHandoff {
   sessions: WebSessionSeed[];
   continuationExpiresAt: string;
   phase: UpgradeHandoffPhase;
+  /** Present only for handoffs written by 0.1.3/0.1.4; written back verbatim below. */
+  legacy?: UpgradeHandoffLegacyTail;
 }
 
 const MAX_HANDOFF_BYTES = 16 * 1024 * 1024;
@@ -57,6 +64,48 @@ const PHASES: readonly UpgradeHandoffPhase[] = [
   "restored",
   "committed",
 ];
+const HANDOFF_KEYS = [
+  "protocol",
+  "transactionId",
+  "installationId",
+  "dataDir",
+  "sourceBootId",
+  "sourceVersion",
+  "targetVersion",
+  "nodeHistory",
+  "createdAt",
+  "stateRevision",
+  "coreInstallation",
+  "runtime",
+  "autostart",
+  "sessions",
+  "continuationExpiresAt",
+  "phase",
+] as const;
+// 0.1.3 and 0.1.4 additionally wrote these fields, and their updater keeps
+// reading the handoff with an exact-key check while the transaction runs, so an
+// upgrade that starts with this shape must keep it until the handoff is cleared.
+const LEGACY_HANDOFF_KEYS = [
+  "protocol",
+  "transactionId",
+  "installationId",
+  "dataDir",
+  "sourceBootId",
+  "sourceVersion",
+  "targetVersion",
+  "nodePath",
+  "nodeHistory",
+  "createdAt",
+  "stateRevision",
+  "stateSha256",
+  "coreInstallation",
+  "runtime",
+  "autostart",
+  "sessions",
+  "continuationExpiresAt",
+  "phase",
+  "restoredBootId",
+] as const;
 
 function parseConfiguration(value: unknown): RuntimeConfiguration | null {
   if (value === null) return null;
@@ -105,27 +154,11 @@ function parseConfiguration(value: unknown): RuntimeConfiguration | null {
 function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
   if (
     !isPlainObject(value) ||
-    !hasExactOwnKeys(value, [
-      "protocol",
-      "transactionId",
-      "installationId",
-      "dataDir",
-      "sourceBootId",
-      "sourceVersion",
-      "targetVersion",
-      "nodeHistory",
-      "createdAt",
-      "stateRevision",
-      "coreInstallation",
-      "runtime",
-      "autostart",
-      "sessions",
-      "continuationExpiresAt",
-      "phase",
-    ]) ||
+    (!hasExactOwnKeys(value, HANDOFF_KEYS) && !hasExactOwnKeys(value, LEGACY_HANDOFF_KEYS)) ||
     value.protocol !== UPGRADE_PROTOCOL
   )
     throw new Error("Invalid Sash runtime handoff");
+  const legacy = !hasExactOwnKeys(value, HANDOFF_KEYS);
   const access = parseUpgradeAccess({
     transactionId: value.transactionId,
     installationId: value.installationId,
@@ -143,6 +176,19 @@ function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
     !PHASES.some((phase) => phase === value.phase)
   )
     throw new Error("Invalid Sash handoff identity");
+  let legacyTail: UpgradeHandoffLegacyTail | undefined;
+  if (legacy) {
+    const { nodePath, stateSha256, restoredBootId } = value;
+    if (
+      typeof nodePath !== "string" ||
+      !isSha256(stateSha256) ||
+      (restoredBootId !== null &&
+        (typeof restoredBootId !== "string" || !/^[a-f0-9]{48}$/.test(restoredBootId)))
+    )
+      throw new Error("Invalid Sash handoff identity");
+    assertAbsolutePath(nodePath);
+    legacyTail = { nodePath, stateSha256, restoredBootId };
+  }
   assertAbsolutePath(value.dataDir);
   if (
     !Array.isArray(value.nodeHistory) ||
@@ -195,7 +241,19 @@ function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
     sessions: parseWebSessionSeeds(value.sessions),
     continuationExpiresAt: value.continuationExpiresAt,
     phase: value.phase as UpgradeHandoffPhase,
+    ...(legacyTail ? { legacy: legacyTail } : {}),
   };
+}
+
+function serializeHandoff(handoff: UpgradeHandoff): Record<string, unknown> {
+  const fields: Record<string, unknown> = { ...handoff };
+  delete fields.legacy;
+  if (handoff.legacy) {
+    fields.nodePath = handoff.legacy.nodePath;
+    fields.stateSha256 = handoff.legacy.stateSha256;
+    fields.restoredBootId = handoff.legacy.restoredBootId;
+  }
+  return fields;
 }
 
 export function upgradeHandoffPath(layout: SashLayout): string {
@@ -216,9 +274,14 @@ export function writeUpgradeHandoff(
   handoff: UpgradeHandoff,
   access: UpgradeAccess,
 ): void {
-  const payload = parseUpgradeHandoff(handoff);
+  const payload = parseUpgradeHandoff(serializeHandoff(handoff));
   assertOwner(payload, layout, access);
-  writeSignedFile(upgradeHandoffPath(layout), access.grant, payload, HANDOFF_ENVELOPE);
+  writeSignedFile(
+    upgradeHandoffPath(layout),
+    access.grant,
+    serializeHandoff(payload),
+    HANDOFF_ENVELOPE,
+  );
 }
 
 export function readUpgradeHandoff(
