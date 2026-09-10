@@ -39,7 +39,7 @@ export function writeFixturePackage(prefix: string, version: string): string {
     fs.mkdirSync(path.dirname(shim), { recursive: true });
     if (process.platform === "win32")
       fs.writeFileSync(shim, `npm fixture: node_modules/@astralyn/sash/dist/cli.js\n${version}\n`);
-    else fs.symlinkSync("../../lib/node_modules/@astralyn/sash/dist/cli.js", shim);
+    else fs.symlinkSync("../lib/node_modules/@astralyn/sash/dist/cli.js", shim);
   }
   return root;
 }
