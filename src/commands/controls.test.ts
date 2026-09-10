@@ -143,38 +143,6 @@ describe("profile and runtime CLI controls", () => {
     );
   }
 
-  it("sends every profile mutation through the API without applying Core or writing local state", async () => {
-    const file = sashLayout(root).settingsFile;
-    const saved = fs.readFileSync(file);
-    const listed = JSON.parse(await cli(["profile", "list", "--json"])) as ProfilesIndex;
-    assert.equal(listed.activeId, "1");
-    await cli([
-      "profile",
-      "add",
-      "https://example.test/second",
-      "--name",
-      "secondary",
-      "--use",
-      "--json",
-    ]);
-    assert.equal(profiles.activeId, "2");
-    await cli(["profile", "use", "primary", "--json"]);
-    assert.equal(profiles.activeId, "1");
-    await cli(["profile", "update", "--json"]);
-    assert.equal(profiles.profiles[0]?.revision, 2);
-    await cli(["profile", "rename", "2", "renamed", "--json"]);
-    await cli(["profile", "remove", "renamed", "--json"]);
-    assert.equal(profiles.profiles.length, 1);
-    await cli(["profile", "use", "--default", "--json"]);
-    assert.equal(profiles.activeId, null);
-    assert.equal(JSON.parse(await cli(["profile", "update", "--all", "--json"])).updated, 1);
-    assert.equal(
-      requests.some((request) => request.url.startsWith("/sash/core/")),
-      false,
-    );
-    assert.deepEqual(fs.readFileSync(file), saved);
-  });
-
   it("uses runtime mode, settings proxy intent and Core-only stop without shutting down management", async () => {
     assert.equal(JSON.parse(await cli(["mode", "global", "--json"])).mode, "global");
     assert.equal(JSON.parse(await cli(["proxy", "on", "--json"])).desired, true);

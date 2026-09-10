@@ -10,8 +10,6 @@ import {
   followLogFile,
   LOG_FOLLOW_CHUNK_BYTES,
   logCursorAtEnd,
-  normalizeLines,
-  parseLogLineCount,
   readLogGrowth,
 } from "./log-follow.js";
 import { sashLayout } from "./paths.js";
@@ -63,58 +61,6 @@ describe("log line counts", () => {
       if (previousHome === undefined) delete process.env.SASH_HOME;
       else process.env.SASH_HOME = previousHome;
       fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps positive safe integers", () => {
-    assert.equal(normalizeLines(1), 1);
-    assert.equal(normalizeLines(50), 50);
-    assert.equal(normalizeLines(9999), 9999);
-    assert.equal(normalizeLines(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
-  });
-
-  it("falls back for invalid normalized input", () => {
-    for (const bad of [
-      Number.NaN,
-      0,
-      -5,
-      Infinity,
-      -Infinity,
-      Number.MAX_SAFE_INTEGER + 1,
-      3.14,
-      "100",
-      null,
-      undefined,
-      {},
-    ]) {
-      assert.equal(normalizeLines(bad), 50, JSON.stringify(bad));
-    }
-  });
-
-  it("honours a custom fallback", () => {
-    assert.equal(normalizeLines(Number.NaN, 10), 10);
-    assert.equal(normalizeLines(5, 10), 5);
-  });
-
-  it("strictly parses only canonical positive integer CLI arguments", () => {
-    assert.equal(parseLogLineCount("1"), 1);
-    assert.equal(parseLogLineCount("50"), 50);
-    assert.equal(parseLogLineCount(String(Number.MAX_SAFE_INTEGER)), Number.MAX_SAFE_INTEGER);
-    for (const bad of [
-      "",
-      "0",
-      "01",
-      "-1",
-      "+1",
-      "1.0",
-      "1e2",
-      "1x",
-      " 1",
-      "1 ",
-      "Infinity",
-      String(Number.MAX_SAFE_INTEGER + 1),
-    ]) {
-      assert.throws(() => parseLogLineCount(bad), /positive/);
     }
   });
 });

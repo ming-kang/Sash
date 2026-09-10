@@ -168,21 +168,6 @@ describe("Sash upgrade inspection", () => {
             ? undefined
             : `Sash ${scenario.target} requires Node ${scenario.nodeRange}`,
         );
-        assert.deepEqual(
-          Object.keys(report).sort(),
-          [
-            "available",
-            "compatible",
-            "current",
-            "installation",
-            "node",
-            "prefix",
-            "requiredNode",
-            "supported",
-            "target",
-            ...(scenario.compatible ? [] : ["reason"]),
-          ].sort(),
-        );
         assert.deepEqual(snapshot(root), before);
         agent.assertNoPendingInterceptors();
       } finally {

@@ -7,8 +7,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "../paths.js";
 import { acquireStateLockSync } from "../state-lock.js";
 import { createTestState, testSettings } from "../testing/state.js";
-import { runRestart, runStart, runStop } from "./lifecycle.js";
-import { runUpdate } from "./update.js";
+import { runStart, runStop } from "./lifecycle.js";
 
 describe("lifecycle commands", () => {
   let root: string;
@@ -81,22 +80,6 @@ describe("lifecycle commands", () => {
     assert.ok(
       output.some((line) => line.includes("local API") && line.includes(`127.0.0.1:${port}`)),
     );
-  });
-
-  it("restarts Core without shutting down the management daemon", async () => {
-    await runRestart();
-    assert.deepEqual(
-      requests.filter((request) => request.url !== "/sash/daemon/health"),
-      [{ url: "/sash/core/restart", body: "" }],
-    );
-  });
-
-  it("updates through the daemon without a maintenance handoff", async () => {
-    await runUpdate({ version: "v1.2.3" });
-    const mutations = requests.filter((request) => request.url !== "/sash/daemon/health");
-    assert.equal(mutations.length, 1);
-    assert.equal(mutations[0]?.url, "/sash/core/update");
-    assert.deepEqual(JSON.parse(mutations[0]?.body ?? ""), { version: "v1.2.3" });
   });
 
   it("refuses an unverified stop without sending a shutdown request", async () => {

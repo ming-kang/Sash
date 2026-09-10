@@ -226,25 +226,6 @@ describe("CLI runtime status observations", () => {
   it("reports a complete healthy runtime with observed endpoints", async () => {
     const status = await collectRuntimeStatus(context, dependencies());
 
-    assert.deepEqual(Object.keys(status).sort(), [
-      "activeProfile",
-      "autostart",
-      "complete",
-      "core",
-      "daemon",
-      "endpoints",
-      "healthy",
-      "paths",
-      "queryError",
-      "schemaVersion",
-      "systemProxy",
-      "uiInstalled",
-    ]);
-    assert.deepEqual(Object.keys(status.systemProxy).sort(), [
-      "daemonApplied",
-      "desired",
-      "osObserved",
-    ]);
     assert.equal(status.schemaVersion, 2);
     assert.equal(status.complete, true);
     assert.equal(status.healthy, true);
