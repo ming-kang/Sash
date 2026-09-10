@@ -252,6 +252,20 @@ export const CREDENTIAL_ENV_KEYS: readonly string[] = [
 
 const STRIPPED_ENV_KEYS = new Set(CREDENTIAL_ENV_KEYS);
 
+/**
+ * Only the management daemon may carry a GitHub token: it performs release
+ * metadata lookups and asset downloads. The Core and every helper keep
+ * receiving a fully scrubbed environment.
+ */
+export function githubTokenEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ["GITHUB_TOKEN", "GH_TOKEN"]) {
+    const value = source[key];
+    if (value) env[key] = value;
+  }
+  return env;
+}
+
 export function buildSanitizedEnv(sourceEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const childEnv: NodeJS.ProcessEnv = { ...sourceEnv };
   for (const key of Object.keys(childEnv)) {

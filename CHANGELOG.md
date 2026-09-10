@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Start on a configuration that uses GEO rules on a network without direct access to `github.com`. The Core downloads its geodata databases (`geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) while loading a configuration, and it fetches them itself, ignoring `HTTP_PROXY` — so a first start deadlocked: no Core without geodata, and no way to fetch geodata without the Core's own proxy. The pre-flight check now recognizes a geodata download failure instead of reporting "Core rejected generated configuration", retries once with `geox-url` rewritten to the release-mirror hosts, and applies the retried configuration, which leaves the databases and a working source in the data directory. A failure after the retry says so explicitly and names the two ways out (a trusted `geox-url`, or pre-seeded files); a system-wide tunnel also works, a proxy environment variable does not.
+- Let `GITHUB_TOKEN`/`GH_TOKEN` reach `sashd`, which performs Core release metadata and asset downloads. The daemon was spawned with a fully scrubbed environment, so the token support could never take effect where it was needed: with the anonymous GitHub API quota exhausted (a shared or datacenter exit IP), `sash update --check` succeeded through the token while `sash start` failed with `HTTP 403` on the same machine. Core, npm and helper children still receive no credential.
 
 ### Changed
 

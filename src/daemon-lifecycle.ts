@@ -11,6 +11,7 @@ import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-fo
 import { type SashLayout, sashLayout } from "./paths.js";
 import {
   buildSanitizedEnv,
+  githubTokenEnv,
   isProcessAlive,
   killProcessGracefully,
   withPrivateAppendLogFds,
@@ -131,6 +132,18 @@ function daemonStartupDiagnostics(layout: SashLayout, cursor: LogFileCursor): st
   return `${details ? `\nRecent errors:\n${details}` : ""}\nCheck logs at: ${layout.daemonErrLogFile}`;
 }
 
+/**
+ * Environment of the management daemon: fully scrubbed except for the GitHub
+ * token, which only this process needs for release metadata and asset
+ * downloads. The Core and every helper never receive it.
+ */
+export function daemonSpawnEnv(
+  layout: SashLayout,
+  sourceEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return { ...buildSanitizedEnv(sourceEnv), ...githubTokenEnv(sourceEnv), SASH_HOME: layout.root };
+}
+
 async function spawnDaemonUnlocked(
   opts: { layout?: SashLayout; settings?: SashSettings; timeoutMs?: number } = {},
 ): Promise<{ pid: number }> {
@@ -159,7 +172,6 @@ async function spawnDaemonUnlocked(
   fs.mkdirSync(layout.stateDir, { recursive: true });
 
   const entryPath = resolveDaemonEntryPath();
-  const sanitizedEnv = buildSanitizedEnv();
 
   // If entry ends in .ts, resolve tsx relative to Sash itself rather than the
   // data-directory cwd used by the child daemon. Compute every spawn argument
@@ -178,7 +190,7 @@ async function spawnDaemonUnlocked(
         detached: true,
         stdio: ["ignore", stdoutFd, stderrFd],
         windowsHide: true,
-        env: { ...sanitizedEnv, SASH_HOME: layout.root },
+        env: daemonSpawnEnv(layout),
       }),
   );
 

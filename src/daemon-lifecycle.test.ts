@@ -6,15 +6,68 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
+  daemonSpawnEnv,
   evaluateDaemon,
   readDaemonPidRecord,
   spawnDaemon,
   stopDaemonFromCli,
 } from "./daemon-lifecycle.js";
 import { sashLayout } from "./paths.js";
+import { githubTokenEnv } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import { acquireStateLockSync, type StateLockRecord } from "./state-lock.js";
 import { createTestState, testSettings } from "./testing/state.js";
+
+describe("daemon spawn environment", () => {
+  const layout = sashLayout(path.join(os.tmpdir(), "sash-daemon-spawn-env"));
+
+  it("forwards only the GitHub token and keeps unrelated credentials scrubbed", () => {
+    const env = daemonSpawnEnv(layout, {
+      PATH: "/usr/bin",
+      GITHUB_TOKEN: "ghp_daemon",
+      GH_TOKEN: "gh_daemon",
+      GITHUB_PAT: "pat-secret",
+      NPM_TOKEN: "npm-secret",
+      npm_config_userconfig: "/tmp/credentialed-npmrc",
+      SASH_HOME: "/somewhere/else",
+      SAFE_VAR: "keep",
+    });
+
+    assert.equal(env.GITHUB_TOKEN, "ghp_daemon");
+    assert.equal(env.GH_TOKEN, "gh_daemon");
+    assert.equal(env.GITHUB_PAT, undefined);
+    assert.equal(env.NPM_TOKEN, undefined);
+    assert.equal(env.npm_config_userconfig, undefined);
+    assert.equal(env.SAFE_VAR, "keep");
+    assert.equal(env.PATH, "/usr/bin");
+    assert.equal(env.SASH_HOME, layout.root);
+  });
+
+  it("re-adds the GitHub token after the rest of the environment was scrubbed", () => {
+    const env = daemonSpawnEnv(layout, {
+      GITHUB_TOKEN: "ghp_daemon",
+      NPM_TOKEN: "npm-secret",
+    });
+
+    assert.equal(env.GITHUB_TOKEN, "ghp_daemon");
+    assert.equal(env.GH_TOKEN, undefined);
+    assert.equal(env.NPM_TOKEN, undefined);
+  });
+
+  it("githubTokenEnv copies only the two GitHub token names, and only when set", () => {
+    assert.deepEqual(
+      githubTokenEnv({
+        GITHUB_TOKEN: "ghp_daemon",
+        GH_TOKEN: "gh_daemon",
+        GITHUB_PAT: "pat-secret",
+        NPM_TOKEN: "npm-secret",
+        PATH: "/usr/bin",
+      }),
+      { GITHUB_TOKEN: "ghp_daemon", GH_TOKEN: "gh_daemon" },
+    );
+    assert.deepEqual(githubTokenEnv({ GITHUB_TOKEN: "", GH_TOKEN: undefined }), {});
+  });
+});
 
 describe("daemon ownership evaluation", () => {
   let root: string;
