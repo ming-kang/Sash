@@ -2,7 +2,6 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
-import { readLogTail } from "./log-tail.js";
 import { commandLineContainsPath } from "./process-command-path.js";
 
 /**
@@ -431,17 +430,6 @@ export function withPrivateAppendLogFds<T>(
         // A failed close must not mask the callback outcome.
       }
     }
-  }
-}
-
-export { TAIL_FILE_CHUNK_BYTES } from "./log-tail.js";
-
-/** Last non-empty lines of a file, for surfacing daemon/core startup errors. */
-export function tailFile(filePath: string, lineCount = 20): string {
-  try {
-    return readLogTail(filePath, lineCount).text;
-  } catch {
-    return "";
   }
 }
 

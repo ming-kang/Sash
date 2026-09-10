@@ -14,8 +14,6 @@ import {
   recoverBinaryUnlockProbe,
   runSanitizedCommand,
   runSanitizedCommandAsync,
-  TAIL_FILE_CHUNK_BYTES,
-  tailFile,
   withPrivateAppendLogFds,
   writePidRecord,
 } from "./process.js";
@@ -386,26 +384,6 @@ describe("process utilities", () => {
           (err: unknown) => (err as NodeJS.ErrnoException).code === "EBADF",
         );
       }
-    });
-  });
-
-  describe("tailFile", () => {
-    it("returns the last N non-empty lines", () => {
-      const file = path.join(tmpDir, "sample.log");
-      fs.writeFileSync(file, "line 1\nline 2\n\nline 3\nline 4\n");
-      const tail = tailFile(file, 2);
-      assert.equal(tail, "line 3\nline 4");
-    });
-
-    it("returns empty string when file does not exist", () => {
-      assert.equal(tailFile(path.join(tmpDir, "missing.log")), "");
-    });
-
-    it("finds the end of a large log without requiring a whole-file buffer", () => {
-      const file = path.join(tmpDir, "large.log");
-      fs.writeFileSync(file, `${"discarded\n".repeat(TAIL_FILE_CHUNK_BYTES)}last line\n`);
-
-      assert.equal(tailFile(file, 1), "last line");
     });
   });
 });
