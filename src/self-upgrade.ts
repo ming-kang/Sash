@@ -201,23 +201,63 @@ function runNpmInstall(
  * code. The daemon runs from the package directory npm replaces, so it is
  * stopped first and started again only after the install succeeded.
  */
+export interface SashUpgradeOutcome {
+  version: string;
+  /** The version the package held before this upgrade, when one was installed. */
+  previousVersion: string | null;
+  /** True when the daemon was restarted onto the new code as part of this run. */
+  restarted: boolean;
+}
+
+/** Seams for the upgrade sequence so its order can be tested without npm or a daemon. */
+export interface SashUpgradeDeps {
+  resolveTarget?: typeof resolveSashUpgradeTarget;
+  resolveOwner?: typeof resolveRuntimeOwner;
+  stop?: typeof stopRuntime;
+  start?: typeof ensureManagement;
+  install?: (
+    installation: NpmInstallation,
+    version: string,
+    options: { json?: boolean },
+  ) => Promise<void>;
+}
+
+/**
+ * Install one exact Sash version with npm and restart the daemon on the new
+ * code. The package is replaced first, while the running daemon keeps serving:
+ * on a machine whose only route to the registry is the proxy that daemon runs,
+ * stopping it first would make the install impossible. Nothing needs undoing
+ * when the install fails, because nothing was stopped.
+ */
 export async function executeSashUpgrade(
   installation: NpmInstallation,
-  options: { version?: string; json?: boolean } = {},
-): Promise<number> {
-  const target = await resolveSashUpgradeTarget(options.version);
+  options: { version?: string; json?: boolean; restart?: boolean } = {},
+  deps: SashUpgradeDeps = {},
+): Promise<SashUpgradeOutcome> {
+  const target = await (deps.resolveTarget ?? resolveSashUpgradeTarget)(options.version);
+  const previousVersion = versionOnDisk(installation);
+  await (deps.install ?? runNpmInstall)(installation, target.version, options);
+
   const layout = sashLayout();
   const context: RuntimeContext = { layout, settings: loadSettings(layout) };
-  const before = await resolveRuntimeOwner(context);
-  const wasRunning = before.kind === "daemon";
-  if (wasRunning) await stopRuntime(context);
+  const owner = await (deps.resolveOwner ?? resolveRuntimeOwner)(context);
+  const shouldRestart = owner.kind === "daemon" && options.restart !== false;
+  if (!shouldRestart) return { version: target.version, previousVersion, restarted: false };
+
+  // The daemon still executes the previous code from memory; only a restart
+  // loads the new one. The install is complete, so the few seconds without a
+  // proxy change nothing.
+  await (deps.stop ?? stopRuntime)(context);
+  await (deps.start ?? ensureManagement)(context);
+  return { version: target.version, previousVersion, restarted: true };
+}
+
+/** Best-effort version of the package currently on disk, read before it is replaced. */
+function versionOnDisk(installation: NpmInstallation): string | null {
   try {
-    await runNpmInstall(installation, target.version, options);
-  } catch (error) {
-    // The previous version is still installed and usable; put the daemon back.
-    if (wasRunning) await ensureManagement(context).catch(() => undefined);
-    throw error;
+    return JSON.parse(fs.readFileSync(path.join(installation.packageRoot, "package.json"), "utf8"))
+      .version as string;
+  } catch {
+    return null;
   }
-  if (wasRunning) await ensureManagement(context);
-  return 0;
 }

@@ -1,11 +1,12 @@
 import { writeCliDebug } from "../cli-errors.js";
 import { errorMessage } from "../error-utils.js";
+import { log } from "../log.js";
 import { exactSashVersion } from "../package-info.js";
 import { executeSashUpgrade, inspectSashUpgrade } from "../self-upgrade.js";
 
 export async function runUpgrade(
   version?: string,
-  options: { check?: boolean; json?: boolean } = {},
+  options: { check?: boolean; json?: boolean; restart?: boolean } = {},
 ): Promise<void> {
   try {
     const exact = version === undefined ? undefined : exactSashVersion(version);
@@ -35,14 +36,30 @@ export async function runUpgrade(
       if (!options.check && (!report.supported || !report.compatible)) process.exitCode = 1;
       return;
     }
-    const code = await executeSashUpgrade(installation, {
+    const outcome = await executeSashUpgrade(installation, {
       ...(exact === undefined ? {} : { version: exact }),
       json: options.json === true,
+      restart: options.restart !== false,
     });
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ outcome: "upgraded", version: report.target })}\n`);
+      process.stdout.write(
+        `${JSON.stringify({
+          outcome: "upgraded",
+          version: outcome.version,
+          restarted: outcome.restarted,
+        })}\n`,
+      );
+    } else if (outcome.restarted) {
+      log.ok(`Sash ${outcome.version} installed · the daemon restarted on it`);
+    } else if (outcome.previousVersion && outcome.previousVersion !== outcome.version) {
+      log.info(
+        `Sash ${outcome.version} installed · the running daemon still uses ${outcome.previousVersion}`,
+      );
+      log.info("Restart it when convenient: sash stop && sash start");
+    } else {
+      log.ok(`Sash ${outcome.version} installed`);
     }
-    process.exitCode = code;
+    process.exitCode = 0;
   } catch (error) {
     if (!options.json) throw error;
     process.stdout.write(`${JSON.stringify({ outcome: "failed", error: errorMessage(error) })}\n`);

@@ -9,7 +9,7 @@ import { diagnoseSash, inspectListenerPort } from "./doctor.js";
 import { npmPackageRoot } from "./installation.js";
 import { sashLayout } from "./paths.js";
 import type { StatusObservationDependencies } from "./status.js";
-import { createTestState } from "./testing/state.js";
+import { createTestState, testStatus } from "./testing/state.js";
 
 /** Minimal npm-global package layout; the doctor dashboard check only needs these four files. */
 function writeSashPackage(prefix: string, version: string): string {
@@ -217,6 +217,48 @@ it("distinguishes an occupied loopback port from a free one", async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   assert.equal((await inspectListenerPort("127.0.0.1", address.port)).available, true);
+});
+
+it("warns when the running daemon still executes an older installed version", async () => {
+  const f = fixture();
+  try {
+    const installed = JSON.parse(
+      fs.readFileSync(
+        path.join(f.root, "prefix", "node_modules", "@astralyn", "sash", "package.json"),
+        "utf8",
+      ),
+    ).version as string;
+    const running = await diagnoseSash({
+      ...f,
+      status: {
+        ...f.status,
+        evaluateDaemon: async () => ({
+          kind: "healthy",
+          running: true,
+          healthy: true,
+          pid: 7,
+          port: 19090,
+        }),
+        queryDaemonStatus: async () =>
+          ({
+            ...testStatus(),
+            daemon: {
+              pid: 7,
+              bootId: "boot",
+              startedAt: "2026-01-01T00:00:00.000Z",
+              port: 19090,
+              version: "0.0.1",
+            },
+          }) as never,
+      },
+    });
+    const check = running.checks.find((item) => item.id === "sash-version");
+    assert.equal(check?.status, "warning");
+    assert.match(check?.message ?? "", new RegExp(`Sash ${installed} is installed`));
+    assert.match(check?.advice ?? "", /sash stop && sash start/);
+  } finally {
+    await f.cleanup();
+  }
 });
 
 it("reports connection-specific proxy limitations without claiming active settings or changing state", async () => {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { withCliErrors } from "./cli-errors.js";
 import { runStatus } from "./commands/status.js";
 import type { DaemonStatus } from "./contracts.js";
+import { readSashPackageInfo } from "./package-info.js";
 import { sashLayout } from "./paths.js";
 import {
   collectRuntimeStatus,
@@ -23,11 +24,17 @@ const context: StatusObservationContext = {
 
 function statusResponse(
   core: DaemonStatus["core"],
-  options: { proxyActual?: boolean } = { proxyActual: true },
+  options: { proxyActual?: boolean; daemonVersion?: string } = { proxyActual: true },
 ): DaemonStatus {
   return {
     ...testStatus(),
-    daemon: { pid: 101, bootId: "test-boot", startedAt: "2026-01-01T00:00:00.000Z", port: 19090 },
+    daemon: {
+      pid: 101,
+      bootId: "test-boot",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      port: 19090,
+      ...(options.daemonVersion ? { version: options.daemonVersion } : {}),
+    },
     revisions: { state: 1, runtime: 1 },
     configuration: {
       pending: false,
@@ -326,6 +333,50 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.core.running, false);
     assert.equal(status.core.healthy, false);
     assert.equal(runtimeStatusHeadline(status).level, "info");
+  });
+
+  it("says when the running daemon still executes an older installed version", async () => {
+    const installed = readSashPackageInfo().version;
+    const mismatched = await collectRuntimeStatus(
+      context,
+      dependencies({
+        queryDaemonStatus: async () =>
+          statusResponse(
+            { running: true, healthy: true, pid: 202, version: "v1.2.3" },
+            { proxyActual: true, daemonVersion: "0.0.1" },
+          ),
+      }),
+    );
+    assert.equal(mismatched.daemon.version, "0.0.1");
+    const mismatchOutput = await captureConsole(() => runStatus({}, async () => mismatched));
+    assert.ok(
+      mismatchOutput.logs.some(
+        (line) =>
+          line.includes("sash") && line.includes("0.0.1 running") && line.includes(installed),
+      ),
+      "the mismatch is reported with the installed version",
+    );
+    assert.ok(
+      mismatchOutput.logs.some((line) => line.includes("sash stop && sash start")),
+      "the restart is named",
+    );
+
+    const matching = await collectRuntimeStatus(
+      context,
+      dependencies({
+        queryDaemonStatus: async () =>
+          statusResponse(
+            { running: true, healthy: true, pid: 202, version: "v1.2.3" },
+            { proxyActual: true, daemonVersion: installed },
+          ),
+      }),
+    );
+    const matchOutput = await captureConsole(() => runStatus({}, async () => matching));
+    assert.equal(
+      matchOutput.logs.some((line) => line.includes("sash stop && sash start")),
+      false,
+      "a matched version stays silent",
+    );
   });
 
   it("keeps unknown fields null for an unresponsive daemon", async () => {

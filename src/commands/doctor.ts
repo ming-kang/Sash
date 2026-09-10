@@ -16,6 +16,7 @@ const CHECK_LABELS: Record<string, string> = {
   "controller-port": "Core controller port",
   "mixed-port": "Proxy port",
   "proxy-connections": "Windows connections",
+  "sash-version": "Sash version",
 };
 
 export async function runDoctor(options: { json?: boolean } = {}): Promise<void> {

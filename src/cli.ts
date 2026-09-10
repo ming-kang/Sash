@@ -244,12 +244,16 @@ program
 
 program
   .command("upgrade [version]")
-  .description("upgrade Sash with npm and restart it")
+  .description("install the latest Sash with npm and restart it on the new version")
   .option("--check", "check Sash version and compatibility without changing anything")
+  .option("--no-restart", "install without restarting the running daemon")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors(async (version: string | undefined, opts: { check?: boolean; json?: boolean }) =>
-      (await import("./commands/upgrade.js")).runUpgrade(version, opts),
+    withCliErrors(
+      async (
+        version: string | undefined,
+        opts: { check?: boolean; json?: boolean; restart?: boolean },
+      ) => (await import("./commands/upgrade.js")).runUpgrade(version, opts),
     ),
   );
 

@@ -3,6 +3,7 @@ import { cliOutputSignal } from "../cli-output.js";
 import { validateDelayTarget } from "../core-delay.js";
 import { errorMessage } from "../error-utils.js";
 import { log } from "../log.js";
+import { readSashPackageInfo } from "../package-info.js";
 import {
   type CliRuntimeStatus,
   collectRuntimeStatus,
@@ -102,6 +103,18 @@ export async function runStatus(
   // The headline already names the running version; this line answers
   // "is a Core installed" while it is stopped.
   if (status.core.running !== true) log.kv("core", status.core.installedVersion || "not installed");
+  // A daemon keeps executing the code it started with; say so when the installed
+  // package has moved on, instead of leaving the mismatch silent.
+  const runningVersion = status.daemon.version;
+  if (runningVersion) {
+    const installedVersion = readSashPackageInfo().version;
+    if (runningVersion !== installedVersion) {
+      log.kv(
+        "sash",
+        `${runningVersion} running · ${installedVersion} installed — run sash stop && sash start to load it`,
+      );
+    }
+  }
   if (status.delay) {
     const delay = status.delay;
     log.kv(

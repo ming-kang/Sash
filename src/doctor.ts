@@ -220,6 +220,27 @@ export async function diagnoseSash(
           ? "Inspect sash logs --daemon --errors; do not stop an unverified process"
           : undefined,
       );
+      // A daemon keeps executing the code it started with, so a difference here
+      // means the installed package was replaced but not loaded yet.
+      const runningVersion = runtime.daemon.version;
+      let installedVersion: string | undefined;
+      try {
+        installedVersion = readSashPackageInfo(packageRoot).version;
+      } catch {
+        installedVersion = undefined;
+      }
+      if (runningVersion && installedVersion) {
+        add(
+          "sash-version",
+          runningVersion === installedVersion ? "ok" : "warning",
+          runningVersion === installedVersion
+            ? `Sash ${runningVersion} is installed and running`
+            : `Sash ${installedVersion} is installed; the daemon still runs ${runningVersion}`,
+          runningVersion === installedVersion
+            ? undefined
+            : "Run sash stop && sash start to load the installed version",
+        );
+      }
       if (!state && runtime.daemon.running)
         add(
           "runtime-manifest",

@@ -27,6 +27,8 @@ export interface CliDaemonObservation {
   healthy: boolean;
   pid: number | null;
   port: number;
+  /** The version the running daemon executes; null when it cannot be observed. */
+  version: string | null;
 }
 
 export interface CliObservedSystemProxy {
@@ -130,6 +132,7 @@ function observedSystemProxy(state: SystemProxyState | undefined): CliObservedSy
 function daemonObservation(
   state: DaemonRunningInfo,
   daemonState?: CliDaemonState,
+  runningVersion?: string,
 ): CliDaemonObservation {
   const resolvedState = daemonState ?? state.kind;
   return {
@@ -138,6 +141,7 @@ function daemonObservation(
     healthy: resolvedState === "healthy",
     pid: typeof state.pid === "number" ? state.pid : null,
     port: state.kind === "stopped" ? 0 : (state.port ?? 0),
+    version: runningVersion?.trim() ? runningVersion : null,
   };
 }
 
@@ -267,7 +271,11 @@ export async function collectRuntimeStatus(
     try {
       const status = await queryStatus(context, dependencies, daemonState);
       queriedDaemon = true;
-      daemon = daemonObservation(daemonState, "healthy");
+      daemon = daemonObservation(
+        daemonState,
+        "healthy",
+        typeof status.daemon.version === "string" ? status.daemon.version : undefined,
+      );
       desiredProxy = status.systemProxy.desired;
       controllerEndpoint = status.settings.controller;
       mixedEndpoint = status.core.running

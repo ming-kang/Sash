@@ -28,7 +28,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash web` | Start management if needed and authorize/open the dashboard. |
 | `sash web --no-open` | Start management and print its address without authorizing a browser. |
 | `sash update [tag] [--check] [--json]` | Check a Core release or install it through the daemon, with preparation/download/verification progress. |
-| `sash upgrade [version] [--check] [--json]` | Update the Sash package through npm and restart the management daemon. |
+| `sash upgrade [version] [--check] [--no-restart] [--json]` | Update the Sash package through npm, then restart the daemon onto it. |
 | `sash profile [list]` | List saved profiles; `list --json` returns their metadata and saved selection. |
 | `sash profile use <profile>` / `use --default` | Select an ID or unique exact name, or the built-in configuration, for the next Apply. |
 | `sash profile add <url> [--name NAME] [--use]` | Download and save a remote profile; the first profile is selected automatically. |
@@ -43,7 +43,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 
 `sash logs -f` exits successfully when its output pipe closes. Log capture and follow share one file position, including when the log grows or rotates during startup.
 
-`sash stop --core` and WebUI **Stop Core** keep the management process open. `sash upgrade` stops management, installs the new Sash package through npm and starts management again. `restart` applies saved configuration to Core.
+`sash stop --core` and WebUI **Stop Core** keep the management process open. `sash upgrade` installs the new Sash package through npm while everything keeps running, then restarts the daemon so it loads the new code; `--no-restart` stops after the install and prints the restart command instead. Core itself is never touched by an install: its binary lives in the data directory, not in the npm package. `restart` applies saved configuration to Core.
 
 ## PowerShell completion
 
@@ -155,6 +155,7 @@ Update Sash itself:
 ```sh
 sash upgrade --check       # inspect the npm release and Node compatibility
 sash upgrade               # install the target version and restart the daemon
+sash upgrade --no-restart  # install only; restart the daemon yourself later
 sash upgrade --json        # one JSON object; npm output stays on stderr
 ```
 
