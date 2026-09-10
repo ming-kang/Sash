@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { testAutostartContext } from "../testing/autostart-context.js";
 import { autostartContext } from "./context.js";
 import { installationIssue } from "./installation.js";
-import { testAutostartContext } from "./test-context.test.js";
 
 describe("stable autostart installation", () => {
   it("accepts a direct Windows global package but rejects local, linked and npx layouts", (t) => {

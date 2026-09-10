@@ -9,13 +9,13 @@ import {
   listInstallationInstances,
   registerInstallationInstance,
 } from "./installation-registry.js";
-import { readUpgradeJournal } from "./upgrade-journal.js";
-import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
 import {
   fakeUpgradeRuntimes,
   upgradeFixture,
   writeFixturePackage,
-} from "./upgrade-test-fixture.test.js";
+} from "./testing/upgrade-fixture.js";
+import { readUpgradeJournal } from "./upgrade-journal.js";
+import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
 import { SashUpgradeTransaction } from "./upgrade-transaction.js";
 
 it("recognizes package aliases through an absent slot and rejects a foreign link target", () => {

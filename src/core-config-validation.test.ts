@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { validateCoreConfig } from "./core-config-validation.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { deferred } from "./test-state.test.js";
+import { deferred } from "./testing/state.js";
 
 describe("Core config validation", () => {
   let tmpDir: string;

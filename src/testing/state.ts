@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SashStateStore } from "./app-state.js";
-import type { DaemonStatus, ProfileMeta } from "./contracts.js";
-import { currentCoreVersion } from "./core-install-record.js";
-import type { SashLayout } from "./paths.js";
-import { DEFAULT_SETTINGS, publicSettings, type SashSettings } from "./settings.js";
-import { type CoreOwnershipSnapshot, type CoreState, CoreSupervisor } from "./supervisor.js";
+import { SashStateStore } from "../app-state.js";
+import type { DaemonStatus, ProfileMeta } from "../contracts.js";
+import { currentCoreVersion } from "../core-install-record.js";
+import type { SashLayout } from "../paths.js";
+import { DEFAULT_SETTINGS, publicSettings, type SashSettings } from "../settings.js";
+import { type CoreOwnershipSnapshot, type CoreState, CoreSupervisor } from "../supervisor.js";
 
 export function testSettings(patch: Partial<SashSettings> = {}): SashSettings {
   return {

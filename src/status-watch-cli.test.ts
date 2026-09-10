@@ -6,7 +6,6 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import {
   buildSanitizedEnv,
@@ -16,7 +15,8 @@ import {
 } from "./process.js";
 import { acquireStateLockSync } from "./state-lock.js";
 import type { CliRuntimeStatus } from "./status.js";
-import { deferredValue } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferredValue } from "./testing/state.js";
 
 const harness = useDaemonTestHarness();
 

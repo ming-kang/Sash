@@ -8,8 +8,8 @@ import path from "node:path";
 import type { Duplex } from "node:stream";
 import { chromium, firefox, type BrowserType, type Page } from "playwright";
 import { parseDaemonStatus, parseProfileActionResponse, parseWebBootstrapInfo } from "../src/contracts.js";
-import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
-import { FakeCoreSupervisor } from "../src/test-state.test.js";
+import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
+import { FakeCoreSupervisor } from "../src/testing/state.js";
 import { buildSanitizedEnv } from "../src/process.js";
 
 const outDir = path.resolve(process.argv[2] ?? fs.mkdtempSync(path.join(os.tmpdir(), "sash-ui-verify-")));

@@ -5,10 +5,10 @@ import { request } from "undici";
 import type { AutostartStatus } from "./autostart-contract.js";
 import { DaemonEvents } from "./daemon/events.js";
 import { SashDaemonClient } from "./daemon-client.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import { directDispatcherForLoopback } from "./http.js";
 import { type DaemonEvent, decodeDaemonEvents } from "./sash-events.js";
-import { deferredValue, FakeCoreSupervisor, testStatus } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferredValue, FakeCoreSupervisor, testStatus } from "./testing/state.js";
 
 const harness = useDaemonTestHarness();
 

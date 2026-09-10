@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { coreUpdateProgressText, updateCoreWithProgress } from "./core-update-client.js";
 import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
-import { deferred } from "./test-state.test.js";
+import { deferred } from "./testing/state.js";
 
 const progress: CoreUpdateProgress = {
   stage: "downloading",

@@ -6,7 +6,7 @@ import {
   parseWebBootstrapInfo,
   parseWebSessionInfo,
 } from "./contracts.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon browser authorization", () => {
   const h = useDaemonTestHarness();

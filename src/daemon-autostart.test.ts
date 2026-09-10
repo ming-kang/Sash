@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { AutostartUnavailableError } from "./autostart.js";
 import { parseAutostartStatus } from "./autostart-contract.js";
 import { SashDaemonClient } from "./daemon-client.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("autostart HTTP API", () => {
   const h = useDaemonTestHarness();

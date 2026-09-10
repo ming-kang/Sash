@@ -9,7 +9,7 @@ import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { ProfileService } from "./profile-service.js";
 import { parseProfileText, profileFilePath } from "./profiles.js";
-import { createTestState, deferred } from "./test-state.test.js";
+import { createTestState, deferred } from "./testing/state.js";
 
 const yamlA = "proxies:\n  - name: node-a\n    type: direct\nrules: ['MATCH,DIRECT']\n";
 const yamlB = yamlA.replace("node-a", "node-b");

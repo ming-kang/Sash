@@ -14,7 +14,7 @@ import {
   type StatusObservationContext,
   type StatusObservationDependencies,
 } from "./status.js";
-import { deferred, testSettings, testStatus } from "./test-state.test.js";
+import { deferred, testSettings, testStatus } from "./testing/state.js";
 
 const context: StatusObservationContext = {
   layout: sashLayout(path.join(os.tmpdir(), "sash-status-observation-test")),

@@ -10,10 +10,10 @@ import type { Duplex } from "node:stream";
 import { chromium, firefox, type Page } from "playwright";
 import YAML from "yaml";
 import { parseWebBootstrapInfo } from "../src/contracts.js";
-import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
+import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { loadProfiles } from "../src/profiles.js";
 import { buildSanitizedEnv } from "../src/process.js";
-import { FakeCoreSupervisor } from "../src/test-state.test.js";
+import { FakeCoreSupervisor } from "../src/testing/state.js";
 import type { ProxyItem } from "../web/src/types/index.js";
 
 const output = await mkdtemp(join(tmpdir(), "sash-profile-ui-"));

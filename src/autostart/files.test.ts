@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { testAutostartContext } from "../testing/autostart-context.js";
 import { readRegistration, registerFile } from "./files.js";
-import { testAutostartContext } from "./test-context.test.js";
 
 describe("autostart registration publication", () => {
   it("restores an earlier launcher after a failed repair and removes a failed first install", async (t) => {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { it } from "node:test";
-import { createTestState } from "../test-state.test.js";
+import { createTestState } from "../testing/state.js";
 import { runtimeContext } from "./shared.js";
 
 it("CLI context reads committed state without initializing missing data", () => {

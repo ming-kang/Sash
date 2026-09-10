@@ -7,11 +7,11 @@ import {
   type CoreDelayResult,
   parseCoreDelayResult,
 } from "./core-delay.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import type { CliRuntimeStatus } from "./status.js";
 import { observeStatusDelay, watchStatusWithDelay, withStatusDelay } from "./status-delay.js";
 import { collectEventStatus } from "./status-watch.js";
-import { deferred, testStatus } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferred, testStatus } from "./testing/state.js";
 
 const h = useDaemonTestHarness();
 const context = () => ({ layout: h.layout, settings: h.settings });

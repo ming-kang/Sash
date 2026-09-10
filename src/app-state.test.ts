@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { loadSettings, readState, SashStateStore } from "./app-state.js";
 import { sashLayout } from "./paths.js";
-import { createTestState, testProfile } from "./test-state.test.js";
+import { createTestState, testProfile } from "./testing/state.js";
 
 describe("canonical Sash state", () => {
   let root: string;

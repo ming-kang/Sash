@@ -10,7 +10,7 @@ import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { SettingsService } from "./settings-service.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
-import { createTestState, FakeCoreSupervisor, testSettings } from "./test-state.test.js";
+import { createTestState, FakeCoreSupervisor, testSettings } from "./testing/state.js";
 
 describe("saved settings", () => {
   let root: string;

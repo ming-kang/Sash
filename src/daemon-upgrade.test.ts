@@ -6,9 +6,9 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { readState } from "./app-state.js";
 import { parseDaemonStatus, parseHealthInfo } from "./contracts.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import { canonicalPath } from "./installation.js";
-import { deferred, FakeCoreSupervisor } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 import { type UpgradeAccess, writeUpgradeAuthorization } from "./upgrade-access.js";
 import { readUpgradeHandoff, upgradeHandoffPath, writeUpgradeHandoff } from "./upgrade-handoff.js";
 

@@ -5,7 +5,7 @@ import path from "node:path";
 import { it } from "node:test";
 import { CliProfiles, resolveProfileReference } from "./cli-profiles.js";
 import { sashLayout } from "./paths.js";
-import { testProfile, testSettings } from "./test-state.test.js";
+import { testProfile, testSettings } from "./testing/state.js";
 
 it("resolves exact profile IDs and unique names, and refuses ambiguous or missing selections", () => {
   const index = {

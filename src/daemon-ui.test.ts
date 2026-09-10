@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { request } from "undici";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon server", () => {
   const h = useDaemonTestHarness();

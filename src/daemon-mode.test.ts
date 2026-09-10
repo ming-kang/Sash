@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
 import { describe, it } from "node:test";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
-import { deferred } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferred } from "./testing/state.js";
 
 describe("runtime routing mode", () => {
   const h = useDaemonTestHarness();

@@ -3,8 +3,8 @@ import fs from "node:fs";
 import { describe, it } from "node:test";
 import { readState } from "./app-state.js";
 import { parseDaemonStatus, parseSettingsWriteResult } from "./contracts.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
-import { deferred, FakeCoreSupervisor } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
 describe("save and apply API", () => {
   const h = useDaemonTestHarness();

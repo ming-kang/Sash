@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { it } from "node:test";
 import { packageRuntimeHealth } from "./package-health.js";
-import { upgradeFixture } from "./upgrade-test-fixture.test.js";
+import { upgradeFixture } from "./testing/upgrade-fixture.js";
 
 it("requires the recovery worker and every lazily referenced dashboard asset before activation", () => {
   const f = upgradeFixture();

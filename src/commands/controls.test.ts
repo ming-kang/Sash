@@ -9,7 +9,7 @@ import { isProcessAlive, runSanitizedCommandAsync } from "../process.js";
 import type { ProfilesIndex } from "../profile-model.js";
 import { publicSettings } from "../settings.js";
 import { acquireStateLockSync } from "../state-lock.js";
-import { createTestState, testProfile, testSettings } from "../test-state.test.js";
+import { createTestState, testProfile, testSettings } from "../testing/state.js";
 
 describe("profile and runtime CLI controls", () => {
   const parent = fs.realpathSync(os.tmpdir());

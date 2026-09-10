@@ -10,8 +10,8 @@ import {
   parseProfileContentResponse,
   parseProfilesIndex,
 } from "./contracts.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
-import { deferred } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferred } from "./testing/state.js";
 
 const content = "proxies:\n  - name: node-a\n    type: direct\nrules: ['MATCH,DIRECT']\n";
 describe("profile management API", () => {

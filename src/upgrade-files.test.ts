@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
+import { upgradeFixture } from "./testing/upgrade-fixture.js";
 import { cleanUpgradeInstallation } from "./upgrade-activation.js";
 import {
   assertPackageIdentity,
@@ -14,7 +15,6 @@ import {
 import { cleanCompletedUpgradeArtifacts, completedUpgradeArtifacts } from "./upgrade-garbage.js";
 import { readUpgradeJournal } from "./upgrade-journal.js";
 import { upgradeTransactionPaths } from "./upgrade-paths.js";
-import { upgradeFixture } from "./upgrade-test-fixture.test.js";
 
 describe("upgrade file ownership", () => {
   it("tracks a renamed package directory without reading files and rejects a replacement", (t) => {

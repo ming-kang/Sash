@@ -9,7 +9,7 @@ import { installationId } from "./installation.js";
 import { listInstallationInstances } from "./installation-registry.js";
 import { currentPackageRoot } from "./package-info.js";
 import { sashLayout } from "./paths.js";
-import { createTestState, testSettings } from "./test-state.test.js";
+import { createTestState, testSettings } from "./testing/state.js";
 
 it("registers and unregisters two real management daemons from the same installation", {
   timeout: 30_000,

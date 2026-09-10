@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { deferred } from "../test-state.test.js";
+import { deferred } from "../testing/state.js";
 import { DaemonGate, type SlowMutationInfo } from "./context.js";
 
 describe("daemon mutation queue", () => {

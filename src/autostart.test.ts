@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { testAutostartContext } from "./autostart/test-context.test.js";
 import { AutostartService } from "./autostart.js";
 import type { RegisteredAutostartState } from "./autostart-contract.js";
+import { testAutostartContext } from "./testing/autostart-context.js";
 
 describe("AutostartService", () => {
   it("repairs and rolls back the Node path only while a recorded launcher still owns startup", async (t) => {

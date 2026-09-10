@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { testProfile, testStatus } from "../../../src/test-state.test.js";
+import { testProfile, testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
 import { currentRoute } from "../router.js";
 import type { SashStatus } from "../types/index.js";

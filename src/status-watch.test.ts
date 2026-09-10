@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { it } from "node:test";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { acquireStateLockSync } from "./state-lock.js";
 import { type CliRuntimeStatus, collectRuntimeStatus } from "./status.js";
 import { collectEventStatus, watchRuntimeStatus } from "./status-watch.js";
-import { type FakeCoreSupervisor, testStatus } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { type FakeCoreSupervisor, testStatus } from "./testing/state.js";
 
 const harness = useDaemonTestHarness();
 const autostart = { state: "off" as const, canEnable: true, reason: null };

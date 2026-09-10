@@ -14,7 +14,7 @@ import {
   parseSettingsWriteResult,
   parseSystemProxyStatusResponse,
 } from "./contracts.js";
-import { testProfile, testStatus } from "./test-state.test.js";
+import { testProfile, testStatus } from "./testing/state.js";
 
 describe("shared API boundaries", () => {
   it("validates boot identity and projects only public status fields", () => {

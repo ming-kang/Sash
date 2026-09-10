@@ -14,7 +14,7 @@ import {
 import { sashLayout } from "./paths.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import { acquireStateLockSync, type StateLockRecord } from "./state-lock.js";
-import { createTestState, testSettings } from "./test-state.test.js";
+import { createTestState, testSettings } from "./testing/state.js";
 
 describe("daemon ownership evaluation", () => {
   let root: string;

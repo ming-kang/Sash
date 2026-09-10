@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Window as HappyWindow } from "happy-dom";
-import { testStatus as healthyStatus } from "../../src/test-state.test.js";
+import { testStatus as healthyStatus } from "../../src/testing/state.js";
 
 describe("minimal Vue behavior harness", () => {
   it("renders reactive daemon and Core snapshot notice transitions", async () => {

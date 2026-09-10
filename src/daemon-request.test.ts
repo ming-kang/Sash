@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon server", () => {
   const h = useDaemonTestHarness();

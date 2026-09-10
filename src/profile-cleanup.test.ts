@@ -7,7 +7,7 @@ import { atomicWriteFileSync } from "./fs-atomic.js";
 import { sashLayout } from "./paths.js";
 import { pruneProfileFiles } from "./profile-cleanup.js";
 import { ProfileService } from "./profile-service.js";
-import { createTestState, testProfile } from "./test-state.test.js";
+import { createTestState, testProfile } from "./testing/state.js";
 
 it("cleans only old generated files and preserves referenced, recent, foreign and active temporary data", async (t) => {
   const isolation = await fs.promises.mkdtemp(path.join(os.tmpdir(), "sash-prune-"));

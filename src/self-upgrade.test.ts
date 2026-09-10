@@ -8,11 +8,11 @@ import { MockAgent } from "undici";
 import { proxyAwareDispatcher } from "./http.js";
 import { inspectInstallation, npmShimPaths } from "./installation.js";
 import { executeSashUpgrade, inspectSashUpgrade } from "./self-upgrade.js";
+import { upgradeFixture, writeFixturePackage } from "./testing/upgrade-fixture.js";
 import { upgradeChildEnv } from "./upgrade-command.js";
 import { readShimImage, replaceShim } from "./upgrade-files.js";
 import { activateUpgradeShims } from "./upgrade-launcher.js";
 import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
-import { upgradeFixture, writeFixturePackage } from "./upgrade-test-fixture.test.js";
 
 function snapshotFiles(root: string) {
   return fs.readdirSync(root, { recursive: true, withFileTypes: true }).map((entry) => {

@@ -9,9 +9,9 @@ import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { chromium, firefox, type Page } from "playwright";
 import { runWeb } from "../src/commands/web.js";
-import { FakeCoreSupervisor } from "../src/test-state.test.js";
+import { FakeCoreSupervisor } from "../src/testing/state.js";
 import { SashDaemonClient } from "../src/daemon-client.js";
-import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
+import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { writeBootstrapFile } from "../src/web-bootstrap.js";
 import { buildSanitizedEnv } from "../src/process.js";
 

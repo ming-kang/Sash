@@ -3,11 +3,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { it } from "node:test";
-import { testAutostartContext } from "../autostart/test-context.test.js";
 import { AutostartService } from "../autostart.js";
+import { testAutostartContext } from "../testing/autostart-context.js";
+import { upgradeFixture, writeFixturePackage } from "../testing/upgrade-fixture.js";
 import { writeUpgradeAuthorization } from "../upgrade-access.js";
 import { upgradeTransactionPaths } from "../upgrade-paths.js";
-import { upgradeFixture, writeFixturePackage } from "../upgrade-test-fixture.test.js";
 import { runAutostartUpgrade } from "./autostart-upgrade.js";
 
 it("preserves login startup for a stopped installation without creating application state", {

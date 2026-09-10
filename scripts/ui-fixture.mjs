@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { testProfile, testStatus } from "../src/test-state.test.ts";
+import { testProfile, testStatus } from "../src/testing/state.js";
 
 /** Static assets and registered SSE fixtures only; never forwards to a running daemon. */
 export async function serveUi() {

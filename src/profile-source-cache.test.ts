@@ -7,7 +7,7 @@ import { atomicWriteFileSync } from "./fs-atomic.js";
 import { sashLayout } from "./paths.js";
 import { ProfileSourceCache } from "./profile-source-cache.js";
 import { profileFilePath, renderActiveConfig } from "./profiles.js";
-import { createTestState, testProfile } from "./test-state.test.js";
+import { createTestState, testProfile } from "./testing/state.js";
 
 it("reuses immutable parsed sources, evicts by size and detects replacement or removal", async (t) => {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "sash-source-cache-"));

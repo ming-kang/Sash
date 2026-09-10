@@ -6,21 +6,21 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
-import type { AutostartController } from "./autostart.js";
-import { writeInstallRecord } from "./core-install-record.js";
+import type { AutostartController } from "../autostart.js";
+import { writeInstallRecord } from "../core-install-record.js";
 import {
   type CoreSupervisor,
   createDaemonServer,
   type DaemonDeps,
   type DaemonInstance,
   type DaemonScheduler,
-} from "./daemon.js";
-import type { SubscriptionFetch } from "./mihomo-config.js";
-import { type SashLayout, sashLayout } from "./paths.js";
-import type { SashSettings } from "./settings.js";
-import type { SystemProxyState } from "./sysproxy.js";
-import type { SystemProxyController } from "./system-proxy-manager.js";
-import { FakeCoreSupervisor, testSettings } from "./test-state.test.js";
+} from "../daemon.js";
+import type { SubscriptionFetch } from "../mihomo-config.js";
+import { type SashLayout, sashLayout } from "../paths.js";
+import type { SashSettings } from "../settings.js";
+import type { SystemProxyState } from "../sysproxy.js";
+import type { SystemProxyController } from "../system-proxy-manager.js";
+import { FakeCoreSupervisor, testSettings } from "./state.js";
 
 export interface DaemonServerOverrides {
   packageRoot?: string;

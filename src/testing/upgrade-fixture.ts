@@ -3,13 +3,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { UpgradeRuntimeStatus } from "./contracts.js";
-import { inspectInstallation, npmPackageRoot, npmShimPaths } from "./installation.js";
-import type { InstallationInstance } from "./installation-registry.js";
-import { createSashUpgradeJournal } from "./self-upgrade.js";
-import type { UpgradeRuntimeAdapter } from "./upgrade-instances.js";
-import type { UpgradeInstanceReference } from "./upgrade-journal.js";
-import type { SashNpmTarget } from "./upgrade-npm.js";
+import type { UpgradeRuntimeStatus } from "../contracts.js";
+import { inspectInstallation, npmPackageRoot, npmShimPaths } from "../installation.js";
+import type { InstallationInstance } from "../installation-registry.js";
+import { createSashUpgradeJournal } from "../self-upgrade.js";
+import type { UpgradeRuntimeAdapter } from "../upgrade-instances.js";
+import type { UpgradeInstanceReference } from "../upgrade-journal.js";
+import type { SashNpmTarget } from "../upgrade-npm.js";
 
 export function writeFixturePackage(prefix: string, version: string): string {
   const root = npmPackageRoot(prefix);
@@ -39,7 +39,7 @@ export function writeFixturePackage(prefix: string, version: string): string {
     fs.mkdirSync(path.dirname(shim), { recursive: true });
     if (process.platform === "win32")
       fs.writeFileSync(shim, `npm fixture: node_modules/@astralyn/sash/dist/cli.js\n${version}\n`);
-    else fs.symlinkSync("../lib/node_modules/@astralyn/sash/dist/cli.js", shim);
+    else fs.symlinkSync("../../lib/node_modules/@astralyn/sash/dist/cli.js", shim);
   }
   return root;
 }

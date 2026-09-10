@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { parseDaemonStatus, parseHealthInfo } from "./contracts.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import { installationId } from "./installation.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon installation identity", () => {
   const h = useDaemonTestHarness();

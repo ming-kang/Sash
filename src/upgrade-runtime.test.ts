@@ -21,7 +21,7 @@ import { sashLayout } from "./paths.js";
 import { isProcessAlive } from "./process.js";
 import { SashClient } from "./sash-client.js";
 import { createSashUpgradeJournal } from "./self-upgrade.js";
-import { createTestState, testSettings } from "./test-state.test.js";
+import { createTestState, testSettings } from "./testing/state.js";
 import { readUpgradeAuthorization } from "./upgrade-access.js";
 import { runUpgradeCommand, upgradeChildEnv } from "./upgrade-command.js";
 import { upgradeTransactionPaths } from "./upgrade-paths.js";

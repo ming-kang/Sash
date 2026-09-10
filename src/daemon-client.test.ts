@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { describe, it } from "node:test";
 import { SashDaemonClient } from "./daemon-client.js";
-import { testProfile } from "./test-state.test.js";
+import { testProfile } from "./testing/state.js";
 
 describe("SashDaemonClient mutation requests", () => {
   it("reads a profile library that fits the application manifest limit", async () => {

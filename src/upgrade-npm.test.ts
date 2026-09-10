@@ -3,11 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { readSashPackageInfo } from "./package-info.js";
+import { upgradeFixture } from "./testing/upgrade-fixture.js";
 import { runUpgradeCommand } from "./upgrade-command.js";
 import { verifyStagedShims } from "./upgrade-launcher.js";
 import { parseSashNpmTarget, resolveNpmCli, stageSashPackage } from "./upgrade-npm.js";
 import { upgradeTransactionPaths } from "./upgrade-paths.js";
-import { upgradeFixture } from "./upgrade-test-fixture.test.js";
 
 describe("npm self-upgrade preparation", () => {
   it("accepts exact package metadata and leaves artifact integrity to npm", () => {

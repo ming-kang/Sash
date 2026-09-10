@@ -8,7 +8,7 @@ import path from "node:path";
 import { it } from "node:test";
 import { sashLayout } from "./paths.js";
 import { CoreSupervisor } from "./supervisor.js";
-import { testSettings } from "./test-state.test.js";
+import { testSettings } from "./testing/state.js";
 
 it("shares status probes, caches only diagnostics, and invalidates observations on Core replacement", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-status-cache-test-"));

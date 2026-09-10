@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { chromium, firefox, type Page } from "playwright";
 import type { AutostartStatus } from "../src/autostart-contract.js";
 import { parseWebBootstrapInfo } from "../src/contracts.js";
-import { DaemonTestHarness } from "../src/daemon-test-harness.test.js";
+import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { buildSanitizedEnv } from "../src/process.js";
 
 const output = await mkdtemp(join(tmpdir(), "sash-autostart-ui-"));

@@ -7,7 +7,7 @@ import {
   publicSettings,
   validateSettingsCandidate,
 } from "./settings.js";
-import { testSettings } from "./test-state.test.js";
+import { testSettings } from "./testing/state.js";
 
 describe("settings boundaries", () => {
   it("generates independent private credentials", () => {

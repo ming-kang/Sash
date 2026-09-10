@@ -4,8 +4,8 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { sashLayout } from "../paths.js";
 import { runSanitizedCommandAsync } from "../process.js";
+import { testAutostartContext } from "../testing/autostart-context.js";
 import { startAtLogin } from "./start.js";
-import { testAutostartContext } from "./test-context.test.js";
 
 describe("login startup diagnostics", () => {
   it("records success and failure without replacing the original error", async (t) => {

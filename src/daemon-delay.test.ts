@@ -5,8 +5,8 @@ import { describe, it } from "node:test";
 import { MihomoApi } from "./api.js";
 import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, validateDelayTarget } from "./core-delay.js";
 import { SashDaemonClient } from "./daemon-client.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
-import { deferred, type FakeCoreSupervisor } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferred, type FakeCoreSupervisor } from "./testing/state.js";
 
 describe("explicit Core delay probes", () => {
   const h = useDaemonTestHarness();

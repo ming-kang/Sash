@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { SashApiError, SashClient } from "./sash-client.js";
 import { readSashEvents } from "./sash-event-client.js";
 import { decodeDaemonEvents, parseDaemonEvent } from "./sash-events.js";
-import { testStatus } from "./test-state.test.js";
+import { testStatus } from "./testing/state.js";
 
 function frame(sequence = 1): string {
   const status = testStatus();

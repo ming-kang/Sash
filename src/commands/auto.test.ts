@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { testAutostartContext } from "../autostart/test-context.test.js";
 import { runSanitizedCommandAsync } from "../process.js";
+import { testAutostartContext } from "../testing/autostart-context.js";
 import { type AutoController, runAuto } from "./auto.js";
 
 describe("sash auto", () => {

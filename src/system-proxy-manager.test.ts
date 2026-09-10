@@ -16,7 +16,7 @@ import {
   type SystemProxyJournalLayout,
   SystemProxyManager,
 } from "./system-proxy-manager.js";
-import { deferred } from "./test-state.test.js";
+import { deferred } from "./testing/state.js";
 
 const windows = createSystemProxyBackend("win32");
 function snapshot(name: string, port: number): SystemProxySnapshot {

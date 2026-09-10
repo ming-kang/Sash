@@ -9,8 +9,8 @@ import { writeInstallRecord } from "./core-install-record.js";
 import { diagnoseSash, inspectListenerPort } from "./doctor.js";
 import { sashLayout } from "./paths.js";
 import type { StatusObservationDependencies } from "./status.js";
-import { createTestState } from "./test-state.test.js";
-import { writeFixturePackage } from "./upgrade-test-fixture.test.js";
+import { createTestState } from "./testing/state.js";
+import { writeFixturePackage } from "./testing/upgrade-fixture.js";
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "sash-doctor-"));

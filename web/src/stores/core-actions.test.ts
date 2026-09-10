@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { testStatus } from "../../../src/test-state.test.js";
+import { testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
 import {
   closeAllConnections,

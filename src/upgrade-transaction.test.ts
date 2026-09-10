@@ -3,6 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { npmPackageRoot, npmShimPaths } from "./installation.js";
+import {
+  fakeUpgradeRuntimes,
+  upgradeFixture,
+  writeFixturePackage,
+} from "./testing/upgrade-fixture.js";
 import { activateUpgradePackage } from "./upgrade-activation.js";
 import { readPackageIdentity, readShimImage } from "./upgrade-files.js";
 import {
@@ -12,11 +17,6 @@ import {
 } from "./upgrade-journal.js";
 import { verifyStagedShims } from "./upgrade-launcher.js";
 import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
-import {
-  fakeUpgradeRuntimes,
-  upgradeFixture,
-  writeFixturePackage,
-} from "./upgrade-test-fixture.test.js";
 import { SashUpgradeTransaction, type UpgradeExecutionOptions } from "./upgrade-transaction.js";
 
 describe("recoverable Sash installation transaction", () => {

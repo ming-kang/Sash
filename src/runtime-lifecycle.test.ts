@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
-import { FakeCoreSupervisor, testSettings } from "./test-state.test.js";
+import { FakeCoreSupervisor, testSettings } from "./testing/state.js";
 
 describe("Core and proxy lifecycle", () => {
   let root: string;

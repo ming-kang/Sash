@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 import { loadSettings } from "./app-state.js";
 import { writeInstallRecord } from "./core.js";
 import type { CoreState, CoreSupervisor, DaemonScheduler } from "./daemon.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon server", () => {
   const h = useDaemonTestHarness();

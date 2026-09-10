@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "../paths.js";
 import { acquireStateLockSync } from "../state-lock.js";
-import { createTestState, testSettings } from "../test-state.test.js";
+import { createTestState, testSettings } from "../testing/state.js";
 import { runRestart, runStart, runStop } from "./lifecycle.js";
 import { runUpdate } from "./update.js";
 

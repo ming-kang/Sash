@@ -8,6 +8,7 @@ import { after, before, describe, it } from "node:test";
 import { pathToFileURL } from "node:url";
 import { findExecutableOnPath } from "./process.js";
 import { acquireStateLock } from "./state-lock.js";
+import { upgradeFixture, writeFixturePackage } from "./testing/upgrade-fixture.js";
 import { activateUpgradePackage } from "./upgrade-activation.js";
 import { runUpgradeCommand, upgradeChildEnv } from "./upgrade-command.js";
 import { readPackageIdentity } from "./upgrade-files.js";
@@ -23,7 +24,6 @@ import {
   verifyStagedShims,
 } from "./upgrade-launcher.js";
 import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
-import { upgradeFixture, writeFixturePackage } from "./upgrade-test-fixture.test.js";
 
 describe("standalone Sash recovery entry", () => {
   const temporaryParent = fs.realpathSync(os.tmpdir());
@@ -218,7 +218,7 @@ describe("standalone Sash recovery entry", () => {
           `import { readUpgradeJournal } from ${module("upgrade-journal.ts")};`,
           `import { SashUpgradeTransaction } from ${module("upgrade-transaction.ts")};`,
           `import { upgradeTransactionPaths } from ${module("upgrade-paths.ts")};`,
-          `import { writeFixturePackage } from ${module("upgrade-test-fixture.test.ts")};`,
+          `import { writeFixturePackage } from ${module("testing/upgrade-fixture.ts")};`,
           `const [prefix, boundary] = process.argv.slice(2);`,
           `if (boundary === "journal:preparing") process.exit(77);`,
           `const journal = readUpgradeJournal(prefix);`,

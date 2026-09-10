@@ -6,8 +6,8 @@ import { parseDaemonStatus } from "./contracts.js";
 import { readInstallRecord } from "./core-install-record.js";
 import { readCoreUpdateTransaction } from "./core-update.js";
 import { parseCoreUpdateProgress } from "./core-update-progress.js";
-import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
-import { deferred, FakeCoreSupervisor } from "./test-state.test.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
 describe("daemon-owned Core updates", () => {
   const h = useDaemonTestHarness();

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { SashDaemonClient } from "../daemon-client.js";
 import { sashLayout } from "../paths.js";
 import type { HealthyRuntimeOwner } from "../runtime-owner.js";
-import { testSettings } from "../test-state.test.js";
+import { testSettings } from "../testing/state.js";
 import { runWeb, type WebCommandDeps } from "./web.js";
 
 const TOKEN = "b".repeat(64);
