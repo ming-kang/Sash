@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Window as HappyWindow } from "happy-dom";
-import { ref } from "vue";
+import { type Ref, ref } from "vue";
 
 const globalKeys = [
   "window",
@@ -38,10 +38,7 @@ async function withDom(run: (window: HappyWindow) => Promise<void>): Promise<voi
   }
 }
 
-function dialog(window: HappyWindow): {
-  container: ReturnType<typeof ref<HTMLElement | null>>;
-  button: HTMLElement;
-} {
+function dialog(window: HappyWindow): { container: Ref<HTMLElement | null>; button: HTMLElement } {
   const element = window.document.createElement("section");
   const button = window.document.createElement("button");
   button.textContent = "confirm";
