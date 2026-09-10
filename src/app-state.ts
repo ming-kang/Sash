@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { errorMessage } from "./error-utils.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { hasExactOwnKeys, isPlainObject } from "./json-shape.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -10,7 +11,7 @@ import {
   validateSettingsCandidate,
 } from "./settings.js";
 
-const MAX_STATE_BYTES = 2 * 1024 * 1024;
+export const MAX_STATE_BYTES = 2 * 1024 * 1024;
 
 export interface SashState {
   schemaVersion: 2;
@@ -19,7 +20,12 @@ export interface SashState {
   profiles: ProfilesIndex;
 }
 
-export class StateConflictError extends Error {}
+export class StateConflictError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = "StateConflictError";
+  }
+}
 
 function freezeSnapshot<T>(value: T): T {
   if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
@@ -39,10 +45,9 @@ function readStateText(layout: SashLayout): string | undefined {
     return bytes.toString("utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw new Error(
-      `Cannot read Sash state at ${layout.settingsFile}: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
+    throw new Error(`Cannot read Sash state at ${layout.settingsFile}: ${errorMessage(error)}`, {
+      cause: error,
+    });
   }
 }
 
@@ -70,10 +75,9 @@ function parseStateText(text: string, layout: SashLayout): SashState {
   try {
     return parseState(JSON.parse(text) as unknown);
   } catch (error) {
-    throw new Error(
-      `Cannot read Sash state at ${layout.settingsFile}: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
+    throw new Error(`Cannot read Sash state at ${layout.settingsFile}: ${errorMessage(error)}`, {
+      cause: error,
+    });
   }
 }
 
@@ -110,6 +114,16 @@ export class SashStateStore {
       };
       this.text = `${JSON.stringify(this.state, null, 2)}\n`;
       atomicWriteFileSync(layout.settingsFile, this.text);
+      this.publishBackup();
+    }
+  }
+
+  /** Recovery copy of the last known-good manifest; never blocks the primary write. */
+  private publishBackup(): void {
+    try {
+      atomicWriteFileSync(this.layout.settingsBackupFile, this.text);
+    } catch {
+      /* The committed manifest is durable; a failed backup must not reject it. */
     }
   }
 
@@ -136,6 +150,7 @@ export class SashStateStore {
     this.state = next;
     this.text = text;
     this.cachedSnapshot = undefined;
+    this.publishBackup();
     return this.snapshot();
   }
 }

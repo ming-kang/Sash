@@ -74,6 +74,43 @@ describe("canonical Sash state", () => {
     assert.equal(after.revision, before.revision + 1);
   });
 
+  it("publishes a backup beside the initial manifest and every committed revision", () => {
+    const layout = sashLayout(root);
+    const state = createTestState(layout);
+    const initial = fs.readFileSync(layout.settingsFile, "utf8");
+    assert.equal(fs.readFileSync(layout.settingsBackupFile, "utf8"), initial);
+    if (process.platform !== "win32")
+      assert.equal(fs.statSync(layout.settingsBackupFile).mode & 0o777, 0o600);
+    const first = state.commit({
+      ...state.snapshot(),
+      settings: { ...state.snapshot().settings, mixedPort: 18881 },
+    });
+    const firstText = fs.readFileSync(layout.settingsFile, "utf8");
+    assert.equal(fs.readFileSync(layout.settingsBackupFile, "utf8"), firstText);
+    assert.equal(JSON.parse(firstText).revision, first.revision);
+    state.commit({ ...first, settings: { ...first.settings, mixedPort: 18882 } });
+    const latest = fs.readFileSync(layout.settingsFile, "utf8");
+    assert.notEqual(latest, firstText);
+    assert.equal(fs.readFileSync(layout.settingsBackupFile, "utf8"), latest);
+  });
+
+  it("keeps the committed manifest intact when the backup write fails", () => {
+    const layout = sashLayout(root);
+    const state = createTestState(layout);
+    const rename = fs.renameSync;
+    mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+      if (String(to) === layout.settingsBackupFile)
+        throw Object.assign(new Error("backup disk full"), { code: "ENOSPC" });
+      return rename(from, to);
+    });
+    const committed = state.commit({
+      ...state.snapshot(),
+      settings: { ...state.snapshot().settings, mixedPort: 18883 },
+    });
+    assert.equal(committed.settings.mixedPort, 18883);
+    assert.equal(readState(layout)?.revision, 1);
+  });
+
   it("preserves the old manifest when publication fails", () => {
     const layout = sashLayout(root);
     const state = createTestState(layout);

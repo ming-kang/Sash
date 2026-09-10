@@ -111,6 +111,58 @@ it("reports corrupt settings without treating a legacy Core digest as a runtime 
   }
 });
 
+it("points corrupt-manifest recovery at a valid state backup when one exists", async () => {
+  const f = fixture();
+  try {
+    const state = createTestState(f.layout);
+    state.commit({
+      ...state.snapshot(),
+      settings: { ...state.snapshot().settings, mixedPort: 18884 },
+    });
+    fs.writeFileSync(f.layout.settingsFile, "{ malformed");
+    const result = await diagnoseSash({
+      ...f,
+      inspectPort: async () => {
+        throw new Error("must not probe ports from corrupt state");
+      },
+    });
+    const check = result.checks.find((check) => check.id === "manifest");
+    assert.equal(check?.status, "error");
+    assert.match(check?.advice ?? "", /copy .*sash\.json\.bak/);
+    assert.match(check?.advice ?? "", /restore the most recently committed/);
+    assert.equal(fs.readFileSync(f.layout.settingsFile, "utf8"), "{ malformed");
+  } finally {
+    await f.cleanup();
+  }
+});
+
+it("keeps the original corrupt-manifest advice without a usable state backup", async () => {
+  const f = fixture();
+  try {
+    createTestState(f.layout);
+    fs.writeFileSync(f.layout.settingsFile, "{ malformed");
+    for (const backup of [undefined, "{ also broken"]) {
+      if (backup === undefined) fs.unlinkSync(f.layout.settingsBackupFile);
+      else fs.writeFileSync(f.layout.settingsBackupFile, backup);
+      const result = await diagnoseSash({
+        ...f,
+        inspectPort: async () => {
+          throw new Error("must not probe ports from corrupt state");
+        },
+      });
+      const check = result.checks.find((check) => check.id === "manifest");
+      assert.equal(check?.status, "error");
+      assert.equal(
+        check?.advice,
+        "Preserve the file and restore a valid schema-2 manifest before starting Sash",
+      );
+    }
+    assert.equal(fs.readFileSync(f.layout.settingsFile, "utf8"), "{ malformed");
+  } finally {
+    await f.cleanup();
+  }
+});
+
 it("reports port conflicts and unknown proxy observations alongside verified Core metadata", async () => {
   const f = fixture();
   try {

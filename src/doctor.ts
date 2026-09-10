@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import net from "node:net";
-import { readState, type SashState } from "./app-state.js";
+import { MAX_STATE_BYTES, parseState, readState, type SashState } from "./app-state.js";
 import { CORE_BINARY_SIZE_LIMIT } from "./core-binary.js";
 import { readInstallRecord } from "./core-install-record.js";
 import { errorMessage } from "./error-utils.js";
@@ -64,6 +64,18 @@ export function inspectListenerPort(host: string, port: number): Promise<PortObs
       server.close(() => finish({ available: true })),
     );
   });
+}
+
+/** Read-only: a valid state backup only upgrades recovery advice, never the state itself. */
+function restorableStateBackup(layout: SashLayout): boolean {
+  try {
+    const stat = fs.lstatSync(layout.settingsBackupFile);
+    if (!stat.isFile() || stat.size > MAX_STATE_BYTES) return false;
+    parseState(JSON.parse(fs.readFileSync(layout.settingsBackupFile, "utf8")) as unknown);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Independent checks keep diagnostics useful when settings or installation files are damaged. */
@@ -145,7 +157,9 @@ export async function diagnoseSash(
       "manifest",
       "error",
       `${layout.settingsFile}: ${errorMessage(error)}`,
-      "Preserve the file and restore a valid schema-2 manifest before starting Sash",
+      restorableStateBackup(layout)
+        ? `Stop Sash, then copy ${layout.settingsBackupFile} over ${layout.settingsFile} to restore the most recently committed settings and profile index`
+        : "Preserve the file and restore a valid schema-2 manifest before starting Sash",
     );
   }
   try {
