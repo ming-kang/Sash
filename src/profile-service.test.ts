@@ -45,7 +45,7 @@ describe("saved profiles", () => {
     return new ProfileService({
       layout,
       state,
-      commit: (purpose, action) => gate.mutate(purpose, action),
+      commit: (action) => gate.mutate(action),
       fetchProfile,
     });
   }

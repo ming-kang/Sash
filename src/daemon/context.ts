@@ -14,29 +14,17 @@ import { ShuttingDownError } from "./errors.js";
 import type { DaemonEvents } from "./events.js";
 import type { WebAuthManager } from "./web-auth.js";
 
-export interface SlowMutationInfo {
-  purpose: string;
-  startedAt: string;
-  durationMs: number;
-  queued: number;
-}
-
 /** One queue and one admission gate for all daemon state transitions. Reads remain independent. */
 export class DaemonGate {
   private tail: Promise<void> = Promise.resolve();
   private closing = false;
   private cleanupPromise: Promise<void> | undefined;
-  private queued = 0;
   private readonly liveMutations = new Set<Promise<void>>();
 
   constructor(
     private readonly cleanup: () => Promise<void>,
     private readonly cancel: () => void,
-    private readonly options: {
-      slowMutationMs?: number;
-      onSlowMutation?: (info: SlowMutationInfo) => void;
-      onChange?: () => void;
-    } = {},
+    private readonly options: { onChange?: () => void } = {},
   ) {}
   get isClosing(): boolean {
     return this.closing;
@@ -71,53 +59,22 @@ export class DaemonGate {
     }
   }
 
-  mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T> {
-    return this.enqueue(purpose, action, () => this.assertMutable());
+  mutate<T>(action: () => T | Promise<T>): Promise<T> {
+    return this.enqueue(action, () => this.assertMutable());
   }
 
-  private enqueue<T>(purpose: string, action: () => T | Promise<T>, admit: () => void): Promise<T> {
+  private enqueue<T>(action: () => T | Promise<T>, admit: () => void): Promise<T> {
     try {
       admit();
     } catch (error) {
       return Promise.reject(error);
     }
-    this.queued += 1;
-    this.changed();
     const next = this.tail.then(async () => {
-      this.queued -= 1;
-      this.changed();
       admit();
-      const started = performance.now();
-      const active = { purpose, startedAt: new Date().toISOString() };
-      this.changed();
-      const slowMs = this.options.slowMutationMs ?? 5000;
-      let reported = false;
-      const reportSlow = (): void => {
-        if (reported) return;
-        reported = true;
-        const info = {
-          ...active,
-          durationMs: Math.round(performance.now() - started),
-          queued: this.queued,
-        };
-        try {
-          if (this.options.onSlowMutation) this.options.onSlowMutation(info);
-          else
-            console.warn(
-              `[sashd] slow mutation: ${purpose} (${info.durationMs}ms, ${info.queued} queued)`,
-            );
-        } catch {
-          /* Diagnostics must not replace a mutation result or break its cleanup. */
-        }
-      };
-      const timer = setTimeout(reportSlow, slowMs);
-      timer.unref();
       try {
         return await action();
       } finally {
-        clearTimeout(timer);
         this.changed();
-        if (performance.now() - started >= slowMs) reportSlow();
       }
     });
     this.tail = next.then(
@@ -132,7 +89,6 @@ export class DaemonGate {
     this.closing = true;
     this.cancel();
     const attempt = this.enqueue(
-      "shut down daemon",
       async () => {
         await Promise.allSettled(this.liveMutations);
         await this.cleanup();
@@ -173,7 +129,7 @@ export interface DaemonContext {
   readonly gate: DaemonGate;
   readonly events: DaemonEvents;
   readonly settings: { committed(): SashSettings; runtime(): SashSettings };
-  mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T>;
+  mutate<T>(action: () => T | Promise<T>): Promise<T>;
   stateRevision(): number;
   pendingApply(): boolean;
   startCore(): Promise<CoreStartResult>;

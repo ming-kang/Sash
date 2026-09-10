@@ -58,7 +58,7 @@ describe("saved settings", () => {
       state,
       supervisor: core,
       lifecycle,
-      commit: (purpose, action) => gate.mutate(purpose, action),
+      commit: (action) => gate.mutate(action),
     });
     return {
       layout,

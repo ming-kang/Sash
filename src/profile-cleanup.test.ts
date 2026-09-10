@@ -79,7 +79,7 @@ it("cleans only old generated files and preserves referenced, recent, foreign an
   const service = new ProfileService({
     layout,
     state,
-    commit: async (_purpose, action) => action(),
+    commit: async (action) => action(),
   });
   await service.cleanup();
   assert.ok(fs.existsSync(committed), "the committed index authorizes its own source files");

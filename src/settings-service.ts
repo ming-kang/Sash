@@ -37,7 +37,7 @@ export class SettingsService {
   constructor(private readonly options: SettingsServiceOptions) {}
 
   async apply(patch: SettingsPatch): Promise<SettingsApplyResult> {
-    return this.options.commit("save settings", async () => {
+    return this.options.commit(async () => {
       const state = this.options.state.snapshot();
       const { expectedRevision, ...changes } = patch;
       this.options.state.assertCurrent(expectedRevision ?? state.revision);

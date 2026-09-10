@@ -83,7 +83,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       expectedVersion: () => currentCoreVersion(layout) || undefined,
       onExit: () =>
         gate
-          .mutate("recover Core exit", () => lifecycle.handleUnexpectedCoreExit())
+          .mutate(() => lifecycle.handleUnexpectedCoreExit())
           .catch((error: unknown) => {
             console.error(`[sashd] Core exit cleanup failed: ${errorMessage(error)}`);
           }),
@@ -110,7 +110,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   gate = new DaemonGate(() => lifecycle.stop(), cancelPreparations, {
     onChange: () => events.notify(),
   });
-  const mutate = <T>(purpose: string, action: () => T | Promise<T>) => gate.mutate(purpose, action);
+  const mutate = <T>(action: () => T | Promise<T>) => gate.mutate(action);
   profiles = new ProfileService({
     layout,
     state,
@@ -233,7 +233,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       const validated = await validateConfiguration(configuration, staged.exe, signal);
       const candidate = staged;
       setStage("waiting");
-      return await mutate("update Core", async () => {
+      return await mutate(async () => {
         signal.throwIfAborted();
         state.assertCurrent(revision);
         if (lifecycle.revision !== epoch)
@@ -266,7 +266,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     signal.throwIfAborted();
     const installedNow = !coreInstalled(layout);
     if (installedNow) await updateCore(undefined, true);
-    return mutate("apply saved configuration", async () => {
+    return mutate(async () => {
       signal.throwIfAborted();
       requireRecoveredInstall();
       if (installedNow) {
@@ -326,7 +326,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     updateCore,
     stopCore: () => {
       cancelCorePreparation();
-      return mutate("stop Core", () => lifecycle.stop());
+      return mutate(() => lifecycle.stop());
     },
     shutdown: () => gate.shutdown(),
     closeListener: () => Promise.reject(new Error("Listener is not ready")),

@@ -19,6 +19,6 @@ export async function writeAutostart(
   } catch (error) {
     throw new HttpError(400, errorMessage(error));
   }
-  const status = await ctx.mutate("configure login startup", () => ctx.autostart.set(enabled));
+  const status = await ctx.mutate(() => ctx.autostart.set(enabled));
   return { status: 200, json: status };
 }

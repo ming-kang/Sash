@@ -32,10 +32,7 @@ export class ProfileNotFoundError extends Error {
 }
 export { StateConflictError as ProfileConflictError } from "./app-state.js";
 
-export type ProfileCommitBoundary = <T>(
-  purpose: string,
-  action: () => T | Promise<T>,
-) => Promise<T>;
+export type ProfileCommitBoundary = <T>(action: () => T | Promise<T>) => Promise<T>;
 
 export interface ProfileServiceOptions {
   layout: SashLayout;
@@ -205,7 +202,7 @@ export class ProfileService {
     const known = this.list().profiles.find((profile) => profile.url === normalized);
     const attemptedAt = new Date().toISOString();
     const fetched = await this.fetch(normalized);
-    return this.options.commit("save remote profile", () => {
+    return this.options.commit(() => {
       const index = this.list();
       const now = new Date().toISOString();
       const existing = known ? this.recheck(index, known) : undefined;
@@ -234,7 +231,7 @@ export class ProfileService {
   async importLocal(name: string, content: string): Promise<ProfileActionResult> {
     profileInput(content);
     const displayName = validName(name);
-    return this.options.commit("import profile", () => {
+    return this.options.commit(() => {
       const index = this.list();
       const now = new Date().toISOString();
       const activated = index.activeId === null;
@@ -267,7 +264,7 @@ export class ProfileService {
 
   async writeContent(id: string, content: string, revision: number): Promise<ProfileUpdateResult> {
     profileInput(content);
-    return this.options.commit("save profile edit", () => {
+    return this.options.commit(() => {
       const index = this.list();
       const before = this.requireProfile(index, id);
       if (before.revision !== revision)
@@ -291,7 +288,7 @@ export class ProfileService {
   }
 
   async activate(id: string | null): Promise<{ activeId: string | null; proxyCount: number }> {
-    return this.options.commit("select profile", () => {
+    return this.options.commit(() => {
       const state = this.options.state.snapshot();
       const profile = id === null ? null : this.requireProfile(state.profiles, id);
       const doc = profile ? readProfileSource(this.options.layout, profile).doc : null;
@@ -317,7 +314,7 @@ export class ProfileService {
     const attemptedAt = new Date().toISOString();
     try {
       const fetched = await this.fetch(before.url);
-      return await this.options.commit("update profile", () => {
+      return await this.options.commit(() => {
         const index = this.list();
         const current = this.recheck(index, before);
         return {
@@ -332,7 +329,7 @@ export class ProfileService {
     } catch (error) {
       if (error instanceof StateConflictError) throw error;
       await this.options
-        .commit("record profile error", () => {
+        .commit(() => {
           const state = this.options.state.snapshot();
           const current = state.profiles.profiles.find((profile) => profile.id === id);
           if (!current || current.revision !== before.revision || current.url !== before.url)
@@ -403,7 +400,7 @@ export class ProfileService {
   }
 
   cleanup(nowMs = Date.now()): Promise<number> {
-    return this.options.commit("clean orphaned profile files", () => {
+    return this.options.commit(() => {
       const state = this.options.state.snapshot();
       this.options.state.assertCurrent(state.revision);
       return pruneProfileFiles(this.options.layout, state.profiles, {
@@ -414,7 +411,7 @@ export class ProfileService {
   }
 
   async remove(id: string): Promise<{ wasActive: boolean }> {
-    return this.options.commit("remove profile", () => {
+    return this.options.commit(() => {
       const state = this.options.state.snapshot();
       const profile = this.requireProfile(state.profiles, id);
       const wasActive = state.profiles.activeId === id;
@@ -435,7 +432,7 @@ export class ProfileService {
   }
 
   async reorder(ids: readonly string[]): Promise<ProfilesIndex> {
-    return this.options.commit("reorder profiles", () => {
+    return this.options.commit(() => {
       const state = this.options.state.snapshot();
       if (ids.length !== state.profiles.profiles.length || new Set(ids).size !== ids.length)
         throw new ProfileInputError("Profile order must contain every profile exactly once");
@@ -449,7 +446,7 @@ export class ProfileService {
 
   async rename(id: string, name: string): Promise<{ profile: ProfileMeta }> {
     const displayName = validName(name);
-    return this.options.commit("rename profile", () => {
+    return this.options.commit(() => {
       const state = this.options.state.snapshot();
       const profile = { ...this.requireProfile(state.profiles, id), name: displayName };
       this.options.state.commit({
