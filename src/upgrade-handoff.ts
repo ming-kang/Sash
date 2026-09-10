@@ -33,18 +33,15 @@ export interface UpgradeHandoff {
   sourceBootId: string;
   sourceVersion: string;
   targetVersion: string;
-  nodePath: string;
   nodeHistory: string[];
   createdAt: string;
   stateRevision: number;
-  stateSha256: string;
   coreInstallation: InstallRecord | null;
   runtime: RuntimeRestoreState;
   autostart: AutostartStatus;
   sessions: WebSessionSeed[];
   continuationExpiresAt: string;
   phase: UpgradeHandoffPhase;
-  restoredBootId: string | null;
 }
 
 const MAX_HANDOFF_BYTES = 16 * 1024 * 1024;
@@ -112,18 +109,15 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
       "sourceBootId",
       "sourceVersion",
       "targetVersion",
-      "nodePath",
       "nodeHistory",
       "createdAt",
       "stateRevision",
-      "stateSha256",
       "coreInstallation",
       "runtime",
       "autostart",
       "sessions",
       "continuationExpiresAt",
       "phase",
-      "restoredBootId",
     ]) ||
     value.protocol !== UPGRADE_PROTOCOL
   )
@@ -135,7 +129,6 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
   });
   if (
     typeof value.dataDir !== "string" ||
-    typeof value.nodePath !== "string" ||
     typeof value.sourceBootId !== "string" ||
     !/^[a-f0-9]{48}$/.test(value.sourceBootId) ||
     !isCanonicalIsoTimestamp(value.createdAt) ||
@@ -143,14 +136,10 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
     typeof value.stateRevision !== "number" ||
     !Number.isSafeInteger(value.stateRevision) ||
     value.stateRevision < 0 ||
-    !isSha256(value.stateSha256) ||
-    !PHASES.some((phase) => phase === value.phase) ||
-    (value.restoredBootId !== null &&
-      (typeof value.restoredBootId !== "string" || !/^[a-f0-9]{48}$/.test(value.restoredBootId)))
+    !PHASES.some((phase) => phase === value.phase)
   )
     throw new Error("Invalid Sash handoff identity");
   assertAbsolutePath(value.dataDir);
-  assertAbsolutePath(value.nodePath);
   if (
     !Array.isArray(value.nodeHistory) ||
     value.nodeHistory.length < 1 ||
@@ -188,11 +177,9 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
     sourceBootId: value.sourceBootId,
     sourceVersion: exactSashVersion(value.sourceVersion),
     targetVersion: exactSashVersion(value.targetVersion),
-    nodePath: value.nodePath,
     nodeHistory: [...nodeHistory],
     createdAt: value.createdAt,
     stateRevision: value.stateRevision,
-    stateSha256: value.stateSha256,
     coreInstallation,
     runtime: {
       configuration,
@@ -204,7 +191,6 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
     sessions: parseWebSessionSeeds(value.sessions),
     continuationExpiresAt: value.continuationExpiresAt,
     phase: value.phase as UpgradeHandoffPhase,
-    restoredBootId: value.restoredBootId,
   };
 }
 

@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import { MihomoApi } from "../api.js";
 import { StateConflictError } from "../app-state.js";
@@ -122,14 +121,9 @@ export class DaemonUpgradeService {
             sourceBootId: ctx.token,
             sourceVersion: ctx.version,
             targetVersion: authorization.targetVersion,
-            nodePath: canonicalPath(process.execPath),
             nodeHistory: [canonicalPath(process.execPath)],
             createdAt: new Date().toISOString(),
             stateRevision: state.revision,
-            stateSha256: crypto.hash(
-              "sha256",
-              readBoundedFile(ctx.layout.settingsFile, 2 * 1024 * 1024),
-            ),
             coreInstallation: readInstallRecord(ctx.layout) ?? null,
             runtime: {
               configuration,
@@ -141,7 +135,6 @@ export class DaemonUpgradeService {
             sessions: ctx.webAuth.sessionSeeds(ctx.token),
             continuationExpiresAt: new Date(Date.now() + WEB_CONTINUATION_TTL_MS).toISOString(),
             phase: "reserved",
-            restoredBootId: null,
           };
           this.verifySavedState(handoff);
           this.checkpoint(access, handoff);
@@ -206,7 +199,6 @@ export class DaemonUpgradeService {
           ...handoff,
           nodeHistory,
           phase: "restoring",
-          restoredBootId: this.ctx.token,
         });
         await this.ctx.lifecycle.recoverStartup();
         await this.ctx.lifecycle.restore(handoff.runtime);
@@ -227,7 +219,6 @@ export class DaemonUpgradeService {
         this.checkpoint(access, {
           ...this.requireCurrent(access),
           phase: "restored",
-          restoredBootId: this.ctx.token,
         });
       },
     );
