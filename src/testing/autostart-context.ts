@@ -3,8 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
-import type { AutostartCommand } from "../autostart/command.js";
-import { type AutostartOptions, autostartContext } from "../autostart/context.js";
+import {
+  type AutostartCommand,
+  type AutostartOptions,
+  autostartContext,
+} from "../autostart/context.js";
 import { sashLayout } from "../paths.js";
 
 export function testAutostartContext(

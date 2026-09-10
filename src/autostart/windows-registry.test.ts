@@ -5,7 +5,7 @@ import path from "node:path";
 import { it } from "node:test";
 import { findExecutableOnPath } from "../process.js";
 import { testAutostartContext } from "../testing/autostart-context.js";
-import { requireCommandSuccess, runAutostartCommand } from "./command.js";
+import { requireCommandSuccess, runAutostartCommand } from "./context.js";
 import { windowsAutostart } from "./windows.js";
 
 const shell = process.platform === "win32" ? findExecutableOnPath("pwsh.exe") : undefined;

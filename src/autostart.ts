@@ -1,16 +1,33 @@
+import fs from "node:fs";
 import path from "node:path";
 import {
   type AutostartBackend,
   type AutostartContext,
   type AutostartOptions,
+  assertLauncherValue,
   autostartContext,
 } from "./autostart/context.js";
-import { installationIssue } from "./autostart/installation.js";
 import { windowsAutostart } from "./autostart/windows.js";
 import type { AutostartStatus } from "./autostart-contract.js";
 import { errorMessage } from "./error-utils.js";
-import { pathsEqual } from "./installation.js";
+import { assertAbsolutePath, inspectInstallation, pathsEqual } from "./installation.js";
 import { StateMutationQueue } from "./state-lock.js";
+
+const INSTALL_HINT =
+  "Autostart requires a direct global installation. Install with npm install -g @astralyn/sash.";
+
+/** Verify the package layout and its npm bin shim without invoking npm or changing it. */
+export function installationIssue(ctx: AutostartContext): string | null {
+  try {
+    for (const value of [ctx.nodePath, ctx.entryPath, ctx.dataDir]) assertLauncherValue(value);
+    assertAbsolutePath(ctx.entryPath);
+    if (inspectInstallation(ctx).kind !== "npm-global" || !fs.statSync(ctx.entryPath).isFile())
+      return INSTALL_HINT;
+    return null;
+  } catch {
+    return INSTALL_HINT;
+  }
+}
 
 export interface AutostartController {
   inspect(): Promise<AutostartStatus>;

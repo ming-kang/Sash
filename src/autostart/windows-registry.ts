@@ -1,8 +1,7 @@
 import path from "node:path";
 import { isPlainObject } from "../json-shape.js";
 import { findExecutableOnPath } from "../process.js";
-import { requireCommandSuccess } from "./command.js";
-import type { AutostartContext } from "./context.js";
+import { type AutostartContext, requireCommandSuccess } from "./context.js";
 
 // All interpolated launcher data travels through the environment, never PowerShell source.
 const REGISTRY_SETUP = [

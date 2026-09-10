@@ -4,7 +4,7 @@ import path from "node:path";
 import { it } from "node:test";
 import { windowsSystemExecutable } from "../process.js";
 import { testAutostartContext } from "../testing/autostart-context.js";
-import { requireCommandSuccess, runAutostartCommand } from "./command.js";
+import { requireCommandSuccess, runAutostartCommand } from "./context.js";
 import { windowsLauncherContents } from "./windows.js";
 
 it("runs the real Windows hidden launcher with Unicode, spaces and literal percent paths", {
