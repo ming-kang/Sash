@@ -222,12 +222,6 @@ it("distinguishes an occupied loopback port from a free one", async () => {
 it("warns when the running daemon still executes an older installed version", async () => {
   const f = fixture();
   try {
-    const installed = JSON.parse(
-      fs.readFileSync(
-        path.join(f.root, "prefix", "node_modules", "@astralyn", "sash", "package.json"),
-        "utf8",
-      ),
-    ).version as string;
     const running = await diagnoseSash({
       ...f,
       status: {
@@ -254,7 +248,8 @@ it("warns when the running daemon still executes an older installed version", as
     });
     const check = running.checks.find((item) => item.id === "sash-version");
     assert.equal(check?.status, "warning");
-    assert.match(check?.message ?? "", new RegExp(`Sash ${installed} is installed`));
+    // The fixture package is 1.0.0; the daemon claims 0.0.1.
+    assert.match(check?.message ?? "", /Sash 1\.0\.0 is installed; the daemon still runs 0\.0\.1/);
     assert.match(check?.advice ?? "", /sash stop && sash start/);
   } finally {
     await f.cleanup();
