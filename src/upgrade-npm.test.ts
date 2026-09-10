@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { readSashPackageInfo } from "./package-info.js";
+import { parseSashPackageInfo, readSashPackageInfo } from "./package-info.js";
 import { upgradeFixture } from "./testing/upgrade-fixture.js";
 import { runUpgradeCommand } from "./upgrade-command.js";
 import { verifyStagedShims } from "./upgrade-launcher.js";
-import { parseSashNpmTarget, resolveNpmCli, stageSashPackage } from "./upgrade-npm.js";
+import { resolveNpmCli, stageSashPackage } from "./upgrade-npm.js";
 import { upgradeTransactionPaths } from "./upgrade-paths.js";
 
 describe("npm self-upgrade preparation", () => {
@@ -18,9 +18,9 @@ describe("npm self-upgrade preparation", () => {
       bin: { sash: "dist/cli.js" },
       sashUpgradeProtocol: 1,
     };
-    assert.equal(parseSashNpmTarget(value).version, "2.0.0");
-    assert.throws(() => parseSashNpmTarget({ ...value, version: "latest" }));
-    assert.throws(() => parseSashNpmTarget({ ...value, name: "another-package" }));
+    assert.equal(parseSashPackageInfo(value).version, "2.0.0");
+    assert.throws(() => parseSashPackageInfo({ ...value, version: "latest" }));
+    assert.throws(() => parseSashPackageInfo({ ...value, name: "another-package" }));
   });
 
   it("uses one npm installation to prepare the exact version, dependencies and native shims", {
@@ -84,7 +84,7 @@ describe("npm self-upgrade preparation", () => {
       ) as Array<{ filename: string }>;
       assert.ok(packed[0]);
       const tarball = path.join(packageDir, packed[0].filename);
-      const target = parseSashNpmTarget(manifest);
+      const target = parseSashPackageInfo(manifest);
       let installs = 0;
       const staged = await stageSashPackage({
         prefix: f.prefix,

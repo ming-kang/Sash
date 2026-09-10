@@ -17,10 +17,6 @@ import { upgradeTransactionPaths } from "./upgrade-paths.js";
 export const NPM_REGISTRY = "https://registry.npmjs.org";
 export type SashNpmTarget = SashPackageInfo;
 
-export function parseSashNpmTarget(value: unknown): SashNpmTarget {
-  return parseSashPackageInfo(value);
-}
-
 export async function resolveSashNpmTarget(
   version?: string,
   signal?: AbortSignal,
@@ -43,7 +39,7 @@ export async function resolveSashNpmTarget(
     signal?.throwIfAborted();
     throw new Error("The npm registry returned an invalid Sash manifest");
   }
-  const target = parseSashNpmTarget(value);
+  const target = parseSashPackageInfo(value);
   if (version !== undefined && target.version !== tag)
     throw new Error("The npm registry returned a different Sash version");
   return target;
