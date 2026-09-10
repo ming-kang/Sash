@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import type { WebContinuationInfo } from "../contracts.js";
-import { hasExactOwnKeys, isPlainObject } from "../json-shape.js";
+import { atomicWriteFileSync } from "../fs-atomic.js";
+import { isPlainObject } from "../json-shape.js";
 
 /** One-time browser bootstrap tokens stay valid long enough for `sash web` to
  * write the bootstrap file and for the browser to load it, but no longer. */
@@ -8,7 +10,7 @@ export const WEB_BOOTSTRAP_TTL_MS = 90_000;
 const MAX_PENDING_BOOTSTRAPS = 32;
 const MAX_SESSIONS = 256;
 export const WEB_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-export const WEB_CONTINUATION_TTL_MS = 10 * 60 * 1000;
+const SESSION_FILE_LIMIT = 256 * 1024;
 
 export interface WebSessionSeed {
   hash: string;
@@ -17,22 +19,19 @@ export interface WebSessionSeed {
 }
 
 export function parseWebSessionSeeds(value: unknown): WebSessionSeed[] {
-  if (!Array.isArray(value) || value.length > MAX_SESSIONS * 2)
-    throw new Error("Invalid browser session handoff");
-  return value.map((seed: unknown) => {
+  const seeds = (value as { seeds?: unknown })?.seeds;
+  if (!Array.isArray(seeds) || seeds.length > MAX_SESSIONS * 2) return [];
+  return seeds.flatMap((seed: unknown): WebSessionSeed[] => {
+    const record = seed as Record<string, unknown> | null;
     if (
-      !isPlainObject(seed) ||
-      !hasExactOwnKeys(seed, ["hash", "bootId", "expiresAt"]) ||
-      typeof seed.hash !== "string" ||
-      !/^[a-f0-9]{64}$/.test(seed.hash) ||
-      typeof seed.bootId !== "string" ||
-      !/^[a-f0-9]{48}$/.test(seed.bootId) ||
-      typeof seed.expiresAt !== "number" ||
-      !Number.isSafeInteger(seed.expiresAt) ||
-      seed.expiresAt <= 0
+      !isPlainObject(record) ||
+      typeof record.hash !== "string" ||
+      typeof record.bootId !== "string" ||
+      typeof record.expiresAt !== "number" ||
+      !Number.isSafeInteger(record.expiresAt)
     )
-      throw new Error("Invalid browser session seed");
-    return { hash: seed.hash, bootId: seed.bootId, expiresAt: seed.expiresAt };
+      return [];
+    return [{ hash: record.hash, bootId: record.bootId, expiresAt: record.expiresAt }];
   });
 }
 
@@ -41,23 +40,43 @@ function hashToken(token: string): string {
 }
 
 /**
- * In-memory WebUI credentials. Bootstrap tokens are single-use and short
- * lived; session tokens expire after inactivity. Ordinary restarts invalidate
- * them. An explicitly reserved upgrade may install a bounded continuation.
+ * In-memory WebUI credentials, with the hashes of this daemon generation's
+ * sessions persisted beside the other state so a browser can exchange them for
+ * a session on the next generation without a new `sash web` authorization.
  */
 export class WebAuthManager {
   /** Hashed bootstrap token -> expiry (ms since epoch), in insertion order. */
   private readonly pendingBootstraps = new Map<string, number>();
   /** Hashed session tokens, in insertion order for bounded eviction. */
   private readonly sessions = new Map<string, number>();
-  private continuation:
-    | {
-        seeds: WebSessionSeed[];
-        key: string;
-        bootId: string;
-        expiresAt: number;
-      }
-    | undefined;
+  private continuation: { seeds: WebSessionSeed[]; key: string; bootId: string } | undefined;
+
+  constructor(
+    private readonly bootId: string,
+    private readonly sessionsFile?: string,
+  ) {
+    if (!sessionsFile) return;
+    try {
+      const text = fs.readFileSync(sessionsFile, "utf8");
+      if (text.length > SESSION_FILE_LIMIT) return;
+      const seeds = parseWebSessionSeeds(JSON.parse(text) as unknown);
+      if (seeds.length)
+        this.continuation = { seeds, key: crypto.randomBytes(32).toString("hex"), bootId };
+    } catch {
+      /* A missing or unreadable session file only means no browser can continue. */
+    }
+  }
+
+  /** Persist this generation's session hashes for the next daemon generation. */
+  private persist(): void {
+    if (!this.sessionsFile || !this.sessions.size) return;
+    const seeds = this.sessionSeeds();
+    try {
+      atomicWriteFileSync(this.sessionsFile, `${JSON.stringify({ seeds })}\n`, 0o600);
+    } catch {
+      /* Session persistence is an optimization; the live daemon keeps working. */
+    }
+  }
 
   createBootstrap(now = Date.now()): { token: string; expiresAt: string } {
     this.sweepExpired(now);
@@ -92,8 +111,9 @@ export class WebAuthManager {
     return true;
   }
 
-  private adoptSession(token: string, now: number): void {
+  private adoptSession(token: string, now: number, persist = true): void {
     const hash = hashToken(token);
+    const known = this.sessions.has(hash);
     this.sessions.delete(hash);
     while (this.sessions.size >= MAX_SESSIONS) {
       const oldest = this.sessions.keys().next().value;
@@ -101,50 +121,32 @@ export class WebAuthManager {
       this.sessions.delete(oldest);
     }
     this.sessions.set(hash, now + WEB_SESSION_TTL_MS);
+    if (persist && !known) this.persist();
   }
 
-  sessionSeeds(bootId: string, now = Date.now()): WebSessionSeed[] {
+  /** Seeds of this generation plus the ones inherited from earlier generations. */
+  private sessionSeeds(now = Date.now()): WebSessionSeed[] {
     this.sweepExpired(now);
     const existing = this.continuation?.seeds.filter((seed) => seed.expiresAt > now) ?? [];
     return [
       ...existing,
-      ...Array.from(this.sessions, ([hash, expiresAt]) => ({ hash, expiresAt, bootId })),
-    ].slice(-MAX_SESSIONS * 2);
-  }
-
-  installContinuation(
-    seeds: WebSessionSeed[],
-    key: string,
-    bootId: string,
-    expiresAt: number,
-  ): void {
-    if (
-      !/^[a-f0-9]{64}$/.test(key) ||
-      !/^[a-f0-9]{48}$/.test(bootId) ||
-      !Number.isSafeInteger(expiresAt)
-    )
-      throw new Error("Invalid browser continuation authority");
-    this.continuation = {
-      seeds: parseWebSessionSeeds(seeds).map((seed) => ({
-        ...seed,
-        expiresAt: Math.min(seed.expiresAt, expiresAt),
+      ...Array.from(this.sessions, ([hash, expiresAt]) => ({
+        hash,
+        expiresAt,
+        bootId: this.bootId,
       })),
-      key,
-      bootId,
-      expiresAt,
-    };
+    ].slice(-MAX_SESSIONS * 2);
   }
 
   continuationInfo(now = Date.now()): WebContinuationInfo | undefined {
     this.sweepExpired(now);
-    if (!this.continuation) return undefined;
-    const bootIds = [
-      ...new Set(
-        this.continuation.seeds.filter((seed) => seed.expiresAt > now).map((seed) => seed.bootId),
-      ),
-    ];
+    const seeds = this.continuation?.seeds.filter((seed) => seed.expiresAt > now) ?? [];
+    const bootIds = [...new Set(seeds.map((seed) => seed.bootId))];
     return bootIds.length
-      ? { bootIds, expiresAt: new Date(this.continuation.expiresAt).toISOString() }
+      ? {
+          bootIds,
+          expiresAt: new Date(Math.max(...seeds.map((seed) => seed.expiresAt))).toISOString(),
+        }
       : undefined;
   }
 
@@ -183,6 +185,5 @@ export class WebAuthManager {
     for (const [key, expiresAt] of this.sessions) {
       if (expiresAt <= now) this.sessions.delete(key);
     }
-    if (this.continuation && this.continuation.expiresAt <= now) this.continuation = undefined;
   }
 }

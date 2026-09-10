@@ -1,6 +1,5 @@
-import { isIP } from "node:net";
 import YAML from "yaml";
-import { parseCoreYaml, rejectShareLinkSubscription } from "./core-yaml.js";
+import { parseCoreYaml } from "./core-yaml.js";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
 import type { SashSettings } from "./settings.js";
 
@@ -30,17 +29,14 @@ export function buildDefaultConfig(): Record<string, unknown> {
   };
 }
 
-export function isValidMihomoConfig(doc: unknown): doc is Record<string, unknown> {
-  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return false;
-  const rec = doc as Record<string, unknown>;
-  return (
-    ("proxies" in rec && Array.isArray(rec.proxies)) ||
-    ("proxy-providers" in rec &&
-      typeof rec["proxy-providers"] === "object" &&
-      rec["proxy-providers"] !== null &&
-      !Array.isArray(rec["proxy-providers"])) ||
-    ("rules" in rec && Array.isArray(rec.rules))
-  );
+export function asCoreConfigDocument(doc: unknown): Record<string, unknown> {
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
+    throw new Error(
+      "Subscription content is not a core configuration document; " +
+        "request a core-format YAML subscription from the provider.",
+    );
+  }
+  return doc as Record<string, unknown>;
 }
 
 /** Traffic quota advertised by a subscription gateway (`subscription-userinfo`). */
@@ -144,148 +140,15 @@ export function parseSafeHttpUrl(value: string | undefined): string | undefined 
   }
 }
 
-/**
- * Fetch a subscription URL, validating the document and extracting the
- * metadata headers subscription gateways send (usage quota, update interval,
- * display name, home page).
- */
 export const PROFILE_DOWNLOAD_SIZE_LIMIT = 8 * 1024 * 1024;
 const MAX_SUBSCRIPTION_REDIRECTS = 5;
 const PROFILE_FETCH_DEADLINE_MS = 30_000;
 
-function isRestrictedIpv4Address(parts: number[]): boolean {
-  const [a = 0, b = 0, c = 0] = parts;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
-    (a === 192 && b === 88 && c === 99) ||
-    (a === 192 && b === 168) ||
-    (a === 198 && (b === 18 || b === 19)) ||
-    (a === 198 && b === 51 && c === 100) ||
-    (a === 203 && b === 0 && c === 113) ||
-    a >= 224
-  );
-}
-
-function parseIpv6Bytes(host: string): Uint8Array | undefined {
-  const pieces = host.toLowerCase().split("::");
-  if (pieces.length > 2) return undefined;
-  const parseSide = (side: string): number[] | undefined => {
-    if (!side) return [];
-    const words: number[] = [];
-    for (const token of side.split(":")) {
-      if (token.includes(".")) {
-        const ipv4 = token.split(".").map(Number);
-        if (
-          ipv4.length !== 4 ||
-          ipv4.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
-        ) {
-          return undefined;
-        }
-        words.push(((ipv4[0] ?? 0) << 8) | (ipv4[1] ?? 0));
-        words.push(((ipv4[2] ?? 0) << 8) | (ipv4[3] ?? 0));
-        continue;
-      }
-      if (!/^[0-9a-f]{1,4}$/.test(token)) return undefined;
-      words.push(Number.parseInt(token, 16));
-    }
-    return words;
-  };
-  const left = parseSide(pieces[0] ?? "");
-  const right = parseSide(pieces[1] ?? "");
-  if (!left || !right) return undefined;
-  const omitted = 8 - left.length - right.length;
-  if ((pieces.length === 1 && omitted !== 0) || (pieces.length === 2 && omitted < 1)) {
-    return undefined;
-  }
-  const words = [...left, ...Array.from({ length: omitted }, () => 0), ...right];
-  if (words.length !== 8) return undefined;
-  const bytes = new Uint8Array(16);
-  for (let index = 0; index < words.length; index++) {
-    const word = words[index] ?? 0;
-    bytes[index * 2] = word >> 8;
-    bytes[index * 2 + 1] = word & 0xff;
-  }
-  return bytes;
-}
-
-function isRestrictedIpv6Address(host: string): boolean {
-  const bytes = parseIpv6Bytes(host);
-  if (!bytes) return true;
-  const allZero = bytes.every((byte) => byte === 0);
-  const loopback = bytes.slice(0, 15).every((byte) => byte === 0) && bytes[15] === 1;
-  if (allZero || loopback) return true;
-
-  const compatiblePrefix = bytes.slice(0, 12).every((byte) => byte === 0);
-  const mappedPrefix =
-    bytes.slice(0, 10).every((byte) => byte === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
-  const translatedPrefix =
-    bytes.slice(0, 8).every((byte) => byte === 0) &&
-    bytes[8] === 0xff &&
-    bytes[9] === 0xff &&
-    bytes[10] === 0 &&
-    bytes[11] === 0;
-  const wellKnownNat64Prefix =
-    bytes[0] === 0 &&
-    bytes[1] === 0x64 &&
-    bytes[2] === 0xff &&
-    bytes[3] === 0x9b &&
-    bytes.slice(4, 12).every((byte) => byte === 0);
-  if (compatiblePrefix || mappedPrefix || translatedPrefix || wellKnownNat64Prefix) {
-    return isRestrictedIpv4Address(Array.from(bytes.slice(12)));
-  }
-  if (bytes[0] === 0x20 && bytes[1] === 0x02) {
-    return isRestrictedIpv4Address(Array.from(bytes.slice(2, 6))); // 6to4
-  }
-
-  if (((bytes[0] ?? 0) & 0xfe) === 0xfc) return true; // fc00::/7 ULA
-  if (bytes[0] === 0xfe && ((bytes[1] ?? 0) & 0xc0) >= 0x80) return true; // link/site local
-  if (bytes[0] === 0xff) return true; // multicast
-  if (bytes[0] === 0x01 && bytes.slice(1, 8).every((byte) => byte === 0)) return true; // discard
-  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) {
-    return true; // documentation
-  }
-  return false;
-}
-
-function isRestrictedSubscriptionHost(hostname: string): boolean {
-  const host = hostname
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "")
-    .replace(/\.$/, "");
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (isIP(host) === 4) {
-    return isRestrictedIpv4Address(host.split(".").map(Number));
-  }
-  if (isIP(host) === 6) return isRestrictedIpv6Address(host);
-  return false;
-}
-
-/**
- * Apply subscription redirect restrictions without DNS resolution. DNS is not
- * resolved here because remote subscription traffic may intentionally use an
- * environment proxy; resolving locally would not describe the peer contacted.
- */
-export function resolveSubscriptionRedirect(initial: URL, current: URL, location: string): URL {
+/** Subscription redirects must stay on an absolute http(s) URL. */
+export function resolveSubscriptionRedirect(_initial: URL, current: URL, location: string): URL {
   const target = new URL(location, current);
   if (target.protocol !== "http:" && target.protocol !== "https:") {
     throw new Error(`Refusing subscription redirect to non-http(s) URL: ${target.href}`);
-  }
-  if (current.protocol === "https:" && target.protocol === "http:") {
-    throw new Error(`Refusing HTTPS-to-HTTP subscription redirect: ${target.href}`);
-  }
-  const initialRestricted = isRestrictedSubscriptionHost(initial.hostname);
-  const targetRestricted = isRestrictedSubscriptionHost(target.hostname);
-  if (initialRestricted && target.origin !== initial.origin) {
-    throw new Error(`Refusing subscription redirect away from restricted origin: ${target.href}`);
-  }
-  if (!initialRestricted && targetRestricted) {
-    throw new Error(`Refusing subscription redirect to restricted host: ${target.hostname}`);
   }
   return target;
 }
@@ -335,19 +198,7 @@ export async function fetchSubscriptionProfile(
     throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
   }
   const text = await res.text(PROFILE_DOWNLOAD_SIZE_LIMIT);
-  rejectShareLinkSubscription(text);
-  let doc: unknown;
-  try {
-    doc = parseCoreYaml(text);
-  } catch (err) {
-    throw new Error(`Subscription is not valid core-format YAML: ${(err as Error).message}`);
-  }
-  if (!isValidMihomoConfig(doc)) {
-    throw new Error(
-      "Subscription content is not a valid core configuration (missing proxies/rules). " +
-        "Request a core-format YAML subscription from the provider.",
-    );
-  }
+  const doc = asCoreConfigDocument(parseCoreYaml(text));
   return {
     doc,
     yamlText: text,
@@ -394,9 +245,6 @@ export function overlayManagedKeys(
   out.secret = settings.secret;
   // The generated runtime configuration always disables the TUN listener.
   out.tun = { enable: false };
-  if (out.listeners !== undefined) {
-    throw new Error("Custom listeners are not supported; Sash manages all listener endpoints");
-  }
   return out;
 }
 

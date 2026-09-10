@@ -58,7 +58,7 @@ The dashboard embeds this font for its UI typography. Redistribution and subsett
 
 ## Bundled runtime entries
 
-The single-file entries under `dist/` (`cli.js`, `daemon-entry.js`, `autostart-entry.js`, `autostart-upgrade-entry.js`, `upgrade-probe-entry.js` and the standalone `upgrade-worker.mjs`) bundle the runtime dependencies they use — currently `commander` (MIT), `semver` (ISC), `undici` (MIT), `yaml` (ISC), `yauzl` (MIT) and their transitive dependencies. Exact per-entry bundled versions and their complete notices are generated as `dist/*.LICENSE.md` files and embedded at the end of each bundle, including copies used for interrupted-upgrade recovery.
+The single-file entries under `dist/` (`cli.js`, `daemon-entry.js`, `autostart-entry.js`, `webui.js` and `installation.js`) bundle the runtime dependencies they use — currently `commander` (MIT), `semver` (ISC), `undici` (MIT), `yaml` (ISC), `yauzl` (MIT) and their transitive dependencies. Exact per-entry bundled versions and their complete notices are generated as `dist/*.LICENSE.md` files and embedded at the end of each bundle.
 
 ## Runtime-downloaded Core
 

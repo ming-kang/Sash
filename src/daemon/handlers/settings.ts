@@ -1,23 +1,27 @@
-import { parseSettingsPatch } from "../../contracts.js";
+import type { SettingsPatch } from "../../contracts.js";
 import { HttpError } from "../../daemon-http.js";
-import { errorMessage } from "../../error-utils.js";
+import { isPlainObject } from "../../json-shape.js";
 import { publicSettings } from "../../settings.js";
 import type { DaemonContext } from "../context.js";
 import type { RouteRequest, RouteResponse } from "../router.js";
+
+const PATCHABLE_KEYS = ["expectedRevision", "mixedPort", "allowLan", "systemProxy"];
+
+/** Selects the patchable fields; the settings service validates their values. */
+function readSettingsPatch(body: unknown): SettingsPatch {
+  const source = isPlainObject(body) ? body : {};
+  for (const key of Object.keys(source)) {
+    if (!PATCHABLE_KEYS.includes(key)) throw new HttpError(400, `Unknown settings field: ${key}`);
+  }
+  return source as SettingsPatch;
+}
 
 export function readSettings(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: publicSettings(ctx.settings.committed()) };
 }
 
 export async function patchSettings(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
-  const body = await req.readJson();
-  let patch: ReturnType<typeof parseSettingsPatch>;
-  try {
-    patch = parseSettingsPatch(body);
-  } catch (error) {
-    throw new HttpError(400, errorMessage(error));
-  }
-  const result = await ctx.settingsService.apply(patch);
+  const result = await ctx.settingsService.apply(readSettingsPatch(await req.readJson()));
   return {
     status: 200,
     json: {

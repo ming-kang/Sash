@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,7 +32,6 @@ describe("Core binary transaction", () => {
       {
         coreVersion: "v1",
         installedAt: "2026-01-01T00:00:00.000Z",
-        sha256: crypto.hash("sha256", "v1-core"),
       },
       layout,
     );
@@ -41,7 +39,7 @@ describe("Core binary transaction", () => {
   function staged() {
     const exe = path.join(layout.binDir, "candidate");
     fs.writeFileSync(exe, "v2-core");
-    return { exe, version: "v2", sha256: crypto.hash("sha256", "v2-core") };
+    return { exe, version: "v2" };
   }
   function runtime(events: string[], wasRunning = true): CoreUpdateRuntime {
     return {
@@ -65,7 +63,6 @@ describe("Core binary transaction", () => {
       target: {
         coreVersion: "v2",
         installedAt: "2026-09-08T00:00:00.000Z",
-        sha256: crypto.hash("sha256", "v2-core"),
       },
     };
   }

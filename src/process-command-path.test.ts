@@ -5,12 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { it } from "node:test";
-import { commandLineContains, readProcessCommandLine } from "./process.js";
+import { buildSanitizedEnv, commandLineContains, readProcessCommandLine } from "./process.js";
 import { commandLineContainsPath } from "./process-command-path.js";
-import { upgradeChildEnv } from "./upgrade-command.js";
-import { assertNoUnknownSashDaemons } from "./upgrade-processes.js";
 
-it("proves aliased process arguments and still detects an unregistered Sash owner", async () => {
+it("proves aliased process arguments through the filesystem and rejects foreign programs", async () => {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "sash-command-path-")));
   const packageRoot = path.join(root, "actual package");
   const alias = path.join(root, process.platform === "win32" ? "aliased package" : "alias");
@@ -19,7 +17,7 @@ it("proves aliased process arguments and still detects an unregistered Sash owne
   fs.writeFileSync(script, "process.stdin.resume();\n");
   fs.symlinkSync(packageRoot, alias, process.platform === "win32" ? "junction" : "dir");
   const child = spawn(process.execPath, [path.join(alias, "dist", "daemon-entry.js")], {
-    env: upgradeChildEnv(),
+    env: buildSanitizedEnv(),
     windowsHide: true,
     stdio: ["pipe", "ignore", "ignore"],
   });
@@ -30,16 +28,12 @@ it("proves aliased process arguments and still detects an unregistered Sash owne
     assert.equal(commandLineContains(child.pid, script), true);
     const commandLine = readProcessCommandLine(child.pid);
     assert.ok(commandLine);
-    const row = { pid: child.pid, name: path.basename(process.execPath), commandLine };
-    assert.throws(
-      () => assertNoUnknownSashDaemons([row], packageRoot, [process.execPath], new Set()),
-      /Cannot verify all Sash owners/,
-    );
-    assert.doesNotThrow(() =>
-      assertNoUnknownSashDaemons([row], packageRoot, [process.execPath], new Set([row.pid])),
+    assert.equal(
+      commandLineContainsPath(commandLine, path.join(alias, "dist", "daemon-entry.js")),
+      true,
     );
     const other = path.join(root, "other", "daemon-entry.js");
-    fs.mkdirSync(path.dirname(other));
+    fs.mkdirSync(path.dirname(other), { recursive: true });
     fs.writeFileSync(other, "different program");
     assert.equal(commandLineContainsPath(`node "${other}"`, script), false);
     assert.equal(

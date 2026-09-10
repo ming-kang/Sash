@@ -1,9 +1,4 @@
-import {
-  CORE_DELAY_TIMEOUT_MS,
-  CORE_DELAY_URL,
-  type CoreDelayResult,
-  validateDelayTarget,
-} from "./core-delay.js";
+import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, type CoreDelayResult } from "./core-delay.js";
 import { createDaemonClient } from "./daemon-client.js";
 import { errorDetail } from "./error-utils.js";
 import type { CliRuntimeStatus, StatusObservationContext } from "./status.js";
@@ -56,7 +51,6 @@ export async function observeStatusDelay(
   probe: DelayProbe = (context, status, name, signal) =>
     createDaemonClient(status.daemon.port, context.settings.daemonSecret).testDelay(name, signal),
 ): Promise<StatusDelayObservation> {
-  validateDelayTarget(name);
   signal.throwIfAborted();
   const initial = initialObservation(status, name);
   if (initial.state === "unavailable") return initial;
@@ -102,7 +96,6 @@ export async function* watchStatusWithDelay(
   name: string,
   options: DelayWatchOptions,
 ): AsyncGenerator<CliRuntimeStatus> {
-  validateDelayTarget(name);
   const controller = new AbortController();
   const signal = AbortSignal.any([controller.signal, options.signal]);
   let latest: CliRuntimeStatus | undefined;

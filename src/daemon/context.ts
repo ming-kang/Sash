@@ -1,4 +1,4 @@
-import { type SashStateStore, StateConflictError } from "../app-state.js";
+import type { SashStateStore } from "../app-state.js";
 import type { AutostartController } from "../autostart.js";
 import type { CoreStartResult } from "../contracts.js";
 import type { CoreUpdateResult } from "../core-update.js";
@@ -12,7 +12,6 @@ import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../system-proxy-manager.js";
 import { ShuttingDownError } from "./errors.js";
 import type { DaemonEvents } from "./events.js";
-import type { DaemonUpgradeService } from "./upgrade.js";
 import type { WebAuthManager } from "./web-auth.js";
 
 export interface SlowMutationInfo {
@@ -28,7 +27,6 @@ export class DaemonGate {
   private closing = false;
   private cleanupPromise: Promise<void> | undefined;
   private queued = 0;
-  private reservation: string | undefined;
   private readonly liveMutations = new Set<Promise<void>>();
 
   constructor(
@@ -43,9 +41,6 @@ export class DaemonGate {
   get isClosing(): boolean {
     return this.closing;
   }
-  get isReserved(): boolean {
-    return this.reservation !== undefined;
-  }
 
   private changed(): void {
     try {
@@ -57,39 +52,9 @@ export class DaemonGate {
 
   assertMutable(): void {
     if (this.closing) throw new ShuttingDownError();
-    if (this.reservation) throw new StateConflictError("A Sash upgrade is in progress");
   }
 
-  /** Close admission synchronously, then drain already executing writes and controller RPCs. */
-  async reserve(transactionId: string): Promise<void> {
-    if (this.reservation !== transactionId) {
-      this.assertMutable();
-      this.reservation = transactionId;
-      this.cancel();
-    }
-    await Promise.allSettled([this.tail, ...this.liveMutations]);
-  }
-
-  releaseReservation(transactionId: string): void {
-    this.assertReserved(transactionId);
-    this.reservation = undefined;
-  }
-
-  private assertReserved(transactionId: string): void {
-    if (this.closing) throw new ShuttingDownError();
-    if (this.reservation !== transactionId)
-      throw new StateConflictError("Sash upgrade reservation does not match");
-  }
-
-  mutateReserved<T>(
-    transactionId: string,
-    purpose: string,
-    action: () => T | Promise<T>,
-  ): Promise<T> {
-    return this.enqueue(purpose, action, () => this.assertReserved(transactionId));
-  }
-
-  /** Runtime-only RPCs stay outside the state queue but participate in the upgrade drain. */
+  /** Runtime-only RPCs stay outside the state queue. */
   async runLiveMutation<T>(action: () => T | Promise<T>): Promise<T> {
     this.assertMutable();
     let finish!: () => void;
@@ -198,7 +163,6 @@ export interface DaemonContext {
   readonly version: string;
   readonly installationId: string;
   readonly webAuth: WebAuthManager;
-  readonly upgrade: DaemonUpgradeService;
   readonly profiles: ProfileService;
   readonly settingsService: SettingsService;
   readonly lifecycle: RuntimeLifecycle;

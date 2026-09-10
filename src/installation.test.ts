@@ -4,13 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { it } from "node:test";
 import {
+  assertAbsolutePath,
+  canonicalPath,
   inspectInstallation,
   installationId,
   npmPackageRoot,
-  npmShimPaths,
+  npmPrefixForPackage,
 } from "./installation.js";
 
-it("recognizes a direct npm prefix and refuses local, linked and redirected command layouts", (t) => {
+it("recognizes a direct npm prefix and refuses local and mismatched layouts", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-installation-test-"));
   t.after(() => {
     assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
@@ -20,52 +22,66 @@ it("recognizes a direct npm prefix and refuses local, linked and redirected comm
   const packageRoot = npmPackageRoot(prefix, "win32");
   fs.mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
   fs.writeFileSync(path.join(packageRoot, "dist", "cli.js"), "// installed CLI");
-  fs.writeFileSync(
-    path.join(prefix, "sash.cmd"),
-    '@"%dp0%\\node_modules\\@astralyn\\sash\\dist\\cli.js"',
-  );
   const options = { packageRoot, nodePath: process.execPath, platform: "win32" as const };
   const result = inspectInstallation(options);
   assert.equal(result.kind, "npm-global");
   if (result.kind === "npm-global") {
     assert.equal(result.prefix, fs.realpathSync.native(prefix));
     assert.equal(result.id, installationId(packageRoot));
+    assert.equal(result.cliPath, canonicalPath(path.join(packageRoot, "dist", "cli.js")));
+    assert.equal(result.binDir, fs.realpathSync.native(prefix));
   }
+  // Detection is read-only: it never creates upgrade or installation state.
+  assert.equal(fs.readdirSync(prefix).sort().join(","), "node_modules");
   assert.equal(fs.existsSync(path.join(prefix, ".sash-upgrade")), false);
-  fs.writeFileSync(path.join(prefix, "package.json"), "{}");
-  assert.equal(inspectInstallation(options).kind, "source");
-  fs.unlinkSync(path.join(prefix, "package.json"));
-  fs.writeFileSync(path.join(prefix, "sash.cmd"), "@node other.js");
-  assert.equal(inspectInstallation(options).kind, "unknown");
-  assert.equal(inspectInstallation({ ...options, nodePath: "relative-node" }).kind, "unknown");
-  const linked = npmPackageRoot(path.join(root, "linked"), "win32");
-  fs.mkdirSync(path.dirname(linked), { recursive: true });
-  fs.symlinkSync(packageRoot, linked, process.platform === "win32" ? "junction" : "dir");
-  assert.equal(inspectInstallation({ ...options, packageRoot: linked }).kind, "linked");
+
+  // A package outside the @astralyn/sash npm layout is a checkout or another package.
+  const checkout = inspectInstallation({ ...options, packageRoot: path.join(root, "sash") });
+  assert.equal(checkout.kind, "source");
+  if (checkout.kind === "source") assert.match(checkout.reason, /local installation/);
+
+  // The npm layout for one platform never matches another platform's derived prefix.
+  const mismatched = inspectInstallation({ ...options, platform: "linux" });
+  assert.equal(mismatched.kind, "source");
+  if (mismatched.kind === "source")
+    assert.match(mismatched.reason, /outside an npm global installation/);
 });
 
-it("identifies package-manager stores and keeps npm layout derivation platform-specific", () => {
-  for (const [marker, kind] of [
-    ["_npx", "npx"],
-    [".pnpm", "pnpm"],
-    [".yarn", "yarn"],
-    [".bun", "bun"],
-  ] as const) {
-    assert.equal(
-      inspectInstallation({
-        packageRoot: path.join(os.tmpdir(), marker, "node_modules", "@astralyn", "sash"),
-      }).kind,
-      kind,
-    );
-  }
-  const prefix = path.join(os.tmpdir(), "isolated-prefix");
+it("derives platform-specific npm layouts and rejects incomplete or non-absolute paths", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-installation-layout-"));
+  t.after(() => {
+    assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const prefix = path.join(root, "prefix");
   assert.equal(
     npmPackageRoot(prefix, "linux"),
     path.join(prefix, "lib", "node_modules", "@astralyn", "sash"),
   );
-  assert.deepEqual(npmShimPaths(prefix, "linux"), [path.join(prefix, "bin", "sash")]);
-  assert.deepEqual(
-    npmShimPaths(prefix, "win32").map((file) => path.basename(file)),
-    ["sash", "sash.cmd", "sash.ps1"],
+  assert.equal(
+    npmPackageRoot(prefix, "win32"),
+    path.join(prefix, "node_modules", "@astralyn", "sash"),
+  );
+  for (const platform of ["linux", "win32"] as const) {
+    assert.equal(npmPrefixForPackage(npmPackageRoot(prefix, platform), platform), prefix);
+  }
+  assert.equal(npmPrefixForPackage(path.join(prefix, "elsewhere", "sash"), "linux"), undefined);
+
+  // A matching layout without the CLI entry cannot be verified.
+  const packageRoot = npmPackageRoot(prefix, process.platform);
+  fs.mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
+  assert.equal(inspectInstallation({ packageRoot }).kind, "unknown");
+
+  for (const value of [
+    "relative/path",
+    path.join(os.tmpdir(), "control\u0001character"),
+    path.join(os.tmpdir(), "delete\u007fcharacter"),
+  ]) {
+    assert.throws(() => assertAbsolutePath(value), /absolute and contain no control characters/);
+    assert.equal(inspectInstallation({ packageRoot: value }).kind, "unknown");
+  }
+  assert.equal(
+    inspectInstallation({ packageRoot: os.tmpdir(), nodePath: "relative-node" }).kind,
+    "unknown",
   );
 });

@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { setTimeout as pause } from "node:timers/promises";
-import {
-  CORE_DELAY_TIMEOUT_MS,
-  CORE_DELAY_URL,
-  type CoreDelayResult,
-  parseCoreDelayResult,
-} from "./core-delay.js";
+import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, type CoreDelayResult } from "./core-delay.js";
 import type { CliRuntimeStatus } from "./status.js";
 import { observeStatusDelay, watchStatusWithDelay, withStatusDelay } from "./status-delay.js";
 import { collectEventStatus } from "./status-watch.js";
@@ -83,9 +78,6 @@ it("does not probe stopped/unhealthy instances and keeps delay failures separate
   assert.equal(failure.core, original.core);
   assert.match(failure.queryError ?? "", /Delay test/);
   assert.equal(withStatusDelay(original, measurement(12)).complete, true);
-  assert.throws(() => parseCoreDelayResult({ ...measurement(12), name: "another" }, "group"));
-  assert.throws(() => parseCoreDelayResult({ ...measurement(12), delayMs: "12" }, "group"));
-  assert.deepEqual(parseCoreDelayResult(measurement(12), "group").delayMs, 12);
 });
 
 it("coalesces status changes without issuing additional probes", { timeout: 5000 }, async (t) => {

@@ -14,10 +14,7 @@ for (const target of ["v1.0.0", "v2.0.0"]) {
   it(`checks Core ${target} using metadata without installing or initializing application state`, async (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-core-check-"));
     const layout = sashLayout(root);
-    writeInstallRecord(
-      { coreVersion: "v1.0.0", installedAt: "2026-09-09T00:00:00.000Z", sha256: "0".repeat(64) },
-      layout,
-    );
+    writeInstallRecord({ coreVersion: "v1.0.0", installedAt: "2026-09-09T00:00:00.000Z" }, layout);
     const saved = fs.readFileSync(layout.installFile);
     const agent = new MockAgent();
     agent.disableNetConnect();

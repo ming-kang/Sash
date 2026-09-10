@@ -26,25 +26,20 @@ describe("Core install record codec", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it("parses and projects only the canonical fixed shape", () => {
-    const record = {
-      coreVersion: "v1.2.3",
-      installedAt: "2026-01-01T00:00:00.000Z",
-      sha256: "a".repeat(64),
-    };
+  it("parses the fields it needs and ignores the rest", () => {
+    const record = { coreVersion: "v1.2.3", installedAt: "2026-01-01T00:00:00.000Z" };
 
-    assert.deepEqual(parseInstallRecord(record), record);
-    assert.equal(parseInstallRecord({ ...record, extra: true }), undefined);
-    assert.equal(parseInstallRecord({ ...record, installedAt: "2026-01-01" }), undefined);
+    assert.deepEqual(parseInstallRecord({ ...record, sha256: "a".repeat(64) }), record);
+    assert.deepEqual(parseInstallRecord({ ...record, extra: true }), record);
+    assert.deepEqual(parseInstallRecord({ ...record, installedAt: "2026-01-01" }), {
+      ...record,
+      installedAt: "2026-01-01",
+    });
+    assert.equal(parseInstallRecord({ installedAt: record.installedAt }), undefined);
     assert.equal(parseInstallRecord({ ...record, coreVersion: "../../escape" }), undefined);
-    assert.equal(
-      parseInstallRecord({ ...record, sha256: "obsolete" })?.coreVersion,
-      record.coreVersion,
-    );
-    const versionOnly = { coreVersion: record.coreVersion, installedAt: record.installedAt };
-    assert.deepEqual(parseInstallRecord(versionOnly), versionOnly);
-    writeInstallRecord(versionOnly, layout);
-    assert.deepEqual(readInstallRecord(layout), versionOnly);
+    assert.equal(parseInstallRecord(null), undefined);
+    writeInstallRecord(record, layout);
+    assert.deepEqual(readInstallRecord(layout), record);
   });
 
   it("writes, reads, and reports one canonical committed record", () => {
@@ -62,14 +57,15 @@ describe("Core install record codec", () => {
     assert.equal(installRecordsEqual(undefined, null), true);
   });
 
-  it("rejects invalid tags and timestamps before publication", () => {
+  it("accepts any non-empty tag and keeps a legacy timestamp", () => {
     assert.equal(validateCoreReleaseTag(" v1.2.3 "), "v1.2.3");
     assert.throws(() => validateCoreReleaseTag("tag/asset"), /Invalid Core release tag/);
-    assert.throws(
-      () =>
-        writeInstallRecord({ coreVersion: "v1.2.3", installedAt: "2026-01-01T00:00:00Z" }, layout),
-      /Invalid Core install timestamp/,
-    );
-    assert.equal(fs.existsSync(layout.installFile), false);
+    writeInstallRecord({ coreVersion: "v1.2.3", installedAt: "2026-01-01T00:00:00Z" }, layout);
+    assert.deepEqual(readInstallRecord(layout), {
+      coreVersion: "v1.2.3",
+      installedAt: "2026-01-01T00:00:00Z",
+    });
+    fs.writeFileSync(layout.installFile, "{ broken");
+    assert.equal(readInstallRecord(layout), undefined);
   });
 });

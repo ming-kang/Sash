@@ -44,7 +44,7 @@ import {
 } from "./handlers/profiles.js";
 import { proxyStatus } from "./handlers/proxy.js";
 import { patchSettings, readSettings } from "./handlers/settings.js";
-import { continueWebSession, upgradeAction } from "./handlers/upgrade.js";
+import { continueWebSession } from "./handlers/web.js";
 
 /* ====================================================================== */
 /* Request target parsing                                                  */
@@ -135,7 +135,6 @@ export interface RouteDef {
   readonly methods: readonly string[] | "*";
   readonly pattern: URLPattern;
   readonly auth: RouteAuth;
-  readonly allowReserved?: boolean;
   readonly handler?: JsonRouteHandler;
   readonly raw?: RawRouteHandler;
 }
@@ -151,16 +150,8 @@ export function buildRoutes(): readonly RouteDef[] {
   return [
     {
       methods: ["POST"],
-      pattern: path("/sash/upgrade/:action(reserve|status|verify|stop|release|commit|cleanup)"),
-      auth: "control",
-      allowReserved: true,
-      handler: upgradeAction,
-    },
-    {
-      methods: ["POST"],
       pattern: path("/sash/web/continue"),
       auth: "public",
-      allowReserved: true,
       handler: continueWebSession,
     },
     { methods: ["GET"], pattern: path("/sash/daemon/health"), auth: "public", handler: health },
@@ -517,7 +508,7 @@ export async function dispatch(
   }
 
   try {
-    if (isControlMutation(method) && !route.allowReserved) ctx.gate.assertMutable();
+    if (isControlMutation(method)) ctx.gate.assertMutable();
     if (route.raw) {
       await route.raw(ctx, req, res, target);
       return;
@@ -538,7 +529,7 @@ export async function dispatch(
       signal: controller.signal,
       readJson: async (maxBytes) => {
         const body = await parseJsonObjectBody(req, maxBytes);
-        if (isControlMutation(method) && !route.allowReserved) ctx.gate.assertMutable();
+        if (isControlMutation(method)) ctx.gate.assertMutable();
         return body;
       },
     };

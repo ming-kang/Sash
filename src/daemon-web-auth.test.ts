@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  parseDaemonStatus,
-  parseHealthInfo,
-  parseWebBootstrapInfo,
-  parseWebSessionInfo,
-} from "./contracts.js";
+import type { DaemonStatus, HealthInfo, WebBootstrapInfo, WebSessionInfo } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon browser authorization", () => {
@@ -13,7 +8,7 @@ describe("daemon browser authorization", () => {
 
   it("never accepts the public identity as an HTTP or WebSocket credential", async () => {
     await h.startServer();
-    const health = parseHealthInfo((await h.apiRequest("/sash/daemon/health", { token: "" })).data);
+    const health = (await h.apiRequest("/sash/daemon/health", { token: "" })).data as HealthInfo;
     for (const [method, pathname] of [
       ["POST", "/sash/profiles"],
       ["POST", "/sash/profiles/import"],
@@ -58,7 +53,7 @@ describe("daemon browser authorization", () => {
     const publicStatus = await h.apiRequest("/sash/daemon/status", { token: "" });
     assert.equal(publicStatus.statusCode, 200);
     assert.ok(!JSON.stringify(publicStatus.data).includes("private-query"));
-    const redacted = parseDaemonStatus(publicStatus.data);
+    const redacted = publicStatus.data as DaemonStatus;
     assert.equal(redacted.activeProfile?.url, "");
     assert.equal(redacted.configuration.appliedProfile?.url, "");
     const session = await h.mintWebSession();
@@ -66,9 +61,7 @@ describe("daemon browser authorization", () => {
       for (const endpoint of ["/sash/settings", "/sash/profiles"]) {
         assert.equal((await h.apiRequest(endpoint, credentials)).statusCode, 200);
       }
-      const status = parseDaemonStatus(
-        (await h.apiRequest("/sash/daemon/status", credentials)).data,
-      );
+      const status = (await h.apiRequest("/sash/daemon/status", credentials)).data as DaemonStatus;
       assert.equal(status.activeProfile?.url, url);
       assert.equal(status.configuration.appliedProfile?.url, url);
     }
@@ -81,7 +74,7 @@ describe("daemon browser authorization", () => {
       headers: { Authorization: `Bearer ${h.settings.daemonSecret}` },
     });
     assert.match(raw, /\r\nCache-Control: no-store\r\n/i);
-    const bootstrap = parseWebBootstrapInfo(JSON.parse(raw.split("\r\n\r\n")[1] ?? ""));
+    const bootstrap = JSON.parse(raw.split("\r\n\r\n")[1] ?? "") as WebBootstrapInfo;
     assert.notEqual(bootstrap.token, instance.token);
     const responses = await Promise.all(
       [0, 1].map(() =>
@@ -95,7 +88,7 @@ describe("daemon browser authorization", () => {
     assert.deepEqual(responses.map((response) => response.statusCode).sort(), [200, 401]);
     const success = responses.find((response) => response.statusCode === 200);
     assert.ok(success);
-    const session = parseWebSessionInfo(success.data);
+    const session = success.data as WebSessionInfo;
     assert.equal(session.daemonToken, instance.token);
     assert.notEqual(session.token, bootstrap.token);
     assert.equal(
@@ -131,9 +124,8 @@ describe("daemon browser authorization", () => {
       ).statusCode,
       413,
     );
-    const bootstrap = parseWebBootstrapInfo(
-      (await h.apiRequest("/sash/web/bootstrap", { method: "POST" })).data,
-    );
+    const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
+      .data as WebBootstrapInfo;
     assert.equal(
       (
         await h.apiRequest("/sash/web/session", {
@@ -152,19 +144,41 @@ describe("daemon browser authorization", () => {
     );
   });
 
-  it("invalidates pending grants and browser sessions across daemon restarts", async () => {
+  it("continues browser sessions across daemon restarts while invalidating pending grants", async () => {
     const before = await h.startServer();
     const session = await h.mintWebSession();
-    const bootstrap = parseWebBootstrapInfo(
-      (await h.apiRequest("/sash/web/bootstrap", { method: "POST" })).data,
-    );
+    const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
+      .data as WebBootstrapInfo;
     await before.close();
     const after = await h.startServer();
     assert.notEqual(after.token, before.token);
-    assert.equal((await h.apiRequest("/sash/autostart", { webToken: session })).statusCode, 401);
+    // A stale session is answered with the reconnect signal rather than accepted.
+    assert.equal((await h.apiRequest("/sash/autostart", { webToken: session })).statusCode, 409);
     assert.equal(
       (await h.apiRequest("/sash/web/session", { method: "POST", token: "", body: bootstrap }))
         .statusCode,
+      401,
+    );
+    // The browser exchanges its persisted session for one on the new generation.
+    const continued = await h.apiRequest("/sash/web/continue", {
+      method: "POST",
+      token: "",
+      body: { token: session, daemonToken: before.token },
+    });
+    assert.equal(continued.statusCode, 200);
+    const renewed = (continued.data as WebSessionInfo).token;
+    assert.notEqual(renewed, session);
+    assert.equal((continued.data as WebSessionInfo).daemonToken, after.token);
+    assert.equal((await h.apiRequest("/sash/autostart", { webToken: renewed })).statusCode, 200);
+    // Continuation requires the source generation that created the session.
+    assert.equal(
+      (
+        await h.apiRequest("/sash/web/continue", {
+          method: "POST",
+          token: "",
+          body: { token: session, daemonToken: after.token },
+        })
+      ).statusCode,
       401,
     );
     assert.equal(

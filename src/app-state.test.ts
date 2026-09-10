@@ -29,19 +29,15 @@ describe("canonical Sash state", () => {
       assert.equal(fs.statSync(layout.settingsFile).mode & 0o777, 0o600);
   });
 
-  it("commits one complete manifest and rejects stale writers and edited bytes", () => {
+  it("commits one complete manifest and rejects stale writers", () => {
     const layout = sashLayout(root);
-    const first = createTestState(layout);
-    const stale = new SashStateStore(layout);
-    const before = first.snapshot();
-    first.commit({ ...before, settings: { ...before.settings, mixedPort: 18880 } });
+    const state = createTestState(layout);
+    const before = state.snapshot();
+    state.commit({ ...before, settings: { ...before.settings, mixedPort: 18880 } });
     assert.equal(readState(layout)?.settings.mixedPort, 18880);
     assert.equal(readState(layout)?.revision, 1);
-    assert.throws(() => stale.commit(stale.snapshot()), /changed/);
-    const bytes = fs.readFileSync(layout.settingsFile, "utf8");
-    fs.appendFileSync(layout.settingsFile, "\n");
-    assert.throws(() => first.commit(first.snapshot()), /changed/);
-    assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), `${bytes}\n`);
+    assert.throws(() => state.commit(before), /changed/);
+    assert.equal(readState(layout)?.revision, 1);
   });
 
   it("reuses a deeply frozen snapshot until the next committed revision", () => {
@@ -128,8 +124,21 @@ describe("canonical Sash state", () => {
     assert.equal(state.snapshot(), snapshot);
   });
 
-  it("rejects corrupt, unsupported, oversized and non-regular state without rewriting", () => {
+  it("accepts unknown manifest fields and rejects corrupt, unsupported or oversized state", () => {
     const layout = sashLayout(root);
+    const store = createTestState(layout);
+    store.commit({
+      ...store.snapshot(),
+      settings: { ...store.snapshot().settings, mixedPort: 18884 },
+    });
+    const committed = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    committed.futureField = { added: true };
+    fs.writeFileSync(layout.settingsFile, JSON.stringify(committed));
+    assert.equal(readState(layout)?.revision, 1);
+
     for (const text of ["{ broken", '{"schemaVersion":1}', "null", '"text"']) {
       fs.writeFileSync(layout.settingsFile, text);
       assert.throws(
@@ -139,15 +148,12 @@ describe("canonical Sash state", () => {
       assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), text);
     }
     fs.truncateSync(layout.settingsFile, 2 * 1024 * 1024 + 1);
-    assert.throws(
-      () => readState(layout),
-      (error) =>
-        error instanceof Error &&
-        error.message.includes(layout.settingsFile) &&
-        /bounded/.test(error.message),
-    );
+    assert.throws(() => readState(layout), /too large/);
     fs.unlinkSync(layout.settingsFile);
     fs.mkdirSync(layout.settingsFile);
-    assert.throws(() => readState(layout), /bounded/);
+    assert.throws(
+      () => readState(layout),
+      (error) => error instanceof Error && error.message.includes(layout.settingsFile),
+    );
   });
 });

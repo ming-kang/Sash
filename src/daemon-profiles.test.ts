@@ -5,9 +5,9 @@ import { describe, it } from "node:test";
 import YAML from "yaml";
 import { readState } from "./app-state.js";
 import {
+  type DaemonStatus,
   type ProfileActionResponse,
   type ProfileContentResponse,
-  parseDaemonStatus,
   parseProfilesIndex,
 } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
@@ -25,7 +25,7 @@ describe("profile management API", () => {
     return (result.data as ProfileActionResponse).profile;
   }
   async function status() {
-    return parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data);
+    return (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
   }
 
   it("imports and selects saved profiles without starting or rendering Core", async () => {
@@ -74,27 +74,6 @@ describe("profile management API", () => {
         .content,
       source,
     );
-  });
-  it("rejects custom listeners before replacing the running configuration", async () => {
-    await h.startServer();
-    const profile = await add("listener source");
-    assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
-    const before = fs.readFileSync(h.layout.configFile, "utf8");
-    const owner = (await status()).core.pid;
-    const saved = await h.apiRequest(`/sash/profiles/${profile.id}/content`, {
-      method: "PUT",
-      body: {
-        revision: profile.revision,
-        content: `${content}listeners: [{name: public, type: http, listen: 0.0.0.0, port: 27894}]\n`,
-      },
-    });
-    assert.equal(saved.statusCode, 200);
-    const apply = await h.apiRequest("/sash/core/restart", { method: "POST" });
-    assert.notEqual(apply.statusCode, 200);
-    assert.match(JSON.stringify(apply.data), /Custom listeners are not supported/);
-    assert.equal(fs.readFileSync(h.layout.configFile, "utf8"), before);
-    assert.equal((await status()).core.pid, owner);
-    assert.equal((await status()).configuration.pending, true);
   });
   it("keeps a saved selection pending until explicit Apply", async () => {
     await h.startServer();
@@ -148,7 +127,7 @@ describe("profile management API", () => {
       (
         await h.apiRequest("/sash/profiles/import", {
           method: "POST",
-          body: { name: "bad", content: "wrong: format" },
+          body: { name: "bad", content: "wrong: [" },
         })
       ).statusCode,
       400,

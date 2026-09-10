@@ -79,58 +79,6 @@ describe("state locks", () => {
     }
   });
 
-  it("retries when a contender releases the lock between EEXIST and inspection", async (t) => {
-    const link = fs.linkSync;
-    let raced = false;
-    t.mock.method(fs, "linkSync", (source: fs.PathLike, target: fs.PathLike) => {
-      if (target === lockFile && !raced) {
-        raced = true;
-        throw Object.assign(new Error("contender just released"), { code: "EEXIST" });
-      }
-      link(source, target);
-    });
-    const lease = await acquireStateLock(lockFile, {
-      purpose: "acquire after release race",
-      timeoutMs: 0,
-    });
-    assert.equal(raced, true);
-    lease.release();
-    assert.equal(fs.existsSync(lockFile), false);
-  });
-
-  it("retries when a lock disappears between inspection and reading", async () => {
-    const owner = acquireStateLockSync(lockFile, { purpose: "racing owner" });
-    const originalReadFileSync = fs.readFileSync;
-    let raced = false;
-    fs.readFileSync = ((
-      file: string | Buffer | URL | number,
-      options: BufferEncoding,
-    ): string | Buffer => {
-      if (file === lockFile && !raced) {
-        raced = true;
-        fs.unlinkSync(lockFile);
-        throw Object.assign(new Error("lock disappeared"), { code: "ENOENT" });
-      }
-      return originalReadFileSync(file, options);
-    }) as typeof fs.readFileSync;
-
-    try {
-      const replacement = await acquireStateLock(lockFile, {
-        purpose: "racing replacement",
-        timeoutMs: 0,
-      });
-      fs.readFileSync = originalReadFileSync;
-      try {
-        assert.equal(replacement.record.purpose, "racing replacement");
-      } finally {
-        replacement.release();
-      }
-    } finally {
-      fs.readFileSync = originalReadFileSync;
-      owner.release();
-    }
-  });
-
   it("reclaims a dead owner through the asynchronous API", async () => {
     const deadOwner: StateLockRecord = {
       version: 1,
@@ -191,22 +139,29 @@ describe("state locks", () => {
     }
   });
 
-  it("fails closed for corrupt records without deleting them", () => {
+  it("reclaims a corrupt record left behind by an interrupted write", () => {
     fs.mkdirSync(path.dirname(lockFile), { recursive: true });
-    const corrupt = "{ not valid JSON";
-    fs.writeFileSync(lockFile, corrupt);
+    fs.writeFileSync(lockFile, "{ not valid JSON");
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockFile, past, past);
+
+    const lease = acquireStateLockSync(lockFile, { purpose: "replacement" });
+    try {
+      assert.equal(lease.record.purpose, "replacement");
+    } finally {
+      lease.release();
+    }
+  });
+
+  it("leaves a record that may still be mid-write alone", () => {
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    fs.writeFileSync(lockFile, "{ not valid JSON");
 
     assert.throws(
       () => acquireStateLockSync(lockFile, { purpose: "blocked", timeoutMs: 0 }),
-      (err: unknown) => {
-        assert.ok(err instanceof Error);
-        assert.ok(err.message.includes(lockFile));
-        assert.match(err.message, /corrupt/);
-        assert.ok(err.message.includes("owner PID unknown, purpose unknown"));
-        return true;
-      },
+      /busy/,
     );
-    assert.equal(fs.readFileSync(lockFile, "utf8"), corrupt);
+    assert.equal(fs.readFileSync(lockFile, "utf8"), "{ not valid JSON");
   });
 
   it("does not delete a replacement lock when releasing a mismatched token", () => {

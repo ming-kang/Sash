@@ -30,7 +30,6 @@ import { type DaemonContext, DaemonGate } from "./context.js";
 import { createEventObserver } from "./event-observations.js";
 import { DaemonEvents } from "./events.js";
 import type { DaemonScheduler } from "./scheduler.js";
-import { DaemonUpgradeService } from "./upgrade.js";
 import { WebAuthManager } from "./web-auth.js";
 
 export interface DaemonDeps {
@@ -259,7 +258,6 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     });
   };
 
-  let upgrade: DaemonUpgradeService;
   const context: DaemonContext = {
     layout,
     state,
@@ -267,10 +265,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     startedAt: new Date().toISOString(),
     version: packageInfo.version,
     installationId: installationId(packageRoot),
-    webAuth: new WebAuthManager(),
-    get upgrade() {
-      return upgrade;
-    },
+    webAuth: new WebAuthManager(token, layout.webSessionsFile),
     profiles,
     settingsService,
     lifecycle,
@@ -308,6 +303,5 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     closeListener: () => Promise.reject(new Error("Listener is not ready")),
     ...(deps.onShutdown ? { onShutdown: deps.onShutdown } : {}),
   };
-  upgrade = new DaemonUpgradeService(context);
   return { context, supervisor, lifecycle, token };
 }

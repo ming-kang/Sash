@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -7,30 +6,33 @@ import path from "node:path";
 import { it } from "node:test";
 import { writeInstallRecord } from "./core-install-record.js";
 import { diagnoseSash, inspectListenerPort } from "./doctor.js";
+import { npmPackageRoot } from "./installation.js";
 import { sashLayout } from "./paths.js";
 import type { StatusObservationDependencies } from "./status.js";
 import { createTestState } from "./testing/state.js";
-import { writeFixturePackage } from "./testing/upgrade-fixture.js";
+
+/** Minimal npm-global package layout; the doctor dashboard check only needs these four files. */
+function writeSashPackage(prefix: string, version: string): string {
+  const packageRoot = npmPackageRoot(prefix);
+  fs.mkdirSync(path.join(packageRoot, "dist", "ui"), { recursive: true });
+  fs.writeFileSync(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({
+      name: "@astralyn/sash",
+      version,
+      bin: { sash: "dist/cli.js" },
+      engines: { node: ">=24" },
+    }),
+  );
+  fs.writeFileSync(path.join(packageRoot, "dist", "cli.js"), "// fixture CLI\n");
+  fs.writeFileSync(path.join(packageRoot, "dist", "daemon-entry.js"), "// fixture daemon\n");
+  fs.writeFileSync(path.join(packageRoot, "dist", "ui", "index.html"), "<!doctype html>\n");
+  return packageRoot;
+}
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "sash-doctor-"));
-  const packageRoot = writeFixturePackage(path.join(root, "prefix"), "1.0.0");
-  const dist = path.join(packageRoot, "dist");
-  for (const entry of ["daemon-entry.js", "upgrade-probe-entry.js", "upgrade-worker.LICENSE.md"])
-    fs.writeFileSync(path.join(dist, entry), "fixture");
-  const ui = path.join(dist, "ui");
-  fs.mkdirSync(path.join(ui, "assets"), { recursive: true });
-  fs.mkdirSync(path.join(ui, ".vite"));
-  fs.writeFileSync(
-    path.join(ui, "index.html"),
-    '<script src="./assets/app.js"></script><link href="./assets/app.css">',
-  );
-  fs.writeFileSync(path.join(ui, "assets", "app.js"), "fixture");
-  fs.writeFileSync(path.join(ui, "assets", "app.css"), "fixture");
-  fs.writeFileSync(
-    path.join(ui, ".vite", "manifest.json"),
-    JSON.stringify({ "index.html": { file: "assets/app.js", css: ["assets/app.css"] } }),
-  );
+  const packageRoot = writeSashPackage(path.join(root, "prefix"), "1.0.0");
   const status: StatusObservationDependencies = {
     evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
     inspectSystemProxy: async () => ({
@@ -90,7 +92,6 @@ it("reports corrupt settings without treating a legacy Core digest as a runtime 
       {
         coreVersion: "v1.0.0",
         installedAt: "2026-09-09T00:00:00.000Z",
-        sha256: crypto.hash("sha256", "original bytes"),
       },
       f.layout,
     );
@@ -173,7 +174,6 @@ it("reports port conflicts and unknown proxy observations alongside verified Cor
       {
         coreVersion: "v1.0.0",
         installedAt: "2026-09-09T00:00:00.000Z",
-        sha256: crypto.hash("sha256", "known bytes"),
       },
       f.layout,
     );

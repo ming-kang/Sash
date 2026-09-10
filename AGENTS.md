@@ -36,6 +36,16 @@ These are hard requirements, not style preferences.
 - The upstream core repository's working branch is `Meta`; `main` is a decoy with unrelated content. Consult `Meta` for docs, config schemas, and behavior. Releases are branch-independent.
 - Sash downloads unmodified upstream release artifacts at install time. Never commit upstream binaries or dashboard assets to this repo, and never bundle them in the npm tarball.
 
+## Thin by Default
+
+Sash is a single-user desktop tool. Its job is to do what the user asked and report what happened, not to re-verify its own decisions. Keep it thin:
+
+- **One validation point per value.** Settings are validated once, in `settings.ts`. Profile YAML is parsed once; the Core's own pre-flight config check is the authority on whether a config is acceptable. Do not add a runtime validator that mirrors a TypeScript type, and do not re-check a response the daemon of this installation just produced.
+- **Local state is not an adversary.** `sash.json`, install records, the daemon lease and lock files are written by Sash for this user. Do not add MAC/HMAC envelopes, content digests, byte-for-byte disk re-reads, directory identity gates or exact-key schema rejection to files Sash itself writes. Read them leniently, accept unknown fields, and treat unreadable files as absent or stale rather than halting every command.
+- **No repeated probes or package verification.** Build-time checks belong in the build. Do not stat or hash `dist/` entries, walk dashboard manifests, or spawn probe processes at runtime, at install time or before an upgrade.
+- **Prefer fewer artifacts and processes.** Before adding an on-disk record, journal, phase machine, helper entry point or lock file, check whether an existing one already answers the question, and whether the failure it guards against is one a user could hit.
+- **No shell-shape policing.** Do not reject user content because of a heuristic the real Core does not enforce (YAML alias caps, `listeners:` bans, share-link format detection, private-IP redirect refusals).
+
 ## Safety Invariants
 
 Do not weaken these without explicit user approval:
@@ -44,9 +54,9 @@ Do not weaken these without explicit user approval:
 - **Loopback never goes through a proxy.** External-controller requests must use the direct dispatcher; proxy env vars apply only to remote downloads.
 - **Credential hygiene.** Child processes get a scrubbed environment (no `GITHUB_TOKEN`, `NPM_TOKEN`, npm auth config). State files and logs are written `0o600` on POSIX.
 - **Atomic state changes.** All settings/state files go through `fs-atomic.ts`. Core upgrades keep the previous binary as `.bak` until the new one passes a health check; rollback on failure.
-- **Download trust.** Only hosts in the `github.ts` allowlist are valid download origins. Archive extraction rejects path traversal and enforces the size cap.
-- **Integrity scope.** Verify Core archives while downloading; bundle runtime dependencies into `dist/` at build time (the lockfile is their integrity anchor) and let npm verify the single Sash package tarball at install and upgrade time. Trust local installation permissions after installation. Do not add executable/directory hash gates, mandatory digest migration, or repeated package probes to normal commands.
-- **Subscription content is untrusted input.** Parse defensively; reject documents that are not valid core-format YAML before writing config.yaml.
+- **Download trust.** Only hosts in the `github.ts` allowlist are valid download origins, and every release archive is verified against the SHA-256 digest published by the GitHub release API. Archive extraction rejects path traversal and enforces the size cap. These two checks are the only integrity gates in Sash; do not add more of the kind described under Thin by Default.
+- **Self-upgrade goes through npm.** `sash upgrade` stops the daemon, runs `npm install --global <exact version>` in the installation prefix and starts the daemon again. npm owns package integrity; Sash does not stage, journal, probe or replace package files itself.
+- **Subscription content is untrusted input.** Parse it once as YAML and reject documents that are not core-format objects before writing config.yaml; leave deeper acceptance to the Core.
 
 ## Commands
 

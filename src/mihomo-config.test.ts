@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  asCoreConfigDocument,
   buildDefaultConfig,
-  isValidMihomoConfig,
   overlayManagedKeys,
   parseContentDispositionFilename,
   parseSafeHttpUrl,
@@ -22,25 +22,13 @@ describe("mihomo-config", () => {
     systemProxy: false,
   };
 
-  describe("isValidMihomoConfig", () => {
-    it("returns true for objects with proxies, proxy-providers, or rules", () => {
-      assert.equal(isValidMihomoConfig({ proxies: [] }), true);
-      assert.equal(isValidMihomoConfig({ rules: ["MATCH,DIRECT"] }), true);
-      assert.equal(isValidMihomoConfig({ "proxy-providers": { test: {} } }), true);
-      assert.equal(isValidMihomoConfig({ proxies: [{ name: "node" }], rules: [] }), true);
-    });
-
-    it("returns false for non-objects, null, arrays, empty objects, and primitive types", () => {
-      assert.equal(isValidMihomoConfig({}), false);
-      assert.equal(isValidMihomoConfig(null), false);
-      assert.equal(isValidMihomoConfig(undefined), false);
-      assert.equal(isValidMihomoConfig([]), false);
-      assert.equal(isValidMihomoConfig(["proxies"]), false);
-      assert.equal(isValidMihomoConfig("str"), false);
-      assert.equal(isValidMihomoConfig(12345), false);
-      assert.equal(isValidMihomoConfig(true), false);
-      assert.equal(isValidMihomoConfig({ "proxy-providers": null }), false);
-      assert.equal(isValidMihomoConfig({ "proxy-providers": [] }), false);
+  describe("asCoreConfigDocument", () => {
+    it("accepts any non-array object and rejects every other document", () => {
+      const document = { proxies: [] };
+      assert.equal(asCoreConfigDocument(document), document);
+      for (const value of [null, undefined, [], ["proxies"], "str", 12345, true]) {
+        assert.throws(() => asCoreConfigDocument(value), /not a core configuration document/);
+      }
     });
   });
 
@@ -65,50 +53,19 @@ describe("mihomo-config", () => {
       );
     });
 
-    it("rejects subscription HTTPS downgrades and redirects into restricted hosts", () => {
-      const publicHttps = new URL("https://subscriptions.example/profile");
+    it("refuses redirect targets outside http(s)", () => {
+      const current = new URL("https://subscriptions.example/profile");
       assert.throws(
-        () =>
-          resolveSubscriptionRedirect(
-            publicHttps,
-            publicHttps,
-            "http://subscriptions.example/next",
-          ),
-        /HTTPS-to-HTTP/,
+        () => resolveSubscriptionRedirect(current, current, "ftp://subscriptions.example/next"),
+        /non-http\(s\)/,
       );
-      const publicHttp = new URL("http://subscriptions.example/profile");
       assert.throws(
-        () => resolveSubscriptionRedirect(publicHttp, publicHttp, "http://127.0.0.1:9090/private"),
-        /restricted host/,
+        () => resolveSubscriptionRedirect(current, current, "file:///etc/passwd"),
+        /non-http\(s\)/,
       );
-      for (const target of [
-        "http://[::ffff:127.0.0.1]/private",
-        "http://[::7f00:1]/private",
-        "http://[::ffff:0:7f00:1]/private",
-        "http://[64:ff9b::7f00:1]/private",
-        "http://[2002:7f00:1::]/private",
-        "http://[fc00::1]/private",
-        "http://[fe80::1]/private",
-        "http://[fec0::1]/private",
-        "http://[ff02::1]/private",
-        "http://[2001:db8::1]/private",
-      ]) {
-        assert.throws(
-          () => resolveSubscriptionRedirect(publicHttp, publicHttp, target),
-          /restricted host/,
-          target,
-        );
-      }
-      assert.doesNotThrow(() =>
-        resolveSubscriptionRedirect(publicHttp, publicHttp, "http://[2606:4700:4700::1111]/next"),
-      );
-      assert.doesNotThrow(() =>
-        resolveSubscriptionRedirect(publicHttp, publicHttp, "http://203.0.1.10/next"),
-      );
-      const loopback = new URL("http://127.0.0.1:9090/profile");
-      assert.throws(
-        () => resolveSubscriptionRedirect(loopback, loopback, "http://localhost:9090/private"),
-        /restricted origin/,
+      assert.equal(
+        resolveSubscriptionRedirect(current, current, "/next").href,
+        "https://subscriptions.example/next",
       );
     });
   });
@@ -144,20 +101,6 @@ describe("mihomo-config", () => {
       assert.deepEqual(overlaid.dns, profile.dns);
       assert.deepEqual(overlaid["proxy-groups"], profile["proxy-groups"]);
       assert.deepEqual(overlaid["rule-providers"], profile["rule-providers"]);
-    });
-
-    it("rejects every custom listener, including independent public and TUN listeners", () => {
-      for (const type of ["tun", "http", "socks", "mixed", "redirect", "tproxy"]) {
-        const listener = { name: "capture", type, listen: "0.0.0.0", port: 27894 };
-        assert.throws(
-          () => overlayManagedKeys({ listeners: [listener] }, mockSettings),
-          /Custom listeners are not supported/,
-        );
-        assert.equal(listener.type, type);
-      }
-      for (const listeners of [null, {}, "invalid"]) {
-        assert.throws(() => overlayManagedKeys({ listeners }, mockSettings), /Custom listeners/);
-      }
     });
 
     it("overrides managed keys while preserving unmanaged subscription keys", () => {

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Replace the self-upgrade transaction with a thin npm flow. `sash upgrade` resolves the exact release from the npm registry, stops the daemon, runs `npm install --global @astralyn/sash@<version>` from the installation prefix and starts the daemon again. The upgrade journal, startup barrier, package staging and candidate probe, shim/launcher replacement, upgrade authorization grants, HMAC-signed runtime handoffs, installation instance registry and autostart capture/apply helpers are gone, along with the `/sash/upgrade/*` routes and the daemon's upgrade reservation API.
+- Stop re-validating what Sash itself produced. The CLI and dashboard type daemon responses instead of re-parsing them, settings are validated once in `settings.ts`, profile YAML is parsed once per source, the delay target is checked at the CLI and HTTP input boundaries only, and `contracts.ts` keeps only `parseApiErrorBody` (366 to 142 lines).
+- Stop treating Sash's own local state as untrusted. `sash.json` is read leniently and no longer byte-compared on every mutation, the Core install record ignores its legacy `sha256` field, `state-lock.ts` reclaims dead-owner and unreadable lock files instead of blocking until the user deletes them (438 to 244 lines), and `bounded-file.ts` drops the no-follow and descriptor-identity ceremony.
+- Accept the configuration the Core accepts. Subscription YAML is parsed once with a plain `YAML.parse` (no 50-alias cap), share-link detection and the `listeners:` ban are gone, subscription redirects only have to be absolute http(s) URLs, and the `proxies`/`rules` shape heuristic is gone. The Core's own pre-flight config check remains the authority; size caps remain.
+- Keep browser sessions across daemon restarts. Session hashes and boot ids are written to `state/web-sessions.json` (mode `0600`) and exchanged through `POST /sash/web/continue`, replacing the signed upgrade handoff that used to carry them. Only hashes are stored, so the file alone cannot authenticate anyone.
+- `sash upgrade --json` prints one result object and routes npm output to stderr; the report is `{current, target, available, compatible, supported, installation, prefix?, node, requiredNode?, reason?}` with no pending or recovery phase.
+- Drop the Core runtime capture/restore path that only the upgrade handoff used: `core-runtime-state.ts`, `MihomoApi.runtimeState`/`restoreRuntimeState`, `RuntimeLifecycle.restore()` and the upgrade-only `AutostartService.repairAfterUpgrade`. Routing mode and proxy-group selections therefore reset on any restart, exactly as they already did for `sash restart`, instead of being preserved across an upgrade only.
+
+### Removed
+
+- Delete the self-upgrade machinery (`upgrade-*.ts`, `installation-registry.ts`, `package-health.ts`, `signed-file.ts`, `daemon/upgrade.ts`, the dashboard-manifest runtime probe) and its tests, plus the now-unreachable `core-runtime-state.ts`. The bundled entries are now `cli.js`, `daemon-entry.js`, `autostart-entry.js`, `webui.js` and `installation.js`.
+- Delete `docs/self-upgrade-design.md`.
+- Drop the `sashUpgradeProtocol` package field.
+
+### Upgrade note
+
+Upgrading from 0.1.7 requires one manual `npm install -g @astralyn/sash@latest`: the 0.1.7 updater verifies the target package against the removed handoff protocol and probes removed bundled entries, so it refuses the new package. Later versions upgrade with `sash upgrade` as usual.
+
 ## [0.1.7] - 2026-09-10
 
 ### Fixed

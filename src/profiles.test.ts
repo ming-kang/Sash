@@ -64,8 +64,9 @@ describe("profile input boundaries", () => {
     assert.deepEqual(readProfileSource(layout, meta).doc.rules, ["MATCH", "DIRECT"]);
     fs.truncateSync(file, 8 * 1024 * 1024 + 1);
     assert.throws(() => readProfileSource(layout, meta), /bounded/);
-    for (const text of ["scalar", "[]", "rules: [", "dns: {}", ""])
+    for (const text of ["scalar", "[]", "rules: [", ""])
       assert.throws(() => parseProfileText(text));
+    assert.deepEqual(parseProfileText("dns: {}\n"), { dns: {} });
   });
   it("updates only remote profiles whose interval elapsed", () => {
     const now = Date.parse(meta.updatedAt) + 6 * 3_600_000;

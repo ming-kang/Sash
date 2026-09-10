@@ -77,14 +77,14 @@ describe("daemon ownership evaluation", () => {
     }
   });
 
-  it("fails closed when the singleton lease is corrupt", async () => {
+  it("treats an unreadable singleton lease as a stale acquisition artefact", async () => {
     const layout = sashLayout(root);
     fs.mkdirSync(layout.stateDir, { recursive: true });
     fs.writeFileSync(layout.daemonLeaseFile, "{ broken");
 
     const state = await evaluateDaemon(layout, { ...DEFAULT_SETTINGS });
 
-    assert.equal(state.running, true);
+    assert.equal(state.running, false);
     assert.equal(state.healthy, false);
   });
 

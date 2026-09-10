@@ -15,7 +15,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         mode = 'Change the running routing mode'
         logs = 'Read runtime logs'
         update = 'Update Core'
-        upgrade = 'Upgrade Sash and restore its instances'
+        upgrade = 'Upgrade Sash through npm and restart the daemon'
         web = 'Open the dashboard'
         version = 'Print the Sash version'
         help = 'Show command help'

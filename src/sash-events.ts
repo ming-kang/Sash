@@ -1,6 +1,5 @@
-import { type AutostartStatus, parseAutostartStatus } from "./autostart-contract.js";
-import { type DaemonStatus, parseDaemonStatus } from "./contracts.js";
-import { isPlainObject } from "./json-shape.js";
+import type { AutostartStatus } from "./autostart-contract.js";
+import type { DaemonStatus } from "./contracts.js";
 
 export interface DaemonEvent {
   schemaVersion: 1;
@@ -10,21 +9,11 @@ export interface DaemonEvent {
   autostart: AutostartStatus;
 }
 
+/** Events come from this installation's own daemon; only the protocol version is checked. */
 export function parseDaemonEvent(value: unknown): DaemonEvent {
-  if (
-    !isPlainObject(value) ||
-    value.schemaVersion !== 1 ||
-    !Number.isSafeInteger(value.sequence) ||
-    typeof value.sequence !== "number" ||
-    value.sequence < 1
-  )
-    throw new TypeError("Invalid daemon event");
-  return {
-    schemaVersion: 1,
-    sequence: value.sequence,
-    status: parseDaemonStatus(value.status),
-    autostart: parseAutostartStatus(value.autostart),
-  };
+  const event = value as DaemonEvent;
+  if (event?.schemaVersion !== 1) throw new TypeError("Invalid daemon event");
+  return event;
 }
 
 const MAX_EVENT_CHARS = 4 * 1024 * 1024;

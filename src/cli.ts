@@ -47,7 +47,7 @@ Examples:
   $ sash web                   open the web dashboard
   $ sash status                show runtime state, endpoints, and system proxy status
   $ sash update                upgrade the core binary
-  $ sash upgrade               upgrade Sash and restore running instances
+  $ sash upgrade               upgrade Sash through npm and restart sashd
   $ sash profile list          list saved profiles
   $ sash proxy on              enable the system proxy for a running Core
 
@@ -244,7 +244,7 @@ program
 
 program
   .command("upgrade [version]")
-  .description("upgrade Sash and restore its running instances")
+  .description("upgrade Sash through npm and restart the management daemon")
   .option("--check", "check Sash version and compatibility without changing anything")
   .option("--json", "output machine-readable JSON")
   .action(

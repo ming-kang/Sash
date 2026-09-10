@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseAutostartStatus } from "./autostart-contract.js";
-import { SashClient } from "./sash-client.js";
 
 describe("autostart response contract", () => {
-  it("rejects malformed and misleading state responses", async () => {
+  it("rejects malformed and misleading state responses", () => {
     for (const value of [
       null,
       {},
@@ -15,11 +14,5 @@ describe("autostart response contract", () => {
     ]) {
       assert.throws(() => parseAutostartStatus(value), /Invalid autostart status/);
     }
-    const client = new SashClient({
-      baseUrl: "",
-      fetchFn: async () => ({ status: 200, text: async () => '{"enabled":true}' }),
-    });
-    await assert.rejects(client.autostartStatus(), /Invalid autostart status/);
-    await assert.rejects(client.setAutostart(true), /Invalid autostart status/);
   });
 });

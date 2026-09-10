@@ -108,7 +108,6 @@ export class ProfileService {
         controller.signal,
       );
       controller.signal.throwIfAborted();
-      profileInput(fetched.yamlText);
       return fetched;
     } catch (error) {
       controller.signal.throwIfAborted();

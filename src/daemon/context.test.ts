@@ -4,13 +4,16 @@ import { deferred } from "../testing/state.js";
 import { DaemonGate, type SlowMutationInfo } from "./context.js";
 
 describe("daemon mutation queue", () => {
-  it("closes admission immediately and drains a write and a runtime RPC before reservation", async () => {
+  it("closes admission on shutdown and drains a running write and a runtime RPC", async () => {
     const write = deferred();
     const rpc = deferred();
     const entered = deferred();
     let cancelled = 0;
+    let cleanups = 0;
     const gate = new DaemonGate(
-      async () => {},
+      async () => {
+        cleanups += 1;
+      },
       () => {
         cancelled += 1;
       },
@@ -21,38 +24,48 @@ describe("daemon mutation queue", () => {
     });
     await entered.promise;
     const live = gate.runLiveMutation(() => rpc.promise);
-    const queued = assert.rejects(
-      gate.mutate("queued", () => assert.fail()),
-      /upgrade/,
-    );
-    let reserved = false;
-    const reservation = gate.reserve("transaction").then(() => {
-      reserved = true;
-    });
-    await assert.rejects(
-      gate.mutate("new", () => assert.fail()),
-      /upgrade/,
-    );
-    await assert.rejects(
-      gate.runLiveMutation(() => assert.fail()),
-      /upgrade/,
-    );
-    await assert.rejects(gate.reserve("other"), /upgrade/);
+    const shutdown = gate.shutdown();
+    assert.equal(gate.isClosing, true);
     assert.equal(cancelled, 1);
+    await assert.rejects(
+      gate.mutate("after shutdown", () => assert.fail("must not run")),
+      /shutting down/,
+    );
+    await assert.rejects(
+      gate.runLiveMutation(() => assert.fail("must not run")),
+      /shutting down/,
+    );
     write.resolve();
     await running;
-    assert.equal(reserved, false);
+    // Cleanup must wait for the runtime RPC that shutdown already admitted.
+    assert.equal(cleanups, 0);
     rpc.resolve();
-    await Promise.all([live, queued, reservation]);
-    assert.equal(reserved, true);
-    await assert.rejects(
-      gate.mutateReserved("other", "snapshot", () => assert.fail()),
-      /does not match/,
-    );
-    assert.equal(await gate.mutateReserved("transaction", "snapshot", () => 42), 42);
-    gate.releaseReservation("transaction");
-    assert.equal(await gate.mutate("next", () => 43), 43);
+    await live;
+    await shutdown;
+    assert.equal(cleanups, 1);
   });
+
+  it("rejects mutations only while the gate is closing", async () => {
+    const gate = new DaemonGate(
+      async () => {},
+      () => {},
+    );
+    gate.assertMutable();
+    assert.equal(await gate.mutate("write", () => 41), 41);
+    assert.equal(gate.isClosing, false);
+    await gate.shutdown();
+    assert.equal(gate.isClosing, true);
+    assert.throws(() => gate.assertMutable(), /shutting down/);
+    await assert.rejects(
+      gate.mutate("after shutdown", () => assert.fail("must not run")),
+      /shutting down/,
+    );
+    gate.reopen();
+    assert.equal(gate.isClosing, false);
+    gate.assertMutable();
+    assert.equal(await gate.mutate("after reopen", () => 42), 42);
+  });
+
   it("reports synchronous slow work and preserves the domain error if diagnostics fail", async (t) => {
     let now = 0;
     let reports = 0;

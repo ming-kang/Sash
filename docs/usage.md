@@ -28,7 +28,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash web` | Start management if needed and authorize/open the dashboard. |
 | `sash web --no-open` | Start management and print its address without authorizing a browser. |
 | `sash update [tag] [--check] [--json]` | Check a Core release or install it through the daemon, with preparation/download/verification progress. |
-| `sash upgrade [version] [--check] [--json]` | Update the Sash package and dashboard, then restore all instances sharing its installation. |
+| `sash upgrade [version] [--check] [--json]` | Update the Sash package through npm and restart the management daemon. |
 | `sash profile [list]` | List saved profiles; `list --json` returns their metadata and saved selection. |
 | `sash profile use <profile>` / `use --default` | Select an ID or unique exact name, or the built-in configuration, for the next Apply. |
 | `sash profile add <url> [--name NAME] [--use]` | Download and save a remote profile; the first profile is selected automatically. |
@@ -43,7 +43,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 
 `sash logs -f` exits successfully when its output pipe closes. Log capture and follow share one file position, including when the log grows or rotates during startup.
 
-`sash stop --core` and WebUI **Stop Core** keep the management process open. `sash upgrade` replaces Sash program code and restarts affected management processes automatically. `restart` applies saved configuration to Core.
+`sash stop --core` and WebUI **Stop Core** keep the management process open. `sash upgrade` stops management, installs the new Sash package through npm and starts management again. `restart` applies saved configuration to Core.
 
 ## PowerShell completion
 
@@ -59,7 +59,7 @@ Add the same line to `$PROFILE` to load it in future sessions. From a source che
 
 Run `sash web` as the same user and with the same `SASH_HOME` as the instance. A private local handoff authorizes the browser without printing credentials. It expires after 90 seconds and works once; rerun the command if needed.
 
-An authorized tab survives refresh and Core restarts/updates. Sessions expire after twelve idle hours and renew while used. A normal daemon restart needs a new authorization; `sash upgrade` provides a ten-minute continuation for already authorized tabs. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address displays connection instructions.
+An authorized tab survives refresh, Core restarts/updates and management restarts, including `sash stop` + `sash start`, `sash restart` and `sash upgrade`; the daemon exchanges the previous generation's session for a new one. Sessions expire after twelve idle hours and renew while used. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address displays connection instructions.
 
 ## Settings and profiles
 
@@ -78,7 +78,7 @@ The Settings page saves the mixed proxy port and LAN access for the next Apply. 
 
 Remote profiles use the provider's update interval, defaulting to 24 hours. The daemon checks for due updates every 15 minutes. Updates save new content and indicate pending Apply. Identical content does not create a new content revision. Rename and reorder do not affect running data or latency results.
 
-Subscriptions must contain core-format YAML. Raw or base64-encoded share-link lists receive a specific format error; request the YAML format from the provider. Sash does not convert subscription formats. Empty quota/expiry fields remain unknown, while explicit zero values are retained.
+Subscriptions must contain core-format YAML; a document that is not an object, including a share-link list, receives a format error. Sash does not convert subscription formats. Empty quota/expiry fields remain unknown, while explicit zero values are retained.
 
 The profile editor rejects a save if another edit changed its content revision. Reopen the current content before retrying. The raw application settings file has no online editor.
 
@@ -115,15 +115,17 @@ sash.json                       settings, profiles, selection and saved-state re
 profiles/<id>/<revision>.yaml    immutable source content
 runtime/config.yaml             generated runtime configuration
 bin/                            Core executable and temporary update backup
-state/install.json              installed version
+state/install.json              installed Core version
 state/core-update-transaction.json  active binary update/recovery
-state/sash-upgrade-handoff.json  private runtime snapshot during Sash replacement
+state/web-sessions.json         hashed browser sessions
 state/system-proxy.json         original proxy snapshot and recovery phase
 state/sash.pid, state/sashd.pid  process discovery records
 state/sashd*.lock               daemon singleton/startup ownership
 logs/                           Core, daemon and login diagnostics
 ui/                             optional custom dashboard override
 ```
+
+On Windows, the browser session file sits directly in the per-user control directory (`%LOCALAPPDATA%\Sash`); elsewhere it stays in `<data directory>/state`. It is independent of `SASH_HOME` and holds only session hashes.
 
 The manifest and sources use atomic publication. Old source revisions may be cleaned after successful saves; this is not a version-history feature. Do not edit generated runtime configuration. POSIX private state/logs use `0600`.
 
@@ -151,22 +153,18 @@ A first `sash start` downloads and starts Core once. Its controller readiness ch
 Update Sash itself:
 
 ```sh
-sash upgrade --check       # inspect the latest release and compatibility
-sash upgrade               # update Sash and restore affected instances
-sash upgrade --json        # machine-readable result; progress is suppressed
+sash upgrade --check       # inspect the npm release and Node compatibility
+sash upgrade               # install the target version and restart the daemon
+sash upgrade --json        # one JSON object; npm output stays on stderr
 ```
 
-The default target is the official npm `latest` release. An optional exact published version selects an upgrade or downgrade. An already-current version exits successfully. `--check` leaves the installation and data directories unchanged and never starts management. Source checkouts, linked packages and other package managers receive guidance for their installation method.
+The default target is the official npm `latest` release. An optional exact published version selects an upgrade or downgrade; `available` is true for an explicit version that differs from the installed one, and for `latest` when it is newer. An already-current version exits successfully. `--check` leaves the installation and data directories unchanged and never starts management. Source checkouts, linked packages and other package managers report `supported: false` with the reason and never contact the registry; they exit `1` without `--check`.
 
-Sash checks Node compatibility and lets npm prepare the exact package version and dependencies before stopping anything. A single preparation probe checks the runtime and dashboard. It coordinates all data directories sharing the installation, restarts their original management/Core state, preserves the actual applied configuration, and keeps saved but unapplied edits pending. Core's version remains unchanged. Working login startup and Sash-owned proxy settings are restored with the runtime; the dashboard reconnects through its private session continuation. Connections are briefly interrupted while running Core instances restart.
+Execution resolves the target, stops the daemon if it is running, runs `npm install --global --prefix <prefix> --no-audit --no-fund @astralyn/sash@<version>` with the Node executable, the resolved npm CLI, no shell and a scrubbed environment, then starts the daemon again only if it had been running. Stopping management also stops Core and restores the prior system proxy, and the restarted daemon leaves Core stopped: run `sash start` to resume traffic. Browser authorization continues across the restart. npm owns package integrity; if npm fails, the daemon is started again on the previously installed version and the npm error is reported.
 
-Installation or health failures restore the previous package and runtime without a network download. After an interrupted upgrade, run `sash upgrade` again to finish recovery. The command remains available through a recovery launcher even if the package directory was temporarily moved. Keep the reported recovery files when ownership cannot be verified, resolve the reported conflict and retry. A recovered transaction exits before starting a new version change.
+`--check --json` prints the inspection report: `current`, `target`, `available`, `compatible`, `supported`, `installation`, `prefix`, `node`, `requiredNode` and `reason`. Execution `--json` prints one object instead: `{outcome: "upgraded", version}` after a successful install, `{outcome: "failed", error}` on failure, or the report plus `outcome: "current"`, `"unsupported"` or `"incompatible"` when nothing was installed. Exit code `0` means a successful check, no-op or install; `1` means an unsupported or incompatible installation, or a failure.
 
-`--check --json` reports `current`, `target`, `available`, `compatible`, `supported` and any pending recovery. Execution JSON also reports an `outcome`; completed transactions include the installed `version`, restored instance count and `recoveryRequired`. Exit code `0` means a successful check, no-op, upgrade or recovery; `1` means an unsupported/incompatible execution or failure. Check `compatible` and `supported` when consuming a successful check.
-
-If only temporary-file cleanup fails after restoration, the upgrade still succeeds and reports a `warning` with the retained location. Normal startup remains available; a later `sash upgrade` can finish the cleanup.
-
-For manual package-manager maintenance, stop affected instances first, update using their installation method, then start them again. `sash update --force` is unavailable. Damaged Core installations are diagnosed and preserved; stop the existing instance before using a clean data directory for reinstallation.
+For manual package-manager maintenance, stop Sash first, update with that package manager, then start it again so the daemon runs the new code. `sash update --force` is unavailable. Damaged Core installations are diagnosed and preserved; stop the existing instance before using a clean data directory for reinstallation.
 
 ## Status and troubleshooting
 
@@ -206,7 +204,7 @@ Daemon, OS proxy and login startup probes run concurrently. Set `SASH_DEBUG=1` (
 - **Proxy restoration blocked:** keep the ownership journal and inspect the current Windows settings. Sash will not overwrite third-party changes or stop a healthy Core while restoration fails.
 - **Daemon ownership unknown:** inspect its logs and PID/lease records; Sash will not kill an unverified process or start a competitor.
 - **Interrupted update:** stop and start the daemon so its startup recovery can run. Corrupt or unrecognized backup/metadata files are preserved for inspection.
-- **Interrupted Sash upgrade:** run `sash upgrade`; `sash upgrade --check` reports the pending phase without changing it.
+- **Interrupted Sash upgrade:** npm was replacing the package while the daemon was stopped. Start the installed version with `sash start`; if npm did not complete the installation, repair it with `npm install --global @astralyn/sash@<version>` before starting again.
 - **Login startup failed:** read `sash auto status` and `sash logs --startup`; repair the entry with `sash auto on`.
 - **Shutdown failed:** the management API remains available for retry. Resolve the reported proxy/Core failure and repeat `sash stop`.
 - **Proxy changes are not visible in another application:** Sash tries PowerShell 7 and then the Windows PowerShell host to notify WinINet. If neither notification succeeds, registry changes and normal ownership verification still complete, with a warning in the command/daemon log. Restart affected applications or repair PowerShell availability to pick up the changes.

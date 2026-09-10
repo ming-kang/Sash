@@ -82,7 +82,7 @@ describe("saved profiles", () => {
 
   it("rejects invalid YAML before any publication and refuses missing selected sources", async () => {
     const profiles = service();
-    for (const text of ["proxies: [", "wrong: document", "- not-a-root-map"])
+    for (const text of ["proxies: [", "scalar", "- not-a-root-map"])
       await assert.rejects(profiles.importLocal("bad", text));
     assert.equal(state.snapshot().revision, 0);
     const a = (await profiles.importLocal("a", yamlA)).profile;

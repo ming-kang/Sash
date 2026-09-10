@@ -1,4 +1,4 @@
-import { type AutostartStatus, parseAutostartStatus } from "./autostart-contract.js";
+import type { AutostartStatus } from "./autostart-contract.js";
 import {
   type CoreStartResult,
   type CoreUpdateResponse,
@@ -13,41 +13,25 @@ import {
   type ProfilesUpdateAllResponse,
   type ProfileUpdateResponse,
   parseApiErrorBody,
-  parseDaemonStatus,
-  parseHealthInfo,
-  parseProfilesIndex,
-  parsePublicSettings,
-  parseUpgradeRuntimeStatus,
-  parseWebBootstrapInfo,
-  parseWebSessionInfo,
   type SettingsPatch,
   type SettingsWriteResult,
   type SystemProxyStatusResponse,
-  type UpgradeRuntimeStatus,
   type WebBootstrapInfo,
   type WebSessionInfo,
 } from "./contracts.js";
-import {
-  CORE_DELAY_REQUEST_MS,
-  type CoreDelayResult,
-  parseCoreDelayResult,
-  validateDelayTarget,
-} from "./core-delay.js";
-import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
+import { CORE_DELAY_REQUEST_MS, type CoreDelayResult } from "./core-delay.js";
+import type { CoreUpdateProgress } from "./core-update-progress.js";
 import { SashApiError } from "./sash-api-error.js";
 import { readSashEvents, type SashEventFetch } from "./sash-event-client.js";
 import type { DaemonEvent } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
-import type { UpgradeAccess } from "./upgrade-access.js";
 
 export { SashApiError } from "./sash-api-error.js";
 
 /**
- * Browser-safe client for the daemon-owned /sash/* HTTP API. Identity,
- * credential, upgrade and status bodies are validated by contracts parsers;
- * the remaining bodies are typed by the daemon handlers of this installation.
+ * Browser-safe client for the daemon-owned /sash/* HTTP API. Response bodies are
+ * typed by the daemon handlers of this installation; only error bodies are parsed.
  */
-
 export interface SashClientFetchResponse {
   status: number;
   text(): Promise<string>;
@@ -182,7 +166,7 @@ export class SashClient {
   /* ---- daemon ---- */
 
   async health(): Promise<HealthInfo> {
-    return parseHealthInfo(
+    return expect<HealthInfo>(
       await this.request("/sash/daemon/health", {
         timeoutMs: 2_000,
         attempts: 1,
@@ -193,14 +177,14 @@ export class SashClient {
 
   /** Authenticated CLI clients mint a one-time browser bootstrap token. */
   async createWebBootstrap(): Promise<WebBootstrapInfo> {
-    return parseWebBootstrapInfo(
+    return expect<WebBootstrapInfo>(
       await this.request("/sash/web/bootstrap", { method: "POST", timeoutMs: 5_000 }),
     );
   }
 
   /** Public exchange: redeem a one-time bootstrap token for a session token. */
   async redeemWebBootstrap(token: string): Promise<WebSessionInfo> {
-    return parseWebSessionInfo(
+    return expect<WebSessionInfo>(
       await this.request("/sash/web/session", {
         method: "POST",
         body: { token },
@@ -212,7 +196,7 @@ export class SashClient {
   }
 
   async status(fresh = false): Promise<DaemonStatus> {
-    return parseDaemonStatus(
+    return expect<DaemonStatus>(
       await this.request(fresh ? "/sash/daemon/status?fresh=1" : "/sash/daemon/status", {
         timeoutMs: 8000,
       }),
@@ -231,7 +215,7 @@ export class SashClient {
   }
 
   async continueWebSession(session: WebSessionInfo): Promise<WebSessionInfo> {
-    return parseWebSessionInfo(
+    return expect<WebSessionInfo>(
       await this.request("/sash/web/continue", {
         method: "POST",
         body: session,
@@ -241,45 +225,19 @@ export class SashClient {
     );
   }
 
-  async upgradeRuntime(
-    action: "reserve" | "status" | "verify" | "commit",
-    access: UpgradeAccess,
-  ): Promise<UpgradeRuntimeStatus> {
-    return parseUpgradeRuntimeStatus(
-      await this.request(`/sash/upgrade/${action}`, {
-        method: "POST",
-        body: access,
-        timeoutMs: 60_000,
-        attempts: 1,
-      }),
-    );
-  }
-
-  async upgradeRuntimeAction(
-    action: "stop" | "release" | "cleanup",
-    access: UpgradeAccess,
-  ): Promise<void> {
-    await this.request(`/sash/upgrade/${action}`, {
-      method: "POST",
-      body: access,
-      timeoutMs: 60_000,
-      attempts: 1,
-    });
-  }
-
   /** Cleanup completes before the daemon acknowledges; the listener closes after the response. */
   async shutdown(): Promise<void> {
     await this.request("/sash/daemon/shutdown", { method: "POST", timeoutMs: 45_000 });
   }
 
   async autostartStatus(): Promise<AutostartStatus> {
-    return parseAutostartStatus(
+    return expect<AutostartStatus>(
       await this.request("/sash/autostart", { timeoutMs: 15_000, attempts: 1 }),
     );
   }
 
   async setAutostart(enabled: boolean): Promise<AutostartStatus> {
-    return parseAutostartStatus(
+    return expect<AutostartStatus>(
       await this.request("/sash/autostart", {
         method: "PUT",
         body: { enabled },
@@ -324,14 +282,13 @@ export class SashClient {
   }
 
   async coreUpdateProgress(): Promise<CoreUpdateProgress | null> {
-    return parseCoreUpdateProgress(
+    return expect<CoreUpdateProgress | null>(
       await this.request("/sash/core/update", { timeoutMs: 2000, attempts: 1 }),
     );
   }
 
   async testDelay(name: string, signal?: AbortSignal): Promise<CoreDelayResult> {
-    validateDelayTarget(name);
-    return parseCoreDelayResult(
+    return expect<CoreDelayResult>(
       await this.request("/sash/core/delay", {
         method: "POST",
         body: { name },
@@ -339,7 +296,6 @@ export class SashClient {
         attempts: 1,
         signal,
       }),
-      name,
     );
   }
 
@@ -358,7 +314,7 @@ export class SashClient {
   /* ---- settings ---- */
 
   async getSettings(): Promise<PublicSashSettings> {
-    return parsePublicSettings(await this.request("/sash/settings"));
+    return expect<PublicSashSettings>(await this.request("/sash/settings"));
   }
 
   async patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {
@@ -370,11 +326,11 @@ export class SashClient {
   /* ---- profiles ---- */
 
   async listProfiles(): Promise<ProfilesIndex> {
-    return parseProfilesIndex(await this.request("/sash/profiles"));
+    return expect<ProfilesIndex>(await this.request("/sash/profiles"));
   }
 
   async reorderProfiles(ids: readonly string[]): Promise<ProfilesIndex> {
-    return parseProfilesIndex(
+    return expect<ProfilesIndex>(
       await this.request("/sash/profiles/order", { method: "PUT", body: { ids } }),
     );
   }

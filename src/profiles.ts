@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readState, type SashState } from "./app-state.js";
-import { parseCoreYaml, rejectShareLinkSubscription } from "./core-yaml.js";
+import { parseCoreYaml } from "./core-yaml.js";
 import {
+  asCoreConfigDocument,
   buildDefaultConfig,
   type GeneratedConfig,
-  isValidMihomoConfig,
   PROFILE_DOWNLOAD_SIZE_LIMIT,
   renderConfig,
 } from "./mihomo-config.js";
@@ -22,15 +22,12 @@ export function profileFilePath(layout: SashLayout, id: string, revision: number
   return path.join(layout.profilesDir, id, `${revision}.yaml`);
 }
 
+/** The single validation point for profile text entering Sash from any source. */
 export function parseProfileText(text: string): Record<string, unknown> {
   if (!text.trim() || Buffer.byteLength(text) > PROFILE_DOWNLOAD_SIZE_LIMIT) {
     throw new Error("Profile content must be non-empty and no larger than 8 MiB");
   }
-  rejectShareLinkSubscription(text);
-  const doc = parseCoreYaml(text);
-  if (!isValidMihomoConfig(doc))
-    throw new Error("Content is not a valid core configuration (missing proxies/rules)");
-  return doc;
+  return asCoreConfigDocument(parseCoreYaml(text));
 }
 
 export function readProfileSource(

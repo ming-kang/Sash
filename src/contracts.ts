@@ -1,5 +1,5 @@
-import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
-import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
+import type { CoreUpdateProgress } from "./core-update-progress.js";
+import { isPlainObject } from "./json-shape.js";
 import type { ProfileMeta, ProfilesIndex } from "./profile-model.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
@@ -30,7 +30,6 @@ export interface HealthInfo extends InstallationIdentity {
   token: string;
   pid: number;
   startedAt: string;
-  upgradeProtocol?: number;
   webContinuation?: WebContinuationInfo;
 }
 export interface WebContinuationInfo {
@@ -44,13 +43,6 @@ export interface WebBootstrapInfo {
 export interface WebSessionInfo {
   token: string;
   daemonToken: string;
-}
-export interface UpgradeRuntimeStatus {
-  transactionId: string;
-  bootId: string;
-  version: string;
-  phase: "none" | "reserved" | "stopping" | "stopped" | "restoring" | "restored" | "committed";
-  running: boolean;
 }
 export interface CoreStartResult {
   pid: number;
@@ -128,239 +120,15 @@ export interface DaemonStatus {
   activeProfile: { id: string; name: string; url: string } | null;
 }
 
-function object(value: unknown, name: string): Record<string, unknown> {
-  if (!isPlainObject(value)) throw new TypeError(`${name} must be a plain object`);
-  return value;
-}
-function string(value: unknown, name: string, allowEmpty = false): string {
-  if (typeof value !== "string" || (!allowEmpty && !value.trim()))
-    throw new TypeError(`${name} must be a string${allowEmpty ? "" : " with content"}`);
-  return value;
-}
-function boolean(value: unknown, name: string): boolean {
-  if (typeof value !== "boolean") throw new TypeError(`${name} must be a boolean`);
-  return value;
-}
-function integer(value: unknown, name: string, min = 0, max = Number.MAX_SAFE_INTEGER): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max)
-    throw new TypeError(`${name} must be an integer from ${min} to ${max}`);
-  return value;
-}
-function timestamp(value: unknown, name: string): string {
-  if (!isCanonicalIsoTimestamp(value)) throw new TypeError(`${name} must be a canonical timestamp`);
-  return value;
-}
-function optionalString(source: Record<string, unknown>, key: string): string | undefined {
-  return Object.hasOwn(source, key) ? string(source[key], key, true) : undefined;
-}
-
 export function apiErrorBody(code: ApiErrorCode, message: string): ApiErrorBody {
   return { error: { code, message } };
 }
+
+/** Error bodies may arrive as plain text; extract the daemon's code and message when present. */
 export function parseApiErrorBody(value: unknown): { code: string; message: string } | undefined {
-  if (
-    !isPlainObject(value) ||
-    !isPlainObject(value.error) ||
-    typeof value.error.code !== "string" ||
-    typeof value.error.message !== "string"
-  )
+  if (!isPlainObject(value)) return undefined;
+  const error = value.error;
+  if (!isPlainObject(error) || typeof error.code !== "string" || typeof error.message !== "string")
     return undefined;
-  return { code: value.error.code, message: value.error.message };
-}
-
-export function parseHealthInfo(value: unknown): HealthInfo {
-  const source = object(value, "health");
-  return {
-    token: string(source.token, "token"),
-    pid: integer(source.pid, "pid", 1),
-    startedAt: timestamp(source.startedAt, "startedAt"),
-    ...parseInstallationIdentity(source),
-    ...(source.upgradeProtocol !== undefined
-      ? { upgradeProtocol: integer(source.upgradeProtocol, "upgradeProtocol", 1) }
-      : {}),
-    ...(source.webContinuation !== undefined
-      ? { webContinuation: parseWebContinuation(source.webContinuation) }
-      : {}),
-  };
-}
-
-function parseWebContinuation(value: unknown): WebContinuationInfo {
-  const source = object(value, "web continuation");
-  if (
-    !Array.isArray(source.bootIds) ||
-    source.bootIds.length > 512 ||
-    source.bootIds.some((id: unknown) => typeof id !== "string" || !/^[a-f0-9]{48}$/.test(id))
-  )
-    throw new TypeError("Invalid browser continuation boot identities");
-  return {
-    bootIds: source.bootIds as string[],
-    expiresAt: timestamp(source.expiresAt, "webContinuation.expiresAt"),
-  };
-}
-
-function parseInstallationIdentity(source: Record<string, unknown>): InstallationIdentity {
-  const version = Object.hasOwn(source, "version") ? string(source.version, "version") : undefined;
-  const installationId = Object.hasOwn(source, "installationId")
-    ? string(source.installationId, "installationId")
-    : undefined;
-  if (installationId !== undefined && !/^[a-f0-9]{64}$/.test(installationId))
-    throw new TypeError("Invalid installation identity");
-  return {
-    ...(version !== undefined ? { version } : {}),
-    ...(installationId !== undefined ? { installationId } : {}),
-  };
-}
-export function parseWebBootstrapInfo(value: unknown): WebBootstrapInfo {
-  const source = object(value, "bootstrap");
-  return {
-    token: string(source.token, "token"),
-    expiresAt: timestamp(source.expiresAt, "expiresAt"),
-  };
-}
-export function parseWebSessionInfo(value: unknown): WebSessionInfo {
-  const source = object(value, "session");
-  return {
-    token: string(source.token, "token"),
-    daemonToken: string(source.daemonToken, "daemonToken"),
-  };
-}
-export function parseUpgradeRuntimeStatus(value: unknown): UpgradeRuntimeStatus {
-  const source = object(value, "upgrade runtime");
-  if (
-    typeof source.phase !== "string" ||
-    !["none", "reserved", "stopping", "stopped", "restoring", "restored", "committed"].includes(
-      source.phase,
-    )
-  )
-    throw new TypeError("Invalid Sash upgrade phase");
-  return {
-    transactionId: string(source.transactionId, "transactionId"),
-    bootId: string(source.bootId, "bootId"),
-    version: string(source.version, "version"),
-    phase: source.phase as UpgradeRuntimeStatus["phase"],
-    running: boolean(source.running, "running"),
-  };
-}
-
-export function parsePublicSettings(value: unknown): PublicSashSettings {
-  const source = object(value, "settings");
-  return {
-    mixedPort: integer(source.mixedPort, "mixedPort", 1, 65535),
-    controller: string(source.controller, "controller"),
-    allowLan: boolean(source.allowLan, "allowLan"),
-    daemonPort: integer(source.daemonPort, "daemonPort", 1, 65535),
-    systemProxy: boolean(source.systemProxy, "systemProxy"),
-  };
-}
-function parseSystemProxyState(value: unknown): SystemProxyState {
-  const source = object(value, "system proxy");
-  const server = optionalString(source, "server");
-  const details = optionalString(source, "details");
-  return {
-    supported: boolean(source.supported, "supported"),
-    enabled: boolean(source.enabled, "enabled"),
-    ...(server !== undefined ? { server } : {}),
-    ...(details !== undefined ? { details } : {}),
-  };
-}
-
-export function parseSettingsPatch(value: unknown): SettingsPatch {
-  const source = object(value, "settings patch");
-  for (const key of Object.keys(source)) {
-    if (!["mixedPort", "allowLan", "systemProxy", "expectedRevision"].includes(key))
-      throw new TypeError(`Unknown settings field: ${key}`);
-  }
-  return {
-    ...(Object.hasOwn(source, "expectedRevision")
-      ? { expectedRevision: integer(source.expectedRevision, "expectedRevision") }
-      : {}),
-    ...(Object.hasOwn(source, "mixedPort")
-      ? { mixedPort: integer(source.mixedPort, "mixedPort", 1, 65535) }
-      : {}),
-    ...(Object.hasOwn(source, "allowLan")
-      ? { allowLan: boolean(source.allowLan, "allowLan") }
-      : {}),
-    ...(Object.hasOwn(source, "systemProxy")
-      ? { systemProxy: boolean(source.systemProxy, "systemProxy") }
-      : {}),
-  };
-}
-
-export function parseDaemonStatus(value: unknown): DaemonStatus {
-  const source = object(value, "status");
-  const daemon = object(source.daemon, "daemon");
-  const revisions = object(source.revisions, "revisions");
-  const core = object(source.core, "core");
-  const proxy = object(source.systemProxy, "systemProxy");
-  const configuration = object(source.configuration, "configuration");
-  const selected =
-    source.activeProfile === null ? null : object(source.activeProfile, "activeProfile");
-  const applied =
-    configuration.appliedProfile === null
-      ? null
-      : object(configuration.appliedProfile, "appliedProfile");
-  const appliedSettings =
-    configuration.appliedSettings === null
-      ? null
-      : object(configuration.appliedSettings, "appliedSettings");
-  const version = optionalString(core, "version");
-  const queryError = optionalString(proxy, "queryError");
-  return {
-    ...(source.coreUpdate !== undefined
-      ? { coreUpdate: parseCoreUpdateProgress(source.coreUpdate) }
-      : {}),
-    daemon: {
-      pid: integer(daemon.pid, "daemon.pid", 1),
-      bootId: string(daemon.bootId, "daemon.bootId"),
-      startedAt: timestamp(daemon.startedAt, "daemon.startedAt"),
-      port: integer(daemon.port, "daemon.port", 1, 65535),
-      ...parseInstallationIdentity(daemon),
-    },
-    revisions: {
-      state: integer(revisions.state, "revisions.state"),
-      runtime: integer(revisions.runtime, "revisions.runtime"),
-    },
-    core: {
-      running: boolean(core.running, "core.running"),
-      ...(Object.hasOwn(core, "pid") ? { pid: integer(core.pid, "core.pid", 1) } : {}),
-      ...(Object.hasOwn(core, "startedAt")
-        ? { startedAt: timestamp(core.startedAt, "core.startedAt") }
-        : {}),
-      ...(Object.hasOwn(core, "healthy") ? { healthy: boolean(core.healthy, "core.healthy") } : {}),
-      ...(version !== undefined ? { version } : {}),
-    },
-    configuration: {
-      pending: boolean(configuration.pending, "configuration.pending"),
-      appliedProfile: applied
-        ? {
-            id: string(applied.id, "appliedProfile.id"),
-            revision: integer(applied.revision, "appliedProfile.revision", 1),
-            name: string(applied.name, "appliedProfile.name"),
-            url: string(applied.url, "appliedProfile.url", true),
-          }
-        : null,
-      appliedSettings: appliedSettings
-        ? {
-            mixedPort: integer(appliedSettings.mixedPort, "appliedSettings.mixedPort", 1, 65535),
-            allowLan: boolean(appliedSettings.allowLan, "appliedSettings.allowLan"),
-          }
-        : null,
-    },
-    systemProxy: {
-      desired: boolean(proxy.desired, "systemProxy.desired"),
-      applied: boolean(proxy.applied, "systemProxy.applied"),
-      appliedKnown: boolean(proxy.appliedKnown, "systemProxy.appliedKnown"),
-      stateKnown: boolean(proxy.stateKnown, "systemProxy.stateKnown"),
-      ...(Object.hasOwn(proxy, "actual") ? { actual: parseSystemProxyState(proxy.actual) } : {}),
-      ...(queryError !== undefined ? { queryError } : {}),
-    },
-    settings: parsePublicSettings(source.settings),
-    activeProfile: selected
-      ? {
-          id: string(selected.id, "activeProfile.id"),
-          name: string(selected.name, "activeProfile.name"),
-          url: string(selected.url, "activeProfile.url", true),
-        }
-      : null,
-  };
+  return { code: error.code, message: error.message };
 }

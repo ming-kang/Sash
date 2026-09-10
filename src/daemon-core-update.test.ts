@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { parseDaemonStatus } from "./contracts.js";
+import type { DaemonStatus } from "./contracts.js";
 import { readInstallRecord } from "./core-install-record.js";
 import { readCoreUpdateTransaction } from "./core-update.js";
 import { parseCoreUpdateProgress } from "./core-update-progress.js";
@@ -39,7 +39,7 @@ describe("daemon-owned Core updates", () => {
       assert.equal(progress?.downloaded, 100);
       assert.equal(progress?.total, 200);
       assert.deepEqual(
-        parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data).coreUpdate,
+        ((await h.apiRequest("/sash/daemon/status")).data as DaemonStatus).coreUpdate,
         progress,
       );
       assert.equal((await h.apiRequest("/sash/core/update", { method: "POST" })).statusCode, 409);
@@ -110,7 +110,7 @@ describe("daemon-owned Core updates", () => {
     assert.deepEqual(fs.readFileSync(h.layout.installFile), saved);
     assert.equal(fs.existsSync(h.layout.tempDir), false);
     assert.equal(
-      parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data).core.running,
+      ((await h.apiRequest("/sash/daemon/status")).data as DaemonStatus).core.running,
       true,
     );
   });
@@ -137,7 +137,7 @@ describe("daemon-owned Core updates", () => {
     it(`finishes validation without restarting daemon or invalidating sessions (running=${running})`, async () => {
       await h.startServer({ stageCore: stage });
       if (running) await h.apiRequest("/sash/core/start", { method: "POST" });
-      const before = parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data);
+      const before = (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
       const token = await h.mintWebSession();
       const state = fs.readFileSync(h.layout.settingsFile, "utf8");
       const result = await h.apiRequest("/sash/core/update", {
@@ -146,7 +146,7 @@ describe("daemon-owned Core updates", () => {
       });
       assert.equal(result.statusCode, 200);
       assert.deepEqual(result.data, { version: "v2" });
-      const after = parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data);
+      const after = (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
       assert.equal(after.daemon.bootId, before.daemon.bootId);
       assert.equal(after.core.running, running);
       assert.equal(fs.readFileSync(h.layout.settingsFile, "utf8"), state);

@@ -2,7 +2,7 @@
 
 这是 2026-09-08 架构收缩提案的实施结果。目标是一个 Windows 优先、自用、容易掌控的网络工具：保留 Node.js / TypeScript、Vue 自研 WebUI 和霞鹜文楷，直接使用新状态格式，不提供旧接口或迁移层。
 
-> 说明：本文记录当时这次收缩的结果。0.1.3 重新引入了 `sash upgrade` 自升级（契约见 [self-upgrade-design.md](./self-upgrade-design.md)），下文涉及升级入口的段落以那份契约和 README 为准。
+> 说明：本文记录当时这次收缩的结果。`sash upgrade` 后来收缩为一层薄的 npm 封装：解析目标版本、停止管理进程、用 `npm install --global` 安装精确版本、再启动管理进程。下文涉及升级入口的段落以 README 与 [操作指南](./usage.md) 为准。
 
 ## 一张图
 
@@ -80,7 +80,7 @@ Core 更新：下载并验证 → 固定本次运行配置 → 停止 Core → �
 | `sash update` | daemon 内完成 Core 更新与验证 |
 | `sash auto on/off` | 设置 Windows 登录启动；不带参数只查看状态 |
 
-Sash 程序本身更新使用 `sash upgrade`：在运行中的实例上完成包替换，升级后恢复实例的运行状态与浏览器会话；不提供 `update --force`、在线原始设置编辑和配置热加载接口。
+Sash 程序本身更新使用 `sash upgrade`：先解析 npm 上的目标版本，停止管理进程（Core 与系统代理随之停止/恢复），由 npm 全局安装精确版本，再启动管理进程并保持 Core 停止，需要时用 `sash start` 恢复流量。已授权的浏览器标签页通过上一代会话自动续用；不提供 `update --force`、在线原始设置编辑和配置热加载接口。
 
 ## WebUI 保留什么、简化什么
 

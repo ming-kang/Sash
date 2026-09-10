@@ -8,7 +8,6 @@
   "bin": {
     "sash": "dist/cli.js"
   },
-  "sashUpgradeProtocol": 1,
   "files": [
     "dist",
     "docs",
@@ -19,7 +18,7 @@
   "scripts": {
     "clean:build": "node scripts/clean-build.mjs",
     "build:ui": "node scripts/build-ui.mjs",
-    "build": "npm run clean:build && node scripts/build-dist.mjs && node scripts/build-upgrade-worker.mjs && npm run build:ui",
+    "build": "npm run clean:build && node scripts/build-dist.mjs && npm run build:ui",
     "dev": "tsx src/cli.ts",
     "typecheck:server": "tsc --noEmit",
     "typecheck:web": "vue-tsc -p web/tsconfig.json --noEmit",

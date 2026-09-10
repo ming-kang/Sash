@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { readState } from "./app-state.js";
-import { parseDaemonStatus, type SettingsWriteResult } from "./contracts.js";
+import type { DaemonStatus, SettingsWriteResult } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
 describe("save and apply API", () => {
   const h = useDaemonTestHarness();
   async function status() {
-    return parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data);
+    return (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
   }
   it("allows only one of two concurrent settings writes based on the same state revision", async () => {
     await h.startServer();

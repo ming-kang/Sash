@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { readState } from "./app-state.js";
-import { parseSettingsPatch } from "./contracts.js";
 import { DaemonGate } from "./daemon/context.js";
 import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
+import { validateSettingsCandidate } from "./settings.js";
 import { SettingsService } from "./settings-service.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
 import { createTestState, FakeCoreSupervisor, testSettings } from "./testing/state.js";
@@ -104,8 +104,31 @@ describe("saved settings", () => {
     await assert.rejects(f.service.apply({ systemProxy: true }), /not healthy/);
     assert.equal(f.state.snapshot().revision, 0);
     assert.equal(f.state.snapshot().settings.systemProxy, false);
-    for (const field of ["controller", "secret", "daemonPort", "daemonSecret", "tun"])
-      assert.throws(() => parseSettingsPatch({ [field]: true }), /Unknown/);
+  });
+  it("rejects bad values, unknown keys, missing keys and port collisions", () => {
+    const settings = testSettings();
+    assert.deepEqual(validateSettingsCandidate({ ...settings }), settings);
+    for (const [field, value] of [
+      ["mixedPort", 0],
+      ["mixedPort", 65_536],
+      ["daemonPort", 1.5],
+      ["allowLan", "yes"],
+      ["systemProxy", 1],
+      ["controller", "0.0.0.0:9090"],
+      ["secret", " "],
+      ["daemonSecret", "bad\nsecret"],
+      ["tun", false],
+    ] as const) {
+      assert.throws(() => validateSettingsCandidate({ ...settings, [field]: value }));
+    }
+    const missing: Partial<typeof settings> = { ...settings };
+    delete missing.allowLan;
+    assert.throws(() => validateSettingsCandidate(missing), /required/);
+    assert.throws(
+      () => validateSettingsCandidate({ ...settings, mixedPort: settings.daemonPort }),
+      /different ports/,
+    );
+    assert.throws(() => validateSettingsCandidate(null), /plain object/);
   });
   it("persists proxy off before OS cleanup and allows an explicit retry", async () => {
     const f = fixture(true);

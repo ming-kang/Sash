@@ -71,13 +71,16 @@ it("cleans only old generated files and preserves referenced, recent, foreign an
   assert.equal(fs.existsSync(path.join(layout.profilesDir, "2")), false);
 
   const state = createTestState(layout);
-  const candidate = write("profiles/1/8.yaml");
+  const committed = write("profiles/1/8.yaml");
+  state.commit({
+    ...state.snapshot(),
+    profiles: { activeId: "1", profiles: [{ ...testProfile("1"), revision: 8 }] },
+  });
   const service = new ProfileService({
     layout,
     state,
     commit: async (_purpose, action) => action(),
   });
-  fs.appendFileSync(layout.settingsFile, " ");
-  await assert.rejects(service.cleanup(), /changed/);
-  assert.ok(fs.existsSync(candidate), "a stale manifest must not authorize deletion");
+  await service.cleanup();
+  assert.ok(fs.existsSync(committed), "the committed index authorizes its own source files");
 });

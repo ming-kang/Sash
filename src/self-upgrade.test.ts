@@ -1,229 +1,241 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 import { MockAgent } from "undici";
 import { proxyAwareDispatcher } from "./http.js";
-import { inspectInstallation, npmShimPaths } from "./installation.js";
-import { executeSashUpgrade, inspectSashUpgrade } from "./self-upgrade.js";
-import { upgradeFixture, writeFixturePackage } from "./testing/upgrade-fixture.js";
-import { upgradeChildEnv } from "./upgrade-command.js";
-import { readShimImage, replaceShim } from "./upgrade-files.js";
-import { activateUpgradeShims } from "./upgrade-launcher.js";
-import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
+import { npmPackageRoot } from "./installation.js";
+import { inspectSashUpgrade, resolveNpmCli, resolveSashUpgradeTarget } from "./self-upgrade.js";
 
-function snapshotFiles(root: string) {
-  return fs.readdirSync(root, { recursive: true, withFileTypes: true }).map((entry) => {
-    const file = path.join(entry.parentPath, entry.name);
-    return [
-      path.relative(root, file),
-      entry.isSymbolicLink()
-        ? fs.readlinkSync(file)
-        : entry.isFile()
-          ? fs.readFileSync(file)
-          : null,
-    ];
+const SASH_PACKAGE_NAME = "@astralyn/sash";
+const REGISTRY = "https://registry.npmjs.org";
+
+function tempRoot(t: TestContext, label: string): string {
+  const parent = fs.realpathSync(os.tmpdir());
+  const root = fs.mkdtempSync(path.join(parent, label));
+  t.after(() => {
+    assert.equal(path.dirname(fs.realpathSync(root)), parent);
+    fs.rmSync(root, { recursive: true, force: true });
   });
+  return root;
 }
 
-describe("read-only Sash upgrade checks", () => {
-  it("delegates an older interrupted journal to its original recovery worker", async () => {
-    const f = upgradeFixture();
-    const paths = upgradeTransactionPaths(f.prefix, f.journal.transactionId);
-    const marker = path.join(f.root, "legacy-worker-ran");
-    const { format: _format, ...legacy } = f.journal;
-    fs.writeFileSync(
-      upgradePaths(f.prefix).journal,
-      JSON.stringify({
-        ...legacy,
-        source: { sha256: "legacy manifest" },
-        workerSha256: "legacy worker digest",
-      }),
+function writeSashPackage(packageRoot: string, version: string): string {
+  fs.mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
+  fs.writeFileSync(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({
+      name: SASH_PACKAGE_NAME,
+      version,
+      type: "module",
+      bin: { sash: "dist/cli.js" },
+      engines: { node: ">=24" },
+    }),
+  );
+  fs.writeFileSync(path.join(packageRoot, "dist", "cli.js"), `// Sash ${version}\n`);
+  return packageRoot;
+}
+
+function packageManifest(version: string, nodeRange = ">=24") {
+  return {
+    name: SASH_PACKAGE_NAME,
+    version,
+    engines: { node: nodeRange },
+    bin: { sash: "dist/cli.js" },
+  };
+}
+
+function interceptRegistry(t: TestContext): MockAgent {
+  const agent = new MockAgent();
+  agent.disableNetConnect();
+  t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
+  return agent;
+}
+
+function snapshot(root: string): string[] {
+  return fs.readdirSync(root, { recursive: true, encoding: "utf8" }).sort();
+}
+
+describe("Sash upgrade inspection", () => {
+  it("resolves an existing npm-cli.js and fails clearly when npm is missing", (t) => {
+    const root = tempRoot(t, "sash-npm-cli-");
+    const nodeDir = path.join(root, "node");
+    const local = path.join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js");
+    fs.mkdirSync(path.dirname(local), { recursive: true });
+    fs.writeFileSync(local, "// npm CLI\n");
+    assert.equal(resolveNpmCli(path.join(nodeDir, "node"), { PATH: "" }), local);
+
+    const bare = path.join(root, "bare node");
+    const execPath = path.join(root, "global npm", "npm-cli.js");
+    fs.mkdirSync(path.dirname(execPath), { recursive: true });
+    fs.writeFileSync(execPath, "// npm CLI\n");
+    assert.equal(
+      resolveNpmCli(path.join(bare, "node"), { PATH: "", npm_execpath: execPath }),
+      execPath,
     );
-    fs.writeFileSync(
-      paths.worker,
-      `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)},process.argv[2]);`,
-    );
-    try {
-      const { report } = await inspectSashUpgrade(undefined, {
-        packageRoot: f.installation.packageRoot,
-      });
-      assert.equal(report.pending?.phase, "preparing");
-      assert.equal(await executeSashUpgrade(f.installation, { recover: true, json: true }), 0);
-      assert.equal(fs.readFileSync(marker, "utf8"), "--recover");
-    } finally {
-      f.cleanup();
+
+    const binDir = path.join(root, "bin dir");
+    const onPath = path.join(binDir, "node_modules", "npm", "bin", "npm-cli.js");
+    fs.mkdirSync(path.dirname(onPath), { recursive: true });
+    fs.writeFileSync(onPath, "// npm CLI\n");
+    assert.equal(resolveNpmCli(path.join(bare, "node"), { PATH: binDir }), onPath);
+
+    for (const env of [
+      { PATH: "" },
+      { PATH: "", npm_execpath: "relative/npm-cli.js" },
+      { PATH: "", npm_execpath: path.join(root, "missing", "npm-cli.js") },
+      { PATH: "relative-dir" },
+    ]) {
+      assert.throws(() => resolveNpmCli(path.join(bare, "node"), env), /Cannot find the npm CLI/);
     }
   });
+
+  it("reports a non-npm-global package root with a reason and never resolves a target", async (t) => {
+    const root = tempRoot(t, "sash-upgrade-unsupported-");
+    const packageRoot = writeSashPackage(path.join(root, "checkout"), "1.0.0");
+    const agent = interceptRegistry(t);
+    const before = snapshot(root);
+    try {
+      const { report, installation, target } = await inspectSashUpgrade(undefined, {
+        packageRoot,
+        nodeVersion: "v24.1.0",
+      });
+      assert.equal(installation.kind, "source");
+      assert.equal(installation.reason, report.reason);
+      assert.equal(target, undefined);
+      assert.equal(report.current, "1.0.0");
+      assert.equal(report.target, null);
+      assert.equal(report.available, false);
+      assert.equal(report.compatible, false);
+      assert.equal(report.supported, false);
+      assert.equal(report.installation, "source");
+      assert.equal(report.node, "v24.1.0");
+      assert.equal(report.prefix, undefined);
+      assert.match(report.reason ?? "", /local installation/);
+      assert.deepEqual(snapshot(root), before);
+      agent.assertNoPendingInterceptors();
+    } finally {
+      await agent.close();
+    }
+  });
+
   for (const scenario of [
-    { version: "2.0.0", available: true, compatible: true },
-    { version: "1.0.0", available: false, compatible: true },
-    { version: "0.9.0", available: false, compatible: true },
-    { version: "0.9.0", explicit: "0.9.0", available: true, compatible: true },
-    { version: "2.0.0", node: ">=100", available: true, compatible: false },
-    { version: "2.0.0", protocol: 2, available: true, compatible: false },
+    { target: "2.0.0", nodeRange: ">=24", available: true, compatible: true },
+    { target: "1.0.0", nodeRange: ">=24", available: false, compatible: true },
+    { target: "0.9.0", explicit: "0.9.0", nodeRange: ">=24", available: true, compatible: true },
+    { target: "2.0.0", nodeRange: ">=100", available: true, compatible: false },
   ]) {
-    it(`reports availability and compatibility without writing files: ${JSON.stringify(scenario)}`, async (t) => {
-      const parent = fs.realpathSync(os.tmpdir());
-      const root = fs.mkdtempSync(path.join(parent, "sash-upgrade-check-"));
+    it(`reports availability and compatibility for an npm global install: ${JSON.stringify(scenario)}`, async (t) => {
+      const root = tempRoot(t, "sash-upgrade-check-");
       const prefix = path.join(root, "npm prefix 中文");
-      const packageRoot = writeFixturePackage(prefix, "1.0.0");
-      const agent = new MockAgent();
-      agent.disableNetConnect();
-      t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
+      const packageRoot = writeSashPackage(npmPackageRoot(prefix), "1.0.0");
+      const agent = interceptRegistry(t);
       agent
-        .get("https://registry.npmjs.org")
+        .get(REGISTRY)
         .intercept({
-          path: `/${encodeURIComponent("@astralyn/sash")}/${scenario.explicit ?? "latest"}`,
+          path: `/${encodeURIComponent(SASH_PACKAGE_NAME)}/${scenario.explicit ?? "latest"}`,
         })
-        .reply(200, {
-          name: "@astralyn/sash",
-          version: scenario.version,
-          engines: { node: scenario.node ?? ">=24" },
-          bin: { sash: "dist/cli.js" },
-          sashUpgradeProtocol: scenario.protocol ?? 1,
-          dist: {
-            tarball: `https://registry.npmjs.org/@astralyn/sash/-/sash-${scenario.version}.tgz`,
-            integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
-          },
-        });
-      const before = snapshotFiles(prefix);
+        .reply(200, packageManifest(scenario.target, scenario.nodeRange));
+      const before = snapshot(root);
       try {
-        const { report } = await inspectSashUpgrade(scenario.explicit, {
+        const { report, target } = await inspectSashUpgrade(scenario.explicit, {
           packageRoot,
-          nodeVersion: "v24.0.0",
+          nodeVersion: "v24.5.0",
+        });
+        assert.deepEqual(target, {
+          name: SASH_PACKAGE_NAME,
+          version: scenario.target,
+          nodeRange: scenario.nodeRange,
         });
         assert.equal(report.current, "1.0.0");
-        assert.equal(report.target, scenario.version);
+        assert.equal(report.target, scenario.target);
         assert.equal(report.available, scenario.available);
         assert.equal(report.compatible, scenario.compatible);
         assert.equal(report.supported, true);
-        if (!scenario.compatible) assert.ok(report.reason);
-        assert.equal(fs.existsSync(upgradePaths(prefix).root), false);
-        assert.deepEqual(snapshotFiles(prefix), before);
+        assert.equal(report.installation, "npm-global");
+        assert.equal(report.prefix, fs.realpathSync.native(prefix));
+        assert.equal(report.node, "v24.5.0");
+        assert.equal(report.requiredNode, scenario.nodeRange);
+        assert.equal(
+          report.reason,
+          scenario.compatible
+            ? undefined
+            : `Sash ${scenario.target} requires Node ${scenario.nodeRange}`,
+        );
+        assert.deepEqual(
+          Object.keys(report).sort(),
+          [
+            "available",
+            "compatible",
+            "current",
+            "installation",
+            "node",
+            "prefix",
+            "requiredNode",
+            "supported",
+            "target",
+            ...(scenario.compatible ? [] : ["reason"]),
+          ].sort(),
+        );
+        assert.deepEqual(snapshot(root), before);
         agent.assertNoPendingInterceptors();
       } finally {
         await agent.close();
-        assert.equal(path.dirname(fs.realpathSync(root)), parent);
-        await fs.promises.rm(root, { recursive: true, force: true });
       }
     });
   }
 
-  it("reports interrupted work before accessing the registry and leaves its journal unchanged", async (t) => {
-    const f = upgradeFixture();
-    const agent = new MockAgent();
-    agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    try {
-      const before = snapshotFiles(f.prefix);
-      const { report } = await inspectSashUpgrade(undefined, {
-        packageRoot: f.installation.packageRoot,
-      });
-      assert.deepEqual(report.pending, { from: "1.0.0", target: "2.0.0", phase: "preparing" });
-      assert.deepEqual(snapshotFiles(f.prefix), before);
-    } finally {
-      await agent.close();
-      f.cleanup();
-    }
-  });
-
-  it("recognizes recovery through a native shim while other Windows shims still point to the launcher", {
-    skip: process.platform !== "win32",
-  }, async () => {
-    const f = upgradeFixture();
-    try {
-      activateUpgradeShims(f.journal, "recovery");
-      const file = npmShimPaths(f.prefix)[0];
-      const source = f.journal.sourceShims[0];
-      assert.ok(file && source);
-      replaceShim(file, readShimImage(file), source, f.prefix);
-      assert.equal(
-        inspectInstallation({ packageRoot: f.installation.packageRoot }).kind,
-        "unknown",
-      );
-      const before = snapshotFiles(f.prefix);
-      const { report, installation } = await inspectSashUpgrade(undefined, {
-        packageRoot: f.installation.packageRoot,
-      });
-      assert.equal(installation.kind, "npm-global");
-      assert.equal(report.pending?.phase, "preparing");
-      assert.deepEqual(snapshotFiles(f.prefix), before);
-    } finally {
-      f.cleanup();
-    }
-  });
-
-  it("returns registry failures before creating recovery or application state", async (t) => {
-    const f = upgradeFixture();
-    fs.unlinkSync(upgradePaths(f.prefix).journal);
-    const before = snapshotFiles(f.prefix);
-    const agent = new MockAgent();
-    agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
+  it("keeps a failed registry lookup read-only", async (t) => {
+    const root = tempRoot(t, "sash-upgrade-failure-");
+    const packageRoot = writeSashPackage(npmPackageRoot(path.join(root, "prefix")), "1.0.0");
+    const agent = interceptRegistry(t);
     agent
-      .get("https://registry.npmjs.org")
-      .intercept({
-        path: `/${encodeURIComponent("@astralyn/sash")}/latest`,
-      })
+      .get(REGISTRY)
+      .intercept({ path: `/${encodeURIComponent(SASH_PACKAGE_NAME)}/latest` })
       .reply(404, "not available");
+    const before = snapshot(root);
     try {
       await assert.rejects(
-        inspectSashUpgrade(undefined, { packageRoot: f.installation.packageRoot }),
+        inspectSashUpgrade(undefined, { packageRoot, nodeVersion: "v24.5.0" }),
         /HTTP 404/,
       );
-      assert.deepEqual(snapshotFiles(f.prefix), before);
+      assert.deepEqual(snapshot(root), before);
       agent.assertNoPendingInterceptors();
     } finally {
       await agent.close();
-      f.cleanup();
     }
   });
 
-  it("keeps source-checkout checks read-only and CLI JSON failures machine-readable", async () => {
-    const parent = fs.realpathSync(os.tmpdir());
-    const root = fs.mkdtempSync(path.join(parent, "sash-upgrade-cli-"));
-    const data = path.join(root, "unused-data");
-    const repository = path.resolve(import.meta.dirname, "..");
+  it("parses a published manifest and rejects a mismatched or malformed document", async (t) => {
+    const agent = interceptRegistry(t);
     try {
-      for (const [args, code] of [
-        [["upgrade", "--check", "--json"], 0],
-        [["upgrade", "--json"], 1],
-        [["upgrade", "https://example.test/sash.tgz", "--json"], 1],
-      ] as const) {
-        const child = spawnSync(
-          process.execPath,
-          ["--import", "tsx", path.join(repository, "src", "cli.ts"), ...args],
-          {
-            cwd: repository,
-            env: { ...upgradeChildEnv(), SASH_HOME: data },
-            encoding: "utf8",
-            windowsHide: true,
-            timeout: 15_000,
-          },
-        );
-        assert.equal(child.status, code, child.error?.message ?? child.stderr);
-        assert.equal(child.stderr, "");
-        const report = JSON.parse(child.stdout) as {
-          supported?: boolean;
-          installation?: string;
-          outcome?: string;
-          error?: string;
-        };
-        if (args[1] === "https://example.test/sash.tgz") {
-          assert.equal(report.outcome, "failed");
-          assert.match(report.error ?? "", /exact Sash version/);
-        } else {
-          assert.equal(report.supported, false);
-          assert.equal(report.installation, inspectInstallation().kind);
-        }
-        assert.equal(fs.existsSync(data), false);
-      }
+      agent
+        .get(REGISTRY)
+        .intercept({ path: `/${encodeURIComponent(SASH_PACKAGE_NAME)}/latest` })
+        .reply(200, packageManifest("2.3.4"));
+      assert.deepEqual(await resolveSashUpgradeTarget(), {
+        name: SASH_PACKAGE_NAME,
+        version: "2.3.4",
+        nodeRange: ">=24",
+      });
+      agent.assertNoPendingInterceptors();
+
+      agent
+        .get(REGISTRY)
+        .intercept({ path: `/${encodeURIComponent(SASH_PACKAGE_NAME)}/1.2.3` })
+        .reply(200, packageManifest("1.2.4"));
+      await assert.rejects(resolveSashUpgradeTarget("1.2.3"), /different Sash version/);
+      agent.assertNoPendingInterceptors();
+
+      agent
+        .get(REGISTRY)
+        .intercept({ path: `/${encodeURIComponent(SASH_PACKAGE_NAME)}/latest` })
+        .reply(200, { name: "not-sash", version: "2.3.4" });
+      await assert.rejects(resolveSashUpgradeTarget(), /Expected package @astralyn\/sash/);
+      agent.assertNoPendingInterceptors();
     } finally {
-      assert.equal(path.dirname(fs.realpathSync(root)), parent);
-      await fs.promises.rm(root, { recursive: true, force: true });
+      await agent.close();
     }
   });
 });

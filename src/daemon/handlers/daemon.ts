@@ -7,7 +7,6 @@ import type {
 import { currentCoreVersion } from "../../core.js";
 import { HttpError } from "../../daemon-http.js";
 import { errorMessage } from "../../error-utils.js";
-import { UPGRADE_PROTOCOL } from "../../package-info.js";
 import { publicSettings } from "../../settings.js";
 import type { SystemProxyState } from "../../sysproxy.js";
 import type { DaemonContext } from "../context.js";
@@ -24,7 +23,6 @@ export function health(ctx: DaemonContext): RouteResponse {
     startedAt: ctx.startedAt,
     version: ctx.version,
     installationId: ctx.installationId,
-    upgradeProtocol: UPGRADE_PROTOCOL,
     ...(continuation ? { webContinuation: continuation } : {}),
   };
   return { status: 200, json: body };

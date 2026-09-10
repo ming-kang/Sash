@@ -1,9 +1,5 @@
 import { ref } from "vue";
-import {
-  type HealthInfo,
-  parseWebSessionInfo,
-  type WebSessionInfo,
-} from "../../../src/contracts.js";
+import type { HealthInfo, WebSessionInfo } from "../../../src/contracts.js";
 import { SashApiError, type SashClient } from "../../../src/sash-client.js";
 
 const STORAGE_KEY = "sash.control-token";
@@ -18,7 +14,7 @@ export const sessionReady = ref(false);
 function readStoredSession(): WebSessionInfo | null {
   try {
     const stored = window.sessionStorage.getItem(STORAGE_KEY);
-    return stored ? parseWebSessionInfo(JSON.parse(stored)) : null;
+    return stored ? (JSON.parse(stored) as WebSessionInfo) : null;
   } catch {
     // Storage may be disabled, unavailable, or contain an obsolete credential.
     return null;

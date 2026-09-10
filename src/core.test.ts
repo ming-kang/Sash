@@ -349,7 +349,7 @@ describe("core", () => {
   });
 
   describe("install records & coreInstalled", () => {
-    it("rejects malformed or unknown install metadata", () => {
+    it("ignores unknown install metadata and rejects records without a version", () => {
       fs.mkdirSync(layout.stateDir, { recursive: true });
       fs.writeFileSync(layout.installFile, JSON.stringify({ coreVersion: null }));
       assert.equal(readInstallRecord(layout), undefined);
@@ -361,7 +361,8 @@ describe("core", () => {
           unexpected: true,
         }),
       );
-      assert.equal(readInstallRecord(layout), undefined);
+      assert.equal(readInstallRecord(layout)?.coreVersion, "v1.19.30");
+      fs.rmSync(layout.installFile);
     });
 
     it("writes and reads install record", () => {
@@ -372,7 +373,6 @@ describe("core", () => {
       const record = {
         coreVersion: "v1.19.30",
         installedAt: "2025-01-01T00:00:00.000Z",
-        sha256: crypto.hash("sha256", "binary"),
       };
       writeInstallRecord(record, layout);
 
@@ -404,7 +404,6 @@ describe("core", () => {
         {
           coreVersion: "v1.19.30",
           installedAt: "2025-01-01T00:00:00.000Z",
-          sha256: "a".repeat(64),
         },
         layout,
       );

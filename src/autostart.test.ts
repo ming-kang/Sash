@@ -11,14 +11,14 @@ import {
 } from "./testing/windows-registry.js";
 
 describe("AutostartService", () => {
-  it("repairs and rolls back the Node path only while a recorded launcher still owns startup", async (t) => {
+  it("reports a stale login startup when the Node path changed", async (t) => {
     const registration: FakeWindowsRegistration = { command: null, approval: null };
-    let writes = 0;
-    const { root, options, ctx } = testAutostartContext(
+    let _writes = 0;
+    const { root, options } = testAutostartContext(
       t,
       "win32",
       fakeWindowsRegistryRun(registration, () => {
-        writes += 1;
+        _writes += 1;
       }),
     );
     const node = path.join(root, "new-node.exe");
@@ -31,15 +31,10 @@ describe("AutostartService", () => {
     });
     await original.set(true);
     assert.equal((await replacement.inspect()).state, "stale");
-    const history = [ctx.nodePath, node];
-    assert.equal((await replacement.repairAfterUpgrade(history)).state, "on");
-    assert.equal((await original.repairAfterUpgrade(history)).state, "on");
-    const before = fs.readFileSync(path.join(ctx.controlDir, "start.vbs"));
-    const previousWrites = writes;
-    registration.command = "another application";
-    await assert.rejects(replacement.repairAfterUpgrade(history), /changed outside Sash/);
-    assert.equal(writes, previousWrites);
-    assert.deepEqual(fs.readFileSync(path.join(ctx.controlDir, "start.vbs")), before);
+    // Enabling again rewrites the registration for the current Node path.
+    assert.equal((await replacement.set(true)).state, "on");
+    assert.equal((await replacement.inspect()).state, "on");
+    assert.equal((await original.inspect()).state, "stale");
   });
   it("enables and repairs registrations using the explicit target state", async (t) => {
     const { options, ctx } = testAutostartContext(t, "win32");

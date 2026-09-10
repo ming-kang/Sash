@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { errorMessage } from "./error-utils.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import { hasExactOwnKeys, isPlainObject } from "./json-shape.js";
+import { isPlainObject } from "./json-shape.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { type ProfilesIndex, parseProfilesIndex } from "./profile-model.js";
 import {
@@ -37,9 +37,6 @@ function freezeSnapshot<T>(value: T): T {
 
 function readStateText(layout: SashLayout): string | undefined {
   try {
-    const stat = fs.lstatSync(layout.settingsFile);
-    if (!stat.isFile() || stat.size > MAX_STATE_BYTES)
-      throw new Error("Sash state must be a bounded regular file");
     const bytes = fs.readFileSync(layout.settingsFile);
     if (bytes.length > MAX_STATE_BYTES) throw new Error("Sash state is too large");
     return bytes.toString("utf8");
@@ -56,12 +53,11 @@ export function parseState(value: unknown): SashState {
     throw new Error("Invalid Sash state: schemaVersion must be 2");
   }
   if (
-    !hasExactOwnKeys(value, ["schemaVersion", "revision", "settings", "profiles"]) ||
     typeof value.revision !== "number" ||
     !Number.isSafeInteger(value.revision) ||
     value.revision < 0
   ) {
-    throw new Error("Sash state has an invalid shape or revision");
+    throw new Error("Sash state has an invalid revision");
   }
   return {
     schemaVersion: 2,
@@ -134,7 +130,7 @@ export class SashStateStore {
   }
 
   assertCurrent(revision: number): void {
-    if (revision !== this.state.revision || readStateText(this.layout) !== this.text) {
+    if (revision !== this.state.revision) {
       throw new StateConflictError(
         "Sash state changed; refresh before retrying. Edit files only while Sash is stopped.",
       );
@@ -143,7 +139,7 @@ export class SashStateStore {
 
   commit(candidate: SashState): SashState {
     this.assertCurrent(candidate.revision);
-    const next = parseState({ ...candidate, revision: candidate.revision + 1 });
+    const next: SashState = { ...candidate, revision: candidate.revision + 1 };
     const text = `${JSON.stringify(next, null, 2)}\n`;
     if (Buffer.byteLength(text) > MAX_STATE_BYTES) throw new Error("Sash state is too large");
     atomicWriteFileSync(this.layout.settingsFile, text);

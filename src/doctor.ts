@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import net from "node:net";
+import path from "node:path";
 import { MAX_STATE_BYTES, parseState, readState, type SashState } from "./app-state.js";
 import { CORE_BINARY_SIZE_LIMIT } from "./core-binary.js";
 import { readInstallRecord } from "./core-install-record.js";
 import { errorMessage } from "./error-utils.js";
 import { pathEntryExists } from "./fs-atomic.js";
 import { inspectInstallation } from "./installation.js";
-import { packageRuntimeHealth } from "./package-health.js";
 import { currentPackageRoot, readSashPackageInfo, supportsNode } from "./package-info.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { DEFAULT_SETTINGS, parseControllerAddress } from "./settings.js";
@@ -128,8 +128,17 @@ export async function diagnoseSash(
     );
   }
   try {
-    packageRuntimeHealth(packageRoot);
-    add("dashboard", "ok", "Bundled dashboard, command entries and recovery files are present");
+    for (const entry of [
+      "dist/cli.js",
+      "dist/daemon-entry.js",
+      "dist/ui/index.html",
+      "package.json",
+    ]) {
+      if (!fs.statSync(path.join(packageRoot, entry)).isFile()) {
+        throw new Error(`Missing ${entry} in ${packageRoot}`);
+      }
+    }
+    add("dashboard", "ok", "Bundled dashboard and command entries are present");
   } catch (error) {
     add(
       "dashboard",

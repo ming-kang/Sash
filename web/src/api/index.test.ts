@@ -216,14 +216,12 @@ describe("browser authorization", () => {
     assert.equal(api.hasSession(), false);
   });
 
-  it("clears an existing session on malformed health and rejects malformed status", async () => {
+  it("clears an existing session when health no longer matches the stored daemon", async () => {
     await authorize();
     globalThis.fetch = async () => respond({ ...health, token: "" });
-    await assert.rejects(api.initialize(), /token/);
+    await api.initialize();
     assert.equal(api.hasSession(), false);
-    assert.equal(api.getSessionDaemonStartedAt(), null);
-    globalThis.fetch = async () => respond({});
-    await assert.rejects(api.getStatus(), /daemon/);
+    assert.equal(window.sessionStorage.getItem(STORAGE_KEY), null);
   });
 });
 

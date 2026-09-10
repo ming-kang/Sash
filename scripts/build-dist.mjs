@@ -16,8 +16,6 @@ const entries = [
   { source: "src/cli.ts", output: "cli.js" },
   { source: "src/daemon-entry.ts", output: "daemon-entry.js" },
   { source: "src/autostart-entry.ts", output: "autostart-entry.js" },
-  { source: "src/autostart-upgrade-entry.ts", output: "autostart-upgrade-entry.js" },
-  { source: "src/upgrade-probe-entry.ts", output: "upgrade-probe-entry.js" },
   { source: "src/webui.ts", output: "webui.js" },
   { source: "src/installation.ts", output: "installation.js" },
 ];

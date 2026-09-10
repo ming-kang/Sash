@@ -122,10 +122,6 @@ function assertPackedFiles(files) {
     "dist/cli.js",
     "dist/daemon-entry.js",
     "dist/autostart-entry.js",
-    "dist/autostart-upgrade-entry.js",
-    "dist/upgrade-probe-entry.js",
-    "dist/upgrade-worker.mjs",
-    "dist/upgrade-worker.LICENSE.md",
     "dist/webui.js",
     "dist/installation.js",
     "dist/ui/index.html",
@@ -273,19 +269,7 @@ try {
     false,
     "Read-only commands must not initialize application data",
   );
-  const probe = JSON.parse(
-    run(process.execPath, [path.join(installedRoot, "dist", "upgrade-probe-entry.js")], {
-      env: cliEnv,
-    }),
-  );
-  assert.equal(probe.version, expectedVersion);
-  assert.equal(probe.ui, true);
-  const standalone = path.join(tempRoot, "worker.mjs");
-  fs.copyFileSync(path.join(installedRoot, "dist", "upgrade-worker.mjs"), standalone);
-  const worker = JSON.parse(
-    run(process.execPath, [standalone, "--self-test"], { cwd: tempRoot, env: cliEnv }),
-  );
-  assert.equal(worker.upgradeProtocol, 1);
+  assert.match(runCli(["upgrade", "--help"]), /upgrade Sash through npm/);
 
   console.log(
     `[package-smoke] installed and verified ${installSpec ?? "the freshly packed tarball"} as ${packageJson.name}@${expectedVersion} (${packedFiles.length} files)`,

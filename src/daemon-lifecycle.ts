@@ -16,7 +16,7 @@ import {
   withPrivateAppendLogFds,
 } from "./process.js";
 import type { SashSettings } from "./settings.js";
-import { readStateLockRecord, type StateLockRecord, withStateLock } from "./state-lock.js";
+import { readStateLockRecord, withStateLock } from "./state-lock.js";
 
 export interface DaemonStoppedInfo {
   kind: "stopped";
@@ -88,12 +88,7 @@ export async function evaluateDaemon(
   settings?: SashSettings,
 ): Promise<DaemonRunningInfo> {
   const record = readDaemonPidRecord(layout);
-  let lease: StateLockRecord | undefined;
-  try {
-    lease = readStateLockRecord(layout.daemonLeaseFile);
-  } catch {
-    return { kind: "unhealthy", running: true, healthy: false };
-  }
+  const lease = readStateLockRecord(layout.daemonLeaseFile);
   const liveLease = lease && isProcessAlive(lease.pid);
   const liveRecord = record && isProcessAlive(record.pid);
   if (!liveLease && !liveRecord)

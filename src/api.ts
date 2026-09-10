@@ -7,7 +7,6 @@ import {
   delayFailureState,
   validateDelayTarget,
 } from "./core-delay.js";
-import { type CoreRuntimeState, captureCoreRuntimeState } from "./core-runtime-state.js";
 import { errorDetail } from "./error-utils.js";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
@@ -166,46 +165,5 @@ export class MihomoApi {
       timeoutMs: CORE_DELAY_TIMEOUT_MS,
       testedAt: new Date().toISOString(),
     };
-  }
-
-  async runtimeState(): Promise<CoreRuntimeState> {
-    const read = async (endpoint: string): Promise<unknown> => {
-      const response = await this.request(endpoint, { attempts: 1 });
-      if (response.statusCode !== 200) {
-        await response.discard();
-        throw new Error(
-          `Cannot capture Core runtime: ${endpoint} returned HTTP ${response.statusCode}`,
-        );
-      }
-      try {
-        return JSON.parse(await response.text(8 * 1024 * 1024)) as unknown;
-      } catch {
-        throw new Error(`Cannot parse Core runtime response: ${endpoint}`);
-      }
-    };
-    const [config, proxies] = await Promise.all([read("/configs"), read("/proxies")]);
-    return captureCoreRuntimeState(config, proxies);
-  }
-
-  async restoreRuntimeState(state: CoreRuntimeState): Promise<void> {
-    await this.setMode(state.mode);
-    for (const [group, name] of Object.entries(state.selections)) {
-      const response = await this.request(`/proxies/${encodeURIComponent(group)}`, {
-        method: "PUT",
-        body: JSON.stringify({ name }),
-        attempts: 1,
-      });
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        await response.discard();
-        throw new Error(`Cannot restore Core selection: HTTP ${response.statusCode}`);
-      }
-      await response.discard();
-    }
-    const actual = await this.runtimeState();
-    if (
-      actual.mode !== state.mode ||
-      Object.entries(state.selections).some(([group, name]) => actual.selections[group] !== name)
-    )
-      throw new Error("Core runtime verification failed after restoration");
   }
 }

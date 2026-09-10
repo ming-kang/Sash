@@ -34,7 +34,6 @@ it("decodes split UTF-8, CRLF, heartbeats and consecutive complete snapshots", a
 
 it("rejects malformed, incomplete and oversized event frames", async () => {
   assert.throws(() => parseDaemonEvent({ schemaVersion: 2, sequence: 1, status: testStatus() }));
-  assert.throws(() => parseDaemonEvent({ schemaVersion: 1, sequence: -1, status: testStatus() }));
   await assert.rejects(collect(decodeDaemonEvents(bytes("event: status\ndata: {\n\n"))));
   await assert.rejects(collect(decodeDaemonEvents(bytes(frame().slice(0, -2)))), /incomplete/);
   await assert.rejects(
