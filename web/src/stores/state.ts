@@ -11,15 +11,6 @@ import type {
   RuleItem,
   SashStatus,
 } from "../types/index.js";
-import {
-  canSetSystemProxyTarget,
-  clearCoreOwnedState,
-  isCoreHealthy,
-  RequestGenerations,
-  runtimeNoticeKind,
-  runtimeOwnerKey,
-  systemProxyNeedsDisable,
-} from "./state-ownership.js";
 
 export interface ToastItem {
   id: number;
@@ -41,6 +32,7 @@ export interface StoreState {
   proxies: Record<string, ProxyItem>;
   proxyGroups: string[];
   manualProxyDelays: Record<string, ProxyDelay>;
+  /** Bumped whenever the Core runtime is replaced; stale stream frames carry the old value. */
   runtimeGeneration: number;
   connections: ConnectionItem[];
   connectionsUploadTotal: number;
@@ -61,11 +53,6 @@ export interface StoreState {
 }
 
 export const HISTORY_LEN = 60;
-export const requests = new RequestGenerations();
-export const runtimeOwnership = {
-  observedOwner: null as string | null,
-  lastBootId: null as string | null,
-};
 
 // Large collections are replaced by reference; their entries do not need deep Vue proxies.
 export const store = shallowReactive<StoreState>({
@@ -103,6 +90,24 @@ export const store = shallowReactive<StoreState>({
   toasts: [],
 });
 
+export function isCoreHealthy(status: SashStatus | null): boolean {
+  return Boolean(status?.core.running && status.core.healthy);
+}
+
+function systemProxyNeedsDisable(status: SashStatus | null): boolean {
+  return Boolean(
+    status?.systemProxy.desired ||
+      (status?.systemProxy.appliedKnown && status.systemProxy.applied) ||
+      (status?.systemProxy.stateKnown && status.systemProxy.actual?.enabled),
+  );
+}
+
+export function canSetSystemProxyTarget(status: SashStatus | null, target: boolean): boolean {
+  return target
+    ? isCoreHealthy(status) && status?.systemProxy.actual?.supported !== false
+    : systemProxyNeedsDisable(status);
+}
+
 export function visibleCoreResources(): CoreResource[] {
   switch (currentRoute.value) {
     case "overview":
@@ -128,12 +133,11 @@ export const isCoreRunning = computed(() => store.status?.core.running ?? false)
 export const isCoreReady = computed(() => isCoreHealthy(store.status));
 export const runtimeNotice = computed(() => {
   if (store.daemonOnline && isCoreRunning.value && !isCoreReady.value) return "coreDegraded";
-  return runtimeNoticeKind(
-    store.daemonOnline,
-    isCoreReady.value,
-    visibleCoreResources().some((resource) => store.resourceLoaded[resource]),
-    coreSnapshotError.value,
-  );
+  if (!store.daemonOnline) return "offline";
+  if (!isCoreReady.value || coreSnapshotError.value === null) return null;
+  return visibleCoreResources().some((resource) => store.resourceLoaded[resource])
+    ? "coreDegraded"
+    : "coreUnavailable";
 });
 export const canToggleSystemProxy = computed(
   () =>
@@ -149,21 +153,40 @@ export function setProfiles(response: ProfilesResponse): void {
   store.activeProfileId = response.activeId;
 }
 
-export function transitionRuntimeOwner(status: SashStatus | null): void {
-  const next = runtimeOwnerKey(status);
-  if (next === runtimeOwnership.observedOwner) return;
-  runtimeOwnership.observedOwner = next;
+/** Drops everything the Core produced. Used when the Core runtime is gone or replaced. */
+export function resetCoreState(): void {
+  store.mode = "rule";
+  store.proxies = {};
+  store.proxyGroups = [];
+  store.connections = [];
+  store.connectionsUploadTotal = 0;
+  store.connectionsDownloadTotal = 0;
+  store.rules = [];
+  store.traffic = {
+    up: 0,
+    down: 0,
+    historyUp: Array(HISTORY_LEN).fill(0),
+    historyDown: Array(HISTORY_LEN).fill(0),
+  };
+  store.manualProxyDelays = {};
+  store.activeGroup = "";
   store.resourceLoaded = {};
   store.resourceErrors = {};
-  clearCoreOwnedState(store, HISTORY_LEN);
+  store.runtimeGeneration += 1;
+}
+
+let lastBootId: string | null = null;
+
+function runtimeEpoch(status: SashStatus | null): string | null {
+  return status?.core.running ? `${status.daemon.bootId}|${status.revisions.runtime}` : null;
 }
 
 export function adoptDaemonStatus(status: SashStatus): void {
-  if (runtimeOwnership.lastBootId !== status.daemon.bootId) {
-    requests.invalidate("profiles");
+  if (lastBootId !== status.daemon.bootId) {
+    lastBootId = status.daemon.bootId;
     store.lastStateRevision = null;
   }
-  runtimeOwnership.lastBootId = status.daemon.bootId;
+  if (runtimeEpoch(store.status) !== runtimeEpoch(status)) resetCoreState();
   store.status = status;
   store.daemonOnline = true;
 }

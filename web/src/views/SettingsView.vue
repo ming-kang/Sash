@@ -175,10 +175,6 @@ import {
   store,
   toast,
 } from "../stores/index.js";
-import {
-  isCommittedDraftDirty,
-  reconcileCommittedDraft,
-} from "../stores/state-ownership.js";
 import { setTheme, theme, type Theme } from "../theme.js";
 
 const committedMixedPort = ref(store.status?.settings.mixedPort ?? 7890);
@@ -192,18 +188,11 @@ watch(
     if (next === undefined) return;
     const previous = committedMixedPort.value;
     committedMixedPort.value = next;
-    mixedPort.value = reconcileCommittedDraft(
-      mixedPort.value,
-      previous,
-      next,
-      savingPort.value,
-    );
+    if (!savingPort.value && Object.is(mixedPort.value, previous)) mixedPort.value = next;
   },
 );
 
-const portDirty = computed(() =>
-  isCommittedDraftDirty(mixedPort.value, committedMixedPort.value),
-);
+const portDirty = computed(() => !Object.is(mixedPort.value, committedMixedPort.value));
 const portValid = computed(
   () =>
     Number.isInteger(mixedPort.value) &&

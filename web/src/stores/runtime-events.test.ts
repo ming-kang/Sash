@@ -12,6 +12,7 @@ import { startRuntimeEvents } from "./runtime-events.js";
 import { store } from "./state.js";
 
 const INTERVAL_MS = 2000;
+const RECONNECT_MS = 2000;
 
 interface FakeTimer {
   id: number;
@@ -20,22 +21,10 @@ interface FakeTimer {
   cleared: boolean;
 }
 
-function installFakeDom() {
+function installFakeWindow() {
   let nextId = 1;
   const timers: FakeTimer[] = [];
-  const visibilityListeners: Array<() => void> = [];
   const hashListeners: Array<() => void> = [];
-  const fakeDocument = {
-    hidden: false,
-    addEventListener: (type: string, listener: () => void) => {
-      if (type === "visibilitychange") visibilityListeners.push(listener);
-    },
-    removeEventListener: (type: string, listener: () => void) => {
-      const list = type === "visibilitychange" ? visibilityListeners : [];
-      const index = list.indexOf(listener);
-      if (index >= 0) list.splice(index, 1);
-    },
-  };
   const fakeWindow = {
     setTimeout: (callback: () => void, delay: number): number => {
       const timer: FakeTimer = { id: nextId, callback, delay, cleared: false };
@@ -50,39 +39,32 @@ function installFakeDom() {
     addEventListener: (type: string, listener: () => void) => {
       if (type === "hashchange") hashListeners.push(listener);
     },
-    removeEventListener: (type: string, listener: () => void) => {
-      const list = type === "hashchange" ? hashListeners : [];
-      const index = list.indexOf(listener);
-      if (index >= 0) list.splice(index, 1);
+    removeEventListener: (_type: string, listener: () => void) => {
+      const index = hashListeners.indexOf(listener);
+      if (index >= 0) hashListeners.splice(index, 1);
     },
   };
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   Object.defineProperty(globalThis, "window", { configurable: true, value: fakeWindow });
-  Object.defineProperty(globalThis, "document", { configurable: true, value: fakeDocument });
   return {
     timers,
-    visibilityListeners,
     hashListeners,
     latestTimer(): FakeTimer {
       const timer = timers.at(-1);
       assert.ok(timer, "expected a scheduled timer");
       return timer;
     },
-    setHidden(hidden: boolean): void {
-      fakeDocument.hidden = hidden;
-      for (const listener of [...visibilityListeners]) listener();
+    triggerHashChange(): void {
+      for (const listener of [...hashListeners]) listener();
     },
     restore(): void {
       if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
       else Reflect.deleteProperty(globalThis, "window");
-      if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
-      else Reflect.deleteProperty(globalThis, "document");
     },
   };
 }
 
-type FakeDom = ReturnType<typeof installFakeDom>;
+type FakeWindow = ReturnType<typeof installFakeWindow>;
 
 interface EventStream {
   signal: AbortSignal;
@@ -108,38 +90,28 @@ function eventChannel() {
       | { kind: "event"; status: SashStatus }
       | { kind: "error"; error: unknown }
       | { kind: "end" };
-    const steps: Step[] = [];
-    let waiting: (() => void) | null = null;
-    const poke = () => {
-      waiting?.();
-      waiting = null;
+    const queue: Step[] = [];
+    let wake: (() => void) | null = null;
+    const push = (step: Step) => {
+      queue.push(step);
+      wake?.();
+      wake = null;
     };
     streams.push({
       signal,
-      send: (status) => {
-        steps.push({ kind: "event", status });
-        poke();
-      },
-      fail: (error) => {
-        steps.push({ kind: "error", error });
-        poke();
-      },
-      end: () => {
-        steps.push({ kind: "end" });
-        poke();
-      },
+      send: (status) => push({ kind: "event", status }),
+      fail: (error) => push({ kind: "error", error }),
+      end: () => push({ kind: "end" }),
     });
     return (async function* (): AsyncGenerator<DaemonEvent> {
-      for (let index = 0; ; index += 1) {
-        while (index >= steps.length) {
-          if (signal.aborted) return;
+      while (!signal.aborted) {
+        if (!queue.length)
           await new Promise<void>((resolve) => {
-            waiting = resolve;
+            wake = resolve;
           });
-          if (signal.aborted) return;
-        }
-        const step = steps[index] as Step;
-        if (step.kind === "end") return;
+        if (signal.aborted) return;
+        const step = queue.shift();
+        if (!step || step.kind === "end") return;
         if (step.kind === "error") throw step.error;
         yield daemonEvent(step.status);
       }
@@ -161,12 +133,12 @@ function runtimeStatus(stateRevision: number): SashStatus {
 }
 
 const originalApi = { ...api };
-let dom: FakeDom;
+let dom: FakeWindow;
 let disconnected: number;
 let resourceReads: Record<"configs" | "proxies" | "rules" | "connections", number>;
 
 beforeEach(() => {
-  dom = installFakeDom();
+  dom = installFakeWindow();
   disconnected = 0;
   resourceReads = { configs: 0, proxies: 0, rules: 0, connections: 0 };
   api.initialize = async () => ({
@@ -180,7 +152,6 @@ beforeEach(() => {
   api.markDisconnected = () => {
     disconnected += 1;
   };
-  api.getSessionGeneration = () => 1;
   api.getProfiles = async () => ({ activeId: null, profiles: [] });
   api.getConfigs = async () => {
     resourceReads.configs += 1;
@@ -225,7 +196,11 @@ describe("runtime event subscription", () => {
       await flush();
       assert.equal(channel.streams.length, 1, "event stream subscribed");
       assert.equal(dom.timers.length, 1, "only the resource poll is scheduled");
-      assert.equal(dom.timers[0]?.delay, INTERVAL_MS, "visible page polls at the given interval");
+      assert.equal(
+        dom.timers[0]?.delay,
+        INTERVAL_MS,
+        "the visible page polls at the given interval",
+      );
       assert.deepEqual(resourceReads, { configs: 0, proxies: 0, rules: 0, connections: 0 });
 
       const status = runtimeStatus(3);
@@ -242,7 +217,7 @@ describe("runtime event subscription", () => {
     }
   });
 
-  it("marks the daemon offline and reconnects with backoff after the stream closes", async () => {
+  it("marks the daemon offline and reconnects after the stream closes", async () => {
     const channel = eventChannel();
     api.events = channel.factory;
     const stop = startRuntimeEvents(INTERVAL_MS);
@@ -258,21 +233,17 @@ describe("runtime event subscription", () => {
       assert.equal(store.status, null);
       assert.equal(disconnected, 1);
       const retry = dom.latestTimer();
-      assert.equal(retry.delay, 2000, "first retry uses exponential backoff");
+      assert.equal(retry.delay, RECONNECT_MS, "reconnect waits one fixed interval");
 
       retry.callback();
       await flush();
       assert.equal(channel.streams.length, 2, "the retry resubscribes");
-
-      channel.streams[1]?.end();
-      await flush();
-      assert.equal(dom.latestTimer().delay, 4000, "backoff grows with repeated failures");
     } finally {
       stop();
     }
   });
 
-  it("treats a 401 as a public daemon and retries slowly without a session", async () => {
+  it("treats a 401 as a public daemon and retries without a session", async () => {
     const channel = eventChannel();
     api.events = channel.factory;
     let session = true;
@@ -290,55 +261,7 @@ describe("runtime event subscription", () => {
       assert.equal(store.daemonOnline, true, "a 401 keeps the public daemon reachable");
       assert.equal(disconnected, 0, "a 401 is not a disconnect");
       assert.deepEqual(store.resourceLoaded, {}, "core-owned state is released");
-      assert.equal(dom.latestTimer().delay, 15_000, "session-less polls back off further");
-    } finally {
-      stop();
-    }
-  });
-
-  it("polls hidden pages slowly and forces a refresh when the page becomes visible", async () => {
-    const channel = eventChannel();
-    api.events = channel.factory;
-    const stop = startRuntimeEvents(INTERVAL_MS);
-    try {
-      await flush();
-      channel.streams[0]?.send(runtimeStatus(0));
-      await flush();
-      assert.deepEqual(resourceReads, { configs: 1, proxies: 1, rules: 0, connections: 1 });
-      const visibleTimer = dom.timers[0] as FakeTimer;
-
-      dom.setHidden(true);
-      visibleTimer.callback();
-      await flush();
-      assert.equal(dom.latestTimer().delay, 15_000, "hidden pages poll slowly");
-      assert.deepEqual(resourceReads, { configs: 1, proxies: 1, rules: 0, connections: 1 });
-
-      dom.setHidden(false);
-      await flush();
-      assert.deepEqual(resourceReads, { configs: 2, proxies: 2, rules: 0, connections: 2 });
-    } finally {
-      stop();
-    }
-  });
-
-  it("reconnects immediately when the page becomes visible without a stream", async () => {
-    const channel = eventChannel();
-    api.events = channel.factory;
-    const stop = startRuntimeEvents(INTERVAL_MS);
-    try {
-      await flush();
-      channel.streams[0]?.end();
-      await flush();
-      assert.equal(dom.latestTimer().delay, 2000);
-      assert.equal(channel.streams.length, 1);
-
-      dom.setHidden(true);
-      dom.setHidden(false);
-      await flush();
-      assert.equal(dom.latestTimer().delay, 0, "visibility restore reconnects immediately");
-      dom.latestTimer().callback();
-      await flush();
-      assert.equal(channel.streams.length, 2);
+      assert.equal(dom.latestTimer().delay, RECONNECT_MS);
     } finally {
       stop();
     }
@@ -364,6 +287,32 @@ describe("runtime event subscription", () => {
     }
   });
 
+  it("reconnects immediately when a new authorization handoff arrives", async () => {
+    const channel = eventChannel();
+    api.events = channel.factory;
+    const stop = startRuntimeEvents(INTERVAL_MS);
+    try {
+      await flush();
+      const first = channel.streams[0];
+      dom.triggerHashChange();
+      await flush();
+      assert.equal(first?.signal.aborted, false, "an initialized page ignores hash changes");
+      assert.equal(channel.streams.length, 1);
+
+      api.isInitialized = () => false;
+      dom.triggerHashChange();
+      await flush();
+      assert.equal(first?.signal.aborted, true);
+      const retry = dom.latestTimer();
+      assert.equal(retry.delay, 0, "a handoff reconnects immediately");
+      retry.callback();
+      await flush();
+      assert.equal(channel.streams.length, 2);
+    } finally {
+      stop();
+    }
+  });
+
   it("stop() aborts the stream, clears timers, and detaches listeners", async () => {
     const channel = eventChannel();
     api.events = channel.factory;
@@ -372,18 +321,15 @@ describe("runtime event subscription", () => {
     assert.equal(channel.streams.length, 1);
     const resourceTimer = dom.timers[0] as FakeTimer;
     const timerCount = dom.timers.length;
-    assert.equal(dom.visibilityListeners.length, 1);
     assert.equal(dom.hashListeners.length, 1);
 
     stop();
     assert.equal(channel.streams[0]?.signal.aborted, true);
     assert.equal(resourceTimer.cleared, true);
-    assert.equal(dom.visibilityListeners.length, 0);
     assert.equal(dom.hashListeners.length, 0);
 
     channel.streams[0]?.send(runtimeStatus(0));
     resourceTimer.callback();
-    dom.setHidden(false);
     await flush();
     assert.equal(store.status, null, "no snapshots are adopted after stop");
     assert.equal(dom.timers.length, timerCount, "no timers are rescheduled after stop");

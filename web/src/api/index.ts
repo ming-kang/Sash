@@ -6,7 +6,6 @@ import {
 } from "../../../src/contracts.js";
 import { SashApiError, SashClient } from "../../../src/sash-client.js";
 import { t } from "../i18n/index.js";
-import { parseLogFrame, parseTrafficFrame } from "../stores/state-ownership.js";
 import type {
   ConfigsResponse,
   ConnectionsResponse,
@@ -20,6 +19,37 @@ import { formatTime } from "../utils/format.js";
 import { webSession } from "./session.js";
 
 export { sessionReady } from "./session.js";
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseTrafficFrame(value: unknown): TrafficMessage | null {
+  const frame = objectRecord(value);
+  if (!frame) return null;
+  const { up, down } = frame;
+  if (
+    typeof up !== "number" ||
+    !Number.isFinite(up) ||
+    up < 0 ||
+    typeof down !== "number" ||
+    !Number.isFinite(down) ||
+    down < 0
+  )
+    return null;
+  return { up, down };
+}
+
+const LOG_TYPES = new Set<LogMessage["type"]>(["info", "warning", "error", "debug"]);
+
+function parseLogFrame(value: unknown): LogMessage | null {
+  const frame = objectRecord(value);
+  if (!frame || typeof frame.type !== "string" || typeof frame.payload !== "string") return null;
+  if (!LOG_TYPES.has(frame.type as LogMessage["type"])) return null;
+  return { type: frame.type as LogMessage["type"], payload: frame.payload };
+}
 
 interface RequestOptions {
   method?: string;
@@ -159,7 +189,6 @@ export const api = {
   events: (signal: AbortSignal) => sash.events(signal),
   getAutostart: () => sash.autostartStatus(),
   setAutostart: (enabled: boolean) => sash.setAutostart(enabled),
-  getSessionGeneration: webSession.generation,
 
   enableSystemProxy: (expectedRevision?: number) =>
     sash.patchSettings({ systemProxy: true, expectedRevision }),

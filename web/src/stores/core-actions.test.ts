@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
+import type { ConnectionItem } from "../types/index.js";
 import {
   closeAllConnections,
   closeConnection,
@@ -12,8 +13,29 @@ import {
 } from "./core-actions.js";
 import { store } from "./state.js";
 
+function testConnection(id: string): ConnectionItem {
+  return {
+    id,
+    metadata: {
+      network: "tcp",
+      type: "HTTP",
+      sourceIP: "127.0.0.1",
+      destinationIP: "192.0.2.1",
+      sourcePort: "40000",
+      destinationPort: "443",
+      host: "example.test",
+    },
+    upload: 0,
+    download: 0,
+    start: "2026-09-08T00:00:00.000Z",
+    chains: [],
+    rule: "MATCH",
+    rulePayload: "",
+  };
+}
+
 describe("web Core actions", () => {
-  it("reuses identical proxy snapshots but honors local selections and owner changes", async (t) => {
+  it("reuses identical proxy snapshots but honors a local selection and a reset", async (t) => {
     const original = { ...store };
     t.after(() => Object.assign(store, original));
     store.status = testStatus();
@@ -31,10 +53,11 @@ describe("web Core actions", () => {
     assert.equal(store.proxies.PROXY?.now, "b");
     setProxies(structuredClone(proxies));
     assert.equal(store.proxies.PROXY?.now, "a", "server snapshot supersedes the local selection");
+
     const previous = store.proxies;
-    store.status = { ...testStatus(), revisions: { state: 0, runtime: 2 } };
+    store.proxies = {};
     setProxies(structuredClone(proxies));
-    assert.notEqual(store.proxies, previous);
+    assert.notEqual(store.proxies, previous, "a runtime reset re-adopts identical wire data");
 
     const current = store.proxies;
     store.resourceErrors = { proxies: "Transient failure" };
@@ -49,41 +72,23 @@ describe("web Core actions", () => {
   });
 
   for (const all of [false, true])
-    it(`does not clear a successor Core's connections (all=${all})`, async (t) => {
+    it(`drops connections after the Core confirms the close (all=${all})`, async (t) => {
       const originalStatus = store.status;
       const originalConnections = store.connections;
       t.after(() => {
         store.status = originalStatus;
         store.connections = originalConnections;
       });
-      const pending = Promise.withResolvers<void>();
-      t.mock.method(api, all ? "closeAllConnections" : "closeConnection", () => pending.promise);
+      t.mock.method(api, all ? "closeAllConnections" : "closeConnection", async () => {});
       store.status = testStatus();
-      const closing = all ? closeAllConnections() : closeConnection("new-connection");
-      store.status = { ...testStatus(), revisions: { state: 0, runtime: 2 } };
-      const successor: typeof store.connections = [
-        {
-          id: "new-connection",
-          metadata: {
-            network: "tcp",
-            type: "HTTP",
-            sourceIP: "127.0.0.1",
-            destinationIP: "192.0.2.1",
-            sourcePort: "40000",
-            destinationPort: "443",
-            host: "example.test",
-          },
-          upload: 0,
-          download: 0,
-          start: "2026-09-08T00:00:00.000Z",
-          chains: [],
-          rule: "MATCH",
-          rulePayload: "",
-        },
-      ];
-      store.connections = successor;
-      pending.resolve();
-      await closing;
-      assert.equal(store.connections, successor);
+      store.connections = [testConnection("one"), testConnection("two")];
+
+      if (all) await closeAllConnections();
+      else await closeConnection("one");
+
+      assert.deepEqual(
+        store.connections.map((connection) => connection.id),
+        all ? [] : ["two"],
+      );
     });
 });

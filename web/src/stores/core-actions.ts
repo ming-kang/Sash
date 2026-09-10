@@ -13,17 +13,12 @@ import {
   type CoreResource,
   errorText,
   HISTORY_LEN,
-  requests,
+  isCoreHealthy,
   store,
   visibleCoreResources,
 } from "./state.js";
-import { isCoreHealthy, resolvedProxyDelay, runtimeOwnerKey } from "./state-ownership.js";
 
-let adoptedProxies: {
-  value: Record<string, ProxyItem>;
-  owner: string | null;
-  text: string;
-} | null = null;
+let adoptedProxies: { value: Record<string, ProxyItem>; text: string } | null = null;
 
 export function normalizeConnections(value: ConnectionsResponse["connections"]): ConnectionItem[] {
   if (value === null) return [];
@@ -48,21 +43,15 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
   )
     throw new Error(t("errors.coreProxies"));
   const text = JSON.stringify(proxies);
-  const owner = runtimeOwnerKey(store.status);
   // Local selections and runtime resets replace the reference. An identical
   // response must still be adopted after either, even if the wire data repeats.
-  if (
-    adoptedProxies?.value === store.proxies &&
-    adoptedProxies.owner === owner &&
-    adoptedProxies.text === text
-  )
-    return;
+  if (adoptedProxies?.value === store.proxies && adoptedProxies.text === text) return;
   const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
   const groups = Object.keys(proxies).filter(
     (name) => groupTypes.has(proxies[name]?.type ?? "") || Array.isArray(proxies[name]?.all),
   );
   store.proxies = proxies;
-  adoptedProxies = { value: proxies, owner, text };
+  adoptedProxies = { value: proxies, text };
   store.proxyGroups = groups;
   if (!store.activeGroup || !groups.includes(store.activeGroup)) {
     store.activeGroup =
@@ -85,24 +74,18 @@ async function refreshResource<T>(
   adopt: (result: T) => void,
 ): Promise<void> {
   if (!isCoreHealthy(store.status)) return;
-  const owner = runtimeOwnerKey(store.status);
-  const generation = requests.begin(resource);
-  const current = () =>
-    requests.isCurrent(resource, generation) && runtimeOwnerKey(store.status) === owner;
   try {
     const result = await fetch();
-    if (!current()) return;
     adopt(result);
     store.resourceLoaded = { ...store.resourceLoaded, [resource]: true };
     const errors = { ...store.resourceErrors };
     delete errors[resource];
     store.resourceErrors = errors;
   } catch (error) {
-    if (current())
-      store.resourceErrors = {
-        ...store.resourceErrors,
-        [resource]: errorText(error).slice(0, 300),
-      };
+    store.resourceErrors = {
+      ...store.resourceErrors,
+      [resource]: errorText(error).slice(0, 300),
+    };
     throw error;
   }
 }
@@ -168,33 +151,23 @@ export async function refreshVisibleCoreResources(cycle = 0, force = false): Pro
 
 export async function closeConnection(id: string): Promise<void> {
   if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
-  const owner = runtimeOwnerKey(store.status);
-  requests.invalidate("connections");
   await api.closeConnection(id);
-  requests.invalidate("connections");
-  if (runtimeOwnerKey(store.status) === owner)
-    store.connections = store.connections.filter((connection) => connection.id !== id);
+  store.connections = store.connections.filter((connection) => connection.id !== id);
 }
 export async function closeAllConnections(): Promise<void> {
   if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
-  const owner = runtimeOwnerKey(store.status);
-  requests.invalidate("connections");
   await api.closeAllConnections();
-  requests.invalidate("connections");
-  if (runtimeOwnerKey(store.status) === owner) store.connections = [];
+  store.connections = [];
 }
 
 export async function setOutboundMode(mode: OutboundMode): Promise<void> {
   if (store.operations.mode || mode === store.mode) return;
   if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
-  const owner = runtimeOwnerKey(store.status);
   store.operations = { ...store.operations, mode: true };
-  requests.invalidate("configs");
   try {
     await api.setMode(mode);
-    if (runtimeOwnerKey(store.status) === owner) store.mode = mode;
+    store.mode = mode;
   } finally {
-    requests.invalidate("configs");
     store.operations = { ...store.operations, mode: false };
   }
 }
@@ -202,19 +175,15 @@ export async function setOutboundMode(mode: OutboundMode): Promise<void> {
 export async function selectGroupProxy(groupName: string, proxyName: string): Promise<void> {
   if (store.operations.proxySelections[groupName]) return;
   if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
-  const owner = runtimeOwnerKey(store.status);
   store.operations = {
     ...store.operations,
     proxySelections: { ...store.operations.proxySelections, [groupName]: true },
   };
-  requests.invalidate("proxies");
   try {
     await api.selectProxy(groupName, proxyName);
     const group = store.proxies[groupName];
-    if (group && runtimeOwnerKey(store.status) === owner)
-      store.proxies = { ...store.proxies, [groupName]: { ...group, now: proxyName } };
+    if (group) store.proxies = { ...store.proxies, [groupName]: { ...group, now: proxyName } };
   } finally {
-    requests.invalidate("proxies");
     const selections = { ...store.operations.proxySelections };
     delete selections[groupName];
     store.operations = { ...store.operations, proxySelections: selections };
@@ -232,5 +201,7 @@ export function updateProxyDelays(delays: Record<string, ProxyDelay>, generation
   store.manualProxyDelays = merged;
 }
 export function proxyDelay(name: string): ProxyDelay | undefined {
-  return resolvedProxyDelay(name, store.proxies, store.manualProxyDelays);
+  const manual = store.manualProxyDelays[name];
+  if (manual !== undefined) return manual;
+  return store.proxies[name]?.history?.at(-1)?.delay;
 }

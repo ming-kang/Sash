@@ -164,12 +164,15 @@ describe("stored session fallback", () => {
     assert.equal(webSession.startedAt(), health.startedAt);
   });
 
-  it("drops a stored session that belongs to another daemon", async () => {
+  it("drops a stored session the daemon cannot continue", async () => {
     window.sessionStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ token: sessionToken, daemonToken: "previous-daemon" }),
     );
     globalThis.fetch = async (input) => {
+      if (String(input).endsWith("/sash/web/continue")) {
+        return respond({ error: { code: "unauthorized", message: "continuation expired" } }, 401);
+      }
       assert.ok(String(input).endsWith("/sash/daemon/health"));
       return respond(health);
     };

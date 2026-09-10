@@ -50,16 +50,9 @@ afterEach(async () => {
 });
 
 describe("browser authorization", () => {
-  it("keeps a dormant credential through disconnection and exchanges it only for an advertised upgrade", async () => {
+  it("keeps a dormant credential through disconnection and exchanges it on the next daemon boot", async () => {
     const source = { ...health, token: "b".repeat(48) };
-    const target = {
-      ...health,
-      token: "c".repeat(48),
-      webContinuation: {
-        bootIds: [source.token],
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      },
-    };
+    const target = { ...health, token: "c".repeat(48) };
     await authorize(sessionToken, source);
     api.markDisconnected();
     globalThis.fetch = async () => {
@@ -102,10 +95,6 @@ describe("browser authorization", () => {
       return respond({
         ...health,
         token: "c".repeat(48),
-        webContinuation: {
-          bootIds: [source.token],
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        },
       });
     };
     const initialization = api.initialize();

@@ -91,20 +91,15 @@ export const webSession = {
       if (exchange) candidate = await exchange.catch(() => null);
       const health = await client.health();
       if (candidate && candidate.daemonToken !== health.token && current()) {
-        const continuation = health.webContinuation;
-        if (
-          continuation &&
-          Date.parse(continuation.expiresAt) > Date.now() &&
-          continuation.bootIds.includes(candidate.daemonToken)
-        ) {
-          try {
-            candidate = await client.continueWebSession(candidate);
-          } catch (error) {
-            if (error instanceof SashApiError && [400, 401, 403].includes(error.status))
-              candidate = null;
-            else throw error;
-          }
-        } else candidate = null;
+        // The daemon remembers this browser's session across restarts and
+        // rejects a continuation it can no longer verify.
+        try {
+          candidate = await client.continueWebSession(candidate);
+        } catch (error) {
+          if (error instanceof SashApiError && [400, 401, 403].includes(error.status))
+            candidate = null;
+          else throw error;
+        }
       }
       if (current()) {
         initialized = true;

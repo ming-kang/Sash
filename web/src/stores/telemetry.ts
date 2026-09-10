@@ -1,6 +1,5 @@
 import type { LogMessage, TrafficMessage } from "../types/index.js";
-import { HISTORY_LEN, type StoredLogMessage, store } from "./state.js";
-import { isCoreHealthy } from "./state-ownership.js";
+import { HISTORY_LEN, isCoreHealthy, type StoredLogMessage, store } from "./state.js";
 
 const LOG_LEN = 600;
 const LOG_FLUSH_MS = 100;
