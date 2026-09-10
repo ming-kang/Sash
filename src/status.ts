@@ -2,7 +2,7 @@ import { AutostartService } from "./autostart.js";
 import type { AutostartStatus } from "./autostart-contract.js";
 import type { DaemonStatus } from "./contracts.js";
 import { currentCoreVersion } from "./core.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import {
   type DaemonHealthyInfo,
   type DaemonRunningInfo,
@@ -224,7 +224,7 @@ async function queryStatus(
   if (dependencies.queryDaemonStatus) {
     return dependencies.queryDaemonStatus(context, daemon);
   }
-  return new SashDaemonClient(daemon.port, context.settings.daemonSecret).status();
+  return createDaemonClient(daemon.port, context.settings.daemonSecret).status();
 }
 
 function addObservationErrors(errors: string[], observation: ResolvedSystemProxyObservation): void {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { describe, it } from "node:test";
 import { AutostartUnavailableError } from "./autostart.js";
 import { parseAutostartStatus } from "./autostart-contract.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("autostart HTTP API", () => {
@@ -82,7 +82,7 @@ describe("autostart HTTP API", () => {
     const starts = t.mock.method(instance.supervisor, "start");
     const stops = t.mock.method(instance.supervisor, "stop");
     const settings = fs.readFileSync(h.layout.settingsFile, "utf8");
-    const client = new SashDaemonClient(h.boundPort, h.settings.daemonSecret);
+    const client = createDaemonClient(h.boundPort, h.settings.daemonSecret);
     assert.equal((await client.autostartStatus()).state, "off");
     assert.equal((await client.setAutostart(true)).state, "on");
     const session = await h.mintWebSession();

@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { request } from "undici";
 import type { AutostartStatus } from "./autostart-contract.js";
 import { DaemonEvents } from "./daemon/events.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import { directDispatcherForLoopback } from "./http.js";
 import { type DaemonEvent, decodeDaemonEvents } from "./sash-events.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
@@ -31,7 +31,7 @@ it("keeps runtime events flowing while one desktop inspection is pending", async
     controller.abort();
     pending.resolve({ state: "off", canEnable: true, reason: null });
   });
-  const events = new SashDaemonClient(harness.boundPort, harness.settings.daemonSecret).events(
+  const events = createDaemonClient(harness.boundPort, harness.settings.daemonSecret).events(
     controller.signal,
   );
   assert.equal((await events.next()).value?.autostart.state, "unknown");
@@ -56,7 +56,7 @@ it("shares snapshots, pushes committed revisions and accepts authenticated brows
   await harness.startServer({ supervisor });
   const controller = new AbortController();
   t.after(() => controller.abort());
-  const client = new SashDaemonClient(harness.boundPort, harness.settings.daemonSecret);
+  const client = createDaemonClient(harness.boundPort, harness.settings.daemonSecret);
   const first = client.events(controller.signal);
   const second = client.events(controller.signal);
   const snapshots = await Promise.all([first.next(), second.next()]);
@@ -134,7 +134,7 @@ it("closes active streams during daemon shutdown and releases observation timers
   const instance = await harness.startServer();
   const controller = new AbortController();
   t.after(() => controller.abort());
-  const events = new SashDaemonClient(harness.boundPort, harness.settings.daemonSecret).events(
+  const events = createDaemonClient(harness.boundPort, harness.settings.daemonSecret).events(
     controller.signal,
   );
   await events.next();

@@ -10,7 +10,7 @@ import type { Duplex } from "node:stream";
 import { chromium, firefox, type Page } from "playwright";
 import { runWeb } from "../src/commands/web.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
-import { SashDaemonClient } from "../src/daemon-client.js";
+import { createDaemonClient } from "../src/daemon-client.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { writeBootstrapFile } from "../src/web-bootstrap.js";
 import { buildSanitizedEnv } from "../src/process.js";
@@ -100,7 +100,7 @@ async function browserHandoff(): Promise<string> {
       ensureManagement: async () => ({
         kind: "daemon",
         daemon: { kind: "healthy", running: true, healthy: true, pid: process.pid, port },
-        client: new SashDaemonClient(port, h.settings.daemonSecret),
+        client: createDaemonClient(port, h.settings.daemonSecret),
       }),
       openInBrowser: (url) => {
         opened.push(url);

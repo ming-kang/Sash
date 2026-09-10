@@ -4,7 +4,7 @@ import {
   type CoreDelayResult,
   validateDelayTarget,
 } from "./core-delay.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import type { CliRuntimeStatus, StatusObservationContext } from "./status.js";
 
 export type StatusDelayObservation =
@@ -53,7 +53,7 @@ export async function observeStatusDelay(
   name: string,
   signal: AbortSignal,
   probe: DelayProbe = (context, status, name, signal) =>
-    new SashDaemonClient(status.daemon.port, context.settings.daemonSecret).testDelay(name, signal),
+    createDaemonClient(status.daemon.port, context.settings.daemonSecret).testDelay(name, signal),
 ): Promise<StatusDelayObservation> {
   validateDelayTarget(name);
   signal.throwIfAborted();

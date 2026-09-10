@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readState } from "./app-state.js";
 import type { UpgradeRuntimeStatus } from "./contracts.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient, type SashDaemonClient } from "./daemon-client.js";
 import { evaluateDaemon, readDaemonPidRecord } from "./daemon-lifecycle.js";
 import { type NpmInstallation, pathsEqual } from "./installation.js";
 import { type InstallationInstance, listInstallationInstances } from "./installation-registry.js";
@@ -41,7 +41,7 @@ export async function verifyUpgradeInstance(
         !commandLineContains(record.pid, path.join(record.packageRoot, "dist", "daemon-entry.js"))))
   )
     throw new Error(`Cannot verify Sash daemon PID ${record.pid}; it was left running`);
-  const client = new SashDaemonClient(record.port, state.settings.daemonSecret);
+  const client = createDaemonClient(record.port, state.settings.daemonSecret);
   const health = await client.health();
   if (
     health.pid !== record.pid ||

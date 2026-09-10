@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { describe, it } from "node:test";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import { testProfile } from "./testing/state.js";
 
-describe("SashDaemonClient mutation requests", () => {
+describe("daemon client mutation requests", () => {
   it("reads a profile library that fits the application manifest limit", async () => {
     const index = {
       activeId: null,
@@ -23,7 +23,7 @@ describe("SashDaemonClient mutation requests", () => {
     assert.ok(address && typeof address === "object");
     try {
       assert.deepEqual(
-        await new SashDaemonClient(address.port, "fixture-secret").listProfiles(),
+        await createDaemonClient(address.port, "fixture-secret").listProfiles(),
         index,
       );
     } finally {
@@ -46,7 +46,7 @@ describe("SashDaemonClient mutation requests", () => {
     const port = typeof address === "object" && address ? address.port : 0;
 
     try {
-      await new SashDaemonClient(port, "maintenance-secret").shutdown();
+      await createDaemonClient(port, "maintenance-secret").shutdown();
       assert.equal(authorization, "Bearer maintenance-secret");
     } finally {
       server.closeAllConnections();
@@ -64,7 +64,7 @@ describe("SashDaemonClient mutation requests", () => {
     const port = typeof address === "object" && address ? address.port : 0;
 
     try {
-      await assert.rejects(new SashDaemonClient(port, "").shutdown(), /proxy restoration failed/);
+      await assert.rejects(createDaemonClient(port, "").shutdown(), /proxy restoration failed/);
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -85,7 +85,7 @@ describe("SashDaemonClient mutation requests", () => {
     const port = typeof address === "object" && address ? address.port : 0;
 
     try {
-      const client = new SashDaemonClient(port, "");
+      const client = createDaemonClient(port, "");
       await assert.rejects(() => client.startCore(), /temporarily unavailable/);
       assert.equal(requests, 1);
     } finally {
@@ -106,7 +106,7 @@ describe("SashDaemonClient mutation requests", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 0;
-    const client = new SashDaemonClient(port, "daemon-secret");
+    const client = createDaemonClient(port, "daemon-secret");
 
     try {
       await assert.rejects(() => client.health(), /token/);

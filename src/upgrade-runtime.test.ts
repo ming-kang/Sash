@@ -12,7 +12,7 @@ import ts from "typescript";
 import YAML from "yaml";
 import { MihomoApi } from "./api.js";
 import { extractCoreArchive, writeInstallRecord } from "./core.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import { stopDaemonFromCli } from "./daemon-lifecycle.js";
 import { fetchWithRetry } from "./http.js";
 import { inspectInstallation, npmPackageRoot, npmShimPaths } from "./installation.js";
@@ -368,7 +368,7 @@ describe("real isolated Sash daemon upgrades", () => {
         for (const [index, instance] of instances.entries()) {
           assert.deepEqual(fs.readFileSync(instance.layout.settingsFile), saved[index]);
           assert.equal(fs.existsSync(instance.layout.coreExe), false);
-          const health = await new SashDaemonClient(
+          const health = await createDaemonClient(
             instance.settings.daemonPort,
             instance.settings.daemonSecret,
           ).health();
@@ -386,7 +386,7 @@ describe("real isolated Sash daemon upgrades", () => {
             (record) => record.dataDir === instance.layout.root && isProcessAlive(record.pid),
           );
           if (record && authorization) {
-            const client = new SashDaemonClient(record.port, instance.settings.daemonSecret);
+            const client = createDaemonClient(record.port, instance.settings.daemonSecret);
             const access = {
               transactionId: authorization.transactionId,
               installationId: authorization.installationId,

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import { sashLayout } from "./paths.js";
 import type { RuntimeContext } from "./runtime-owner.js";
 import { resolveRuntimeOwner } from "./runtime-owner.js";
@@ -39,7 +39,7 @@ describe("resolveRuntimeOwner", () => {
       clientFactory: (port, secret) => {
         clientPort = port;
         clientSecret = secret;
-        return new SashDaemonClient(port, secret);
+        return createDaemonClient(port, secret);
       },
     });
 
@@ -53,7 +53,7 @@ describe("resolveRuntimeOwner", () => {
     let clients = 0;
     const clientFactory = (port: number, secret: string) => {
       clients += 1;
-      return new SashDaemonClient(port, secret);
+      return createDaemonClient(port, secret);
     };
     const offline = await resolveRuntimeOwner(ctx, {
       evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),

@@ -4,7 +4,7 @@ import http from "node:http";
 import { describe, it } from "node:test";
 import { MihomoApi } from "./api.js";
 import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, validateDelayTarget } from "./core-delay.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, type FakeCoreSupervisor } from "./testing/state.js";
 
@@ -38,7 +38,7 @@ describe("explicit Core delay probes", () => {
     const saved = fs.readFileSync(h.layout.settingsFile, "utf8");
     await h.apiRequest("/sash/daemon/status");
     assert.equal(requests, 0, "ordinary status must not probe any outbound");
-    const result = await new SashDaemonClient(h.boundPort, h.settings.daemonSecret).testDelay(name);
+    const result = await createDaemonClient(h.boundPort, h.settings.daemonSecret).testDelay(name);
     assert.equal(result.name, name);
     assert.equal(result.state, "ok");
     assert.equal(result.delayMs, 42);
@@ -162,7 +162,7 @@ describe("explicit Core delay probes", () => {
     await h.startServer();
     await h.apiRequest("/sash/core/start", { method: "POST" });
     const cancellation = new AbortController();
-    const pending = new SashDaemonClient(h.boundPort, h.settings.daemonSecret).testDelay(
+    const pending = createDaemonClient(h.boundPort, h.settings.daemonSecret).testDelay(
       "DIRECT",
       cancellation.signal,
     );

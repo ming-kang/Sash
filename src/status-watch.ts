@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import { readDaemonPidRecord } from "./daemon-lifecycle.js";
 import { SashApiError } from "./sash-client.js";
 import type { DaemonEvent } from "./sash-events.js";
@@ -43,7 +43,7 @@ async function* openEvents(
   const owner = readDaemonPidRecord(context.layout);
   if (!owner || owner.pid !== observed.daemon.pid || owner.port !== observed.daemon.port)
     throw new Error("Daemon identity changed before subscribing");
-  const client = new SashDaemonClient(owner.port, context.settings.daemonSecret);
+  const client = createDaemonClient(owner.port, context.settings.daemonSecret);
   for await (const event of client.events(signal)) {
     if (event.status.daemon.bootId !== owner.token || event.status.daemon.pid !== owner.pid)
       throw new Error("Daemon event identity does not match this instance");

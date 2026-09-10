@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { SashDaemonClient } from "../daemon-client.js";
+import { createDaemonClient } from "../daemon-client.js";
 import { sashLayout } from "../paths.js";
 import type { HealthyRuntimeOwner } from "../runtime-owner.js";
 import { testSettings } from "../testing/state.js";
@@ -14,7 +14,7 @@ const FILE_URL = "file:///nonexistent/web-bootstrap-test.html";
 function fixture() {
   const events: string[] = [];
   const logs: string[] = [];
-  const client = new SashDaemonClient(29193, "test-only");
+  const client = createDaemonClient(29193, "test-only");
   client.startCore = async () => {
     throw new Error("web must not start Core");
   };

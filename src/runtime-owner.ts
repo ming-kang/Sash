@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { loadSettings } from "./app-state.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient, type SashDaemonClient } from "./daemon-client.js";
 import {
   type DaemonHealthyInfo,
   type DaemonStoppedInfo,
@@ -36,7 +36,7 @@ export async function resolveRuntimeOwner(
     return {
       kind: "daemon",
       daemon,
-      client: (deps.clientFactory ?? ((port, secret) => new SashDaemonClient(port, secret)))(
+      client: (deps.clientFactory ?? ((port, secret) => createDaemonClient(port, secret)))(
         daemon.port,
         ctx.settings.daemonSecret,
       ),

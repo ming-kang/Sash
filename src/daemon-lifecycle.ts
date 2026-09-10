@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadSettings } from "./app-state.js";
 import type { DaemonPidRecord } from "./daemon.js";
-import { SashDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./daemon-client.js";
 import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-follow.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -109,10 +109,7 @@ export async function evaluateDaemon(
     return { kind: "unhealthy", running: true, healthy: false, pid: lease?.pid ?? record?.pid };
   }
   try {
-    const client = new SashDaemonClient(
-      record.port,
-      (settings ?? loadSettings(layout)).daemonSecret,
-    );
+    const client = createDaemonClient(record.port, (settings ?? loadSettings(layout)).daemonSecret);
     const health = await client.health();
     if (health.token === record.token && health.pid === record.pid) {
       return { kind: "healthy", running: true, healthy: true, pid: record.pid, port: record.port };
@@ -202,7 +199,7 @@ async function spawnDaemonUnlocked(
     throw new Error("Failed to start sashd process (no PID returned)");
   }
 
-  const client = new SashDaemonClient(settings.daemonPort, settings.daemonSecret);
+  const client = createDaemonClient(settings.daemonPort, settings.daemonSecret);
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -283,7 +280,7 @@ export async function stopDaemonFromCli(
   const state = await evaluateDaemon(layout, settings);
   if (state.kind === "stopped") return true;
   if (state.kind !== "healthy") return false;
-  const client = new SashDaemonClient(state.port, settings.daemonSecret);
+  const client = createDaemonClient(state.port, settings.daemonSecret);
   await client.shutdown();
   const deadline = Date.now() + (opts.timeoutMs ?? 20_000);
   while (isProcessAlive(state.pid) && Date.now() < deadline) await sleep(100);
