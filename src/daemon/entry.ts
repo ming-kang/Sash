@@ -1,3 +1,4 @@
+import { errorMessage } from "../error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
 import { canonicalPath, installationId, npmPrefixForPackage } from "../installation.js";
 import {
@@ -82,9 +83,19 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
       const closed = new Promise<void>((resolve) => current.server.once("close", resolve));
       const port = state.snapshot().settings.daemonPort;
       await new Promise<void>((resolve, reject) => {
-        current.server.once("error", reject);
+        const onError = (error: NodeJS.ErrnoException) => {
+          reject(
+            error.code === "EADDRINUSE"
+              ? new Error(
+                  `Daemon port ${port} is already in use by another process. Free the port, or choose a different one: edit "daemonPort" in ${layout.settingsFile} while Sash is stopped, or change it in the dashboard settings.`,
+                  { cause: error },
+                )
+              : error,
+          );
+        };
+        current.server.once("error", onError);
         current.server.listen(port, "127.0.0.1", () => {
-          current.server.removeListener("error", reject);
+          current.server.removeListener("error", onError);
           current.server.on("error", (error) =>
             console.error("[sashd] HTTP listener error:", error),
           );
@@ -125,9 +136,7 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
       void started.current
         .close()
         .catch((error: unknown) =>
-          console.error(
-            `[sashd] shutdown blocked: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+          console.error(`[sashd] shutdown blocked: ${errorMessage(error)}`),
         );
     };
     process.on("SIGTERM", onSignal);

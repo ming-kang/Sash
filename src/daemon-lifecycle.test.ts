@@ -279,4 +279,32 @@ describe("daemon ownership evaluation", () => {
       assert.equal(stopped, true, `failed to stop spawned daemon PID ${pid ?? "unknown"}`);
     }
   });
+
+  it("surfaces a clear startup error when the daemon port is already in use", {
+    timeout: 30_000,
+  }, async () => {
+    const layout = sashLayout(root);
+    const blocker = net.createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
+    const port = (blocker.address() as AddressInfo).port;
+    const settings = { ...testSettings(), daemonPort: port };
+    createTestState(layout, settings);
+    try {
+      await assert.rejects(
+        spawnDaemon({ layout, settings, timeoutMs: 15_000 }),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.match(error.message, /already in use/);
+          assert.ok(error.message.includes(String(port)));
+          return true;
+        },
+      );
+      assert.match(
+        fs.readFileSync(layout.daemonErrLogFile, "utf8"),
+        /\[sashd\] fatal: .*already in use/,
+      );
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
+  });
 });
