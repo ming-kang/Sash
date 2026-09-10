@@ -6,6 +6,10 @@ import { it } from "node:test";
 import { AutostartService } from "../autostart.js";
 import { testAutostartContext } from "../testing/autostart-context.js";
 import { upgradeFixture, writeFixturePackage } from "../testing/upgrade-fixture.js";
+import {
+  type FakeWindowsRegistration,
+  fakeWindowsRegistryRun,
+} from "../testing/windows-registry.js";
 import { writeUpgradeAuthorization } from "../upgrade-access.js";
 import { upgradeTransactionPaths } from "../upgrade-paths.js";
 import { runAutostartUpgrade } from "./autostart-upgrade.js";
@@ -14,21 +18,12 @@ it("preserves login startup for a stopped installation without creating applicat
   skip: process.platform !== "win32",
 }, async (t) => {
   const f = upgradeFixture();
-  let command: string | null = null;
-  const { root, options, ctx } = testAutostartContext(t, "win32", async (_command, _args, env) => {
-    if (env.SASH_AUTOSTART_MODE) {
-      command = env.SASH_AUTOSTART_MODE === "on" ? (env.SASH_AUTOSTART_COMMAND ?? "") : null;
-      return { code: 0, stdout: "", stderr: "" };
-    }
-    return {
-      code: 0,
-      stdout: JSON.stringify({
-        run: command === null ? null : Buffer.from(command).toString("base64"),
-        approval: null,
-      }),
-      stderr: "",
-    };
-  });
+  const registration: FakeWindowsRegistration = { command: null, approval: null };
+  const { root, options, ctx } = testAutostartContext(
+    t,
+    "win32",
+    fakeWindowsRegistryRun(registration),
+  );
   const oldNode = path.join(root, "previous-node.exe");
   fs.writeFileSync(oldNode, "Node executable fixture");
   const original = new AutostartService({

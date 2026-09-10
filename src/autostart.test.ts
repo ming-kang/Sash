@@ -5,26 +5,22 @@ import { describe, it } from "node:test";
 import { AutostartService } from "./autostart.js";
 import type { RegisteredAutostartState } from "./autostart-contract.js";
 import { testAutostartContext } from "./testing/autostart-context.js";
+import {
+  type FakeWindowsRegistration,
+  fakeWindowsRegistryRun,
+} from "./testing/windows-registry.js";
 
 describe("AutostartService", () => {
   it("repairs and rolls back the Node path only while a recorded launcher still owns startup", async (t) => {
-    let command: string | null = null;
+    const registration: FakeWindowsRegistration = { command: null, approval: null };
     let writes = 0;
-    const { root, options, ctx } = testAutostartContext(t, "win32", async (_file, _args, env) => {
-      if (env.SASH_AUTOSTART_MODE) {
+    const { root, options, ctx } = testAutostartContext(
+      t,
+      "win32",
+      fakeWindowsRegistryRun(registration, () => {
         writes += 1;
-        command = env.SASH_AUTOSTART_MODE === "on" ? (env.SASH_AUTOSTART_COMMAND ?? "") : null;
-        return { code: 0, stdout: "", stderr: "" };
-      }
-      return {
-        code: 0,
-        stdout: JSON.stringify({
-          run: command === null ? null : Buffer.from(command).toString("base64"),
-          approval: null,
-        }),
-        stderr: "",
-      };
-    });
+      }),
+    );
     const node = path.join(root, "new-node.exe");
     fs.writeFileSync(node, "fixture Node path");
     const original = new AutostartService({ ...options, checkInstallation: () => null });
@@ -40,7 +36,7 @@ describe("AutostartService", () => {
     assert.equal((await original.repairAfterUpgrade(history)).state, "on");
     const before = fs.readFileSync(path.join(ctx.controlDir, "start.vbs"));
     const previousWrites = writes;
-    command = "another application";
+    registration.command = "another application";
     await assert.rejects(replacement.repairAfterUpgrade(history), /changed outside Sash/);
     assert.equal(writes, previousWrites);
     assert.deepEqual(fs.readFileSync(path.join(ctx.controlDir, "start.vbs")), before);

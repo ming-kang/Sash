@@ -3,31 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { testAutostartContext } from "../testing/autostart-context.js";
+import {
+  type FakeWindowsRegistration,
+  fakeWindowsRegistryRun,
+} from "../testing/windows-registry.js";
 import { windowsAutostart, windowsLauncherContents } from "./windows.js";
 
 describe("Windows login startup", () => {
   it("registers a hidden Unicode launcher, observes OS suppression, repairs, and removes it", async (t) => {
-    let command: string | null = null;
-    let approval: string | null = null;
-    const { ctx } = testAutostartContext(t, "win32", async (_exe, args, env) => {
-      assert.equal(env.GITHUB_TOKEN, undefined);
-      assert.equal(env.NPM_TOKEN, undefined);
-      assert.equal(env.npm_config_userconfig, undefined);
-      assert.equal(args[2], "-EncodedCommand");
-      if (env.SASH_AUTOSTART_MODE) {
-        command = env.SASH_AUTOSTART_MODE === "on" ? (env.SASH_AUTOSTART_COMMAND ?? null) : null;
-        approval = null;
-        return { code: 0, stdout: "", stderr: "" };
-      }
-      return {
-        code: 0,
-        stdout: JSON.stringify({
-          run: command === null ? null : Buffer.from(command).toString("base64"),
-          approval,
-        }),
-        stderr: "",
-      };
-    });
+    const registration: FakeWindowsRegistration = { command: null, approval: null };
+    const { ctx } = testAutostartContext(t, "win32", fakeWindowsRegistryRun(registration));
     const backend = windowsAutostart(ctx);
     assert.equal(await backend.inspect(), "off");
     await backend.set(true);
@@ -39,12 +24,11 @@ describe("Windows login startup", () => {
     assert.equal(await backend.inspect(), "on");
     const bytes = Buffer.alloc(12);
     bytes[0] = 3;
-    approval = bytes.toString("base64");
+    registration.approval = bytes;
     assert.equal(await backend.inspect(), "disabled");
     bytes[0] = 255;
-    approval = bytes.toString("base64");
     assert.equal(await backend.inspect(), "disabled");
-    approval = "";
+    registration.approval = Buffer.alloc(0);
     assert.equal(await backend.inspect(), "disabled");
     fs.writeFileSync(file, "old launcher");
     assert.equal(await backend.inspect(), "stale");
@@ -68,7 +52,7 @@ describe("Windows login startup", () => {
   it("rejects malformed registry output and control-character injection", async (t) => {
     const { ctx } = testAutostartContext(t, "win32", async () => ({
       code: 0,
-      stdout: JSON.stringify({ run: "***", approval: null }),
+      stdout: "not a registry query response",
       stderr: "",
     }));
     await assert.rejects(windowsAutostart(ctx).inspect(), /Invalid Windows/);
