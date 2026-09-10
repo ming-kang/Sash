@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-10
+
+### Fixed
+
+- Keep Sash upgrades working from 0.1.3 and 0.1.4: their updater writes the runtime handoff with three extra fields and re-reads it while the transaction runs, so accept that legacy schema and keep writing it back unchanged until the handoff is cleared.
+
 ## [0.1.6] - 2026-09-10
 
 ### Added
