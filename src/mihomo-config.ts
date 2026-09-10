@@ -179,7 +179,6 @@ export async function fetchSubscriptionProfile(
       signal,
       attempts: 3,
       deadlineMs: remainingDeadlineMs,
-      manualRedirect: true,
       // A clash-format UA hints subscription gateways to return Clash config.
       headers: { "user-agent": "clash.meta; mihomo; sash" },
     });

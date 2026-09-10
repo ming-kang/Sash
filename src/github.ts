@@ -47,7 +47,6 @@ export async function resolveLatestTag(repo: string, signal?: AbortSignal): Prom
   try {
     const res = await fetchWithRetry(latestUrl, {
       signal,
-      manualRedirect: true,
       attempts: 2,
       deadlineMs: 15_000,
     });
@@ -81,7 +80,6 @@ export async function resolveLatestTag(repo: string, signal?: AbortSignal): Prom
     },
     attempts: 2,
     deadlineMs: 15_000,
-    manualRedirect: true,
   });
   if (res.statusCode !== 200) {
     await readErrorSummary(res);
@@ -121,7 +119,6 @@ export async function listReleaseAssets(
     },
     attempts: 2,
     deadlineMs: 15_000,
-    manualRedirect: true,
   });
   if (res.statusCode !== 200) {
     await readErrorSummary(res);

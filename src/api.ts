@@ -52,7 +52,6 @@ export class MihomoApi {
       headers,
       body: options.body,
       direct: true,
-      manualRedirect: true,
       attempts: options.attempts,
       signal: options.signal,
       deadlineMs: options.deadlineMs ?? 5_000,

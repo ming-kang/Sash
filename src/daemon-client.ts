@@ -13,7 +13,6 @@ const daemonFetch: SashClientFetch = async (url, init) => {
     headers: init.headers,
     ...(init.body !== undefined ? { body: init.body } : {}),
     direct: true,
-    manualRedirect: true,
     deadlineMs: init.timeoutMs,
     headersTimeoutMs: init.timeoutMs,
     ...(init.attempts !== undefined ? { attempts: init.attempts } : {}),

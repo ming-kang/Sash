@@ -4,24 +4,22 @@ import path from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Dispatcher } from "undici";
-import { Agent, EnvHttpProxyAgent, interceptors, request } from "undici";
+import { Agent, EnvHttpProxyAgent, request } from "undici";
 
 /**
  * HTTP helpers built on undici.
  *
  * Remote requests honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY.
  * Loopback external-controller requests use a direct Agent so proxy environment
- * variables cannot intercept them. Redirect following is opt-in; callers which
- * need redirect policy receive 3xx responses and handle every hop themselves.
+ * variables cannot intercept them. Redirects are never followed implicitly:
+ * every caller receives 3xx responses and handles each hop itself.
  */
 
 export const USER_AGENT = "sash-cli (https://github.com/ming-kang/Sash)";
 export const ERROR_BODY_LIMIT = 32 * 1024;
 
 let baseProxyDispatcher: Dispatcher | undefined;
-let redirectProxyDispatcher: Dispatcher | undefined;
 let baseDirectDispatcher: Dispatcher | undefined;
-let redirectDirectDispatcher: Dispatcher | undefined;
 
 function getBaseProxyDispatcher(): Dispatcher {
   if (!baseProxyDispatcher) {
@@ -57,19 +55,8 @@ export function directDispatcherForLoopback(): Dispatcher {
   return getBaseDirectDispatcher();
 }
 
-function pickDispatcher(opts: { direct?: boolean; manualRedirect?: boolean }): Dispatcher {
-  const base = opts.direct ? getBaseDirectDispatcher() : getBaseProxyDispatcher();
-  if (opts.manualRedirect) return base;
-  if (opts.direct) {
-    if (!redirectDirectDispatcher) {
-      redirectDirectDispatcher = base.compose(interceptors.redirect({ maxRedirections: 5 }));
-    }
-    return redirectDirectDispatcher;
-  }
-  if (!redirectProxyDispatcher) {
-    redirectProxyDispatcher = base.compose(interceptors.redirect({ maxRedirections: 5 }));
-  }
-  return redirectProxyDispatcher;
+function pickDispatcher(opts: { direct?: boolean }): Dispatcher {
+  return opts.direct ? getBaseDirectDispatcher() : getBaseProxyDispatcher();
 }
 
 export interface FetchResponse {
@@ -107,8 +94,6 @@ export interface FetchOptions {
   direct?: boolean;
   method?: string;
   body?: string | Buffer;
-  /** Do not follow redirects; expose status/location to the caller. */
-  manualRedirect?: boolean;
 }
 
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -317,7 +302,7 @@ export async function downloadToFile(
   const deadlineTimer = setTimeout(() => {
     deadline.abort(new Error(`Download deadline exceeded after ${deadlineMs}ms`));
   }, deadlineMs);
-  const dispatcher = pickDispatcher({ direct: false, manualRedirect: true });
+  const dispatcher = pickDispatcher({});
   let outputStarted = false;
   let res: Awaited<ReturnType<typeof request>> | undefined;
 

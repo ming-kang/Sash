@@ -50,7 +50,7 @@ export async function resolveSashUpgradeTarget(
   const tag = version === undefined ? "latest" : exactSashVersion(version);
   const response = await fetchWithRetry(
     `${NPM_REGISTRY}/${encodeURIComponent(SASH_PACKAGE_NAME)}/${encodeURIComponent(tag)}`,
-    { attempts: 2, deadlineMs: 20_000, manualRedirect: true, signal },
+    { attempts: 2, deadlineMs: 20_000, signal },
   );
   if (response.statusCode !== 200) {
     await readErrorSummary(response);
