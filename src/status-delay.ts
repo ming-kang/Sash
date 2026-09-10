@@ -5,6 +5,7 @@ import {
   validateDelayTarget,
 } from "./core-delay.js";
 import { createDaemonClient } from "./daemon-client.js";
+import { errorDetail } from "./error-utils.js";
 import type { CliRuntimeStatus, StatusObservationContext } from "./status.js";
 
 export type StatusDelayObservation =
@@ -68,9 +69,7 @@ export async function observeStatusDelay(
       state: "unavailable",
       testedAt: null,
       delayMs: null,
-      error: (error instanceof Error ? error.message : String(error))
-        .replace(/\p{Cc}/gu, " ")
-        .slice(0, 300),
+      error: errorDetail(error),
     };
   }
 }

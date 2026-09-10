@@ -8,6 +8,7 @@ import {
   type DaemonRunningInfo,
   evaluateDaemon,
 } from "./daemon-lifecycle.js";
+import { errorDetail } from "./error-utils.js";
 import type { SashLayout } from "./paths.js";
 import { getActiveProfile, loadProfiles } from "./profiles.js";
 import type { SashSettings } from "./settings.js";
@@ -107,13 +108,7 @@ export interface ResolvedSystemProxyObservation {
 }
 
 function errorText(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return (
-    message
-      .replace(/[\r\n\t]+/g, " ")
-      .trim()
-      .slice(0, 300) || "unknown error"
-  );
+  return errorDetail(err) || "unknown error";
 }
 
 function addError(errors: string[], message: string): void {

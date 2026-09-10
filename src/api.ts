@@ -4,8 +4,10 @@ import {
   CORE_DELAY_URL,
   type CoreDelayOutcome,
   type CoreDelayResult,
+  delayFailureState,
   validateDelayTarget,
 } from "./core-delay.js";
+import { errorDetail } from "./error-utils.js";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
 import { parseControllerAddress } from "./settings.js";
@@ -134,12 +136,7 @@ export class MihomoApi {
       } else {
         const summary = await readErrorSummary(response);
         outcome = {
-          state:
-            response.statusCode === 404
-              ? "not_found"
-              : response.statusCode === 408 || response.statusCode === 504
-                ? "timeout"
-                : "failed",
+          state: delayFailureState(response.statusCode),
           delayMs: null,
           error:
             response.statusCode === 404
@@ -160,8 +157,7 @@ export class MihomoApi {
       };
     }
     signal?.throwIfAborted();
-    if (outcome.error !== null)
-      outcome.error = outcome.error.replace(/\p{Cc}/gu, " ").slice(0, 300);
+    if (outcome.error !== null) outcome.error = errorDetail(outcome.error);
     return {
       ...outcome,
       name,

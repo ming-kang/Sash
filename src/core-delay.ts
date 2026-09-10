@@ -15,6 +15,13 @@ export type CoreDelayResult = CoreDelayOutcome & {
   testedAt: string;
 };
 
+/** Core reports a missing target, a probe timeout and any other failure with distinct HTTP statuses. */
+export function delayFailureState(statusCode: number): "not_found" | "timeout" | "failed" {
+  if (statusCode === 404) return "not_found";
+  if (statusCode === 408 || statusCode === 504) return "timeout";
+  return "failed";
+}
+
 export function validateDelayTarget(value: unknown): string {
   if (
     typeof value !== "string" ||

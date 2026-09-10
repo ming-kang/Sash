@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { type SashStateStore, StateConflictError } from "./app-state.js";
+import { errorDetail } from "./error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
 import { fetchSubscriptionProfile, type SubscriptionFetch } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
@@ -332,7 +333,7 @@ export class ProfileService {
           const current = state.profiles.profiles.find((profile) => profile.id === id);
           if (!current || current.revision !== before.revision || current.url !== before.url)
             return;
-          const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+          const message = errorDetail(error);
           this.options.state.commit({
             ...state,
             profiles: {
