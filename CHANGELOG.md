@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-10
+
+### Changed
+
+- Simplify internal plumbing without changing command or dashboard behavior: one daemon client factory, one loopback request gate for HTTP and WebSocket upgrades, one credential environment list for child processes, and one signed-file helper for upgrade handoffs.
+- Stop re-validating daemon-owned response bodies in the CLI and dashboard. Identity, browser credential, upgrade handoff and daemon status boundaries keep their checks.
+- Resolve Core release metadata (tag, assets and compatible asset names) in one place for both update checks and downloads.
+- Fold test helpers out of the collected test glob, start mock Core servers through the shared harness, and keep one upgrade recovery case per recovery path instead of the full boundary matrix.
+- Share one harness across the browser verification scripts, wire them as `npm run verify:ui*`, and drop the orphaned contrast script. Dialog scroll locking now lives with the focus composable.
+- Drop unused helpers (`tailFile`, the mutation queue status field) and single-use autostart modules; report one line of error detail from a single formatter.
+- Update the architecture notes to describe the retained `sash upgrade` behavior.
+
 ## [0.1.4] - 2026-09-10
 
 ### Changed
