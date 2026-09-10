@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-10
+
 ### Changed
 
 - Check Core archive integrity once during download and trust installed files under local account permissions. Remove executable hashing and version-only digest migration from startup, updates, recovery and doctor; retain configuration validation, verified process termination and startup rollback.
