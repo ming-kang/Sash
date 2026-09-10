@@ -13,6 +13,7 @@ import {
   downloadReleaseAsset,
   listReleaseAssets,
   MIHOMO_REPO,
+  type ReleaseAsset,
   resolveLatestTag,
 } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -90,18 +91,42 @@ export interface StagedCore {
   assetName?: string;
 }
 
+export interface CoreReleaseResolution {
+  tag: string;
+  assets: ReleaseAsset[];
+  candidates: string[];
+}
+
+/**
+ * Resolve one release to its assets and the compatible asset names for this
+ * machine. Both the staging path and the metadata-only check use this so the
+ * size/digest and CPU-feature policy cannot drift apart.
+ */
+export async function resolveCoreRelease(
+  options: { tag?: string; signal?: AbortSignal } = {},
+): Promise<CoreReleaseResolution> {
+  const tag = validateCoreReleaseTag(
+    options.tag ?? (await resolveLatestTag(MIHOMO_REPO, options.signal)),
+  );
+  const [assets, level] = await Promise.all([
+    listReleaseAssets(MIHOMO_REPO, tag, options.signal),
+    detectAmd64Level(),
+  ]);
+  return {
+    tag,
+    assets,
+    candidates: mihomoAssetCandidates(tag, process.platform, process.arch, level),
+  };
+}
+
 /** Verify the download and extract it without changing the installed runtime. */
 export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCore> {
   const layout = opts.layout ?? sashLayout();
   opts.onStage?.("resolving");
-  const tag = validateCoreReleaseTag(
-    opts.tag ?? (await resolveLatestTag(MIHOMO_REPO, opts.signal)),
-  );
-  const [assets, level] = await Promise.all([
-    listReleaseAssets(MIHOMO_REPO, tag, opts.signal),
-    detectAmd64Level(),
-  ]);
-  const candidates = mihomoAssetCandidates(tag, process.platform, process.arch, level);
+  const { tag, assets, candidates } = await resolveCoreRelease({
+    ...(opts.tag !== undefined ? { tag: opts.tag } : {}),
+    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+  });
 
   fs.mkdirSync(layout.tempDir, { recursive: true });
   const directory = fs.mkdtempSync(path.join(layout.tempDir, "core-download-"));
