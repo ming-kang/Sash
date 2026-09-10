@@ -50,18 +50,10 @@ export function getActiveProfile(index: ProfilesIndex): ProfileMeta | null {
   return index.profiles.find((profile) => profile.id === index.activeId) ?? null;
 }
 
-export function renderActiveConfig(
-  state: SashState,
-  layout: SashLayout,
-  sources?: {
-    read(profile: Pick<ProfileMeta, "id" | "revision">): ReturnType<typeof readProfileSource>;
-  },
-): GeneratedConfig {
+export function renderActiveConfig(state: SashState, layout: SashLayout): GeneratedConfig {
   const active = getActiveProfile(state.profiles);
   return renderConfig(
-    active
-      ? (sources ? sources.read(active) : readProfileSource(layout, active)).doc
-      : buildDefaultConfig(),
+    active ? readProfileSource(layout, active).doc : buildDefaultConfig(),
     state.settings,
     active ? "subscription" : "default",
   );

@@ -5,7 +5,6 @@ import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
 import { fetchSubscriptionProfile, type SubscriptionFetch } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import { pruneProfileFiles } from "./profile-cleanup.js";
-import { ProfileSourceCache } from "./profile-source-cache.js";
 import {
   allocateProfileId,
   getActiveProfile,
@@ -16,6 +15,7 @@ import {
   profileDueForUpdate,
   profileFilePath,
   profileNameFromUrl,
+  readProfileSource,
 } from "./profiles.js";
 
 export class ProfileInputError extends Error {
@@ -43,7 +43,6 @@ export interface ProfileServiceOptions {
   commit: ProfileCommitBoundary;
   assertMutable?: () => void;
   fetchProfile?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
-  sources?: ProfileSourceCache;
   canCleanTemp?: () => boolean;
 }
 
@@ -79,11 +78,7 @@ export class ProfileService {
   private readonly downloads = new Set<AbortController>();
   private readonly updates = new Map<string, Promise<ProfileUpdateResult>>();
   private downloadGeneration = 0;
-  private readonly sources: ProfileSourceCache;
-
-  constructor(private readonly options: ProfileServiceOptions) {
-    this.sources = options.sources ?? new ProfileSourceCache(options.layout);
-  }
+  constructor(private readonly options: ProfileServiceOptions) {}
 
   list(): ProfilesIndex {
     return this.options.state.snapshot().profiles;
@@ -145,7 +140,7 @@ export class ProfileService {
     let unchanged = false;
     if (previous) {
       try {
-        unchanged = this.sources.read(previous).yamlText === text;
+        unchanged = readProfileSource(this.options.layout, previous).yamlText === text;
       } catch {
         /* A valid update can replace a missing or damaged source. */
       }
@@ -265,7 +260,7 @@ export class ProfileService {
     const profile = this.requireProfile(this.list(), id);
     return {
       name: profile.name,
-      content: this.sources.read(profile).yamlText,
+      content: readProfileSource(this.options.layout, profile).yamlText,
       revision: profile.revision,
     };
   }
@@ -299,7 +294,7 @@ export class ProfileService {
     return this.options.commit("select profile", () => {
       const state = this.options.state.snapshot();
       const profile = id === null ? null : this.requireProfile(state.profiles, id);
-      const doc = profile ? this.sources.read(profile).doc : null;
+      const doc = profile ? readProfileSource(this.options.layout, profile).doc : null;
       if (state.profiles.activeId !== id)
         this.options.state.commit({ ...state, profiles: { ...state.profiles, activeId: id } });
       return { activeId: id, proxyCount: Array.isArray(doc?.proxies) ? doc.proxies.length : 0 };
