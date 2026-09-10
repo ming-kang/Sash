@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Core installs and updates no longer depend on a PowerShell 7 CPU probe that standard Windows does not ship: its silent failure denied the faster v3 build to nearly every Windows machine. The staged build is now preflighted directly (`-v`); a processor that cannot run it rejects it with an illegal-instruction exit and staging falls through to the next published variant.
+- `sash status` no longer spends a PowerShell/registry round-trip probing the OS proxy state when a healthy daemon already reported it.
+
+### Removed
+
+- About 2,800 lines of machinery that guarded against opponents that do not exist: an inode/mtime profile cache defending against out-of-band edits of immutable files, a slow-mutation reporting rig and purpose labels threaded through three layers for no consumer, a 500ms supervisor status cache under an already-throttled event observer, a post-spawn version re-check the update transaction already closes, dead redirect dispatchers and a meaningless `manualRedirect` option at seven call sites, and — in the dashboard — request-generation counters, cross-tab ownership arbitration and optimistic-transaction rollback pointed at a single-user loopback daemon. Also gone: the one-off trace script and 17 tautological/contract-mirror tests.
+
 ## [0.2.1] - 2026-09-10
 
 ### Changed

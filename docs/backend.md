@@ -23,12 +23,12 @@ Daemon startup holds the `state/sashd.lock` singleton lease while loading applic
 | `profile-model.ts`, `profiles.ts`, `profile-service.ts` | Validate metadata/YAML, manage immutable sources and saved selection |
 | `core-yaml.ts`, `profile-source-cache.ts`, `profile-cleanup.ts` | One shared YAML entry point, bounded parsed-source reuse and orphan maintenance |
 | `runtime-lifecycle.ts` | Order Core and proxy changes; retain the applied configuration and runtime revision |
-| `supervisor.ts`, `process.ts` | Owned child handles, version/health checks and verified termination |
+| `supervisor.ts`, `process.ts` | Owned child handles, health checks and verified termination |
 | `core.ts`, `core-archive.ts`, `core-update.ts`, `core-install-record.ts` | Trusted downloads, bounded extraction and one executable/install-record transaction |
 | `installation.ts`, `self-upgrade.ts`, `commands/upgrade.ts` | Read-only installation detection, npm target resolution and one global install around a daemon restart |
 | `system-proxy-manager.ts`, `sysproxy/` | Windows proxy snapshot, verification and conditional recovery |
 | `autostart.ts`, `autostart/` | Windows current-user registration and launcher validation |
-| `daemon/router.ts`, `daemon/handlers/` | Route matching, authentication, parsing and domain dispatch |
+| `daemon/router.ts`, `daemon/handlers.ts` | Route matching, authentication, parsing and domain dispatch |
 | `daemon/events.ts`, `daemon/event-observations.ts` | Shared status observer, bounded SSE delivery and cached desktop observations |
 | `contracts.ts`, `sash-client.ts`, `daemon-client.ts` | Shared browser-safe protocol and direct Node transport |
 | `core-delay.ts`, `status-delay.ts` | Explicit outbound observations and independent CLI sampling |
@@ -95,7 +95,7 @@ Core acquisition selects an unmodified upstream release artifact using official 
 
 ZIP metadata and file contents are read through `yauzl`; Sash scans all entry names before creating output and streams the selected binary without buffering the archive. Both ZIP and gzip extraction exclusively create the temporary output, preserve pre-existing files/links, honor cancellation and remove only output created by that attempt. The ZIP reader closes before archive cleanup. Test fixtures generate ZIP archives with the development-only `yazl` writer; no second ZIP library ships with Sash.
 
-`cpu-features.ts` detects usable x64 instruction sets once per process. Windows uses an available PowerShell 7 host and .NET CPU/OS intrinsics; Linux and macOS read kernel-reported features. Selection prefers supported v3, then v2/v1 assets. Unknown capabilities admit only compatible/v1 builds. ARM64 selects its native asset. Sash does not download multiple binaries to discover CPU compatibility.
+There is no CPU feature detection. The amd64 candidate list prefers the newest ISA level (v3, plain, v2, v1, compatible) and `stageCore` preflights each staged build with a `-v` invocation: a processor that lacks the build's instruction set kills it with an illegal-instruction exit, and staging falls through to the next variant. Download, integrity and extraction errors abort immediately — only a failed preflight falls back. ARM64 selects its single native asset.
 
 Installed executables are trusted local files. Startup, configuration validation, updates, recovery and doctor do not hash them or run additional version-only probes. `state/install.json` holds `{coreVersion, installedAt, assetName?}`; a legacy `sha256` field is ignored. The running controller supplies version and readiness during the actual start.
 
