@@ -153,8 +153,9 @@ export function resolveObservedSystemProxy(
 
   if (source) {
     daemonApplied = source.appliedKnown ? source.applied : null;
-    if (daemonApplied === null) addError(errors, "Daemon-applied proxy state is unavailable");
-    if (source.queryError) addError(errors, `System proxy query failed: ${source.queryError}`);
+    if (daemonApplied === null)
+      addError(errors, "system proxy: Sash could not confirm what it applied");
+    if (source.queryError) addError(errors, `system proxy: ${source.queryError}`);
     if (source.stateKnown && source.state) {
       osObserved = observedSystemProxy(source.state);
     }
@@ -162,7 +163,7 @@ export function resolveObservedSystemProxy(
 
   if (!osObserved && inspection) {
     if (inspection.queryError) {
-      addError(errors, `System proxy query failed: ${inspection.queryError}`);
+      addError(errors, `system proxy: ${inspection.queryError}`);
     }
     if (inspection.stateKnown) {
       osObserved = observedSystemProxy(inspection.state);
@@ -172,7 +173,7 @@ export function resolveObservedSystemProxy(
 
   osObserved ??= observedSystemProxy(undefined);
   if (osObserved.supported === null || osObserved.enabled === null) {
-    addError(errors, "OS proxy state is unavailable");
+    addError(errors, "system proxy: could not read the Windows setting");
   }
   return { daemonApplied, osObserved, errors };
 }
@@ -196,7 +197,7 @@ async function observeSystemProxy(
             ? await dependencies.inspectSystemProxy(context)
             : await new SystemProxyManager({ layout: context.layout }).inspect();
     } catch (err) {
-      inspectionError = `OS proxy query failed: ${errorText(err)}`;
+      inspectionError = `system proxy: ${errorText(err)}`;
     }
   }
   return resolveObservedSystemProxy(source, fallbackDaemonApplied, inspection, inspectionError);
@@ -283,7 +284,7 @@ export async function collectRuntimeStatus(
       };
 
       if (typeof status.core.running !== "boolean") {
-        addError(errors, "Core running state is unavailable");
+        addError(errors, "Core: state unknown");
       } else if (!status.core.running) {
         coreRunning = false;
         coreHealthy = false;
@@ -295,17 +296,17 @@ export async function collectRuntimeStatus(
           typeof status.core.version === "string" && status.core.version
             ? status.core.version
             : null;
-        if (coreHealthy === null) addError(errors, "Core health is unavailable");
-        else if (!coreHealthy) addError(errors, "Core controller health probe failed");
-        if (corePid === null) addError(errors, "Core PID is unavailable");
-        if (coreVersion === null) addError(errors, "Core runtime version is unavailable");
+        if (coreHealthy === null) addError(errors, "Core: health unknown");
+        else if (!coreHealthy) addError(errors, "Core: its control API is not answering");
+        if (corePid === null) addError(errors, "Core: process id unknown");
+        if (coreVersion === null) addError(errors, "Core: version unknown");
       }
     } catch (err) {
       daemon = daemonObservation(daemonState, "unhealthy");
-      addError(errors, `Daemon status query failed: ${errorText(err)}`);
+      addError(errors, `Sash API request failed: ${errorText(err)}`);
     }
   } else if (daemonState.running) {
-    addError(errors, "sashd control API is unavailable");
+    addError(errors, "Sash API is unreachable");
   }
 
   const [proxyProbe, autostartProbe] = await probes;
@@ -332,7 +333,7 @@ export async function collectRuntimeStatus(
       ? autostartProbe.value
       : { state: "unknown", canEnable: false, reason: errorText(autostartProbe.reason) };
   if (autostart.state === "unknown") {
-    addError(errors, `Autostart query failed: ${autostart.reason ?? "unknown error"}`);
+    addError(errors, `start at login: ${autostart.reason ?? "could not read the state"}`);
   }
 
   return {
@@ -372,36 +373,82 @@ export async function collectRuntimeStatus(
 export type StatusHeadline = { level: "info" | "ok" | "warn"; text: string };
 
 export function runtimeStatusHeadline(status: CliRuntimeStatus): StatusHeadline {
-  if (status.daemon.state === "stopped") return { level: "info", text: "sash is not running" };
+  if (status.daemon.state === "stopped") return { level: "info", text: "Sash is not running" };
   if (status.daemon.state === "unhealthy" || status.core.running === null) {
-    const owner = status.daemon.pid === null ? "" : ` (PID=${status.daemon.pid})`;
+    const owner = status.daemon.pid === null ? "" : ` (PID ${status.daemon.pid})`;
     return {
       level: "warn",
-      text: `sashd is running${owner}, but runtime status is unavailable`,
+      text: `Sash is not responding${owner} — run sash logs --daemon`,
     };
   }
   if (status.core.running) {
     const pid = status.core.pid === null ? "unknown" : String(status.core.pid);
-    const version = status.core.version ? `, ${status.core.version}` : "";
+    const version = status.core.version ? ` (${status.core.version})` : "";
     return status.core.healthy
-      ? {
-          level: "ok",
-          text: `sashd running (PID=${status.daemon.pid}), core running (PID=${pid}${version})`,
-        }
+      ? { level: "ok", text: `Sash is running · Core running${version}` }
       : {
           level: "warn",
-          text: `sashd running (PID=${status.daemon.pid}), core unhealthy (PID=${pid}${version})`,
+          text: `Sash is running · Core unhealthy (PID ${pid})`,
         };
   }
   return {
     level: "ok",
-    text: `sashd running (PID=${status.daemon.pid}), core stopped`,
+    text: "Sash is running · Core stopped",
   };
 }
 
 export function formatObservedProxy(state: CliObservedSystemProxy): string {
   if (state.enabled === null) return "unknown";
   return state.enabled ? `on (${state.server || "unknown server"})` : "off";
+}
+
+/**
+ * One line for the three facts about the system proxy: whether the user wants
+ * it, and what Windows actually has. "Wanted but not applied", "off but still
+ * set" and "could not read" are the states a user has to act on, so they name
+ * the next step instead of the internal desired/applied/observed split.
+ */
+export function formatSystemProxyLine(desired: boolean, observed: CliObservedSystemProxy): string {
+  if (observed.supported === false) return "not supported on this system";
+  if (observed.enabled === null) return "unknown — could not read the Windows setting";
+  if (desired && observed.enabled) return "on";
+  if (desired) return "on — not applied to Windows yet; run sash proxy on";
+  if (observed.enabled) {
+    const server = observed.server ? ` to ${observed.server}` : "";
+    return `off — Windows is still set${server}; run sash proxy off`;
+  }
+  return "off";
+}
+
+/**
+ * Start-at-login states in the user's terms. Only suggest the repair command
+ * when this installation can actually register one: a source checkout or a
+ * linked package reports why instead, so the advice is never a command that
+ * fails.
+ */
+export function formatAutostart(status: {
+  state: string;
+  canEnable?: boolean;
+  reason: string | null;
+}): string {
+  const { state, reason } = status;
+  const repairable = status.canEnable !== false;
+  switch (state) {
+    case "on":
+      return "on";
+    case "off":
+      return repairable ? "off" : (reason ?? "not available for this installation");
+    case "stale":
+      return repairable ? "needs repair — run sash auto on" : (reason ?? "needs repair");
+    case "disabled":
+      return repairable
+        ? "disabled in Windows — run sash auto on to restore it"
+        : (reason ?? "disabled in Windows");
+    case "unsupported":
+      return reason ?? "not supported on this system";
+    default:
+      return reason ? `unknown — ${reason}` : "unknown";
+  }
 }
 
 export function markIncompleteObservation(complete: boolean): void {

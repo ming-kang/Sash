@@ -145,8 +145,8 @@ describe("system proxy observation resolver", () => {
       details: null,
     });
     assert.deepEqual(observation.errors, [
-      "Daemon-applied proxy state is unavailable",
-      "System proxy query failed: registry query failed",
+      "system proxy: Sash could not confirm what it applied",
+      "system proxy: registry query failed",
     ]);
   });
 
@@ -155,7 +155,7 @@ describe("system proxy observation resolver", () => {
       undefined,
       false,
       undefined,
-      "OS proxy query failed: access denied",
+      "system proxy: access denied",
     );
 
     assert.equal(observation.daemonApplied, false);
@@ -166,8 +166,8 @@ describe("system proxy observation resolver", () => {
       details: null,
     });
     assert.deepEqual(observation.errors, [
-      "OS proxy query failed: access denied",
-      "OS proxy state is unavailable",
+      "system proxy: access denied",
+      "system proxy: could not read the Windows setting",
     ]);
   });
 });
@@ -296,7 +296,7 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.complete, false);
     assert.match(status.queryError ?? "", /autostart access denied/);
     const output = await captureConsole(() => runStatus({}, async () => status));
-    assert.ok(output.logs.some((line) => /autostart\s+unknown/.test(line)));
+    assert.ok(output.logs.some((line) => /start at login\s+unknown/.test(line)));
     assert.equal(process.exitCode, 2);
   });
 
@@ -343,7 +343,7 @@ describe("CLI runtime status observations", () => {
 
     assert.equal(status.complete, false);
     assert.equal(status.healthy, null);
-    assert.match(status.queryError ?? "", /control API is unavailable/);
+    assert.match(status.queryError ?? "", /Sash API is unreachable/);
     assert.equal(status.daemon.state, "unhealthy");
     assert.equal(status.core.running, null);
     assert.equal(status.core.healthy, null);
@@ -403,7 +403,7 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.healthy, false);
     assert.equal(status.core.running, true);
     assert.equal(status.core.healthy, false);
-    assert.match(status.queryError ?? "", /health probe failed/);
+    assert.match(status.queryError ?? "", /control API is not answering/);
     assert.equal(runtimeStatusHeadline(status).level, "warn");
   });
 
@@ -435,11 +435,11 @@ describe("CLI runtime status observations", () => {
       false,
     );
     assert.equal(
-      textOutput.warnings.some((line) => line.includes("runtime status is unavailable")),
+      textOutput.warnings.some((line) => line.includes("Sash is not responding")),
       true,
     );
     assert.equal(
-      textOutput.warnings.some((line) => line.includes("status incomplete")),
+      textOutput.warnings.some((line) => line.includes("some details are unavailable")),
       true,
     );
     assert.equal(process.exitCode, 2);

@@ -30,6 +30,30 @@ Sash does what the user asked and reports what happened. It does not re-verify i
 - **No shell-shape policing.** Do not reject user content over a heuristic the Core does not enforce (YAML alias caps, `listeners:` bans, share-link detection, private-IP redirect refusals).
 - **Ask before deleting deliberate functionality.** Thin is about not re-verifying, not licence to remove a feature or a user-facing behaviour the user did not ask to remove.
 
+## Copy and Vocabulary
+
+One name per concept, in the user's terms. Applies to CLI output, `--help`, error messages, and both dashboard locales.
+
+| Concept | Word |
+| --- | --- |
+| the background process | **Sash** — never `sashd`, `daemon` or `management` (disk names stay `sashd.*`) |
+| the network engine | **Core** |
+| the OS proxy setting | **system proxy**; name Windows when reporting what the OS has |
+| the inbound proxy port | **proxy port** |
+| the data directory | **data folder** |
+| the generated Core config | **core config** |
+| the management HTTP API | **local API** |
+| the saved configuration | **profile** |
+| login startup | **start at login** |
+
+- CLI key/value keys are lower case, complete words, at most two words; dashboard headings are Title Case. Both use the same words for the same concept.
+- Booleans are `on`/`off`. Do not use `yes`/`no`, `applied`/`not applied` or `enabled`/`disabled` for the same fact.
+- `unknown` means "could not observe it" and carries the reason (`unknown — could not read the Windows setting`). A known absence is `not installed`, `off` or `none`, never `unknown`.
+- One sentence takes no trailing period. ` · ` joins facts, ` — ` introduces a consequence or the next command to run.
+- Never print `desired`, `applied`, `observed`, `revision`, `journal`, `snapshot`, `identity`, `ownership`, `gate`, `admission`, `lease`, `mutation`, `handoff`, `transaction`, `protocol`, a boot id, a token or a hash. Print the state the user acts on, not the machinery that produced it. PIDs appear only where they help troubleshooting and always in `--json`.
+- Errors say what happened and what to do next. Invariants a user cannot cause are prefixed `internal error:` and ask for a report.
+- **Frozen**: every JSON field and value, every `doctor --json` `checks[].id`, and the exit-code meanings (0 success, 1 failure, 2 incomplete observation). Renaming those is an API change, not a copy change.
+
 ## Safety Invariants
 
 Load-bearing. Do not weaken without explicit user approval.

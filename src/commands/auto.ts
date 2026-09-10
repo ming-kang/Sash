@@ -3,6 +3,7 @@ import type { AutostartStatus } from "../autostart-contract.js";
 import { commandOutput } from "../cli-output.js";
 import { log } from "../log.js";
 import { setRuntimeAutostart } from "../runtime-owner.js";
+import { formatAutostart } from "../status.js";
 import { runtimeContext } from "./shared.js";
 
 export type AutoMode = "on" | "off" | "status";
@@ -26,14 +27,13 @@ export async function runAuto(
         mode === "status"
           ? await controller.inspect()
           : await controller.set(mode === "on", () => {
-              if (!options.json) log.info("Management started to update login startup");
+              if (!options.json) log.info("Starting Sash to change the login startup entry");
             });
       if (mode === "status" && status.state === "unknown") process.exitCode = 2;
       return status;
     },
     (status) => {
-      log.kv("autostart", status.state);
-      if (status.reason) log.warn(status.reason);
+      log.kv("start at login", formatAutostart(status));
     },
   );
 }

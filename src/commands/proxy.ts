@@ -1,6 +1,7 @@
 import { commandOutput } from "../cli-output.js";
 import { inspectCliProxy, setCliProxy } from "../cli-proxy.js";
 import { log } from "../log.js";
+import { formatSystemProxyLine } from "../status.js";
 import { runtimeContext } from "./shared.js";
 
 export type ProxyAction = "on" | "off" | "status";
@@ -20,17 +21,14 @@ export async function runProxy(
       return result;
     },
     (result) => {
-      log.kv("desired", result.desired ? "on" : "off");
-      log.kv("Sash applied", result.appliedKnown ? (result.applied ? "on" : "off") : "unknown");
       log.kv(
-        "OS proxy",
-        !result.stateKnown
-          ? "unknown"
-          : !result.supported
-            ? "unsupported"
-            : result.enabled
-              ? `on (${result.server ?? "unknown server"})`
-              : "off",
+        "system proxy",
+        formatSystemProxyLine(result.desired, {
+          supported: result.stateKnown ? result.supported : null,
+          enabled: result.stateKnown ? result.enabled : null,
+          server: result.server ?? null,
+          details: null,
+        }),
       );
       if (result.queryError) log.warn(result.queryError);
     },

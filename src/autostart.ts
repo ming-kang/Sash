@@ -13,8 +13,7 @@ import { errorMessage } from "./error-utils.js";
 import { assertAbsolutePath, inspectInstallation } from "./installation.js";
 import { StateMutationQueue } from "./state-lock.js";
 
-const INSTALL_HINT =
-  "Autostart requires a direct global installation. Install with npm install -g @astralyn/sash.";
+const INSTALL_HINT = "needs a global installation — run npm install -g @astralyn/sash to enable it";
 
 /** Verify the package layout and its npm bin shim without invoking npm or changing it. */
 export function installationIssue(ctx: AutostartContext): string | null {
@@ -67,7 +66,7 @@ export class AutostartService implements AutostartController {
       return {
         state: "unsupported",
         canEnable: false,
-        reason: `Autostart is not supported on ${this.context.platform}`,
+        reason: `not supported on ${this.context.platform}`,
       };
     }
     const issue = this.checkInstallation(this.context);

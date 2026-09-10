@@ -18,7 +18,7 @@ describe("sash auto", () => {
       },
     };
     await assert.rejects(runAuto("on", controller), /registration failed/);
-    assert.ok(logs.some((line) => /Management started/.test(line)));
+    assert.ok(logs.some((line) => /Starting Sash to change the login startup entry/.test(line)));
     let output = "";
     t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
       output += String(chunk);

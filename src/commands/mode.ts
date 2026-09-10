@@ -12,6 +12,6 @@ export async function runMode(mode: RoutingMode, options: { json?: boolean } = {
       await setRuntimeMode(runtimeContext(), mode);
       return { mode };
     },
-    () => log.info(`Runtime mode set to ${mode}; Apply restores the saved profile's mode`),
+    () => log.info(`Routing mode is now ${mode} — it lasts until you apply configuration`),
   );
 }

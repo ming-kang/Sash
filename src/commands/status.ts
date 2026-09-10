@@ -6,7 +6,8 @@ import { log } from "../log.js";
 import {
   type CliRuntimeStatus,
   collectRuntimeStatus,
-  formatObservedProxy,
+  formatAutostart,
+  formatSystemProxyLine,
   markIncompleteObservation,
   runtimeStatusHeadline,
 } from "../status.js";
@@ -83,42 +84,33 @@ export async function runStatus(
 
   const headline = runtimeStatusHeadline(status);
   log[headline.level](headline.text);
-  if (status.queryError) log.warn(`status incomplete: ${status.queryError}`);
+  if (status.queryError) log.warn(`some details are unavailable: ${status.queryError}`);
 
-  log.kv("root", status.paths.root);
-  log.kv("autostart", status.autostart.state);
-  if (status.autostart.state === "stale" || status.autostart.state === "disabled") {
-    log.warn("Run sash auto on to repair the login startup registration");
-  }
-  log.kv("config", status.paths.config);
-  log.kv("mixed port", status.endpoints.mixedProxy);
-  log.kv("proxy desired", status.systemProxy.desired ? "on" : "off");
   log.kv(
-    "daemon applied",
-    status.systemProxy.daemonApplied === null
-      ? status.daemon.state === "stopped"
-        ? "n/a (stopped)"
-        : "unknown"
-      : status.systemProxy.daemonApplied
-        ? "yes"
-        : "no",
-  );
-  log.kv("os proxy", formatObservedProxy(status.systemProxy.osObserved));
-  log.kv("sash api", status.endpoints.daemonApi);
-  log.kv("dashboard", status.endpoints.dashboard);
-  log.kv(
-    "selected profile",
+    "profile",
     status.activeProfile
-      ? `${status.activeProfile.name} (${status.activeProfile.url || "local file"})`
-      : "(none)",
+      ? `${status.activeProfile.name} (${status.activeProfile.url ? "subscription" : "local file"})`
+      : "none selected — using the built-in configuration",
   );
-  log.kv("core version", status.core.installedVersion || "(not installed)");
+  log.kv("proxy port", status.endpoints.mixedProxy);
+  log.kv(
+    "system proxy",
+    formatSystemProxyLine(status.systemProxy.desired, status.systemProxy.osObserved),
+  );
+  log.kv("dashboard", status.endpoints.dashboard);
+  log.kv("local API", status.endpoints.daemonApi);
+  // The headline already names the running version; this line answers
+  // "is a Core installed" while it is stopped.
+  if (status.core.running !== true) log.kv("core", status.core.installedVersion || "not installed");
   if (status.delay) {
     const delay = status.delay;
     log.kv(
-      "delay",
+      "latency test",
       `${delay.name}: ${delay.state === "ok" ? `${delay.delayMs} ms` : delay.state === "pending" ? "testing…" : delay.state.replaceAll("_", " ")}`,
     );
   }
+  log.kv("start at login", formatAutostart(status.autostart));
+  log.kv("data folder", status.paths.root);
+  log.kv("core config", status.paths.config);
   markIncompleteObservation(status.complete);
 }

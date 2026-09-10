@@ -22,16 +22,16 @@ describe("stable autostart installation", () => {
       installationIssue(
         autostartContext({ ...options, packageRoot: path.join(root, "package") }),
       ) ?? "",
-      /direct global/,
+      /needs a global installation/,
     );
     // The npm layout is recognized for the requested platform only.
     assert.match(
       installationIssue(autostartContext({ ...options, packageRoot, platform: "linux" })) ?? "",
-      /direct global/,
+      /needs a global installation/,
     );
     // The referenced entry file must exist.
     fs.unlinkSync(ctx.entryPath);
-    assert.match(installationIssue(ctx) ?? "", /direct global/);
+    assert.match(installationIssue(ctx) ?? "", /needs a global installation/);
   });
 
   it("rejects relative paths and control characters", (t) => {

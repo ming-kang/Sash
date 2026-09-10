@@ -5,32 +5,37 @@ import { type RuntimeContext, runtimeContext } from "./shared.js";
 export async function runStart(): Promise<void> {
   const ctx = runtimeContext();
   const { owner, result } = await ensureRunning(ctx);
-  const state =
-    result.alreadyRunning === true
-      ? "already running"
-      : result.alreadyRunning === false
-        ? "started"
-        : "running";
-  log.ok(`core ${state} (PID=${result.pid}${result.version ? `, version ${result.version}` : ""})`);
+  const version = result.version ? `${result.version}, ` : "";
+  const core = `Core ${result.alreadyRunning === true ? "already running" : "running"} (${version}PID ${result.pid})`;
+  log.ok(
+    result.alreadyRunning === true ? `Sash already running · ${core}` : `Sash started · ${core}`,
+  );
   printEndpoints(ctx, owner.daemon.port, result.mixedPort);
 }
 export async function runStop(options: { core?: boolean } = {}): Promise<void> {
   if (options.core) {
     const result = await stopCoreRuntime(runtimeContext());
     log.info(
-      result.managementRunning ? "Core stopped; management remains available" : "Core is stopped",
+      result.managementRunning
+        ? "Core stopped; the dashboard is still available"
+        : "Core is already stopped",
     );
     return;
   }
-  const result = await stopRuntime(runtimeContext());
+  const ctx = runtimeContext();
+  const result = await stopRuntime(ctx);
   log.info(
-    result.wasRunning ? "sash stopped; previous system proxy state restored" : "sash is stopped",
+    !result.wasRunning
+      ? "Sash is already stopped"
+      : ctx.settings.systemProxy
+        ? "Sash stopped · Windows system proxy restored"
+        : "Sash stopped",
   );
 }
 export async function runRestart(): Promise<void> {
   const ctx = runtimeContext();
   const { owner, result } = await restartRuntime(ctx);
-  log.ok(`core restarted (PID=${result.pid})`);
+  log.ok(`Configuration applied · Core restarted (PID ${result.pid})`);
   printEndpoints(ctx, owner.daemon.port, result.mixedPort);
 }
 function printEndpoints(
@@ -38,7 +43,7 @@ function printEndpoints(
   daemonPort: number,
   mixedPort = ctx.settings.mixedPort,
 ): void {
-  log.kv("mixed port", `127.0.0.1:${mixedPort}`);
-  log.kv("sash api", `http://127.0.0.1:${daemonPort}`);
+  log.kv("proxy port", `127.0.0.1:${mixedPort}`);
   log.kv("dashboard", `http://127.0.0.1:${daemonPort}/ui/  (sash web to open)`);
+  log.kv("local API", `http://127.0.0.1:${daemonPort}`);
 }

@@ -13,6 +13,8 @@ import { DEFAULT_SETTINGS, parseControllerAddress } from "./settings.js";
 import {
   type CliRuntimeStatus,
   collectRuntimeStatus,
+  formatAutostart,
+  formatSystemProxyLine,
   type StatusObservationDependencies,
 } from "./status.js";
 import {
@@ -157,8 +159,10 @@ export async function diagnoseSash(
     add(
       "manifest",
       state ? "ok" : "info",
-      state ? `Validated ${layout.settingsFile}` : `No application state at ${layout.settingsFile}`,
-      state ? undefined : "Run sash web or sash start to initialize this data directory",
+      state
+        ? `Settings are readable: ${layout.settingsFile}`
+        : `No settings yet in this folder: ${layout.settingsFile}`,
+      state ? undefined : "Run sash start or sash web to create them",
     );
   } catch (error) {
     stateValid = false;
@@ -187,10 +191,10 @@ export async function diagnoseSash(
       add(
         "core",
         "error",
-        `Core binary/install metadata is inconsistent: ${layout.coreExe}`,
+        `The Core binary and its install record disagree: ${layout.coreExe}`,
         "Preserve existing files, stop the instance and inspect its install record before reinstalling",
       );
-    else add("core", "ok", `Core ${record.coreVersion}; executable and install record are present`);
+    else add("core", "ok", `Core ${record.coreVersion} is installed`);
   } catch (error) {
     add(
       "core",
@@ -211,7 +215,7 @@ export async function diagnoseSash(
           (runtime.core.running === true && runtime.core.healthy !== true)
           ? "warning"
           : "ok",
-        `Management ${runtime.daemon.state}; Core ${runtime.core.running === null ? "unknown" : runtime.core.running ? "running" : "stopped"}`,
+        `Sash ${runtime.daemon.state === "healthy" ? "is running" : runtime.daemon.state === "stopped" ? "is not running" : "is not responding"} · Core ${runtime.core.running === null ? "unknown" : runtime.core.running ? "running" : "stopped"}`,
         runtime.daemon.state === "unhealthy"
           ? "Inspect sash logs --daemon --errors; do not stop an unverified process"
           : undefined,
@@ -227,7 +231,7 @@ export async function diagnoseSash(
       add(
         "proxy",
         proxy.osObserved.enabled === null || proxy.daemonApplied === null ? "warning" : "ok",
-        `Desired ${proxy.desired ? "on" : "off"}; Sash ${proxy.daemonApplied === null ? "unknown" : proxy.daemonApplied ? "applied" : "not applied"}; OS ${proxy.osObserved.enabled === null ? "unknown" : proxy.osObserved.enabled ? "on" : "off"}`,
+        formatSystemProxyLine(proxy.desired, proxy.osObserved),
         runtime.queryError ?? undefined,
       );
       const auto = runtime.autostart;
@@ -240,9 +244,9 @@ export async function diagnoseSash(
             : auto.state === "unsupported"
               ? "info"
               : "ok",
-        `Login startup ${auto.state}${auto.reason ? `: ${auto.reason}` : ""}`,
+        formatAutostart(auto),
         auto.state === "stale" || auto.state === "disabled"
-          ? "Inspect sash auto status; use sash auto on for the intended data directory to repair startup"
+          ? "Run sash auto on to repair the entry, or sash auto off to remove it"
           : undefined,
       );
     } catch (error) {
@@ -319,18 +323,18 @@ export async function diagnoseSash(
         "proxy-connections",
         connections.additionalRecords > 0 ? "warning" : "ok",
         connections.additionalRecords > 0
-          ? `${connections.additionalRecords} additional Windows connection record(s) found; their proxy settings are outside Sash management`
-          : "No additional Windows per-connection proxy records detected",
+          ? `Windows has ${connections.additionalRecords} connection-specific proxy record(s) that Sash does not manage`
+          : "No per-connection proxy entries in Windows",
         connections.additionalRecords > 0
-          ? "Inspect Windows/VPN connection proxy settings. Sash manages the desktop LAN proxy/PAC settings and does not change per-connection records"
+          ? "Check per-connection proxy settings for Windows or VPN entries; Sash only manages the desktop LAN proxy and PAC settings"
           : undefined,
       );
   } catch {
     add(
       "proxy-connections",
       "warning",
-      "Windows per-connection proxy settings could not be inspected",
-      "Check access to the current user's Internet Settings\\Connections registry key; Sash does not manage per-connection records",
+      "Could not read the Windows per-connection proxy settings",
+      "Check that Sash can read the current user's Windows Internet Settings; Sash does not manage per-connection records",
     );
   }
   return {

@@ -79,7 +79,7 @@ describe("lifecycle commands", () => {
     await runStart();
     assert.equal(requests.filter((request) => request.url === "/sash/core/start").length, 1);
     assert.ok(
-      output.some((line) => line.includes("sash api") && line.includes(`127.0.0.1:${port}`)),
+      output.some((line) => line.includes("local API") && line.includes(`127.0.0.1:${port}`)),
     );
   });
 

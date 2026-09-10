@@ -43,12 +43,12 @@ program
     "after",
     `
 Examples:
-  $ sash start                 install components if needed and launch sash in the background
+  $ sash start                 install the Core if needed and start Sash in the background
   $ sash web                   open the web dashboard
-  $ sash status                show runtime state, endpoints, and system proxy status
-  $ sash update                upgrade the core binary
-  $ sash upgrade               upgrade Sash through npm and restart sashd
-  $ sash profile list          list saved profiles
+  $ sash status                show Sash, Core and system proxy status
+  $ sash update                update the Core binary
+  $ sash upgrade               upgrade Sash with npm and restart it
+  $ sash profile list          list saved profiles and the selected one
   $ sash proxy on              enable the system proxy for a running Core
 
 Data directory: %LOCALAPPDATA%\\Sash (Windows), ~/Library/Application Support/Sash (macOS),
@@ -60,13 +60,13 @@ Set SASH_DEBUG=1 to print CLI error stacks to stderr.`,
 
 program
   .command("start")
-  .description("install components if needed and start sash in the background")
+  .description("install the Core if needed and start Sash in the background")
   .action(withCliErrors(async () => (await import("./commands/lifecycle.js")).runStart()));
 
 program
   .command("stop")
-  .description("stop sash (shuts down core and disables system proxy)")
-  .option("--core", "stop Core and keep management available")
+  .description("stop Sash, shut down the Core and restore the system proxy")
+  .option("--core", "stop the Core and keep the dashboard running")
   .action(
     withCliErrors(async (opts: { core?: boolean }) =>
       (await import("./commands/lifecycle.js")).runStop(opts),
@@ -75,12 +75,12 @@ program
 
 program
   .command("restart")
-  .description("apply saved configuration and restart the core")
+  .description("apply the saved configuration and restart the Core")
   .action(withCliErrors(async () => (await import("./commands/lifecycle.js")).runRestart()));
 
 program
   .command("auto")
-  .description("inspect or set automatic startup at login for the current user")
+  .description("inspect or set whether Sash starts when you sign in")
   .addArgument(
     new Argument("[mode]", "set autostart or inspect its state").choices(["on", "off", "status"]),
   )
@@ -93,7 +93,7 @@ program
 
 program
   .command("status")
-  .description("show runtime state, versions, endpoints, and system proxy status")
+  .description("show Sash, Core and system proxy status")
   .option("--watch", "watch status changes until interrupted; --json emits one snapshot per line")
   .option("--delay <name>", "test an exact node or group name; --watch samples every 30 seconds")
   .option("--json", "output machine-readable JSON")
@@ -105,7 +105,7 @@ program
 
 program
   .command("doctor")
-  .description("check installation, state, Core integrity, ports and desktop integration")
+  .description("check the installation, settings, Core, ports and Windows integration")
   .option("--json", "output machine-readable JSON")
   .action(
     withCliErrors(async (opts: { json?: boolean }) =>
@@ -115,11 +115,11 @@ program
 
 const profile = program
   .command("profile")
-  .description("manage saved profiles; sash restart applies changes")
+  .description("manage saved profiles; run sash restart to apply changes")
   .action(withCliErrors(async () => (await import("./commands/profile.js")).runProfileList()));
 profile
   .command("list")
-  .description("list saved profiles and the saved selection")
+  .description("list saved profiles and which one is selected")
   .option("--json", "output machine-readable JSON")
   .action(
     withCliErrors(async (opts: { json?: boolean }) =>
@@ -233,7 +233,7 @@ program
 
 program
   .command("update [tag]")
-  .description("upgrade the core binary")
+  .description("update the Core binary")
   .option("--check", "check the Core release without installing or starting management")
   .option("--json", "output machine-readable JSON")
   .action(
@@ -244,7 +244,7 @@ program
 
 program
   .command("upgrade [version]")
-  .description("upgrade Sash through npm and restart the management daemon")
+  .description("upgrade Sash with npm and restart it")
   .option("--check", "check Sash version and compatibility without changing anything")
   .option("--json", "output machine-readable JSON")
   .action(
@@ -255,7 +255,7 @@ program
 
 program
   .command("web")
-  .description("open the web dashboard without starting the core")
+  .description("open the web dashboard without starting the Core")
   .option("--no-open", "print the URL without opening a browser")
   .action(
     withCliErrors(async (opts: { open: boolean }) =>
