@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type BrowserType, type Page } from "playwright";
-import { parseDaemonStatus, parseWebBootstrapInfo, type ProfileActionResponse } from "../src/contracts.js";
+import type {
+  DaemonStatus,
+  ProfileActionResponse,
+  WebBootstrapInfo,
+} from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
 import {
@@ -76,7 +80,8 @@ async function verify(engine: BrowserType, name: string) {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(base);
     await page.getByRole("heading", { name: "连接到 Sash", exact: true }).waitFor();
-    const boot = parseWebBootstrapInfo((await harness.apiRequest("/sash/web/bootstrap", { method: "POST" })).data);
+    const boot = (await harness.apiRequest("/sash/web/bootstrap", { method: "POST" }))
+      .data as WebBootstrapInfo;
     await page.goto(`${base}#boot=${boot.token}`);
     await page.getByText("工作配置", { exact: true }).waitFor();
     await page.locator(".runtime-banner.unauthorized").waitFor({ state: "hidden" });
@@ -87,18 +92,18 @@ async function verify(engine: BrowserType, name: string) {
     await page.reload(); await page.getByText("工作配置", { exact: true }).waitFor();
 
     await page.goto(`${base}#/profiles`);
-    await page.getByRole("button", { name: "改名: 工作配置", exact: true }).waitFor();
+    await page.getByRole("button", { name: "重命名: 工作配置", exact: true }).waitFor();
     await page.waitForTimeout(200); const beforeReads = coreReads;
-    await page.getByRole("button", { name: "改名: 工作配置", exact: true }).click();
+    await page.getByRole("button", { name: "重命名: 工作配置", exact: true }).click();
     await page.getByRole("dialog").getByRole("textbox").fill("工作配置 新");
     await page.getByRole("dialog").getByRole("button", { name: "保存", exact: true }).click();
     await page.getByText("工作配置 新", { exact: true }).waitFor();
     await page.waitForTimeout(500); assert.equal(coreReads, beforeReads, "metadata rename fetched off-screen Core tables");
     await page.locator(".profile-card").filter({ has: page.getByText("备用配置", { exact: true }) }).locator(".profile-card-main").click();
     await page.locator(".pending-config").waitFor();
-    assert.equal(parseDaemonStatus((await harness.apiRequest("/sash/daemon/status")).data).configuration.appliedProfile?.id, first.id);
+    assert.equal(((await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus).configuration.appliedProfile?.id, first.id);
     await apply(page);
-    assert.equal(parseDaemonStatus((await harness.apiRequest("/sash/daemon/status")).data).configuration.appliedProfile?.id, second.id);
+    assert.equal(((await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus).configuration.appliedProfile?.id, second.id);
     await page.getByRole("button", { name: "编辑: 备用配置", exact: true }).click();
     await page.locator(".cm-editor").waitFor(); await page.screenshot({ path: path.join(outDir, `${name}-profile-editor.png`) });
     await page.keyboard.press("Escape"); await page.getByRole("dialog").waitFor({ state: "hidden" });

@@ -1,5 +1,6 @@
 import { isPlainObject } from "../../../src/json-shape.js";
 import { api } from "../api/index.js";
+import { t } from "../i18n/index.js";
 import { currentRoute } from "../router.js";
 import type {
   ConnectionItem,
@@ -33,7 +34,7 @@ export function normalizeConnections(value: ConnectionsResponse["connections"]):
         !isPlainObject(item) || !isPlainObject(item.metadata) || typeof item.id !== "string",
     )
   )
-    throw new Error("Invalid Core connections");
+    throw new Error(t("errors.coreConnections"));
   return value;
 }
 
@@ -45,7 +46,7 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
         !isPlainObject(proxy) || typeof proxy.name !== "string" || typeof proxy.type !== "string",
     )
   )
-    throw new Error("Invalid Core proxies");
+    throw new Error(t("errors.coreProxies"));
   const text = JSON.stringify(proxies);
   const owner = runtimeOwnerKey(store.status);
   // Local selections and runtime resets replace the reference. An identical
@@ -109,7 +110,7 @@ async function refreshResource<T>(
 export async function refreshConfigs(): Promise<void> {
   if (store.operations.mode) return;
   return refreshResource("configs", api.getConfigs, (result) => {
-    if (!["rule", "global", "direct"].includes(result.mode)) throw new Error("Invalid Core mode");
+    if (!["rule", "global", "direct"].includes(result.mode)) throw new Error(t("errors.coreMode"));
     store.mode = result.mode;
   });
 }
@@ -121,7 +122,7 @@ export function refreshConnections(): Promise<void> {
         (value) => Number.isFinite(value) && value >= 0,
       )
     )
-      throw new Error("Invalid Core traffic totals");
+      throw new Error(t("errors.coreTraffic"));
     store.connections = connections;
     store.connectionsUploadTotal = result.uploadTotal;
     store.connectionsDownloadTotal = result.downloadTotal;
@@ -143,7 +144,7 @@ export function refreshRules(): Promise<void> {
           typeof rule.payload !== "string",
       )
     )
-      throw new Error("Invalid Core rules");
+      throw new Error(t("errors.coreRules"));
     store.rules = result.rules;
   });
 }
@@ -166,7 +167,7 @@ export async function refreshVisibleCoreResources(cycle = 0, force = false): Pro
 }
 
 export async function closeConnection(id: string): Promise<void> {
-  if (!isCoreHealthy(store.status)) throw new Error("Core is not healthy");
+  if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
   const owner = runtimeOwnerKey(store.status);
   requests.invalidate("connections");
   await api.closeConnection(id);
@@ -175,7 +176,7 @@ export async function closeConnection(id: string): Promise<void> {
     store.connections = store.connections.filter((connection) => connection.id !== id);
 }
 export async function closeAllConnections(): Promise<void> {
-  if (!isCoreHealthy(store.status)) throw new Error("Core is not healthy");
+  if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
   const owner = runtimeOwnerKey(store.status);
   requests.invalidate("connections");
   await api.closeAllConnections();
@@ -185,7 +186,7 @@ export async function closeAllConnections(): Promise<void> {
 
 export async function setOutboundMode(mode: OutboundMode): Promise<void> {
   if (store.operations.mode || mode === store.mode) return;
-  if (!isCoreHealthy(store.status)) throw new Error("Core is not healthy");
+  if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
   const owner = runtimeOwnerKey(store.status);
   store.operations = { ...store.operations, mode: true };
   requests.invalidate("configs");
@@ -200,7 +201,7 @@ export async function setOutboundMode(mode: OutboundMode): Promise<void> {
 
 export async function selectGroupProxy(groupName: string, proxyName: string): Promise<void> {
   if (store.operations.proxySelections[groupName]) return;
-  if (!isCoreHealthy(store.status)) throw new Error("Core is not healthy");
+  if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
   const owner = runtimeOwnerKey(store.status);
   store.operations = {
     ...store.operations,

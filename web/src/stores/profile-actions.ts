@@ -1,4 +1,5 @@
 import { api } from "../api/index.js";
+import { t } from "../i18n/index.js";
 import { refreshStatus } from "./runtime-actions.js";
 import { requests, setProfiles, store } from "./state.js";
 
@@ -14,7 +15,7 @@ export async function refreshProfiles(): Promise<void> {
 }
 
 async function saveProfile<T>(operation: () => Promise<T>): Promise<T> {
-  if (store.operations.profileMutation) throw new Error("A profile operation is already running");
+  if (store.operations.profileMutation) throw new Error(t("errors.profileBusy"));
   store.operations = { ...store.operations, profileMutation: true };
   requests.invalidate("profiles");
   try {

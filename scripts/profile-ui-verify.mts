@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright";
 import YAML from "yaml";
-import { parseWebBootstrapInfo } from "../src/contracts.js";
+import type { WebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { loadProfiles } from "../src/profiles.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
@@ -111,9 +111,8 @@ async function authorize(page: Page): Promise<void> {
   await page.addInitScript(() => {
     localStorage.setItem("sash.locale", "zh");
   });
-  const bootstrap = parseWebBootstrapInfo(
-    (await h.apiRequest("/sash/web/bootstrap", { method: "POST" })).data,
-  );
+  const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
+    .data as WebBootstrapInfo;
   await page.goto(`${origin}/ui/#boot=${bootstrap.token}`);
   await page.locator(".node-card").first().waitFor();
   await page.locator(".runtime-banner.unauthorized").waitFor({ state: "hidden" });

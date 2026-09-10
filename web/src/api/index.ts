@@ -5,6 +5,7 @@ import {
   WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
 } from "../../../src/contracts.js";
 import { SashApiError, SashClient } from "../../../src/sash-client.js";
+import { t } from "../i18n/index.js";
 import { parseLogFrame, parseTrafficFrame } from "../stores/state-ownership.js";
 import type {
   ConfigsResponse,
@@ -45,7 +46,7 @@ async function request(
 ): Promise<void>;
 async function request(endpoint: string, options: RequestOptions = {}): Promise<unknown> {
   const controlToken = webSession.token();
-  if (!controlToken) throw new SashApiError(401, "unauthorized", "Run 'sash web' to connect.");
+  if (!controlToken) throw new SashApiError(401, "unauthorized", t("status.unauthorized"));
   const headers: Record<string, string> = {};
   if (controlToken) headers["X-Sash-Token"] = controlToken;
   let body: string | undefined;

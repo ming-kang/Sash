@@ -57,7 +57,7 @@ export function useProxyLatency() {
     const generation = store.runtimeGeneration;
     try {
       const { delay } = await api.testProxyDelay(name);
-      if (!Number.isFinite(delay) || delay < 0) throw new Error("Invalid latency response");
+      if (!Number.isFinite(delay) || delay < 0) throw new Error(t("errors.latencyInvalid"));
       if (generation !== store.runtimeGeneration) return;
       updateProxyDelay(name, delay, generation);
       if (delay === 0) toast.error(t("toast.testTimeout", { name }));

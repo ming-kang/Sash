@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import type { AutostartStatus } from "../src/autostart-contract.js";
-import { parseWebBootstrapInfo } from "../src/contracts.js";
+import type { WebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { captureFailurePages, launchUiBrowser, uiArtifactDirectory, UI_ENGINES } from "./ui-harness.mjs";
 
@@ -64,9 +64,8 @@ try {
       await page.addInitScript(() => {
         if (!localStorage.getItem("sash.locale")) localStorage.setItem("sash.locale", "zh");
       });
-      const bootstrap = parseWebBootstrapInfo(
-        (await h.apiRequest("/sash/web/bootstrap", { method: "POST" })).data,
-      );
+      const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
+        .data as WebBootstrapInfo;
       await page.goto(origin + "/ui/#boot=" + bootstrap.token);
       await page.waitForFunction(() => sessionStorage.getItem("sash.control-token") !== null);
       await page.goto(origin + "/ui/#/settings");
@@ -128,7 +127,7 @@ try {
       assert.equal(await toggle.getAttribute("aria-checked"), "false");
       results.push(name + ": explicit removal remains available after inspection failure");
 
-      state = { state: "off", canEnable: false, reason: "Autostart requires a direct global installation. Install with npm install -g @astralyn/sash." };
+      state = { state: "off", canEnable: false, reason: "needs a global installation — run npm install -g @astralyn/sash to enable it" };
       const beforeBlocked = writes;
       await card.getByRole("button", { name: "刷新状态" }).click();
       await idle(page);

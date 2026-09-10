@@ -1,5 +1,6 @@
 import type { SettingsPatch } from "../../../src/contracts.js";
 import { api } from "../api/index.js";
+import { t } from "../i18n/index.js";
 import type { SashStatus } from "../types/index.js";
 import { refreshVisibleCoreResources } from "./core-actions.js";
 import {
@@ -74,7 +75,7 @@ export async function refreshRuntimeState(): Promise<void> {
 export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {
   if (store.operations.systemProxy) return false;
   if (!canSetSystemProxyTarget(store.status, target))
-    throw new Error(target ? "Core is not healthy" : "System proxy is already off");
+    throw new Error(target ? t("errors.coreUnavailable") : t("errors.proxyAlreadyOff"));
   store.operations = { ...store.operations, systemProxy: true };
   const bootId = store.status?.daemon.bootId;
   requests.invalidate("runtime");
