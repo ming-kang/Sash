@@ -6,26 +6,14 @@ import { fileURLToPath } from "node:url";
 import { Argument, Command, CommanderError, InvalidArgumentError } from "commander";
 import { withCliErrors } from "./cli-errors.js";
 import { cliOutputSignal, handleCliOutputError } from "./cli-output.js";
-import { type AutoMode, runAuto } from "./commands/auto.js";
-import { runDoctor } from "./commands/doctor.js";
-import { runRestart, runStart, runStop } from "./commands/lifecycle.js";
-import { runLogs } from "./commands/logs.js";
-import { type RoutingMode, runMode } from "./commands/mode.js";
-import {
-  runProfileAdd,
-  runProfileList,
-  runProfileRemove,
-  runProfileRename,
-  runProfileUpdate,
-  runProfileUse,
-} from "./commands/profile.js";
-import { type ProxyAction, runProxy } from "./commands/proxy.js";
-import { runStatus } from "./commands/status.js";
-import { runUpdate } from "./commands/update.js";
-import { runUpgrade } from "./commands/upgrade.js";
-import { runWeb } from "./commands/web.js";
+import type { AutoMode } from "./commands/auto.js";
+import type { RoutingMode } from "./commands/mode.js";
+import type { ProxyAction } from "./commands/proxy.js";
+import { errorMessage } from "./error-utils.js";
 import { parseLogLineCount } from "./log-follow.js";
 
+// Command modules load lazily inside each action so `sash version` / `--help`
+// never pay for the network, YAML and archive modules they do not use.
 function packageVersion(): string {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
@@ -73,18 +61,22 @@ Set SASH_DEBUG=1 to print CLI error stacks to stderr.`,
 program
   .command("start")
   .description("install components if needed and start sash in the background")
-  .action(withCliErrors(() => runStart()));
+  .action(withCliErrors(async () => (await import("./commands/lifecycle.js")).runStart()));
 
 program
   .command("stop")
   .description("stop sash (shuts down core and disables system proxy)")
   .option("--core", "stop Core and keep management available")
-  .action(withCliErrors((opts: { core?: boolean }) => runStop(opts)));
+  .action(
+    withCliErrors(async (opts: { core?: boolean }) =>
+      (await import("./commands/lifecycle.js")).runStop(opts),
+    ),
+  );
 
 program
   .command("restart")
   .description("apply saved configuration and restart the core")
-  .action(withCliErrors(() => runRestart()));
+  .action(withCliErrors(async () => (await import("./commands/lifecycle.js")).runRestart()));
 
 program
   .command("auto")
@@ -94,8 +86,8 @@ program
   )
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((mode: AutoMode | undefined, opts: { json?: boolean }) =>
-      runAuto(mode, undefined, opts),
+    withCliErrors(async (mode: AutoMode | undefined, opts: { json?: boolean }) =>
+      (await import("./commands/auto.js")).runAuto(mode, undefined, opts),
     ),
   );
 
@@ -106,32 +98,43 @@ program
   .option("--delay <name>", "test an exact node or group name; --watch samples every 30 seconds")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((opts: { json?: boolean; watch?: boolean; delay?: string }) => runStatus(opts)),
+    withCliErrors(async (opts: { json?: boolean; watch?: boolean; delay?: string }) =>
+      (await import("./commands/status.js")).runStatus(opts),
+    ),
   );
 
 program
   .command("doctor")
   .description("check installation, state, Core integrity, ports and desktop integration")
   .option("--json", "output machine-readable JSON")
-  .action(withCliErrors((opts: { json?: boolean }) => runDoctor(opts)));
+  .action(
+    withCliErrors(async (opts: { json?: boolean }) =>
+      (await import("./commands/doctor.js")).runDoctor(opts),
+    ),
+  );
 
 const profile = program
   .command("profile")
   .description("manage saved profiles; sash restart applies changes")
-  .action(withCliErrors(() => runProfileList()));
+  .action(withCliErrors(async () => (await import("./commands/profile.js")).runProfileList()));
 profile
   .command("list")
   .description("list saved profiles and the saved selection")
   .option("--json", "output machine-readable JSON")
-  .action(withCliErrors((opts: { json?: boolean }) => runProfileList(opts)));
+  .action(
+    withCliErrors(async (opts: { json?: boolean }) =>
+      (await import("./commands/profile.js")).runProfileList(opts),
+    ),
+  );
 profile
   .command("use [profile]")
   .description("select a saved profile by ID or exact name")
   .option("--default", "select the built-in configuration")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((reference: string | undefined, opts: { default?: boolean; json?: boolean }) =>
-      runProfileUse(reference, opts),
+    withCliErrors(
+      async (reference: string | undefined, opts: { default?: boolean; json?: boolean }) =>
+        (await import("./commands/profile.js")).runProfileUse(reference, opts),
     ),
   );
 profile
@@ -141,8 +144,8 @@ profile
   .option("--use", "select the saved profile for the next Apply")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((url: string, opts: { name?: string; use?: boolean; json?: boolean }) =>
-      runProfileAdd(url, opts),
+    withCliErrors(async (url: string, opts: { name?: string; use?: boolean; json?: boolean }) =>
+      (await import("./commands/profile.js")).runProfileAdd(url, opts),
     ),
   );
 profile
@@ -151,8 +154,8 @@ profile
   .option("--all", "update every remote profile")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((reference: string | undefined, opts: { all?: boolean; json?: boolean }) =>
-      runProfileUpdate(reference, opts),
+    withCliErrors(async (reference: string | undefined, opts: { all?: boolean; json?: boolean }) =>
+      (await import("./commands/profile.js")).runProfileUpdate(reference, opts),
     ),
   );
 profile
@@ -160,8 +163,8 @@ profile
   .description("rename a saved profile by ID or exact name")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((reference: string, name: string, opts: { json?: boolean }) =>
-      runProfileRename(reference, name, opts),
+    withCliErrors(async (reference: string, name: string, opts: { json?: boolean }) =>
+      (await import("./commands/profile.js")).runProfileRename(reference, name, opts),
     ),
   );
 profile
@@ -169,8 +172,8 @@ profile
   .description("remove a saved profile by ID or exact name")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((reference: string, opts: { json?: boolean }) =>
-      runProfileRemove(reference, opts),
+    withCliErrors(async (reference: string, opts: { json?: boolean }) =>
+      (await import("./commands/profile.js")).runProfileRemove(reference, opts),
     ),
   );
 
@@ -186,8 +189,8 @@ program
   )
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((action: ProxyAction | undefined, opts: { json?: boolean }) =>
-      runProxy(action, opts),
+    withCliErrors(async (action: ProxyAction | undefined, opts: { json?: boolean }) =>
+      (await import("./commands/proxy.js")).runProxy(action, opts),
     ),
   );
 program
@@ -195,7 +198,11 @@ program
   .description("change the running Core routing mode")
   .addArgument(new Argument("<mode>", "runtime routing mode").choices(["rule", "global", "direct"]))
   .option("--json", "output machine-readable JSON")
-  .action(withCliErrors((mode: RoutingMode, opts: { json?: boolean }) => runMode(mode, opts)));
+  .action(
+    withCliErrors(async (mode: RoutingMode, opts: { json?: boolean }) =>
+      (await import("./commands/mode.js")).runMode(mode, opts),
+    ),
+  );
 
 program
   .command("logs")
@@ -207,14 +214,14 @@ program
   .option("--startup", "read login startup diagnostics")
   .action(
     withCliErrors(
-      (opts: {
+      async (opts: {
         lines?: number;
         follow?: boolean;
         errors?: boolean;
         daemon?: boolean;
         startup?: boolean;
       }) =>
-        runLogs({
+        (await import("./commands/logs.js")).runLogs({
           lines: opts.lines ?? 50,
           follow: opts.follow,
           errors: opts.errors,
@@ -230,8 +237,8 @@ program
   .option("--check", "check the Core release without installing or starting management")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((tag: string | undefined, opts: { check?: boolean; json?: boolean }) =>
-      runUpdate({ ...opts, version: tag }),
+    withCliErrors(async (tag: string | undefined, opts: { check?: boolean; json?: boolean }) =>
+      (await import("./commands/update.js")).runUpdate({ ...opts, version: tag }),
     ),
   );
 
@@ -241,8 +248,8 @@ program
   .option("--check", "check Sash version and compatibility without changing anything")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors((version: string | undefined, opts: { check?: boolean; json?: boolean }) =>
-      runUpgrade(version, opts),
+    withCliErrors(async (version: string | undefined, opts: { check?: boolean; json?: boolean }) =>
+      (await import("./commands/upgrade.js")).runUpgrade(version, opts),
     ),
   );
 
@@ -250,7 +257,11 @@ program
   .command("web")
   .description("open the web dashboard without starting the core")
   .option("--no-open", "print the URL without opening a browser")
-  .action(withCliErrors((opts: { open: boolean }) => runWeb({ noOpen: !opts.open })));
+  .action(
+    withCliErrors(async (opts: { open: boolean }) =>
+      (await import("./commands/web.js")).runWeb({ noOpen: !opts.open }),
+    ),
+  );
 
 program
   .command("version")
@@ -263,7 +274,7 @@ function parseLines(value: string): number {
   try {
     return parseLogLineCount(value);
   } catch (err) {
-    throw new InvalidArgumentError(err instanceof Error ? err.message : String(err));
+    throw new InvalidArgumentError(errorMessage(err));
   }
 }
 
@@ -271,7 +282,7 @@ async function main(): Promise<void> {
   try {
     // Bare `sash` is `sash status`.
     if (process.argv.length <= 2) {
-      await withCliErrors(() => runStatus())();
+      await withCliErrors(async () => (await import("./commands/status.js")).runStatus())();
       return;
     }
     await program.parseAsync(process.argv);

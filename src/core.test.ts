@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import zlib from "node:zlib";
-import AdmZip from "adm-zip";
+import { ZipFile } from "yazl";
 import {
   assertCoreInstallationConsistent,
   coreInstalled,
@@ -19,6 +20,23 @@ import {
 } from "./core.js";
 import { type ReleaseAsset, selectReleaseAsset } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
+
+async function zipBytes(entries: ReadonlyArray<readonly [string, Buffer]>): Promise<Buffer> {
+  const archive = new ZipFile();
+  for (const [name, data] of entries) archive.addBuffer(data, name);
+  archive.end();
+  const chunks: Buffer[] = [];
+  archive.outputStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+  await Promise.race([
+    once(archive.outputStream, "end"),
+    once(archive.outputStream, "error").then(([error]) => Promise.reject(error)),
+  ]);
+  return Buffer.concat(chunks);
+}
+
+async function writeZip(file: string, entries: ReadonlyArray<readonly [string, Buffer]>) {
+  fs.writeFileSync(file, await zipBytes(entries));
+}
 
 describe("core", () => {
   let tmpDir: string;
@@ -119,10 +137,8 @@ describe("core", () => {
   describe("extractCoreArchive", () => {
     it("extracts executable from a .zip archive to destination path", async () => {
       const fakeExeData = Buffer.from("fake-windows-binary-content-12345");
-      const zip = new AdmZip();
-      zip.addFile("mihomo.exe", fakeExeData);
       const zipPath = path.join(tmpDir, "archive.zip");
-      zip.writeZip(zipPath);
+      await writeZip(zipPath, [["mihomo.exe", fakeExeData]]);
 
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
@@ -134,11 +150,11 @@ describe("core", () => {
     });
 
     it("prefers the mihomo*.exe entry when a .zip contains multiple executables", async () => {
-      const zip = new AdmZip();
-      zip.addFile("helper.exe", Buffer.from("helper-tool"));
-      zip.addFile("mihomo-windows-amd64.exe", Buffer.from("real-core-binary"));
       const zipPath = path.join(tmpDir, "multi.zip");
-      zip.writeZip(zipPath);
+      await writeZip(zipPath, [
+        ["helper.exe", Buffer.from("helper-tool")],
+        ["mihomo-windows-amd64.exe", Buffer.from("real-core-binary")],
+      ]);
 
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
@@ -163,10 +179,8 @@ describe("core", () => {
     });
 
     it("rejects a helper-only .zip instead of installing an arbitrary executable", async () => {
-      const zip = new AdmZip();
-      zip.addFile("tools/helper.exe", Buffer.from("helper-tool"));
       const zipPath = path.join(tmpDir, "helper-only.zip");
-      zip.writeZip(zipPath);
+      await writeZip(zipPath, [["tools/helper.exe", Buffer.from("helper-tool")]]);
 
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
@@ -179,10 +193,8 @@ describe("core", () => {
     });
 
     it("throws an error when a .zip archive does not contain an .exe file", async () => {
-      const zip = new AdmZip();
-      zip.addFile("README.txt", Buffer.from("no executable here"));
       const zipPath = path.join(tmpDir, "no-exe.zip");
-      zip.writeZip(zipPath);
+      await writeZip(zipPath, [["README.txt", Buffer.from("no executable here")]]);
 
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
@@ -207,9 +219,7 @@ describe("core", () => {
     });
 
     it("rejects traversal paths before extracting any executable", async () => {
-      const zip = new AdmZip();
-      zip.addFile("safe/mihomo.exe", Buffer.from("core"));
-      const bytes = zip.toBuffer();
+      const bytes = await zipBytes([["safe/mihomo.exe", Buffer.from("core")]]);
       const name = Buffer.from("safe/mihomo.exe");
       // Patch both ZIP directory entries without a library sanitizing the malicious path.
       for (let at = bytes.indexOf(name); at >= 0; at = bytes.indexOf(name, at + name.length)) {
@@ -227,9 +237,7 @@ describe("core", () => {
     });
 
     it("rejects oversized ZIP output before allocating the declared contents", async () => {
-      const zip = new AdmZip();
-      zip.addFile("mihomo.exe", Buffer.from("core"));
-      const bytes = zip.toBuffer();
+      const bytes = await zipBytes([["mihomo.exe", Buffer.from("core")]]);
       const directory = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
       assert.ok(directory >= 0);
       bytes.writeUInt32LE(513 * 1024 * 1024, directory + 24);
@@ -241,10 +249,10 @@ describe("core", () => {
     });
 
     it("checks unsafe entries after the executable before replacing any destination", async () => {
-      const zip = new AdmZip();
-      zip.addFile("mihomo.exe", Buffer.from("new core"));
-      zip.addFile("safe/notes.txt", Buffer.from("unrelated"));
-      const bytes = zip.toBuffer();
+      const bytes = await zipBytes([
+        ["mihomo.exe", Buffer.from("new core")],
+        ["safe/notes.txt", Buffer.from("unrelated")],
+      ]);
       const name = Buffer.from("safe/notes.txt");
       for (let at = bytes.indexOf(name); at >= 0; at = bytes.indexOf(name, at + name.length))
         Buffer.from(".././notes.txt").copy(bytes, at);
@@ -261,10 +269,8 @@ describe("core", () => {
     });
 
     it("preserves pre-existing extraction files and links without writing through them", async () => {
-      const zip = new AdmZip();
-      zip.addFile("mihomo.exe", Buffer.from("new core"));
       const archive = path.join(tmpDir, "existing.zip");
-      zip.writeZip(archive);
+      await writeZip(archive, [["mihomo.exe", Buffer.from("new core")]]);
       const original = path.join(tmpDir, "foreign-file");
       fs.writeFileSync(original, "preserve this");
       const existing = path.join(tmpDir, "existing.exe.extracted");
@@ -293,9 +299,7 @@ describe("core", () => {
     });
 
     it("rejects corrupt ZIP lengths, encrypted entries and unsupported methods without publishing", async () => {
-      const zip = new AdmZip();
-      zip.addFile("mihomo.exe", Buffer.alloc(4096, 42));
-      const original = zip.toBuffer();
+      const original = await zipBytes([["mihomo.exe", Buffer.alloc(4096, 42)]]);
       const at = original.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
       assert.ok(at >= 0);
       for (const reason of ["length", "encrypted", "compression"] as const) {

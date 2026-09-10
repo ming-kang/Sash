@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { RegisteredAutostartState } from "../autostart-contract.js";
+import { currentPackageRoot } from "../package-info.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import { buildSanitizedEnv } from "../process.js";
 
@@ -84,7 +85,7 @@ export function autostartContext(options: AutostartOptions = {}): AutostartConte
   const platform = options.platform ?? process.platform;
   const homedir = options.homedir ?? os.homedir();
   const env = buildSanitizedEnv(options.env ?? process.env);
-  const packageRoot = options.packageRoot ?? path.resolve(import.meta.dirname, "../..");
+  const packageRoot = options.packageRoot ?? currentPackageRoot();
   const controlDir = path.join(
     absoluteEnvPath(env.LOCALAPPDATA, path.join(homedir, "AppData", "Local")),
     "Sash",

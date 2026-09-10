@@ -69,11 +69,41 @@ describe("real isolated Sash daemon upgrades", () => {
     const lock = JSON.parse(
       fs.readFileSync(path.join(repository, "package-lock.json"), "utf8"),
     ) as {
-      packages: Record<string, { dev?: boolean; devOptional?: boolean }>;
+      packages: Record<string, { dependencies?: Record<string, string> }>;
     };
-    // Preserve npm's complete installed production tree, including transitive dependencies.
-    for (const [location, info] of Object.entries(lock.packages)) {
-      if (!location.startsWith("node_modules/") || info.dev || info.devOptional) continue;
+    // The fixture transpiles per-file sources, which resolve runtime imports from
+    // node_modules; production installs run self-contained bundles instead. Copy
+    // the transitive closure of the packages the sources import at runtime.
+    const copied = new Set<string>();
+    const queue = ["commander", "semver", "undici", "yaml", "yauzl"].map(
+      (name) => `node_modules/${name}`,
+    );
+    while (queue.length > 0) {
+      const location = queue.shift() ?? "";
+      if (copied.has(location)) continue;
+      const info = lock.packages[location];
+      if (!info) throw new Error(`package-lock is missing ${location}`);
+      copied.add(location);
+      for (const dependency of Object.keys(info.dependencies ?? {})) {
+        let base = location;
+        for (;;) {
+          const candidate = `${base}/node_modules/${dependency}`;
+          const fallback = `node_modules/${dependency}`;
+          if (lock.packages[candidate]) {
+            queue.push(candidate);
+            break;
+          }
+          const parent = base.replace(/\/node_modules\/[^/]+$/, "");
+          if (parent === base) {
+            if (lock.packages[fallback]) queue.push(fallback);
+            else throw new Error(`package-lock cannot resolve ${dependency} from ${location}`);
+            break;
+          }
+          base = parent;
+        }
+      }
+    }
+    for (const location of copied) {
       fs.cpSync(path.join(repository, location), path.join(template, location), {
         recursive: true,
         dereference: true,
