@@ -1,97 +1,78 @@
 # Development Rules
 
-## Conversational Style
+Instructions for changing this repository. `docs/` explains Sash to users; this file explains how to work on it.
 
-- Keep answers short and concise. No emojis in commits, issues, PR comments, or code.
-- No fluff or cheerful filler text. Technical prose only, be direct.
-- When the user asks a question, answer it first before making edits or running implementation commands.
-- When responding to user feedback, explicitly say whether you agree or disagree before saying what you changed.
+## Working Style
 
-## Project Layout
+- Short and direct. No emojis in commits, issues, PR comments or code. No filler.
+- When the user asks a question, answer it before editing or running commands.
+- When responding to feedback, say whether you agree or disagree before saying what changed.
+- Read whole files before wide-ranging changes; do not work from search snippets.
 
-Sash is a strict TypeScript ESM CLI (Node.js >= 24). Entry point: `src/cli.ts`.
+## Layout
 
-- `src/commands/` — one module per command group; thin wiring only, no business logic.
-- `src/daemon/app.ts` and `context.ts` — the sole application writer and its in-memory mutation queue; CLI commands discover/start the daemon and call its API.
-- `src/` root modules — `app-state.ts` (atomic `sash.json` manifest), `settings.ts` (settings validation), `profile-service.ts` / `profiles.ts` (saved profiles), `runtime-lifecycle.ts` (explicit Apply, Core and proxy order), `core.ts` / `core-update.ts` (download and binary rollback), `paths.ts`, `webui.ts`, `mihomo-config.ts` (generated `runtime/config.yaml`), `process.ts` (PID identity), `api.ts` (direct controller client), `http.ts` / `github.ts` (remote downloads), `fs-atomic.ts`.
-- `src/sysproxy/` and `src/autostart/` — Windows desktop integration. Old state formats, TUN product fields and non-Windows desktop backends are outside this branch's scope.
-- Tests live beside their module as `*.test.ts`. `dist/` is generated as self-contained single-file bundles, one per process entry (`scripts/build-dist.mjs`, rolldown via Vite SSR mode); never edit it manually.
+Strict TypeScript ESM, Node >= 24. Entry point `src/cli.ts`; keep its `./node-version-guard.js` import first so nothing touches a Node 24 API earlier. `strict` + `verbatimModuleSyntax` + NodeNext are enabled, so suffixes and type-only imports are checked; no `any`.
 
-## Code Quality
-
-- Read files in full before wide-ranging changes. Do not rely on search snippets for broad changes.
-- ESM with NodeNext: relative imports always carry the `.js` suffix; type-only imports use `import type`.
-- No `any` unless absolutely necessary. Check node_modules for external API types; don't guess.
-- Keep the first import of `src/cli.ts` (`./node-version-guard.js`) above all others; it must run before any Node 24+ API is touched.
-- Inline single-line helpers that have only one call site.
-- Always ask before removing functionality or code that appears intentional.
-
-## Upstream & Positioning Rules
-
-These are hard requirements, not style preferences.
-
-- **Naming**: the upstream project forbids derivative project names from containing the word "mihomo". Never rename the package, bin, data directory, or any user-facing identifier to include it.
-- **User-visible copy** (README, package.json `description`/`keywords`, docs, npm/GitHub pages): position Sash as a network toolbox for developers, learning, and research. Do not mention upstream project names in taglines or feature copy; upstream names belong only in the attribution section at the bottom of the README.
-- Code, log messages, and internal documentation may name upstream components factually (e.g. `mihomo-config.ts`), but CLI help text should follow the README's neutral wording where practical.
-- The upstream core repository's working branch is `Meta`; `main` is a decoy with unrelated content. Consult `Meta` for docs, config schemas, and behavior. Releases are branch-independent.
-- Sash downloads unmodified upstream release artifacts at install time. Never commit upstream binaries or dashboard assets to this repo, and never bundle them in the npm tarball.
+- `src/commands/` — one module per command group, wiring only.
+- `src/daemon/` — the sole application writer: mutation queue, HTTP router, handlers. The CLI and dashboard go through its API.
+- `src/` root — `app-state.ts` (`sash.json`), `settings.ts`, `profiles.ts` / `profile-service.ts`, `runtime-lifecycle.ts` (Apply, Core and proxy order), `core.ts` / `core-update.ts`, `self-upgrade.ts` (npm install), `mihomo-config.ts` (generated `runtime/config.yaml`), `process.ts`, `api.ts` (direct controller client), `http.ts` / `github.ts` (downloads), `fs-atomic.ts`, `state-lock.ts`, `paths.ts`.
+- `src/sysproxy/`, `src/autostart/` — Windows desktop integration.
+- Tests sit beside their module as `*.test.ts`. `dist/` is generated (five single-file bundles via `scripts/build-dist.mjs`) and never edited by hand.
 
 ## Thin by Default
 
-Sash is a single-user desktop tool. Its job is to do what the user asked and report what happened, not to re-verify its own decisions. Keep it thin:
+Sash does what the user asked and reports what happened. It does not re-verify its own decisions.
 
-- **One validation point per value.** Settings are validated once, in `settings.ts`. Profile YAML is parsed once; the Core's own pre-flight config check is the authority on whether a config is acceptable. Do not add a runtime validator that mirrors a TypeScript type, and do not re-check a response the daemon of this installation just produced.
-- **Local state is not an adversary.** `sash.json`, install records, the daemon lease and lock files are written by Sash for this user. Do not add MAC/HMAC envelopes, content digests, byte-for-byte disk re-reads, directory identity gates or exact-key schema rejection to files Sash itself writes. Read them leniently, accept unknown fields, and treat unreadable files as absent or stale rather than halting every command.
-- **No repeated probes or package verification.** Build-time checks belong in the build. Do not stat or hash `dist/` entries, walk dashboard manifests, or spawn probe processes at runtime, at install time or before an upgrade.
-- **Prefer fewer artifacts and processes.** Before adding an on-disk record, journal, phase machine, helper entry point or lock file, check whether an existing one already answers the question, and whether the failure it guards against is one a user could hit.
-- **No shell-shape policing.** Do not reject user content because of a heuristic the real Core does not enforce (YAML alias caps, `listeners:` bans, share-link format detection, private-IP redirect refusals).
+- **One validation point per value.** Settings live in `settings.ts`; profile YAML is parsed once and the Core's own pre-flight check decides whether a config is usable. Do not mirror a static type in a runtime validator, and do not re-validate a response this installation's daemon just produced.
+- **Local state is not an adversary.** `sash.json`, install records, leases and lock files are written by Sash for this user. No MACs, content digests, byte-for-byte disk re-reads, directory identity gates or exact-key rejection on files Sash itself writes. Read them leniently, accept unknown fields, and treat unreadable files as absent or stale instead of halting.
+- **No repeated probes.** Build-time checks belong in the build. Do not stat or hash `dist/`, walk dashboard manifests, or spawn probe processes at runtime or before an upgrade.
+- **Fewer artifacts and processes.** Before adding a record, journal, phase machine, helper entry point or lock file, check whether an existing one already answers the question and whether a user could hit the failure it guards.
+- **No shell-shape policing.** Do not reject user content over a heuristic the Core does not enforce (YAML alias caps, `listeners:` bans, share-link detection, private-IP redirect refusals).
+- **Ask before deleting deliberate functionality.** Thin is about not re-verifying, not licence to remove a feature or a user-facing behaviour the user did not ask to remove.
 
 ## Safety Invariants
 
-Do not weaken these without explicit user approval:
+Load-bearing. Do not weaken without explicit user approval.
 
-- **Never kill an unverified process.** `process.ts` verifies PID identity before any termination signal (path match on the expected executable, conservative handling of `unknown`). If you extend process management, preserve the fail-closed behavior.
-- **Loopback never goes through a proxy.** External-controller requests must use the direct dispatcher; proxy env vars apply only to remote downloads.
-- **Credential hygiene.** Child processes get a scrubbed environment (no `GITHUB_TOKEN`, `NPM_TOKEN`, npm auth config). State files and logs are written `0o600` on POSIX.
-- **Atomic state changes.** All settings/state files go through `fs-atomic.ts`. Core upgrades keep the previous binary as `.bak` until the new one passes a health check; rollback on failure.
-- **Download trust.** Only hosts in the `github.ts` allowlist are valid download origins, and every release archive is verified against the SHA-256 digest published by the GitHub release API. Archive extraction rejects path traversal and enforces the size cap. These two checks are the only integrity gates in Sash; do not add more of the kind described under Thin by Default.
-- **Self-upgrade goes through npm.** `sash upgrade` stops the daemon, runs `npm install --global <exact version>` in the installation prefix and starts the daemon again. npm owns package integrity; Sash does not stage, journal, probe or replace package files itself.
-- **Subscription content is untrusted input.** Parse it once as YAML and reject documents that are not core-format objects before writing config.yaml; leave deeper acceptance to the Core.
+- **Never signal an unverified process.** `process.ts` verifies PID identity before any termination: path match on the expected executable, and `unknown` stays unverified.
+- **Loopback never goes through a proxy.** Controller requests use the direct dispatcher; proxy environment variables apply to remote downloads only.
+- **Credential hygiene.** Child processes get a scrubbed environment (no `GITHUB_TOKEN`, `NPM_TOKEN`, npm auth config). State files and logs are `0o600` on POSIX, and log appends do not follow symlinks.
+- **Atomic writes.** State goes through `fs-atomic.ts`. Core updates keep the previous binary as `.bak` until the new one passes a health check.
+- **Download trust.** Only `github.ts` allowlisted hosts are download origins, archives are verified against the GitHub release API's SHA-256 while streaming, and extraction rejects path traversal and enforces a size cap. These are the only integrity gates in Sash.
+- **Self-upgrade goes through npm.** `sash upgrade` stops the daemon, runs `npm install --global` for one exact version, and starts the daemon again. npm owns package integrity; Sash does not stage, journal, probe or replace package files itself.
+- **Subscription content is untrusted.** Parse it once as YAML and reject non-object documents before writing `config.yaml`; leave deeper acceptance to the Core.
 
 ## Commands
 
-- After code changes (not docs): run `npm run typecheck`, `npm run lint`, and affected tests once. Fix reported failures; repeat successful checks only after relevant changes or a new concern.
-- `npm test` runs `node:test` via `tsx`; it does not repeat type-checking. Use `npm test -- <file.test.ts>` for affected tests. CI owns the full suite on each supported platform; broad runtime changes may also warrant one isolated local full run. Documentation-only changes do not require code tests.
-- Never test against the user's real instance. Use an isolated data dir (`SASH_HOME=<abs path inside a temp dir>`) and non-default ports; machines running Sash may already occupy 7890/9090.
-- Do not start the core with TUN enabled in tests or smoke tests.
-- After build/package changes, use `npm run smoke:package` to inspect and install the actual tarball once. Do not add another dry run after the same package has passed this check.
+- After code changes: `npm run typecheck`, `npm run lint`, then the affected tests once. Do not repeat a passing check without a new reason.
+- `npm test -- <name>` matches a test file name (`npm test -- contracts.test.ts`) or a path fragment; bare `npm test` runs everything. CI runs the full suite on Windows, Linux and macOS.
+- Never test against the user's real instance: `SASH_HOME=<absolute path in a temp dir>`, non-default ports, no TUN. `npm run dev -- <args>` runs the CLI from source.
+- After build or packaging changes run `npm run smoke:package` once; it installs and exercises the real tarball.
+- UI changes: `scripts/ui-shot.mjs` captures routes. Check Chromium and Firefox, because flex metrics, form controls and fonts differ. If Firefox is not automatable, ask the user to look rather than declaring Chromium-only results done.
 
-## UI Verification
+## Dependencies and Security
 
-- Playwright (`playwright` devDependency) is the screenshot tool for WebUI work; `scripts/ui-shot.mjs` covers common routes and viewports.
-- Check both Chromium and Firefox for layout changes. Chromium-only verification misses Firefox-specific rendering differences (flex metrics, form controls, fonts). If a Firefox instance is not automatable, ask the user to eyeball the page instead of declaring Chromium-only results done.
+- Dependency and lockfile changes are reviewed code; establish what a new one does before adding it.
+- Read `undici`'s changelog before upgrading it: dispatcher and redirect-interceptor APIs move between majors.
+- CI runs `npm run audit:prod` (whole-tree `npm audit --audit-level=moderate`; runtime dependencies are bundled, so there is no separate production tree).
 
-## Dependency and Install Security
+## Git and Release
 
-- Treat dependency and lockfile changes as reviewed code. Investigate what a new dependency does before adding it.
-- When updating `undici`, read its changelog first; dispatcher and redirect-interceptor APIs change between majors.
-- CI runs `npm run audit:prod` (a full-tree `npm audit --audit-level=moderate`; runtime dependencies ship inside the dist bundles, so there is no production-only tree to isolate) once for the commit being released. Publishing reuses that successful CI result and artifact.
+- Stage explicit paths, only files you changed, and check `git status` before committing. Never `git add -A`, `git reset --hard`, `git checkout .`, `git clean -fd`, `git stash` or `git commit --no-verify`.
+- Do not commit unless asked. Message: `{feat,fix,docs,chore}: <imperative summary>`, one concern per commit.
+- Record notable changes under the newest `CHANGELOG.md` section; released sections are immutable.
+- Releases follow `RELEASING.md` — OIDC trusted publishing through `.github/workflows/publish.yml`. The repository must not contain npm publishing secrets. Version bumps and workflow dispatches need maintainer approval, and `prepublishOnly` is never bypassed.
 
-## Git
+## Upstream and Positioning
 
-- Only commit files you changed in this session. Stage explicit paths; never `git add -A` / `git add .`.
-- Before committing, run `git status` and verify only your files are staged.
-- Never run `git reset --hard`, `git checkout .`, `git clean -fd`, `git stash`, or `git commit --no-verify`.
-- Never commit unless the user asks.
-- Message format: `{feat,fix,docs,chore}: <concise imperative summary>`. One concern per commit.
+Hard requirements, not preferences.
 
-## Changelog & Releasing
-
-- All notable changes go under the newest section in `CHANGELOG.md` (Keep a Changelog format). Released sections are immutable.
-- Releases publish through the manually dispatched OIDC trusted-publishing workflow (`.github/workflows/publish.yml`); follow `RELEASING.md`. The repository must not contain npm publishing tokens.
-- Version bumps and release dispatches happen only with explicit maintainer approval. `prepublishOnly` directs local publishing to the GitHub workflow; never bypass it with `--ignore-scripts` or `--force`. CI checks source, builds and packs once, and tests the same tarball on each supported platform. The release workflow selects successful CI for its exact main commit and publishes that artifact without rebuilding or repeating checks; no package lifecycle scripts execute in the OIDC context.
-- Complete release checks before publishing, including installing and smoke-testing the exact tarball in isolation. After `npm publish` succeeds, only tag the release commit and create the GitHub Release; do not gate completion on registry visibility, provenance queries, repeat installs, or runtime smoke tests.
+- Never put the word "mihomo" in the package name, bin name, data directory or any user-visible identifier.
+- User-visible copy (README, `package.json`, docs, npm and GitHub pages) positions Sash as a network toolbox for developers, learning and research; upstream names appear only in the README attribution section.
+- Code, logs and internal docs may name upstream components factually (for example `mihomo-config.ts`); CLI help text follows the README's neutral wording.
+- Never commit upstream binaries or upstream dashboard assets, and never bundle them in the npm tarball. Sash downloads unmodified release artifacts at install time.
+- The upstream core repository's working branch is `Meta`; `main` holds unrelated content. Consult `Meta` for docs, config schemas and behaviour. Releases are branch-independent.
 
 ## User Override
 
-If the user's instructions conflict with any rule in this document, ask for explicit confirmation before overriding. Only then execute their instructions.
+If the user's instructions conflict with this file, get explicit confirmation first and only then proceed.
