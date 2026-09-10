@@ -98,52 +98,69 @@ export async function* watchStatusWithDelay(
 ): AsyncGenerator<CliRuntimeStatus> {
   const controller = new AbortController();
   const signal = AbortSignal.any([controller.signal, options.signal]);
+  const intervalMs = options.intervalMs ?? 30_000;
   let latest: CliRuntimeStatus | undefined;
   let observation: StatusDelayObservation | undefined;
   let owner = "";
-  let generation = 0;
-  let probeController: AbortController | undefined;
-  let probing = Promise.resolve();
-  let timer: NodeJS.Timeout | undefined;
+  let failed: unknown;
+  let hasFailed = false;
   let finished = false;
-  let failure: { error: unknown } | undefined;
   let dirty = false;
   let wake: (() => void) | undefined;
   const notify = (): void => {
     dirty = true;
     wake?.();
-    wake = undefined;
   };
   signal.addEventListener("abort", notify, { once: true });
-  const sample = (): void => {
-    if (signal.aborted || probeController || !latest) return;
-    const current = latest;
-    if (initialObservation(current, name).state === "unavailable") return;
-    const expected = generation;
+
+  // Probes run strictly one at a time: each starts only after the previous
+  // settled. A runtime-identity change aborts the in-flight probe and
+  // re-probes immediately instead of waiting out the interval.
+  let probing = false;
+  let probeAgain = false;
+  let probeAbort: AbortController | undefined;
+  let timer: NodeJS.Timeout | undefined;
+
+  const runProbe = async (status: CliRuntimeStatus): Promise<void> => {
+    probing = true;
     const pending = new AbortController();
-    probeController = pending;
+    probeAbort = pending;
     const probeSignal = AbortSignal.any([signal, pending.signal]);
-    probing = Promise.resolve()
-      .then(() => observeStatusDelay(context(), current, name, probeSignal, options.probe))
-      .then((result) => {
-        if (!probeSignal.aborted && expected === generation) {
-          observation = result;
-          notify();
-        }
-      })
-      .catch((error: unknown) => {
-        if (!probeSignal.aborted) {
-          failure = { error };
-          notify();
-        }
-      })
-      .finally(() => {
-        probeController = undefined;
-        if (signal.aborted) return;
-        if (expected !== generation) sample();
-        else timer = setTimeout(sample, options.intervalMs ?? 30_000);
-      });
+    try {
+      const result = await observeStatusDelay(context(), status, name, probeSignal, options.probe);
+      // An aborted probe belongs to a replaced runtime; its result is stale.
+      if (!pending.signal.aborted) observation = result;
+    } catch (error) {
+      if (!pending.signal.aborted && !signal.aborted) {
+        failed = error;
+        hasFailed = true;
+      }
+    } finally {
+      probing = false;
+      probeAbort = undefined;
+      notify();
+      if (signal.aborted) return;
+      if (probeAgain) {
+        probeAgain = false;
+        requestProbe();
+      } else {
+        timer = setTimeout(requestProbe, intervalMs);
+      }
+    }
   };
+
+  function requestProbe(): void {
+    if (signal.aborted) return;
+    const status = latest;
+    if (!status || initialObservation(status, name).state === "unavailable") return;
+    if (probing) {
+      probeAgain = true;
+      probeAbort?.abort();
+      return;
+    }
+    void runProbe(status);
+  }
+
   const producer = (async () => {
     try {
       for await (const status of options.statuses(signal)) {
@@ -160,23 +177,23 @@ export async function* watchStatusWithDelay(
         ]);
         if (nextOwner !== owner) {
           owner = nextOwner;
-          generation += 1;
-          probeController?.abort();
-          clearTimeout(timer);
           observation = initialObservation(status, name);
-          sample();
+          clearTimeout(timer);
+          requestProbe();
         }
         notify();
       }
     } catch (error) {
-      if (!signal.aborted) failure = { error };
+      if (!signal.aborted) {
+        failed = error;
+        hasFailed = true;
+      }
     } finally {
       finished = true;
       notify();
     }
   })();
 
-  let previous = "";
   try {
     while (!signal.aborted) {
       if (!dirty)
@@ -185,21 +202,15 @@ export async function* watchStatusWithDelay(
         });
       dirty = false;
       if (signal.aborted) return;
-      if (failure) throw failure.error;
-      if (latest && observation) {
-        const status = withStatusDelay(latest, observation);
-        const text = JSON.stringify(status);
-        if (text !== previous) {
-          previous = text;
-          yield status;
-        }
-      }
+      if (hasFailed) throw failed;
+      if (latest && observation) yield withStatusDelay(latest, observation);
       if (finished) return;
     }
   } finally {
     controller.abort();
     clearTimeout(timer);
+    probeAbort?.abort();
     signal.removeEventListener("abort", notify);
-    await Promise.allSettled([producer, probing]);
+    await producer;
   }
 }
