@@ -2,17 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   parseApiErrorBody,
-  parseCoreStartResult,
-  parseCoreUpdateResponse,
   parseDaemonStatus,
   parseHealthInfo,
-  parseProfileActionResponse,
-  parseProfileContentResponse,
   parseProfilesIndex,
-  parseProfilesUpdateAllResponse,
-  parseSettingsPatch,
-  parseSettingsWriteResult,
-  parseSystemProxyStatusResponse,
 } from "./contracts.js";
 import { testProfile, testStatus } from "./testing/state.js";
 
@@ -33,6 +25,18 @@ describe("shared API boundaries", () => {
       assert.throws(() =>
         parseHealthInfo({ token: "boot", pid: 1, startedAt: status.daemon.startedAt, ...patch }),
       );
+    assert.deepEqual(parseApiErrorBody({ error: { code: "conflict", message: "changed" } }), {
+      code: "conflict",
+      message: "changed",
+    });
+    assert.equal(parseApiErrorBody("invalid"), undefined);
+    assert.equal(
+      parseProfilesIndex({ activeId: null, profiles: [testProfile()] }).profiles[0]?.revision,
+      1,
+    );
+    assert.throws(() =>
+      parseProfilesIndex({ activeId: null, profiles: [{ ...testProfile(), revision: 0 }] }),
+    );
   });
   it("rejects malformed status and missing observation flags", () => {
     const status = testStatus();
@@ -47,87 +51,5 @@ describe("shared API boundaries", () => {
       { ...status, settings: { ...status.settings, mixedPort: 65536 } },
     ])
       assert.throws(() => parseDaemonStatus(value));
-  });
-  it("requires current proxy flags instead of guessing absent values", () => {
-    const value = {
-      supported: true,
-      enabled: false,
-      desired: false,
-      applied: false,
-      appliedKnown: false,
-      stateKnown: false,
-    };
-    assert.deepEqual(parseSystemProxyStatusResponse(value), value);
-    assert.throws(() => parseSystemProxyStatusResponse({ ...value, stateKnown: undefined }));
-  });
-  it("validates lifecycle and saved-settings results", () => {
-    assert.deepEqual(parseCoreStartResult({ pid: 1234, version: "v1" }), {
-      pid: 1234,
-      version: "v1",
-    });
-    assert.throws(() => parseCoreStartResult({ pid: -1 }));
-    assert.deepEqual(parseCoreStartResult({ pid: 1234, alreadyRunning: true, mixedPort: 18880 }), {
-      pid: 1234,
-      alreadyRunning: true,
-      mixedPort: 18880,
-    });
-    assert.throws(() => parseCoreStartResult({ pid: 1234, alreadyRunning: "true" }));
-    assert.throws(() => parseCoreStartResult({ pid: 1234, mixedPort: 0 }));
-    assert.deepEqual(parseCoreUpdateResponse({ version: "v2" }), { version: "v2" });
-    assert.throws(() => parseCoreUpdateResponse({ version: "" }));
-    assert.equal(
-      parseSettingsWriteResult({
-        revision: 1,
-        restartRequired: true,
-        settings: testStatus().settings,
-      }).restartRequired,
-      true,
-    );
-    assert.deepEqual(parseSettingsPatch({ mixedPort: 18880, allowLan: true }), {
-      mixedPort: 18880,
-      allowLan: true,
-    });
-    for (const value of [
-      { tun: false },
-      { daemonPort: 19090 },
-      { secret: "secret" },
-      { mixedPort: 0 },
-      { expectedRevision: -1 },
-      { expectedRevision: "0" },
-      { expectedRevision: 0.5 },
-    ])
-      assert.throws(() => parseSettingsPatch(value));
-  });
-  it("validates profile revisions and per-profile error bodies", () => {
-    const profile = testProfile();
-    assert.equal(
-      parseProfilesIndex({ activeId: profile.id, profiles: [profile] }).profiles[0]?.revision,
-      1,
-    );
-    assert.deepEqual(parseProfileActionResponse({ profile, activated: true }), {
-      profile,
-      activated: true,
-    });
-    assert.throws(() => parseProfileContentResponse({ name: "name", content: "rules: []" }));
-    assert.equal(
-      parseProfileContentResponse({ name: "name", content: "rules: []", revision: 1 }).revision,
-      1,
-    );
-    assert.throws(() =>
-      parseProfilesIndex({ activeId: null, profiles: [{ ...profile, revision: 0 }] }),
-    );
-    assert.equal(
-      parseProfilesUpdateAllResponse({
-        updated: 1,
-        failed: [{ id: "2", name: "remote", error: "offline" }],
-      }).failed.length,
-      1,
-    );
-    assert.throws(() => parseProfilesUpdateAllResponse({ updated: 1, failed: [{}] }));
-    assert.deepEqual(parseApiErrorBody({ error: { code: "conflict", message: "changed" } }), {
-      code: "conflict",
-      message: "changed",
-    });
-    assert.equal(parseApiErrorBody("invalid"), undefined);
   });
 });

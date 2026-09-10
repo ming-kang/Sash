@@ -5,9 +5,9 @@ import { describe, it } from "node:test";
 import YAML from "yaml";
 import { readState } from "./app-state.js";
 import {
+  type ProfileActionResponse,
+  type ProfileContentResponse,
   parseDaemonStatus,
-  parseProfileActionResponse,
-  parseProfileContentResponse,
   parseProfilesIndex,
 } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
@@ -22,7 +22,7 @@ describe("profile management API", () => {
       body: { name, content: yaml },
     });
     assert.equal(result.statusCode, 200);
-    return parseProfileActionResponse(result.data).profile;
+    return (result.data as ProfileActionResponse).profile;
   }
   async function status() {
     return parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data);
@@ -70,7 +70,7 @@ describe("profile management API", () => {
       assert.equal(Object.hasOwn(published, key), false);
     }
     assert.equal(
-      parseProfileContentResponse((await h.apiRequest(`/sash/profiles/${profile.id}/content`)).data)
+      ((await h.apiRequest(`/sash/profiles/${profile.id}/content`)).data as ProfileContentResponse)
         .content,
       source,
     );
@@ -114,7 +114,7 @@ describe("profile management API", () => {
     await h.startServer();
     const profile = await add("a");
     const endpoint = `/sash/profiles/${profile.id}/content`;
-    const read = parseProfileContentResponse((await h.apiRequest(endpoint)).data);
+    const read = (await h.apiRequest(endpoint)).data as ProfileContentResponse;
     assert.equal(
       (await h.apiRequest(endpoint, { method: "PUT", body: { content } })).statusCode,
       400,
@@ -134,7 +134,7 @@ describe("profile management API", () => {
         .statusCode,
       409,
     );
-    assert.equal(parseProfileContentResponse((await h.apiRequest(endpoint)).data).content, next);
+    assert.equal(((await h.apiRequest(endpoint)).data as ProfileContentResponse).content, next);
   });
   it("rejects unauthorized and malformed profile mutations", async () => {
     await h.startServer();

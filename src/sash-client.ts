@@ -13,21 +13,10 @@ import {
   type ProfilesUpdateAllResponse,
   type ProfileUpdateResponse,
   parseApiErrorBody,
-  parseCoreStartResult,
-  parseCoreUpdateResponse,
   parseDaemonStatus,
   parseHealthInfo,
-  parseProfileActionResponse,
-  parseProfileActivateResponse,
-  parseProfileContentResponse,
-  parseProfileRemoveResponse,
-  parseProfileRenameResponse,
   parseProfilesIndex,
-  parseProfilesUpdateAllResponse,
-  parseProfileUpdateResponse,
   parsePublicSettings,
-  parseSettingsWriteResult,
-  parseSystemProxyStatusResponse,
   parseUpgradeRuntimeStatus,
   parseWebBootstrapInfo,
   parseWebSessionInfo,
@@ -54,8 +43,9 @@ import type { UpgradeAccess } from "./upgrade-access.js";
 export { SashApiError } from "./sash-api-error.js";
 
 /**
- * Browser-safe client for the daemon-owned /sash/* HTTP API. Every response
- * body is validated by a contracts parser before it reaches the caller.
+ * Browser-safe client for the daemon-owned /sash/* HTTP API. Identity,
+ * credential, upgrade and status bodies are validated by contracts parsers;
+ * the remaining bodies are typed by the daemon handlers of this installation.
  */
 
 export interface SashClientFetchResponse {
@@ -103,6 +93,11 @@ export interface SashRequestOptions {
   /** Public credential exchanges must not send or invalidate a prior session. */
   authenticate?: boolean;
   signal?: AbortSignal;
+}
+
+/** Daemon-owned responses come from this installation's own handlers. */
+function expect<T>(value: unknown): T {
+  return value as T;
 }
 
 const defaultFetch: SashClientFetch = async (url, init) => {
@@ -297,7 +292,7 @@ export class SashClient {
   /* ---- core lifecycle ---- */
 
   async startCore(): Promise<CoreStartResult> {
-    return parseCoreStartResult(
+    return expect<CoreStartResult>(
       await this.request("/sash/core/start", {
         method: "POST",
         timeoutMs: CORE_OPERATION_TIMEOUT_MS,
@@ -310,7 +305,7 @@ export class SashClient {
   }
 
   async restartCore(): Promise<CoreStartResult> {
-    return parseCoreStartResult(
+    return expect<CoreStartResult>(
       await this.request("/sash/core/restart", {
         method: "POST",
         timeoutMs: CORE_OPERATION_TIMEOUT_MS,
@@ -319,7 +314,7 @@ export class SashClient {
   }
 
   async updateCore(version?: string): Promise<CoreUpdateResponse> {
-    return parseCoreUpdateResponse(
+    return expect<CoreUpdateResponse>(
       await this.request("/sash/core/update", {
         method: "POST",
         body: version ? { version } : {},
@@ -355,7 +350,7 @@ export class SashClient {
   }
 
   async proxyStatus(fresh = false): Promise<SystemProxyStatusResponse> {
-    return parseSystemProxyStatusResponse(
+    return expect<SystemProxyStatusResponse>(
       await this.request(fresh ? "/sash/proxy?fresh=1" : "/sash/proxy"),
     );
   }
@@ -367,7 +362,7 @@ export class SashClient {
   }
 
   async patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {
-    return parseSettingsWriteResult(
+    return expect<SettingsWriteResult>(
       await this.request("/sash/settings", { method: "PATCH", body: patch, timeoutMs: 45_000 }),
     );
   }
@@ -388,7 +383,7 @@ export class SashClient {
     url: string,
     opts: { name?: string; activate?: boolean } = {},
   ): Promise<ProfileActionResponse> {
-    return parseProfileActionResponse(
+    return expect<ProfileActionResponse>(
       await this.request("/sash/profiles", {
         method: "POST",
         body: { url, ...opts },
@@ -398,7 +393,7 @@ export class SashClient {
   }
 
   async importProfile(name: string, content: string): Promise<ProfileActionResponse> {
-    return parseProfileActionResponse(
+    return expect<ProfileActionResponse>(
       await this.request("/sash/profiles/import", {
         method: "POST",
         body: { name, content },
@@ -408,7 +403,7 @@ export class SashClient {
   }
 
   async activateProfile(id: string | null): Promise<ProfileActivateResponse> {
-    return parseProfileActivateResponse(
+    return expect<ProfileActivateResponse>(
       await this.request("/sash/profiles/active", {
         method: "PUT",
         body: { id },
@@ -418,7 +413,7 @@ export class SashClient {
   }
 
   async updateProfile(id: string): Promise<ProfileUpdateResponse> {
-    return parseProfileUpdateResponse(
+    return expect<ProfileUpdateResponse>(
       await this.request(`/sash/profiles/${id}/update`, {
         method: "POST",
         timeoutMs: 60_000,
@@ -427,13 +422,13 @@ export class SashClient {
   }
 
   async updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
-    return parseProfilesUpdateAllResponse(
+    return expect<ProfilesUpdateAllResponse>(
       await this.request("/sash/profiles/update-all", { method: "POST", timeoutMs: 120_000 }),
     );
   }
 
   async getProfileContent(id: string): Promise<ProfileContentResponse> {
-    return parseProfileContentResponse(await this.request(`/sash/profiles/${id}/content`));
+    return expect<ProfileContentResponse>(await this.request(`/sash/profiles/${id}/content`));
   }
 
   async writeProfileContent(
@@ -441,7 +436,7 @@ export class SashClient {
     content: string,
     revision: number,
   ): Promise<ProfileUpdateResponse> {
-    return parseProfileUpdateResponse(
+    return expect<ProfileUpdateResponse>(
       await this.request(`/sash/profiles/${id}/content`, {
         method: "PUT",
         body: { content, revision },
@@ -451,13 +446,13 @@ export class SashClient {
   }
 
   async renameProfile(id: string, name: string): Promise<ProfileRenameResponse> {
-    return parseProfileRenameResponse(
+    return expect<ProfileRenameResponse>(
       await this.request(`/sash/profiles/${id}`, { method: "PATCH", body: { name } }),
     );
   }
 
   async removeProfile(id: string): Promise<ProfileRemoveResponse> {
-    return parseProfileRemoveResponse(
+    return expect<ProfileRemoveResponse>(
       await this.request(`/sash/profiles/${id}`, { method: "DELETE", timeoutMs: 30_000 }),
     );
   }

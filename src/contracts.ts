@@ -1,6 +1,6 @@
 import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
 import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
-import { type ProfileMeta, type ProfilesIndex, parseProfileMeta } from "./profile-model.js";
+import type { ProfileMeta, ProfilesIndex } from "./profile-model.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy.js";
@@ -241,23 +241,6 @@ export function parseUpgradeRuntimeStatus(value: unknown): UpgradeRuntimeStatus 
     running: boolean(source.running, "running"),
   };
 }
-export function parseCoreStartResult(value: unknown): CoreStartResult {
-  const source = object(value, "Core start");
-  const version = optionalString(source, "version");
-  return {
-    pid: integer(source.pid, "pid", 1),
-    ...(version !== undefined ? { version } : {}),
-    ...(source.alreadyRunning !== undefined
-      ? { alreadyRunning: boolean(source.alreadyRunning, "alreadyRunning") }
-      : {}),
-    ...(source.mixedPort !== undefined
-      ? { mixedPort: integer(source.mixedPort, "mixedPort", 1, 65535) }
-      : {}),
-  };
-}
-export function parseCoreUpdateResponse(value: unknown): CoreUpdateResponse {
-  return { version: string(object(value, "Core update").version, "version") };
-}
 
 export function parsePublicSettings(value: unknown): PublicSashSettings {
   const source = object(value, "settings");
@@ -269,6 +252,18 @@ export function parsePublicSettings(value: unknown): PublicSashSettings {
     systemProxy: boolean(source.systemProxy, "systemProxy"),
   };
 }
+function parseSystemProxyState(value: unknown): SystemProxyState {
+  const source = object(value, "system proxy");
+  const server = optionalString(source, "server");
+  const details = optionalString(source, "details");
+  return {
+    supported: boolean(source.supported, "supported"),
+    enabled: boolean(source.enabled, "enabled"),
+    ...(server !== undefined ? { server } : {}),
+    ...(details !== undefined ? { details } : {}),
+  };
+}
+
 export function parseSettingsPatch(value: unknown): SettingsPatch {
   const source = object(value, "settings patch");
   for (const key of Object.keys(source)) {
@@ -288,83 +283,6 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
     ...(Object.hasOwn(source, "systemProxy")
       ? { systemProxy: boolean(source.systemProxy, "systemProxy") }
       : {}),
-  };
-}
-export function parseSettingsWriteResult(value: unknown): SettingsWriteResult {
-  const source = object(value, "settings write");
-  return {
-    revision: integer(source.revision, "revision"),
-    restartRequired: boolean(source.restartRequired, "restartRequired"),
-    settings: parsePublicSettings(source.settings),
-  };
-}
-
-function parseSystemProxyState(value: unknown): SystemProxyState {
-  const source = object(value, "system proxy");
-  const server = optionalString(source, "server");
-  const details = optionalString(source, "details");
-  return {
-    supported: boolean(source.supported, "supported"),
-    enabled: boolean(source.enabled, "enabled"),
-    ...(server !== undefined ? { server } : {}),
-    ...(details !== undefined ? { details } : {}),
-  };
-}
-export function parseSystemProxyStatusResponse(value: unknown): SystemProxyStatusResponse {
-  const source = object(value, "system proxy status");
-  const queryError = optionalString(source, "queryError");
-  return {
-    ...parseSystemProxyState(source),
-    desired: boolean(source.desired, "desired"),
-    applied: boolean(source.applied, "applied"),
-    appliedKnown: boolean(source.appliedKnown, "appliedKnown"),
-    stateKnown: boolean(source.stateKnown, "stateKnown"),
-    ...(queryError !== undefined ? { queryError } : {}),
-  };
-}
-
-export function parseProfileActionResponse(value: unknown): ProfileActionResponse {
-  const source = object(value, "profile action");
-  return {
-    profile: parseProfileMeta(source.profile),
-    activated: boolean(source.activated, "activated"),
-  };
-}
-export function parseProfileUpdateResponse(value: unknown): ProfileUpdateResponse {
-  return { profile: parseProfileMeta(object(value, "profile").profile) };
-}
-export { parseProfileUpdateResponse as parseProfileRenameResponse };
-export function parseProfileContentResponse(value: unknown): ProfileContentResponse {
-  const source = object(value, "profile content");
-  return {
-    name: string(source.name, "name"),
-    content: string(source.content, "content", true),
-    revision: integer(source.revision, "revision", 1),
-  };
-}
-export function parseProfileActivateResponse(value: unknown): ProfileActivateResponse {
-  const source = object(value, "profile selection");
-  return {
-    activeId: source.activeId === null ? null : string(source.activeId, "activeId"),
-    proxyCount: integer(source.proxyCount, "proxyCount"),
-  };
-}
-export function parseProfileRemoveResponse(value: unknown): ProfileRemoveResponse {
-  return { wasActive: boolean(object(value, "profile removal").wasActive, "wasActive") };
-}
-export function parseProfilesUpdateAllResponse(value: unknown): ProfilesUpdateAllResponse {
-  const source = object(value, "profiles update");
-  if (!Array.isArray(source.failed)) throw new TypeError("failed must be an array");
-  return {
-    updated: integer(source.updated, "updated"),
-    failed: source.failed.map((item) => {
-      const failure = object(item, "profile error");
-      return {
-        id: string(failure.id, "id"),
-        name: string(failure.name, "name"),
-        error: string(failure.error, "error"),
-      };
-    }),
   };
 }
 

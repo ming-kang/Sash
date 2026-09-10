@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { readState } from "./app-state.js";
-import { parseDaemonStatus, parseSettingsWriteResult } from "./contracts.js";
+import { parseDaemonStatus, type SettingsWriteResult } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
@@ -25,7 +25,7 @@ describe("save and apply API", () => {
     assert.deepEqual(results.map((result) => result.statusCode).sort(), [200, 409]);
     const winner = results.find((result) => result.statusCode === 200);
     assert.ok(winner);
-    const saved = parseSettingsWriteResult(winner.data);
+    const saved = winner.data as SettingsWriteResult;
     const after = await status();
     assert.equal(saved.revision, before.revisions.state + 1);
     assert.equal(after.revisions.state, saved.revision);
@@ -52,7 +52,7 @@ describe("save and apply API", () => {
     release.resolve();
     const observed = await pending;
     assert.equal(observed.settings.mixedPort, 18888);
-    assert.equal(observed.revisions.state, parseSettingsWriteResult(write.data).revision);
+    assert.equal(observed.revisions.state, (write.data as SettingsWriteResult).revision);
   });
   it("serves management with no installed Core and rejects retired controls", async () => {
     await h.startServer({ installCore: false });
