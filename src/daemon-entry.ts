@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import "./node-version-guard.js";
-import { runDaemon } from "./daemon.js";
+import { runDaemon } from "./daemon/entry.js";
 
 async function main(): Promise<void> {
   try {

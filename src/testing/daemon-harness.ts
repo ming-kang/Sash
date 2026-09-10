@@ -8,16 +8,13 @@ import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
 import type { AutostartController } from "../autostart.js";
 import { writeInstallRecord } from "../core-install-record.js";
-import {
-  type CoreSupervisor,
-  createDaemonServer,
-  type DaemonDeps,
-  type DaemonInstance,
-  type DaemonScheduler,
-} from "../daemon.js";
+import type { DaemonDeps } from "../daemon/app.js";
+import type { DaemonScheduler } from "../daemon/scheduler.js";
+import { createDaemonServer, type DaemonInstance } from "../daemon/server.js";
 import type { SubscriptionFetch } from "../mihomo-config.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import type { SashSettings } from "../settings.js";
+import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyState } from "../sysproxy.js";
 import type { SystemProxyController } from "../system-proxy-manager.js";
 import { FakeCoreSupervisor, testSettings } from "./state.js";

@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadSettings } from "./app-state.js";
-import type { DaemonPidRecord } from "./daemon.js";
+import type { DaemonPidRecord } from "./daemon/entry.js";
 import { createDaemonClient } from "./daemon-client.js";
 import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-follow.js";

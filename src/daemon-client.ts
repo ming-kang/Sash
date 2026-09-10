@@ -1,7 +1,7 @@
 import { request } from "undici";
 import { directDispatcherForLoopback, ERROR_BODY_LIMIT, fetchWithRetry } from "./http.js";
+import type { SashEventFetch } from "./sash-client.js";
 import { SashClient, type SashClientFetch } from "./sash-client.js";
-import type { SashEventFetch } from "./sash-event-client.js";
 
 // Profile metadata can occupy most of the supported 2 MiB application manifest.
 const DAEMON_SUCCESS_BODY_LIMIT = 2 * 1024 * 1024;
