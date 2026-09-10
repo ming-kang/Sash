@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-10
+
+### Added
+
+- Keep the most recently committed manifest as `sash.json.bak` and let `sash doctor` point to it when `sash.json` is corrupt, so settings and the profile index have a recovery path.
+
+### Changed
+
+- Ship `dist/` as self-contained single-file bundles, one per process entry (`scripts/build-dist.mjs`). Runtime dependencies are compiled in with their license notices (`dist/*.LICENSE.md` and inline), move to `devDependencies`, and `npm audit` covers the whole tree again.
+- Load CLI command modules lazily and only initialize what each command uses: `sash version` and `--help` drop from roughly 350 ms to under 100 ms of startup.
+- Read the Windows login-startup registration with `reg.exe query` instead of a PowerShell host; fall back to the base64 PowerShell inspection only when the console code page would garble the value (non-ASCII profile paths).
+- Replace the development-only `adm-zip` ZIP fixture writer (whose advisories cannot be resolved without reintroducing another) with `yazl`.
+- Unify error-message formatting, narrow module-internal exports, give custom error classes their names, and record upgrade-access parse failures in the daemon log.
+- Add unit coverage for the profile-update scheduler, dashboard session exchange, runtime event subscription and format helpers; document `sash doctor` in the README; correct the architecture note's dashboard-refresh description to SSE push.
+
+### Fixed
+
+- Report a specific "already in use" error including the port when another process owns the daemon port, instead of a generic startup failure.
+
 ## [0.1.5] - 2026-09-10
 
 ### Changed
