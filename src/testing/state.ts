@@ -68,7 +68,6 @@ export function testStatus(): DaemonStatus {
       port: settings.daemonPort,
     },
     revisions: { state: 0, runtime: 1 },
-    mutationQueue: { active: null, queued: 0 },
     core: {
       running: true,
       healthy: true,

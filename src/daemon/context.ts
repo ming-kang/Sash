@@ -1,6 +1,6 @@
 import { type SashStateStore, StateConflictError } from "../app-state.js";
 import type { AutostartController } from "../autostart.js";
-import type { CoreStartResult, MutationQueueStatus } from "../contracts.js";
+import type { CoreStartResult } from "../contracts.js";
 import type { CoreUpdateResult } from "../core-update.js";
 import type { CoreUpdateProgress } from "../core-update-progress.js";
 import type { SashLayout } from "../paths.js";
@@ -27,7 +27,6 @@ export class DaemonGate {
   private tail: Promise<void> = Promise.resolve();
   private closing = false;
   private cleanupPromise: Promise<void> | undefined;
-  private active: MutationQueueStatus["active"] = null;
   private queued = 0;
   private reservation: string | undefined;
   private readonly liveMutations = new Set<Promise<void>>();
@@ -107,10 +106,6 @@ export class DaemonGate {
     }
   }
 
-  snapshot(): MutationQueueStatus {
-    return { active: this.active ? { ...this.active } : null, queued: this.queued };
-  }
-
   mutate<T>(purpose: string, action: () => T | Promise<T>): Promise<T> {
     return this.enqueue(purpose, action, () => this.assertMutable());
   }
@@ -129,7 +124,6 @@ export class DaemonGate {
       admit();
       const started = performance.now();
       const active = { purpose, startedAt: new Date().toISOString() };
-      this.active = active;
       this.changed();
       const slowMs = this.options.slowMutationMs ?? 5000;
       let reported = false;
@@ -157,7 +151,6 @@ export class DaemonGate {
         return await action();
       } finally {
         clearTimeout(timer);
-        this.active = null;
         this.changed();
         if (performance.now() - started >= slowMs) reportSlow();
       }

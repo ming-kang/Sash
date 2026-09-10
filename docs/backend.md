@@ -8,7 +8,7 @@ Sash manages one local Core through one loopback daemon. The [high-level archite
 
 `daemon/app.ts` assembles the profile, settings, runtime and Windows services. `DaemonGate` in `daemon/context.ts` owns one in-memory mutation queue and shutdown admission. Reads do not wait for this queue. Downloads happen outside it, with deadlines and cancellation; commits reject stale saved-state revisions or runtime changes.
 
-Daemon status exposes `mutationQueue: {active: {purpose, startedAt} | null, queued}`. Operations lasting at least five seconds produce one diagnostic, including synchronous work that delayed the timer. Counters remain accurate across cancellation, errors and shutdown retries.
+Operations lasting at least five seconds produce one slow-mutation diagnostic, including synchronous work that delayed the timer. Counters remain accurate across cancellation, errors and shutdown retries.
 
 CLI commands use `runtime-owner.ts` and `daemon-lifecycle.ts` for read-only discovery, management startup and API calls. A live but unverified daemon blocks competing startup and cannot be stopped by an unverified signal. CLI discovery uses the observed daemon port. Self-upgrade additionally owns installation files; application state and private runtime handoffs remain daemon-written.
 

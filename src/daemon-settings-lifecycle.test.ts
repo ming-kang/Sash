@@ -134,7 +134,6 @@ describe("save and apply API", () => {
     await entered.promise;
     const saved = h.apiRequest("/sash/settings", { method: "PATCH", body: { allowLan: true } });
     assert.equal((await h.apiRequest("/sash/daemon/health")).statusCode, 200);
-    assert.equal((await status()).mutationQueue.active?.purpose, "apply saved configuration");
     release.resolve();
     assert.equal((await applying).statusCode, 200);
     assert.equal((await saved).statusCode, 200);

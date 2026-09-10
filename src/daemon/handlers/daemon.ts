@@ -105,7 +105,6 @@ export async function readDaemonStatus(ctx: DaemonContext, fresh = false): Promi
       state: ctx.stateRevision(),
       runtime: ctx.lifecycle.revision,
     },
-    mutationQueue: ctx.gate.snapshot(),
     configuration: {
       pending: ctx.pendingApply(),
       appliedProfile: applied?.profile ? { ...applied.profile } : null,

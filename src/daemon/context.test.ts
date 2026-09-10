@@ -77,33 +77,7 @@ describe("daemon mutation queue", () => {
       (error) => error === failure,
     );
     assert.equal(reports, 1);
-    assert.deepEqual(gate.snapshot(), { active: null, queued: 0 });
     assert.equal(await gate.mutate("next", () => 42), 42);
-  });
-
-  it("reports active purpose, start time and queued operations without exposing mutable state", async () => {
-    const entered = deferred();
-    const release = deferred();
-    const gate = new DaemonGate(
-      async () => {},
-      () => {},
-    );
-    const first = gate.mutate("apply configuration", async () => {
-      entered.resolve();
-      await release.promise;
-      return "first";
-    });
-    const second = gate.mutate("save settings", () => "second");
-    await entered.promise;
-    const observed = gate.snapshot();
-    assert.equal(observed.active?.purpose, "apply configuration");
-    assert.equal(observed.queued, 1);
-    assert.match(observed.active?.startedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
-    if (observed.active) observed.active.purpose = "external mutation";
-    assert.equal(gate.snapshot().active?.purpose, "apply configuration");
-    release.resolve();
-    assert.deepEqual(await Promise.all([first, second]), ["first", "second"]);
-    assert.deepEqual(gate.snapshot(), { active: null, queued: 0 });
   });
 
   it("cancels queued mutations during shutdown and recovers its counters after failed cleanup", async () => {
@@ -112,7 +86,6 @@ describe("daemon mutation queue", () => {
     let cleanups = 0;
     const gate: DaemonGate = new DaemonGate(
       async (): Promise<void> => {
-        assert.equal(gate.snapshot().active?.purpose, "shut down daemon");
         if (++cleanups === 1) throw new Error("cleanup failed");
       },
       () => {},
@@ -130,7 +103,6 @@ describe("daemon mutation queue", () => {
     release.resolve();
     await Promise.all([first, queued, shutdown]);
     assert.equal(gate.isClosing, false);
-    assert.deepEqual(gate.snapshot(), { active: null, queued: 0 });
     await assert.rejects(
       gate.mutate("failing write", () => {
         throw new Error("write failed");
@@ -140,7 +112,6 @@ describe("daemon mutation queue", () => {
     assert.equal(await gate.mutate("next write", () => 42), 42);
     await gate.shutdown();
     assert.equal(gate.isClosing, true);
-    assert.deepEqual(gate.snapshot(), { active: null, queued: 0 });
   });
 
   it("reports a slow operation once and clears its timer after completion", async () => {
