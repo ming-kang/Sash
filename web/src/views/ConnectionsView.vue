@@ -62,7 +62,7 @@
       <article
         v-for="connection in pagedConnections"
         :key="connection.id"
-        v-memo="[connection.upload, connection.download, JSON.stringify(connection.metadata), connection.chains.join('\0'), connection.rule, connection.rulePayload, formatAgo(connection.start, locale), locale]"
+        v-memo="[connection.upload, connection.download, JSON.stringify(connection.metadata), connection.chains.join('\0'), connection.rule, connection.rulePayload, formatAgo(connection.start), locale]"
         class="connection-row"
       >
         <div class="connection-main">
@@ -84,7 +84,7 @@
             <span class="connection-tag tag-rule" :title="connection.rulePayload">
               {{ connection.rule || '-' }}<template v-if="connection.rulePayload">,{{ connection.rulePayload }}</template>
             </span>
-            <span class="connection-tag tag-time">{{ formatAgo(connection.start, locale) }}</span>
+            <span class="connection-tag tag-time">{{ formatAgo(connection.start) }}</span>
             <span class="connection-tag tag-traffic mono">
               ↑{{ formatBytes(connection.upload) }} ↓{{ formatBytes(connection.download) }}
             </span>

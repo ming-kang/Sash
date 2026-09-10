@@ -16,6 +16,34 @@ interface DialogEntry {
   onEscape: () => void;
 }
 
+// Reference-counted scroll lock on body + documentElement so nested dialogs
+// (e.g. ConfirmDialog over CodeEditorModal) do not unlock prematurely.
+let lockCount = 0;
+let previousBodyOverflow: string | null = null;
+let previousRootOverflow: string | null = null;
+
+function acquireScrollLock(): void {
+  if (typeof document === "undefined") return;
+  if (lockCount === 0) {
+    previousBodyOverflow = document.body.style.overflow;
+    previousRootOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+  }
+  lockCount += 1;
+}
+
+function releaseScrollLock(): void {
+  if (typeof document === "undefined") return;
+  if (lockCount === 0) return;
+  lockCount -= 1;
+  if (lockCount > 0) return;
+  document.body.style.overflow = previousBodyOverflow ?? "";
+  document.documentElement.style.overflow = previousRootOverflow ?? "";
+  previousBodyOverflow = null;
+  previousRootOverflow = null;
+}
+
 // Open dialogs stack; only the topmost one receives ESC/Tab handling so nested
 // dialogs (ConfirmDialog over CodeEditorModal) do not both react to one keypress.
 const stack: DialogEntry[] = [];
@@ -81,6 +109,7 @@ export function useDialogFocus(options: DialogFocusOptions): DialogFocusControll
   async function open(): Promise<void> {
     if (isOpen || typeof window === "undefined") return;
     isOpen = true;
+    acquireScrollLock();
     triggerElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     stack.push(entry);
     if (!listenerAttached) {
@@ -97,6 +126,7 @@ export function useDialogFocus(options: DialogFocusOptions): DialogFocusControll
   function close(): void {
     if (!isOpen) return;
     isOpen = false;
+    releaseScrollLock();
     const index = stack.indexOf(entry);
     if (index !== -1) stack.splice(index, 1);
     if (stack.length === 0 && listenerAttached) {

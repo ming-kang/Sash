@@ -156,7 +156,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { coreVersion } from "../composables/core-runtime.js";
-import { locale, t } from "../i18n/index.js";
+import { t } from "../i18n/index.js";
 import { navigate } from "../router.js";
 import {
   canToggleSystemProxy,
@@ -176,7 +176,7 @@ import Icon from "./Icon.vue";
 import TrafficChart from "./TrafficChart.vue";
 
 const refreshingSub = ref(false);
-const uptime = computed(() => formatDuration(store.status?.core.startedAt, locale.value));
+const uptime = computed(() => formatDuration(store.status?.core.startedAt));
 const activeProfile = computed(() => {
   const applied = store.status?.configuration.appliedProfile;
   return applied ? store.profiles.find((profile) => profile.id === applied.id) ?? applied : null;

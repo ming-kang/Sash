@@ -41,7 +41,6 @@
 <script setup lang="ts">
 import { onUnmounted, ref, useId, watch } from "vue";
 import { useDialogFocus } from "../composables/useDialogFocus.js";
-import { acquireScrollLock, releaseScrollLock } from "../composables/useScrollLock.js";
 import { currentRoute } from "../router.js";
 import { confirmState, settleConfirm } from "./confirm.js";
 
@@ -52,8 +51,6 @@ const id = useId();
 const titleId = `${id}-title`;
 const descriptionId = `${id}-description`;
 
-let scrollLocked = false;
-
 const { open, close } = useDialogFocus({
   container: dialogElement,
   initialFocus: () =>
@@ -61,27 +58,13 @@ const { open, close } = useDialogFocus({
   onEscape: () => settleConfirm(false),
 });
 
-function lockScroll(): void {
-  if (scrollLocked) return;
-  acquireScrollLock();
-  scrollLocked = true;
-}
-
-function unlockScroll(): void {
-  if (!scrollLocked) return;
-  releaseScrollLock();
-  scrollLocked = false;
-}
-
 watch(
   () => confirmState.visible,
   async (visible) => {
     if (visible) {
-      lockScroll();
       await open();
       return;
     }
-    unlockScroll();
     close();
   },
   { immediate: true },
@@ -93,7 +76,6 @@ watch(currentRoute, () => {
 
 onUnmounted(() => {
   if (confirmState.visible) settleConfirm(false);
-  unlockScroll();
   close();
 });
 </script>

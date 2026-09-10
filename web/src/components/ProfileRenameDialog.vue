@@ -48,7 +48,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, useId } from "vue";
 import { useDialogFocus } from "../composables/useDialogFocus.js";
-import { acquireScrollLock, releaseScrollLock } from "../composables/useScrollLock.js";
 import { t } from "../i18n/index.js";
 import { errorText, renameProfile, toast } from "../stores/index.js";
 import type { ProfileMeta } from "../types/index.js";
@@ -75,12 +74,10 @@ const { open, close } = useDialogFocus({
 });
 
 onMounted(() => {
-  acquireScrollLock();
   void open();
 });
 onUnmounted(() => {
   close();
-  releaseScrollLock();
 });
 
 async function save(): Promise<void> {

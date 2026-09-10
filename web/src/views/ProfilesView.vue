@@ -208,7 +208,7 @@ import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import ProfileRenameDialog from "../components/ProfileRenameDialog.vue";
 import { useProfileOrder } from "../composables/profile-order.js";
-import { locale, t } from "../i18n/index.js";
+import { t } from "../i18n/index.js";
 import {
   activateProfile,
   addProfile,
@@ -260,7 +260,7 @@ function sourceLabel(p: ProfileMeta): string {
 function updatedLabel(p: ProfileMeta): string {
   const ms = new Date(p.updatedAt).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return t("profiles.neverUpdated");
-  return formatAgo(p.updatedAt, locale.value);
+  return formatAgo(p.updatedAt);
 }
 
 function usedBytes(p: ProfileMeta): number {

@@ -13,7 +13,7 @@ export function formatSpeed(bytesPerSec: number): string {
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
-export function formatDuration(startIso: string | undefined, locale: string): string {
+export function formatDuration(startIso: string | undefined): string {
   if (!startIso) return "-";
   const start = new Date(startIso).getTime();
   if (Number.isNaN(start)) return "-";
@@ -22,8 +22,6 @@ export function formatDuration(startIso: string | undefined, locale: string): st
   secs %= 86400;
   const hours = Math.floor(secs / 3600);
   const mins = Math.floor((secs % 3600) / 60);
-  // Signature kept for callers; strings resolve via t() against the active locale.
-  void locale;
   if (days > 0) return t("format.durationDayHour", { d: days, h: hours });
   if (hours > 0) return t("format.durationHourMin", { h: hours, m: mins });
   if (mins > 0) return t("format.durationMin", { m: mins });
@@ -36,11 +34,10 @@ export function formatTime(date: Date = new Date()): string {
 }
 
 /** ISO timestamp → compact relative age ("12 min ago" / "12 分钟前"). */
-export function formatAgo(iso: string, locale: string): string {
+export function formatAgo(iso: string): string {
   const ms = new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return "-";
   const mins = Math.floor(Math.max(0, Date.now() - ms) / 60000);
-  void locale; // strings resolve via t() against the active locale
   if (mins < 1) return t("format.justNow");
   if (mins < 60) return t("format.minutesAgo", { n: mins });
   const hours = Math.floor(mins / 60);

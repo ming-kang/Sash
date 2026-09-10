@@ -55,7 +55,6 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { basicSetup, EditorView } from "codemirror";
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useDialogFocus } from "../composables/useDialogFocus.js";
-import { acquireScrollLock, releaseScrollLock } from "../composables/useScrollLock.js";
 import { t } from "../i18n/index.js";
 import { isDarkTheme } from "../theme.js";
 import { confirmDialog } from "./confirm.js";
@@ -151,7 +150,6 @@ watch(
 );
 
 onMounted(() => {
-  acquireScrollLock();
   void open();
   if (!props.loading && props.loadError === null) createEditor();
 });
@@ -160,7 +158,6 @@ onUnmounted(() => {
   view?.destroy();
   view = null;
   close();
-  releaseScrollLock();
 });
 </script>
 
