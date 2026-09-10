@@ -44,7 +44,7 @@ flowchart TB
 | Apply 和启停的顺序 | [runtime-lifecycle.ts](../src/runtime-lifecycle.ts) | 校验后停止、发布、启动、恢复代理意图 |
 | Core 更新与回滚 | [core-update.ts](../src/core-update.ts) | 固定二进制事务；下载在 [core.ts](../src/core.ts) |
 | Windows 行为 | [system-proxy-manager.ts](../src/system-proxy-manager.ts)、[autostart.ts](../src/autostart.ts) | 代理条件恢复、当前用户登录注册 |
-| WebUI 数据为何刷新 | [stores/runtime-actions.ts](../web/src/stores/runtime-actions.ts)、[stores/core-actions.ts](../web/src/stores/core-actions.ts) | 管理状态轮询，按当前页面加载 Core 数据 |
+| WebUI 数据为何刷新 | [stores/runtime-events.ts](../web/src/stores/runtime-events.ts)、[stores/core-actions.ts](../web/src/stores/core-actions.ts) | 管理状态经 SSE 推送（详见 [frontend.md](./frontend.md)），Core 数据按当前页面加载 |
 
 不引入工作流引擎、事件总线、数据库或依赖注入框架。底层文件、进程、下载、鉴权工具继续复用。
 

@@ -15,7 +15,7 @@ Sash is a strict TypeScript ESM CLI (Node.js >= 24). Entry point: `src/cli.ts`.
 - `src/daemon/app.ts` and `context.ts` — the sole application writer and its in-memory mutation queue; CLI commands discover/start the daemon and call its API.
 - `src/` root modules — `app-state.ts` (atomic `sash.json` manifest), `settings.ts` (settings validation), `profile-service.ts` / `profiles.ts` (saved profiles), `runtime-lifecycle.ts` (explicit Apply, Core and proxy order), `core.ts` / `core-update.ts` (download and binary rollback), `paths.ts`, `webui.ts`, `mihomo-config.ts` (generated `runtime/config.yaml`), `process.ts` (PID identity), `api.ts` (direct controller client), `http.ts` / `github.ts` (remote downloads), `fs-atomic.ts`.
 - `src/sysproxy/` and `src/autostart/` — Windows desktop integration. Old state formats, TUN product fields and non-Windows desktop backends are outside this branch's scope.
-- Tests live beside their module as `*.test.ts`. `dist/` is generated; never edit it manually.
+- Tests live beside their module as `*.test.ts`. `dist/` is generated as self-contained single-file bundles, one per process entry (`scripts/build-dist.mjs`, rolldown via Vite SSR mode); never edit it manually.
 
 ## Code Quality
 
@@ -45,7 +45,7 @@ Do not weaken these without explicit user approval:
 - **Credential hygiene.** Child processes get a scrubbed environment (no `GITHUB_TOKEN`, `NPM_TOKEN`, npm auth config). State files and logs are written `0o600` on POSIX.
 - **Atomic state changes.** All settings/state files go through `fs-atomic.ts`. Core upgrades keep the previous binary as `.bak` until the new one passes a health check; rollback on failure.
 - **Download trust.** Only hosts in the `github.ts` allowlist are valid download origins. Archive extraction rejects path traversal and enforces the size cap.
-- **Integrity scope.** Verify Core archives while downloading; let npm verify Sash packages and dependencies. Trust local installation permissions after installation. Do not add executable/directory hash gates, mandatory digest migration, or repeated package probes to normal commands.
+- **Integrity scope.** Verify Core archives while downloading; bundle runtime dependencies into `dist/` at build time (the lockfile is their integrity anchor) and let npm verify the single Sash package tarball at install and upgrade time. Trust local installation permissions after installation. Do not add executable/directory hash gates, mandatory digest migration, or repeated package probes to normal commands.
 - **Subscription content is untrusted input.** Parse defensively; reject documents that are not valid core-format YAML before writing config.yaml.
 
 ## Commands
@@ -65,7 +65,7 @@ Do not weaken these without explicit user approval:
 
 - Treat dependency and lockfile changes as reviewed code. Investigate what a new dependency does before adding it.
 - When updating `undici`, read its changelog first; dispatcher and redirect-interceptor APIs change between majors.
-- CI runs `npm audit --omit=dev --audit-level=moderate` once for the commit being released. Publishing reuses that successful CI result and artifact.
+- CI runs `npm run audit:prod` (a full-tree `npm audit --audit-level=moderate`; runtime dependencies ship inside the dist bundles, so there is no production-only tree to isolate) once for the commit being released. Publishing reuses that successful CI result and artifact.
 
 ## Git
 

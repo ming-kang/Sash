@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Sash itself is licensed under the MIT License in [`LICENSE`](./LICENSE). The built WebUI and standalone upgrade helper distributed in the npm package embed code and selected assets from the components below. Those portions remain subject to their respective terms. Backend npm dependencies are also installed as separate packages and retain their own package metadata and license files.
+Sash itself is licensed under the MIT License in [`LICENSE`](./LICENSE). The built WebUI and the single-file runtime entries distributed in the npm package embed code and selected assets from the components below. Those portions remain subject to their respective terms. Backend runtime dependencies are bundled into the `dist/` entries at build time; their exact bundled versions and complete notices are generated as `dist/*.LICENSE.md` and embedded as comments at the end of each bundle.
 
 ## Vue.js
 
@@ -56,9 +56,9 @@ Sash embeds selected Remix Icon components as functional interface symbols. They
 
 The dashboard embeds this font for its UI typography. Redistribution and subsetting are permitted under the OFL 1.1; the font software remains the work of its authors and is not sold on its own.
 
-## Standalone upgrade helper
+## Bundled runtime entries
 
-The standalone upgrade helper bundles `semver` (ISC), `undici` (MIT), and `yaml` (ISC). Exact bundled versions and their complete notices are generated in [`dist/upgrade-worker.LICENSE.md`](./dist/upgrade-worker.LICENSE.md) and embedded in the standalone helper itself, including copies used for interrupted-upgrade recovery.
+The single-file entries under `dist/` (`cli.js`, `daemon-entry.js`, `autostart-entry.js`, `autostart-upgrade-entry.js`, `upgrade-probe-entry.js` and the standalone `upgrade-worker.mjs`) bundle the runtime dependencies they use — currently `commander` (MIT), `semver` (ISC), `undici` (MIT), `yaml` (ISC), `yauzl` (MIT) and their transitive dependencies. Exact per-entry bundled versions and their complete notices are generated as `dist/*.LICENSE.md` files and embedded at the end of each bundle, including copies used for interrupted-upgrade recovery.
 
 ## Runtime-downloaded Core
 
