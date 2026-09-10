@@ -6,10 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-10
+
 ### Changed
 
 - Install before stopping anything in `sash upgrade`. The package is now replaced while the daemon keeps running, and only then does the daemon restart onto the new code (`--no-restart` skips that step and prints the command instead). This fixes a deadlock the previous order could not survive: on a machine whose only route to the npm registry is the proxy the daemon serves — a laptop behind its own Core, which is exactly how `sash` is often used — stopping the daemon first killed the proxy and made the install impossible. A failed install no longer needs the daemon restarted on the old version, because nothing was stopped. Core is untouched either way: its binary lives in the data directory, not in the npm package.
 - Report a version mismatch instead of hiding it. A daemon keeps executing the code it started with, so after any install that was not followed by a restart (manual `npm install -g`, `--no-restart`, an interrupted restart) `sash status` prints `0.1.7 running · 0.2.0 installed — run sash stop && sash start to load it`, and `sash doctor` raises the same as a warning. `--json` gains `restarted` from `sash upgrade`.
+
+### Upgrade note
+
+Upgrading from 0.2.0 with `sash upgrade` is fine on a normal network. If this machine reaches the npm registry only through the proxy Sash serves, 0.2.0's own updater still stops the daemon first and cannot install itself: run `npm install -g @astralyn/sash@0.2.1` while Sash keeps running, then `sash stop && sash start`. From 0.2.1 on, `sash upgrade` installs before it stops anything and works in both cases.
 
 ## [0.2.0] - 2026-09-10
 
