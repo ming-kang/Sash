@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { extractCoreArchive } from "./core-archive.js";
@@ -7,8 +8,8 @@ import {
   validateCoreReleaseTag,
   writeInstallRecord,
 } from "./core-install-record.js";
-import { type Amd64Level, detectAmd64Level } from "./cpu-features.js";
 import { pathEntryExists } from "./fs-atomic.js";
+
 import {
   downloadReleaseAsset,
   listReleaseAssets,
@@ -17,6 +18,7 @@ import {
   resolveLatestTag,
 } from "./github.js";
 import { type SashLayout, sashLayout } from "./paths.js";
+import { buildSanitizedEnv } from "./process.js";
 
 /**
  * Mihomo core acquisition: platform asset selection, download, decompression,
@@ -40,27 +42,19 @@ export function goOsArch(
 }
 
 /**
- * Choose the highest supported official build. Unknown capabilities only
- * admit baseline builds; the upstream plain amd64 asset requires v3.
+ * Newest ISA level first. stageCore preflights each staged build and falls
+ * through to the next variant when this processor rejects it, so no CPU
+ * feature detection is needed up front.
  */
 export function mihomoAssetCandidates(
   tag: string,
   platform = process.platform,
   arch = process.arch,
-  level?: Amd64Level,
 ): string[] {
   const { os, arch: goArch } = goOsArch(platform, arch);
   const ext = platform === "win32" ? "zip" : "gz";
   if (goArch === "amd64") {
-    const variants =
-      level === 3
-        ? ["v3", "", "v2", "v1", "compatible"]
-        : level === 2
-          ? ["v2", "v1", "compatible"]
-          : level === 1
-            ? ["v1", "compatible"]
-            : ["compatible", "v1"];
-    return variants.map(
+    return ["v3", "", "v2", "v1", "compatible"].map(
       (variant) => `mihomo-${os}-amd64-${variant ? `${variant}-` : ""}${tag}.${ext}`,
     );
   }
@@ -108,15 +102,34 @@ export async function resolveCoreRelease(
   const tag = validateCoreReleaseTag(
     options.tag ?? (await resolveLatestTag(MIHOMO_REPO, options.signal)),
   );
-  const [assets, level] = await Promise.all([
-    listReleaseAssets(MIHOMO_REPO, tag, options.signal),
-    detectAmd64Level(),
-  ]);
+  const assets = await listReleaseAssets(MIHOMO_REPO, tag, options.signal);
   return {
     tag,
     assets,
-    candidates: mihomoAssetCandidates(tag, process.platform, process.arch, level),
+    candidates: mihomoAssetCandidates(tag, process.platform, process.arch),
   };
+}
+
+/**
+ * Preflight a staged build: a processor that lacks the build's instruction
+ * set kills it with an illegal-instruction exit, and any other non-zero exit
+ * means this variant cannot serve this machine either.
+ */
+export async function coreBinaryRuns(exe: string): Promise<boolean> {
+  try {
+    const child = spawn(exe, ["-v"], {
+      stdio: ["ignore", "ignore", "ignore"],
+      windowsHide: true,
+      env: buildSanitizedEnv(),
+      timeout: 10_000,
+    });
+    return await new Promise<boolean>((resolve) => {
+      child.on("error", () => resolve(false));
+      child.on("close", (code, signal) => resolve(code === 0 && signal === null));
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** Verify the download and extract it without changing the installed runtime. */
@@ -133,21 +146,35 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
   const archivePath = path.join(directory, "archive.download");
   const stagedExe = path.join(directory, path.basename(layout.coreExe));
   try {
-    opts.onStage?.("downloading", tag);
-    const assetName = await downloadReleaseAsset({
-      signal: opts.signal,
-      repo: MIHOMO_REPO,
-      tag,
-      assets,
-      candidates,
-      dest: archivePath,
-      onProgress: opts.onProgress,
-    });
-    opts.onStage?.("extracting", tag);
-    await extractCoreArchive(archivePath, assetName, stagedExe, opts.signal);
-    opts.signal?.throwIfAborted();
-    fs.chmodSync(stagedExe, 0o755);
-    return { version: tag, exe: stagedExe, assetName };
+    const available = candidates.filter((name) => assets.some((asset) => asset.name === name));
+    if (available.length === 0) {
+      throw new Error(
+        `No trusted release asset matched ${candidates.join(", ")} for ${MIHOMO_REPO}@${tag}`,
+      );
+    }
+    for (const assetName of available) {
+      // Only a failed preflight falls through to the next build; download,
+      // integrity and extraction errors abort the staging.
+      opts.onStage?.("downloading", tag);
+      await downloadReleaseAsset({
+        signal: opts.signal,
+        repo: MIHOMO_REPO,
+        tag,
+        assets,
+        candidates: [assetName],
+        dest: archivePath,
+        onProgress: opts.onProgress,
+      });
+      opts.onStage?.("extracting", tag);
+      await extractCoreArchive(archivePath, assetName, stagedExe, opts.signal);
+      opts.signal?.throwIfAborted();
+      fs.chmodSync(stagedExe, 0o755);
+      if (await coreBinaryRuns(stagedExe)) return { version: tag, exe: stagedExe, assetName };
+      fs.rmSync(stagedExe, { force: true });
+    }
+    throw new Error(
+      `No published Core build runs on this processor (tried ${available.join(", ")}).`,
+    );
   } catch (err) {
     fs.rmSync(stagedExe, { force: true });
     throw err;
