@@ -281,12 +281,15 @@ try {
             await h.startServer({ supervisor }, port);
             trackEventStreams();
             assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
-            await page.locator(".connection-panel").waitFor();
-            await page.waitForFunction(() => sessionStorage.getItem("sash.control-token") === null);
-            assert.equal(
-              await page.evaluate(() => sessionStorage.getItem("sash.control-token")),
-              null,
+            // Sessions persist across daemon restarts: the tab exchanges its
+            // stored credential for the new generation and returns to the
+            // overview without a fresh handoff.
+            await page.locator(".page-overview").waitFor();
+            const continued = await page.evaluate(() =>
+              JSON.parse(sessionStorage.getItem("sash.control-token") ?? "{}").token,
             );
+            assert.ok(continued, "continuation re-authorizes the tab after a daemon restart");
+            assert.notEqual(continued, session.token, "the restarted daemon issues a new token");
             await capture(page, `${name}-restarted`);
             await page.goto(await browserHandoff());
             await page.locator(".page-overview").waitFor();
