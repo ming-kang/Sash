@@ -272,7 +272,12 @@ try {
     false,
     "Read-only commands must not initialize application data",
   );
-  assert.match(runCli(["upgrade", "--help"]), /upgrade Sash with npm/);
+  // Wiring again, not wording: the subcommand exists and its options are wired.
+  const upgradeHelp = runCli(["upgrade", "--help"]);
+  assert.match(upgradeHelp, /Usage:\s+sash upgrade/);
+  for (const option of ["--check", "--no-restart", "--json"]) {
+    assert.ok(upgradeHelp.includes(option), `upgrade help is missing ${option}`);
+  }
 
   console.log(
     `[package-smoke] installed and verified ${installSpec ?? "the freshly packed tarball"} as ${packageJson.name}@${expectedVersion} (${packedFiles.length} files)`,
