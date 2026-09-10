@@ -1,20 +1,18 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
-import {
-  isLoopbackHostHeader,
-  isLoopbackOriginHeader,
-  isWebSocketRequestAuthorized,
-} from "../daemon-auth.js";
+import { isWebSocketRequestAuthorized } from "../daemon-auth.js";
+import { sendSocketError } from "../daemon-http.js";
 import { forwardWsToCore } from "../daemon-proxy.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
 import {
   buildRoutes,
+  checkLoopbackBoundary,
   dispatch,
   matchWebSocketUpgrade,
-  parseDaemonRequestTarget,
+  parseRequestTarget,
 } from "./router.js";
 import { type ProfileUpdateScheduler, startProfileUpdateScheduler } from "./scheduler.js";
 import type { DaemonUpgradeService } from "./upgrade.js";
@@ -30,19 +28,6 @@ export interface DaemonInstance {
   installationId: string;
   startedAt: string;
   close: () => Promise<void>;
-}
-
-function rejectUpgrade(
-  socket: Duplex,
-  status: number,
-  message: string,
-  allow?: readonly string[],
-): void {
-  const body = `${message}\n`;
-  const allowHeader = allow ? `Allow: ${allow.join(", ")}\r\n` : "";
-  socket.end(
-    `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\n${allowHeader}Content-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
-  );
 }
 
 export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
@@ -66,12 +51,9 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   // WebSocket streams reuse the HTTP route table: only gateway rows, GET only.
   const upgradedSockets = new Set<Duplex>();
   const handleUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
-    if (!isLoopbackHostHeader(req.headers.host)) {
-      rejectUpgrade(socket, 421, "Invalid Host header");
-      return;
-    }
-    if (!isLoopbackOriginHeader(req.headers.origin)) {
-      rejectUpgrade(socket, 403, "Invalid Origin header");
+    const boundary = checkLoopbackBoundary(req);
+    if (boundary) {
+      sendSocketError(socket, boundary.status, boundary.code, boundary.message);
       return;
     }
     if (
@@ -80,28 +62,26 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         isSessionToken: (token) => context.webAuth.isSession(token),
       })
     ) {
-      rejectUpgrade(socket, 401, "Unauthorized WebSocket request");
+      sendSocketError(socket, 401, "unauthorized", "Unauthorized WebSocket request");
       return;
     }
 
-    let target: ReturnType<typeof parseDaemonRequestTarget>;
-    try {
-      target = parseDaemonRequestTarget(req.url ?? "/", req.headers.host ?? "");
-    } catch {
-      rejectUpgrade(socket, 400, "Invalid request target");
+    const parsed = parseRequestTarget(req);
+    if (!parsed.ok) {
+      sendSocketError(socket, 400, "http", parsed.message);
       return;
     }
-    const route = matchWebSocketUpgrade(routes, req.method?.toUpperCase() ?? "GET", target);
+    const route = matchWebSocketUpgrade(routes, req.method?.toUpperCase() ?? "GET", parsed.target);
     if (route.kind === "methodNotAllowed") {
-      rejectUpgrade(socket, 405, "Method Not Allowed", route.allow);
+      sendSocketError(socket, 405, "http", "Method Not Allowed", route.allow);
       return;
     }
     if (route.kind === "notFound") {
-      rejectUpgrade(socket, 404, "WebSocket endpoint not found");
+      sendSocketError(socket, 404, "not_found", "WebSocket endpoint not found");
       return;
     }
     if (context.gate.isClosing) {
-      rejectUpgrade(socket, 503, "sashd is shutting down");
+      sendSocketError(socket, 503, "shutting_down", "sashd is shutting down");
       return;
     }
 
@@ -116,7 +96,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       handleUpgrade(req, socket, head);
     } catch (err) {
       console.error("[sashd] unhandled WebSocket upgrade error:", err);
-      if (!socket.destroyed) rejectUpgrade(socket, 500, "WebSocket proxy failed");
+      if (!socket.destroyed) sendSocketError(socket, 500, "internal", "WebSocket proxy failed");
     }
   });
 

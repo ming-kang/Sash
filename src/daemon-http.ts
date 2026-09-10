@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { STATUS_CODES } from "node:http";
+import type { Duplex } from "node:stream";
 import { type ApiErrorCode, apiErrorBody } from "./contracts.js";
 
 export class HttpError extends Error {
@@ -106,6 +108,25 @@ export async function parseJsonObjectBody(
     throw new HttpError(400, "JSON request body must be an object");
   }
   return body as JsonObject;
+}
+
+/** Same error envelope as HTTP responses, for socket rejects before an upgrade. */
+export function sendSocketError(
+  socket: Duplex,
+  statusCode: number,
+  code: ApiErrorCode,
+  message: string,
+  allow?: readonly string[],
+): void {
+  const body = `${JSON.stringify(apiErrorBody(code, message))}\n`;
+  const headers = [
+    `HTTP/1.1 ${statusCode} ${STATUS_CODES[statusCode] ?? "Error"}`,
+    "Connection: close",
+    ...(allow ? [`Allow: ${allow.join(", ")}`] : []),
+    "Content-Type: application/json; charset=utf-8",
+    `Content-Length: ${Buffer.byteLength(body)}`,
+  ];
+  socket.end(`${headers.join("\r\n")}\r\n\r\n${body}`);
 }
 
 export function sendJson(res: ServerResponse, statusCode: number, data: unknown): void {

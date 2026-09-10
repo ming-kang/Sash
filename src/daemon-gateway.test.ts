@@ -121,7 +121,8 @@ describe("daemon server", () => {
     it("rejects unauthenticated WebSocket upgrades", async () => {
       await h.startServer();
       const response = await h.rawWebSocketUpgrade("/core/api/logs");
-      assert.match(response, /^HTTP\/1\.1 401 Unauthorized WebSocket request/);
+      assert.match(response, /^HTTP\/1\.1 401 Unauthorized/);
+      assert.match(response, /"message":"Unauthorized WebSocket request"/);
     });
 
     it("closes the upstream when the client disconnects before the 101 response", async () => {

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ApiErrorCode } from "../contracts.js";
 import {
   isControlMutation,
   isControlRequestAuthorized,
@@ -426,6 +427,37 @@ export function matchRoute(
   return { kind: "methodNotAllowed", allow };
 }
 
+export interface RequestBoundaryFailure {
+  status: 403 | 421;
+  code: ApiErrorCode;
+  message: string;
+}
+
+/** Loopback Host and Origin policy shared by HTTP dispatch and WebSocket upgrades. */
+export function checkLoopbackBoundary(req: IncomingMessage): RequestBoundaryFailure | undefined {
+  if (!isLoopbackHostHeader(req.headers.host))
+    return { status: 421, code: "http", message: "Invalid Host header" };
+  if (!isLoopbackOriginHeader(req.headers.origin))
+    return { status: 403, code: "unauthorized", message: "Invalid Origin header" };
+  return undefined;
+}
+
+export type RequestTargetResult =
+  | { ok: true; target: ParsedDaemonRequestTarget }
+  | { ok: false; message: string };
+
+/** Parse the origin-form request target, reporting a message instead of throwing. */
+export function parseRequestTarget(req: IncomingMessage): RequestTargetResult {
+  try {
+    return {
+      ok: true,
+      target: parseDaemonRequestTarget(req.url ?? "/", req.headers.host ?? ""),
+    };
+  } catch {
+    return { ok: false, message: "Invalid request target" };
+  }
+}
+
 /** Match, authorize, and execute one HTTP request against the route table. */
 export async function dispatch(
   ctx: DaemonContext,
@@ -433,18 +465,18 @@ export async function dispatch(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  if (!isLoopbackHostHeader(req.headers.host)) {
-    sendError(res, 421, "http", "Invalid Host header");
+  const boundary = checkLoopbackBoundary(req);
+  if (boundary) {
+    sendError(res, boundary.status, boundary.code, boundary.message);
     return;
   }
 
-  let target: ParsedDaemonRequestTarget;
-  try {
-    target = parseDaemonRequestTarget(req.url ?? "/", req.headers.host ?? "");
-  } catch {
-    sendError(res, 400, "http", "Invalid request target");
+  const parsed = parseRequestTarget(req);
+  if (!parsed.ok) {
+    sendError(res, 400, "http", parsed.message);
     return;
   }
+  const target = parsed.target;
   const method = req.method?.toUpperCase() ?? "GET";
   const pathname = target.routePathname;
   const match = matchRoute(routes, method, pathname);
@@ -454,10 +486,6 @@ export async function dispatch(
   // daemon never participates in cross-origin browser flows. Authentication
   // covers protected routes plus any mutation, so unauthenticated probes
   // cannot distinguish unknown paths from existing ones.
-  if (!isLoopbackOriginHeader(req.headers.origin)) {
-    sendError(res, 403, "unauthorized", "Invalid Origin header");
-    return;
-  }
   const requiresAuth = route ? route.auth !== "public" : isControlMutation(method);
   const authorized = isControlRequestAuthorized(req, {
     daemonSecret: ctx.settings.committed().daemonSecret,
