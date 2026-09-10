@@ -6,16 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-10
+
 ### Changed
 
 - Rewrite the CLI's user-facing wording around the user's concepts instead of the implementation's. `sash status` no longer prints the internal `desired`/`applied`/`observed` split as `proxy desired`, `daemon applied` and `os proxy`; it prints one `system proxy` line that names the next step when the two sides disagree (`on — not applied to Windows yet; run sash proxy on`, `off — Windows is still set to 127.0.0.1:18890`). The headline is `Sash is running · Core running (v1.19.30)` instead of `sashd running (PID=…), core running (PID=…)`, and PIDs move to where they help: troubleshooting lines and `--json`. `sash doctor` prints check names (`Start at login`, `System proxy`, `Windows connections`) instead of internal ids and states what to do next, and `sash auto`, `sash proxy` and the profile commands drop their own internal vocabulary (`Management started…`, `Runtime mode set to…`, `Saved profile 1757… revision 1`) for plain sentences that name the command to run. `--help` names the Core and Sash consistently. AGENTS.md gained a Copy and Vocabulary section so the next change stays consistent; JSON fields, `doctor --json` check ids and exit codes are explicitly frozen.
-
-### Fixed
-
-- Start on a configuration that uses GEO rules on a network without direct access to `github.com`. The Core downloads its geodata databases (`geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) while loading a configuration, and it fetches them itself, ignoring `HTTP_PROXY` — so a first start deadlocked: no Core without geodata, and no way to fetch geodata without the Core's own proxy. The pre-flight check now recognizes a geodata download failure instead of reporting "Core rejected generated configuration", retries once with `geox-url` rewritten to the release-mirror hosts, and applies the retried configuration, which leaves the databases and a working source in the data directory. A failure after the retry says so explicitly and names the two ways out (a trusted `geox-url`, or pre-seeded files); a system-wide tunnel also works, a proxy environment variable does not.
-- Let `GITHUB_TOKEN`/`GH_TOKEN` reach `sashd`, which performs Core release metadata and asset downloads. The daemon was spawned with a fully scrubbed environment, so the token support could never take effect where it was needed: with the anonymous GitHub API quota exhausted (a shared or datacenter exit IP), `sash update --check` succeeded through the token while `sash start` failed with `HTTP 403` on the same machine. Core, npm and helper children still receive no credential.
-
-### Changed
 
 - Replace the self-upgrade transaction with a thin npm flow. `sash upgrade` resolves the exact release from the npm registry, stops the daemon, runs `npm install --global @astralyn/sash@<version>` from the installation prefix and starts the daemon again. The upgrade journal, startup barrier, package staging and candidate probe, shim/launcher replacement, upgrade authorization grants, HMAC-signed runtime handoffs, installation instance registry and autostart capture/apply helpers are gone, along with the `/sash/upgrade/*` routes and the daemon's upgrade reservation API.
 - Stop re-validating what Sash itself produced. The CLI and dashboard type daemon responses instead of re-parsing them, settings are validated once in `settings.ts`, profile YAML is parsed once per source, the delay target is checked at the CLI and HTTP input boundaries only, and `contracts.ts` keeps only `parseApiErrorBody` (366 to 142 lines).
@@ -25,6 +20,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `sash upgrade --json` prints one result object and routes npm output to stderr; the report is `{current, target, available, compatible, supported, installation, prefix?, node, requiredNode?, reason?}` with no pending or recovery phase.
 - Drop the Core runtime capture/restore path that only the upgrade handoff used: `core-runtime-state.ts`, `MihomoApi.runtimeState`/`restoreRuntimeState`, `RuntimeLifecycle.restore()` and the upgrade-only `AutostartService.repairAfterUpgrade`. Routing mode and proxy-group selections therefore reset on any restart, exactly as they already did for `sash restart`, instead of being preserved across an upgrade only.
 
+### Fixed
+
+- Start on a configuration that uses GEO rules on a network without direct access to `github.com`. The Core downloads its geodata databases (`geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) while loading a configuration, and it fetches them itself, ignoring `HTTP_PROXY` — so a first start deadlocked: no Core without geodata, and no way to fetch geodata without the Core's own proxy. The pre-flight check now recognizes a geodata download failure instead of reporting "Core rejected generated configuration", retries once with `geox-url` rewritten to the release-mirror hosts, and applies the retried configuration, which leaves the databases and a working source in the data directory. A failure after the retry says so explicitly and names the two ways out (a trusted `geox-url`, or pre-seeded files); a system-wide tunnel also works, a proxy environment variable does not.
+- Let `GITHUB_TOKEN`/`GH_TOKEN` reach `sashd`, which performs Core release metadata and asset downloads. The daemon was spawned with a fully scrubbed environment, so the token support could never take effect where it was needed: with the anonymous GitHub API quota exhausted (a shared or datacenter exit IP), `sash update --check` succeeded through the token while `sash start` failed with `HTTP 403` on the same machine. Core, npm and helper children still receive no credential.
+
 ### Removed
 
 - Delete the self-upgrade machinery (`upgrade-*.ts`, `installation-registry.ts`, `package-health.ts`, `signed-file.ts`, `daemon/upgrade.ts`, the dashboard-manifest runtime probe) and its tests, plus the now-unreachable `core-runtime-state.ts`. The bundled entries are now `cli.js`, `daemon-entry.js`, `autostart-entry.js`, `webui.js` and `installation.js`.
@@ -33,7 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Upgrade note
 
-Upgrading from 0.1.7 requires one manual `npm install -g @astralyn/sash@latest`: the 0.1.7 updater verifies the target package against the removed handoff protocol and probes removed bundled entries, so it refuses the new package. Later versions upgrade with `sash upgrade` as usual.
+Upgrading from 0.1.7 requires one manual `npm install -g @astralyn/sash@0.2.0`: the 0.1.7 updater verifies the target package against the removed handoff protocol and probes removed bundled entries, so it refuses this package. From 0.2.0 on, `sash upgrade` works as usual.
 
 ## [0.1.7] - 2026-09-10
 
