@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { MihomoApi } from "./api.js";
 import { assertCoreBinaryFile } from "./core-binary.js";
-import { containsCoreVersionToken } from "./core-version.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
 import type { SashLayout } from "./paths.js";
 import type { ProcessIdentity } from "./process.js";
@@ -39,7 +38,6 @@ export interface CoreSupervisorOptions {
   settings: () => SashSettings;
   spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   waitHealthyMs?: number;
-  expectedVersion?: string | (() => string | undefined);
   isAliveFn?: typeof isProcessAlive;
   killFn?: typeof killProcessGracefully;
   classifyIdentityFn?: typeof classifyProcessIdentity;
@@ -66,24 +64,10 @@ export class CoreSupervisor {
   private childStartedAt: string | undefined;
   private childGeneration = 0;
   private stopping = false;
-  private cachedStatus:
-    | {
-        owner: CoreOwnershipSnapshot;
-        state: CoreState;
-        expiresAt: number;
-      }
-    | undefined;
-  private pendingStatus:
-    | {
-        owner: CoreOwnershipSnapshot;
-        promise: Promise<CoreState>;
-      }
-    | undefined;
   private readonly layout: SashLayout;
   private readonly getSettings: () => SashSettings;
   private readonly spawnFn: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   private readonly waitHealthyMs: number;
-  private readonly getExpectedVersion: () => string | undefined;
   private readonly isAlive: typeof isProcessAlive;
   private readonly kill: typeof killProcessGracefully;
   private readonly classifyIdentity: typeof classifyProcessIdentity;
@@ -96,9 +80,6 @@ export class CoreSupervisor {
     this.layout = opts.layout;
     this.getSettings = opts.settings;
     this.waitHealthyMs = opts.waitHealthyMs ?? 10_000;
-    const expectedVersion = opts.expectedVersion;
-    this.getExpectedVersion =
-      typeof expectedVersion === "function" ? expectedVersion : () => expectedVersion;
     this.isAlive = opts.isAliveFn ?? isProcessAlive;
     this.kill = opts.killFn ?? killProcessGracefully;
     this.classifyIdentity = opts.classifyIdentityFn ?? classifyProcessIdentity;
@@ -171,7 +152,6 @@ export class CoreSupervisor {
       throw new Error(`Core config not found at ${this.layout.configFile}`);
     }
 
-    const expectedVersion = this.getExpectedVersion();
     this.stopping = false;
     const settings = this.getSettings();
     const errLogCursor = logTailCursor(this.layout.coreErrLogFile);
@@ -248,11 +228,6 @@ export class CoreSupervisor {
 
       try {
         version = await api.version();
-        if (expectedVersion && !containsCoreVersionToken(version, expectedVersion)) {
-          throw new Error(
-            `Controller version ${version} does not match expected ${expectedVersion}`,
-          );
-        }
         if (this.isAlive(pid)) return { pid, version };
       } catch {
         // Keep waiting until the owned process exposes a ready controller.
@@ -326,35 +301,12 @@ export class CoreSupervisor {
     );
   }
 
-  /** Diagnostics may reuse a 500ms observation; safety decisions request fresh state by default. */
-  async status(options: { fresh?: boolean } = {}): Promise<CoreState> {
+  /** Every read probes the controller directly; DaemonEvents already throttles polling. */
+  async status(): Promise<CoreState> {
     const ownership = this.ownedCoreSnapshot();
     if (!ownership) return { running: false };
-    const cached = this.cachedStatus;
-    if (
-      options.fresh === false &&
-      cached &&
-      performance.now() < cached.expiresAt &&
-      this.ownsCore(cached.owner)
-    )
-      return { ...cached.state };
-
-    let pending = this.pendingStatus;
-    if (!pending || !this.ownsCore(pending.owner)) {
-      const promise = this.probeStatus(ownership).then((state) => {
-        if (this.ownsCore(ownership))
-          this.cachedStatus = { owner: ownership, state, expiresAt: performance.now() + 500 };
-        return state;
-      });
-      pending = { owner: ownership, promise };
-      this.pendingStatus = pending;
-    }
-    try {
-      const state = await pending.promise;
-      return this.ownsCore(ownership) ? { ...state } : { running: false };
-    } finally {
-      if (this.pendingStatus === pending) this.pendingStatus = undefined;
-    }
+    const state = await this.probeStatus(ownership);
+    return this.ownsCore(ownership) ? state : { running: false };
   }
 
   private async probeStatus(ownership: CoreOwnershipSnapshot): Promise<CoreState> {

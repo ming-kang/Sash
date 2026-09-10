@@ -169,9 +169,12 @@ export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promi
 }
 
 /** Complete control snapshot shared by HTTP reads and the authenticated event observer. */
-export async function readDaemonStatus(ctx: DaemonContext, fresh = false): Promise<DaemonStatus> {
+export async function readDaemonStatus(
+  ctx: DaemonContext,
+  freshProxy = false,
+): Promise<DaemonStatus> {
   const ownership = ctx.supervisor.ownedCoreSnapshot();
-  const runtimeCore = await ctx.supervisor.status({ fresh });
+  const runtimeCore = await ctx.supervisor.status();
   const installedVersion = currentCoreVersion(ctx.layout);
   let core =
     runtimeCore.version || !installedVersion
@@ -183,7 +186,7 @@ export async function readDaemonStatus(ctx: DaemonContext, fresh = false): Promi
   let proxyStateKnown = false;
   let proxyQueryError: string | undefined;
   try {
-    const inspection = await ctx.systemProxy.inspect(fresh);
+    const inspection = await ctx.systemProxy.inspect(freshProxy);
     proxyApplied = inspection.applied;
     proxyAppliedKnown = inspection.appliedKnown;
     proxyStateKnown = inspection.stateKnown;

@@ -80,7 +80,6 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     new CoreSupervisor({
       layout,
       settings: () => lifecycle?.settings() ?? settings(),
-      expectedVersion: () => currentCoreVersion(layout) || undefined,
       onExit: () =>
         gate
           .mutate(() => lifecycle.handleUnexpectedCoreExit())
