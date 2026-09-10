@@ -235,7 +235,8 @@ export function commandLineContains(pid: number, marker: string): boolean {
   return commandLineContainsPath(cmdline, marker);
 }
 
-const STRIPPED_ENV_KEYS = new Set([
+/** Credentials and CI tokens that must never reach a child process. */
+export const CREDENTIAL_ENV_KEYS: readonly string[] = [
   "GITHUB_TOKEN",
   "GH_TOKEN",
   "GH_ENTERPRISE_TOKEN",
@@ -251,7 +252,9 @@ const STRIPPED_ENV_KEYS = new Set([
   "SASH_UPGRADE_GRANT",
   "SASH_UPGRADE_TRANSACTION",
   "SASH_UPGRADE_CLEANUP",
-]);
+];
+
+const STRIPPED_ENV_KEYS = new Set(CREDENTIAL_ENV_KEYS);
 
 export function buildSanitizedEnv(sourceEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const childEnv: NodeJS.ProcessEnv = { ...sourceEnv };

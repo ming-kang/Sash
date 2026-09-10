@@ -3,6 +3,7 @@ import { readBoundedFile, readBoundedJsonFile } from "./bounded-file.js";
 import { atomicWriteFileSync, pathEntryExists } from "./fs-atomic.js";
 import { npmShimPaths, pathsEqual } from "./installation.js";
 import { isPlainObject } from "./json-shape.js";
+import { CREDENTIAL_ENV_KEYS } from "./process.js";
 import {
   assertPackageIdentity,
   readShimImage,
@@ -49,9 +50,10 @@ try {
     forwarded = args;
   }
   const env = { ...process.env };
+  const stripped = new Set(${JSON.stringify(CREDENTIAL_ENV_KEYS)}.concat(["NODE_OPTIONS", "NODE_PATH"]));
   for (const key of Object.keys(env)) {
     const upper = key.toUpperCase();
-    if (/^(?:GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_PAT|GITHUB_ACCESS_TOKEN|GH_PAT|NPM_TOKEN|NPM_AUTH_TOKEN|NODE_AUTH_TOKEN|NPM_ID_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|ACTIONS_ID_TOKEN_REQUEST_URL|NODE_OPTIONS|NODE_PATH|SASH_UPGRADE_GRANT|SASH_UPGRADE_TRANSACTION)$/.test(upper) || upper.startsWith("NPM_CONFIG_")) delete env[key];
+    if (stripped.has(upper) || upper.startsWith("NPM_CONFIG_")) delete env[key];
   }
   const result = spawnSync(info.nodePath, [entry, ...forwarded], { stdio: "inherit", env, cwd: prefix, windowsHide: true, shell: false });
   if (result.error) throw result.error;
