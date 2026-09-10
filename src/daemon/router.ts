@@ -12,39 +12,37 @@ import { serveStaticUi } from "../daemon-static.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
 import { streamDaemonEvents } from "./events.js";
-import { readAutostart, writeAutostart } from "./handlers/autostart.js";
-import {
-  coreUpdateProgress,
-  restartCore,
-  setCoreMode,
-  startCore,
-  stopCore,
-  testCoreDelay,
-  updateCore,
-} from "./handlers/core.js";
-import {
-  createWebBootstrap,
-  daemonStatus,
-  health,
-  redeemWebBootstrap,
-  shutdownDaemon,
-} from "./handlers/daemon.js";
 import {
   activateProfile,
   addProfile,
+  continueWebSession,
+  coreUpdateProgress,
+  createWebBootstrap,
+  daemonStatus,
+  health,
   importProfile,
   listProfiles,
+  patchSettings,
+  proxyStatus,
+  readAutostart,
   readProfileContent,
+  readSettings,
+  redeemWebBootstrap,
   removeProfile,
   renameProfile,
   reorderProfiles,
+  restartCore,
+  setCoreMode,
+  shutdownDaemon,
+  startCore,
+  stopCore,
+  testCoreDelay,
   updateAllProfiles,
+  updateCore,
   updateProfile,
+  writeAutostart,
   writeProfileContent,
-} from "./handlers/profiles.js";
-import { proxyStatus } from "./handlers/proxy.js";
-import { patchSettings, readSettings } from "./handlers/settings.js";
-import { continueWebSession } from "./handlers/web.js";
+} from "./handlers.js";
 
 /* ====================================================================== */
 /* Request target parsing                                                  */

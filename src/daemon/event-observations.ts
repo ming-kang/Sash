@@ -1,7 +1,7 @@
 import type { AutostartStatus } from "../autostart-contract.js";
 import { errorMessage } from "../error-utils.js";
 import type { DaemonContext } from "./context.js";
-import { readDaemonStatus } from "./handlers/daemon.js";
+import { readDaemonStatus } from "./handlers.js";
 
 /** Desktop inspection can spawn a shell; it must not delay or repeat with download progress. */
 export function createEventObserver(context: () => DaemonContext) {
