@@ -116,15 +116,6 @@ function readWindowsExecutablePath(pid: number): string | undefined {
   return runPowerShell(script);
 }
 
-function parseTasklistImageName(tasklistOutput: string): string | undefined {
-  const line = tasklistOutput.trim().split(/\r?\n/)[0] ?? "";
-  if (!line || /^INFO:/i.test(line)) return undefined;
-  const quoted = line.match(/^"([^"]+)"/);
-  if (quoted?.[1]) return quoted[1];
-  const first = line.split(",")[0]?.replace(/^"|"$/g, "").trim();
-  return first || undefined;
-}
-
 function classifyDarwinComm(commOutput: string, expectedExe: string): ProcessIdentity {
   const out = commOutput.trim();
   if (!out) return "mismatch";
@@ -140,7 +131,7 @@ function classifyDarwinComm(commOutput: string, expectedExe: string): ProcessIde
  * Classify whether `pid` corresponds to the expected executable binary.
  *
  * - Linux: reads /proc/<pid>/exe symlink.
- * - Windows: queries Get-Process Path; falls back to tasklist image name.
+ * - Windows: queries the process path through PowerShell.
  * - macOS: queries ps -p <pid> -o comm=.
  */
 export function classifyProcessIdentity(pid: number, expectedExe: string): ProcessIdentity {
@@ -164,19 +155,10 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
       if (executable) {
         return exePathsMatch(executable, expected) ? "match" : "mismatch";
       }
-
-      try {
-        const out = runSanitizedCommand(
-          windowsSystemExecutable("tasklist.exe"),
-          ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"],
-          { timeoutMs: 3000 },
-        ).trim();
-        const image = parseTasklistImageName(out);
-        if (!image) return "mismatch";
-        return imageMatchesExpectedExe(image, expected) ? "unknown" : "mismatch";
-      } catch {
-        return "unknown";
-      }
+      // An elevated or protected process whose path cannot be read stays
+      // unverified, which every caller treats as "do not signal". Comparing the
+      // image name instead could only downgrade a mismatch to the same outcome.
+      return "unknown";
     }
 
     if (process.platform === "darwin") {
