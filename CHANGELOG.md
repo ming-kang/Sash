@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Check Core archive integrity once during download and trust installed files under local account permissions. Remove executable hashing and version-only digest migration from startup, updates, recovery and doctor; retain configuration validation, verified process termination and startup rollback.
+- Select Core builds using CPU and OS instruction support, preferring supported v3/v2/v1 assets and using compatible/v1 when detection is unavailable. Record the selected asset and start a newly installed Core once.
+- Let npm prepare Sash packages and dependencies, run one candidate probe, and track package directory identity instead of per-file hash manifests. Preserve interrupted upgrades and report leftover cleanup as a warning after restoring runtime and startup admission.
+- Build one npm tarball in CI, test it on every supported platform, and publish that exact artifact from successful CI for the release commit. Separate type-checking from tests and remove duplicate local/publish acceptance steps.
 - Complete all release checks before npm publication; after upload succeeds, only tag the source commit and create the GitHub Release. Remove registry polling and repeated provenance, installation and runtime verification from the publish workflow.
 
 ## [0.1.3] - 2026-09-10

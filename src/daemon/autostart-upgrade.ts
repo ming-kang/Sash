@@ -10,12 +10,11 @@ import {
 } from "../autostart/windows.js";
 import { AutostartService } from "../autostart.js";
 import { readBoundedJsonFile } from "../bounded-file.js";
-import { isSha256 } from "../core-integrity.js";
 import { errnoCode } from "../error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
 import { canonicalPath, npmPackageRoot, npmPrefixForPackage, pathsEqual } from "../installation.js";
 import { installationRegistryPaths } from "../installation-registry.js";
-import { hasExactOwnKeys, isPlainObject } from "../json-shape.js";
+import { hasExactOwnKeys, isPlainObject, isSha256 } from "../json-shape.js";
 import { readSashPackageInfo, supportsNode } from "../package-info.js";
 import { sashLayout } from "../paths.js";
 import { authorizeInstallationUpgrade, type UpgradeAccess } from "../upgrade-access.js";

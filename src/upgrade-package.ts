@@ -21,50 +21,19 @@ export async function verifyUpgradePackage(
     signal,
     timeoutMs: 30_000,
   };
-  const checks = await Promise.allSettled([
-    runUpgradeCommand(nodePath, [path.join(packageRoot, "dist", "cli.js"), "--version"], {
-      ...options,
-      purpose: "Verify Sash CLI version",
-    }),
-    runUpgradeCommand(nodePath, [path.join(packageRoot, "dist", "cli.js"), "--help"], {
-      ...options,
-      purpose: "Verify Sash CLI startup",
-    }),
-    runUpgradeCommand(nodePath, [path.join(packageRoot, "dist", "upgrade-probe-entry.js")], {
-      ...options,
-      purpose: "Verify Sash runtime and dashboard",
-    }),
-    runUpgradeCommand(
-      nodePath,
-      [path.join(packageRoot, "dist", "upgrade-worker.mjs"), "--self-test"],
-      {
-        ...options,
-        purpose: "Verify the new Sash recovery worker",
-      },
-    ),
-  ]);
-  // A failed probe must not leave siblings using a package that cleanup is about to remove.
-  const checked = (result: PromiseSettledResult<string>): string => {
-    if (result.status === "rejected") throw result.reason;
-    return result.value;
-  };
-  const version = checked(checks[0]);
-  const help = checked(checks[1]);
-  const probeText = checked(checks[2]);
-  const workerText = checked(checks[3]);
+  const probeText = await runUpgradeCommand(
+    nodePath,
+    [path.join(packageRoot, "dist", "upgrade-probe-entry.js")],
+    { ...options, purpose: "Check prepared Sash runtime and dashboard" },
+  );
   const probe: unknown = JSON.parse(probeText);
-  const worker: unknown = JSON.parse(workerText);
   if (
-    version.trim() !== expectedVersion ||
-    !/Usage:\s+sash/.test(help) ||
     !isPlainObject(probe) ||
     probe.version !== expectedVersion ||
     probe.upgradeProtocol !== UPGRADE_PROTOCOL ||
     probe.ui !== true ||
     typeof probe.node !== "string" ||
-    !supportsNode(info, probe.node) ||
-    !isPlainObject(worker) ||
-    worker.upgradeProtocol !== UPGRADE_PROTOCOL
+    !supportsNode(info, probe.node)
   )
     throw new Error("Prepared Sash package failed its startup checks");
 }

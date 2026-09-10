@@ -24,7 +24,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 | `sash stop` | Restore proxy, stop Core and exit management. Report an error if safe shutdown cannot be verified. |
 | `sash stop --core` | Restore proxy and stop Core while retaining management and browser access. |
 | `sash status [--json] [--watch] [--delay NAME]` | Read runtime, endpoint, saved profile, proxy and autostart observations; optionally follow changes or explicitly test one outbound. Bare `sash` reads once. |
-| `sash doctor [--json]` | Check installation, dashboard, saved state, Core integrity, ports and desktop integration; print repair suggestions. |
+| `sash doctor [--json]` | Check installation, dashboard, saved state, Core files, ports and desktop integration; print repair suggestions. |
 | `sash web` | Start management if needed and authorize/open the dashboard. |
 | `sash web --no-open` | Start management and print its address without authorizing a browser. |
 | `sash update [tag] [--check] [--json]` | Check a Core release or install it through the daemon, with preparation/download/verification progress. |
@@ -127,7 +127,7 @@ ui/                             optional custom dashboard override
 
 The manifest and sources use atomic publication. Old source revisions may be cleaned after successful saves; this is not a version-history feature. Do not edit generated runtime configuration. POSIX private state/logs use `0600`.
 
-While management is running, scheduled maintenance removes recognized orphan revisions and temporary files older than 24 hours. Current sources, recent files, unknown names and symbolic links are preserved. Empty generated directories also have a 24-hour grace period. Core preparation files are protected while a download or integrity check is active.
+While management is running, scheduled maintenance removes recognized orphan revisions and temporary files older than 24 hours. Current sources, recent files, unknown names and symbolic links are preserved. Empty generated directories also have a 24-hour grace period. Core preparation files are protected while a download is active.
 
 ## Updates
 
@@ -142,9 +142,11 @@ The Core tag is a positional argument; the former `sash update --version TAG` op
 
 Core updates keep the dashboard available and preserve whether Core was running. Even an initially stopped update performs a temporary startup/health check, then stops again. `.bak` is retained until the new binary passes verification and the original running state is restored. Failure rolls back the executable and install record; saved profiles/settings are not part of this transaction.
 
-Downloads require official SHA-256 metadata, trusted HTTPS origins and bounded extraction. If verification cannot complete, the update fails rather than executing unverifiable bytes.
+Downloads use trusted HTTPS origins, one archive integrity check during transfer, and bounded extraction. A failed download leaves the current installation available. Startup, restart and doctor do not hash installed Core files. Older install records need no digest migration or background download.
 
-The first execution check of a newly downloaded Core allows 20 seconds for antivirus scanning, including Windows Defender. Hash verification still happens before execution.
+On x64, installation and updates select the highest supported official build: v3, v2 or v1. Detection includes operating-system support for vector instructions. Windows uses PowerShell 7 when available; unavailable detection falls back to compatible/v1 builds. ARM64 uses its native build. The chosen asset name is saved for new installations and updates.
+
+A first `sash start` downloads and starts Core once. Its controller readiness check supplies the running version; successful readiness ends the check.
 
 Update Sash itself:
 
@@ -156,17 +158,19 @@ sash upgrade --json        # machine-readable result; progress is suppressed
 
 The default target is the official npm `latest` release. An optional exact published version selects an upgrade or downgrade. An already-current version exits successfully. `--check` leaves the installation and data directories unchanged and never starts management. Source checkouts, linked packages and other package managers receive guidance for their installation method.
 
-Sash checks Node compatibility and prepares the package, dependencies and recovery files before stopping anything. It coordinates all data directories sharing the installation, restarts their original management/Core state, preserves the actual applied configuration, and keeps saved but unapplied edits pending. Core's version remains unchanged. Working login startup and Sash-owned proxy settings are restored with the runtime; the dashboard reconnects through its private session continuation. Connections are briefly interrupted while running Core instances restart.
+Sash checks Node compatibility and lets npm prepare the exact package version and dependencies before stopping anything. A single preparation probe checks the runtime and dashboard. It coordinates all data directories sharing the installation, restarts their original management/Core state, preserves the actual applied configuration, and keeps saved but unapplied edits pending. Core's version remains unchanged. Working login startup and Sash-owned proxy settings are restored with the runtime; the dashboard reconnects through its private session continuation. Connections are briefly interrupted while running Core instances restart.
 
 Installation or health failures restore the previous package and runtime without a network download. After an interrupted upgrade, run `sash upgrade` again to finish recovery. The command remains available through a recovery launcher even if the package directory was temporarily moved. Keep the reported recovery files when ownership cannot be verified, resolve the reported conflict and retry. A recovered transaction exits before starting a new version change.
 
 `--check --json` reports `current`, `target`, `available`, `compatible`, `supported` and any pending recovery. Execution JSON also reports an `outcome`; completed transactions include the installed `version`, restored instance count and `recoveryRequired`. Exit code `0` means a successful check, no-op, upgrade or recovery; `1` means an unsupported/incompatible execution or failure. Check `compatible` and `supported` when consuming a successful check.
 
+If only temporary-file cleanup fails after restoration, the upgrade still succeeds and reports a `warning` with the retained location. Normal startup remains available; a later `sash upgrade` can finish the cleanup.
+
 For manual package-manager maintenance, stop affected instances first, update using their installation method, then start them again. `sash update --force` is unavailable. Damaged Core installations are diagnosed and preserved; stop the existing instance before using a clean data directory for reinstallation.
 
 ## Status and troubleshooting
 
-Run `sash doctor` before changing a damaged installation. Checks continue independently when the manifest or Core files are corrupt. Doctor reads metadata and verifies a recorded Core hash, observes the current runtime and desktop integration, and briefly checks whether stopped listener ports are available. It does not initialize state, install components, start management or apply repairs.
+Run `sash doctor` before changing a damaged installation. Checks continue independently when the manifest or Core files are invalid. Doctor reads installation metadata and file information, observes the current runtime and desktop integration, and briefly checks whether stopped listener ports are available. It does not hash executables, initialize state, install components, start management or apply repairs.
 
 `doctor --json` reports `schemaVersion: 1`, `healthy`, `complete`, and named checks with `ok`, `info`, `warning` or `error` status and optional advice. Exit code `1` indicates a definite fault; `2` indicates an incomplete observation without a definite fault. A clean stopped or uninitialized installation can return `0` with informational setup guidance.
 

@@ -6,7 +6,6 @@ import { readBoundedFile } from "../bounded-file.js";
 import type { UpgradeRuntimeStatus, WebSessionInfo } from "../contracts.js";
 import { assertCoreInstallationConsistent } from "../core.js";
 import { installRecordsEqual, readInstallRecord } from "../core-install-record.js";
-import { assertCoreBinaryDigest } from "../core-integrity.js";
 import { readCoreUpdateTransaction } from "../core-update.js";
 import { HttpError } from "../daemon-http.js";
 import { canonicalPath, pathsEqual } from "../installation.js";
@@ -49,22 +48,13 @@ export class DaemonUpgradeService {
   private verifySavedState(handoff: UpgradeHandoff): void {
     const { ctx } = this;
     ctx.state.assertCurrent(handoff.stateRevision);
-    if (
-      crypto.hash("sha256", readBoundedFile(ctx.layout.settingsFile, 2 * 1024 * 1024)) !==
-      handoff.stateSha256
-    )
-      throw new StateConflictError(
-        "Saved Sash state changed during upgrade; recovery files preserved",
-      );
     assertCoreInstallationConsistent(ctx.layout);
     if (
       readCoreUpdateTransaction(ctx.layout) ||
       !installRecordsEqual(readInstallRecord(ctx.layout), handoff.coreInstallation)
     )
       throw new StateConflictError("Core installation changed during Sash upgrade");
-    if (handoff.coreInstallation)
-      assertCoreBinaryDigest(ctx.layout.coreExe, handoff.coreInstallation.sha256);
-    else if (fs.existsSync(ctx.layout.coreExe))
+    if (!handoff.coreInstallation && fs.existsSync(ctx.layout.coreExe))
       throw new StateConflictError("Unrecognized Core binary appeared during upgrade");
   }
 
@@ -234,7 +224,6 @@ export class DaemonUpgradeService {
           this.ctx.token,
           Date.parse(handoff.continuationExpiresAt),
         );
-        await this.verifyRuntime(handoff);
         this.checkpoint(access, {
           ...this.requireCurrent(access),
           phase: "restored",
@@ -291,7 +280,9 @@ export class DaemonUpgradeService {
         const handoff = this.requireCurrent(access);
         if (handoff.phase !== "restored")
           throw new StateConflictError("Sash runtime has not been restored");
-        await this.verifyRuntime(handoff);
+        this.verifySavedState(handoff);
+        if (this.ctx.supervisor.isRunning() !== handoff.runtime.running)
+          throw new Error("Sash runtime changed before upgrade commit");
         this.checkpoint(access, { ...handoff, phase: "committed" });
         this.ctx.gate.releaseReservation(access.transactionId);
         return this.status(access);

@@ -11,9 +11,6 @@ import {
   stageCore,
 } from "../core.js";
 import { validateCoreConfig } from "../core-config-validation.js";
-import { readInstallRecord } from "../core-install-record.js";
-import { ensureCoreIntegrityRecords } from "../core-install-verification.js";
-import { assertCoreBinaryDigest } from "../core-integrity.js";
 import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
 import type { CoreUpdateProgress, CoreUpdateStage } from "../core-update-progress.js";
 import { installationId } from "../installation.js";
@@ -51,7 +48,6 @@ export interface DaemonDeps {
     signal: AbortSignal,
   ) => Promise<void> | void;
   stageCoreFn?: typeof stageCore;
-  verifyCoreFn?: (exe: string, version: string) => void;
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
   onShutdown?: () => void;
   scheduler?: DaemonScheduler;
@@ -97,12 +93,10 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     supervisor,
     systemProxy,
     settings,
-    verifyExecutable: deps.verifyCoreFn,
     controllerProbe: deps.controllerProbe,
   });
   let downloading = false;
   let coreUpdateProgress: CoreUpdateProgress | null = null;
-  let verifyingIntegrity: Promise<void> | undefined;
   let preparation = new AbortController();
   let profiles: ProfileService;
   const cancelCorePreparation = (): void => {
@@ -121,7 +115,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     layout,
     state,
     sources,
-    canCleanTemp: () => !downloading && !verifyingIntegrity,
+    canCleanTemp: () => !downloading,
     commit: mutate,
     assertMutable: () => gate.assertMutable(),
     fetchProfile: deps.fetchProfileFn,
@@ -131,9 +125,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     generated: GeneratedConfig,
     executable: string,
     signal: AbortSignal,
-    sha256 = readInstallRecord(layout)?.sha256,
   ): Promise<void> => {
-    assertCoreBinaryDigest(executable, sha256);
     return Promise.resolve(
       deps.validateConfigFn
         ? deps.validateConfigFn(generated, executable, signal)
@@ -155,25 +147,17 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
 
   const requireRecoveredInstall = (): void => {
     assertCoreInstallationConsistent(layout);
-    if (readCoreUpdateTransaction(layout))
+    const transaction = readCoreUpdateTransaction(layout);
+    if (transaction && transaction.phase !== "verified")
       throw new StateConflictError(
         "Core update recovery is pending; run sash stop, then sash start",
       );
   };
 
-  const verifyInstalledIntegrity = (): Promise<void> => {
-    const { signal } = preparation;
-    verifyingIntegrity ??= ensureCoreIntegrityRecords(
-      layout,
-      (tag) => (deps.stageCoreFn ?? stageCore)({ layout, tag, signal }),
-      signal,
-    ).finally(() => {
-      verifyingIntegrity = undefined;
-    });
-    return verifyingIntegrity;
-  };
-
-  const updateCore = async (version?: string): Promise<CoreUpdateResult> => {
+  const updateCore = async (
+    version?: string,
+    startAfterInstall = false,
+  ): Promise<CoreUpdateResult> => {
     gate.assertMutable();
     if (downloading) throw new StateConflictError("A Core download is already in progress");
     requireRecoveredInstall();
@@ -197,7 +181,6 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     };
     let staged: StagedCore | undefined;
     try {
-      await verifyInstalledIntegrity();
       signal.throwIfAborted();
       requireRecoveredInstall();
       const revision = state.snapshot().revision;
@@ -220,7 +203,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       });
       signal.throwIfAborted();
       setStage("validating", staged.version);
-      await validate(configuration.generated, staged.exe, signal, staged.sha256);
+      await validate(configuration.generated, staged.exe, signal);
       const candidate = staged;
       setStage("waiting");
       return await mutate("update Core", async () => {
@@ -229,7 +212,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
         if (lifecycle.revision !== epoch)
           throw new StateConflictError("Core changed during download; retry the update");
         setStage("installing");
-        return lifecycle.update(candidate, configuration);
+        return lifecycle.update(candidate, configuration, startAfterInstall);
       });
     } catch (error) {
       signal.throwIfAborted();
@@ -253,12 +236,22 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     gate.assertMutable();
     const { signal } = preparation;
     requireRecoveredInstall();
-    await verifyInstalledIntegrity();
     signal.throwIfAborted();
-    if (!coreInstalled(layout)) await updateCore();
+    const installedNow = !coreInstalled(layout);
+    if (installedNow) await updateCore(undefined, true);
     return mutate("apply saved configuration", async () => {
       signal.throwIfAborted();
       requireRecoveredInstall();
+      if (installedNow) {
+        const owner = supervisor.ownedCoreSnapshot();
+        if (!owner) throw new Error("Core exited after installation");
+        return {
+          pid: owner.pid,
+          version: currentCoreVersion(layout),
+          alreadyRunning: false,
+          mixedPort: lifecycle.settings().mixedPort,
+        };
+      }
       if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
       const configuration = savedConfiguration();
       await validate(configuration.generated, layout.coreExe, signal);

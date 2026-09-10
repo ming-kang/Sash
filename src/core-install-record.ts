@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import { isSha256 } from "./core-integrity.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -9,7 +8,9 @@ const INSTALL_RECORD_SIZE_LIMIT = 16 * 1024;
 export interface InstallRecord {
   coreVersion: string;
   installedAt: string;
-  /** Absent only in existing version-only records awaiting official artifact verification. */
+  /** The selected release asset; older installations did not record it. */
+  assetName?: string;
+  /** Retained when reading old records and restoring their metadata; never used to gate execution. */
   sha256?: string;
 }
 
@@ -24,8 +25,12 @@ export function validateCoreReleaseTag(tag: string): string {
 export function parseInstallRecord(value: unknown): InstallRecord | undefined {
   if (
     !isPlainObject(value) ||
-    Object.keys(value).some((key) => !["coreVersion", "installedAt", "sha256"].includes(key)) ||
-    (Object.hasOwn(value, "sha256") && !isSha256(value.sha256))
+    Object.keys(value).some(
+      (key) => !["coreVersion", "installedAt", "assetName", "sha256"].includes(key),
+    ) ||
+    (Object.hasOwn(value, "assetName") &&
+      (typeof value.assetName !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,250}\.(zip|gz)$/.test(value.assetName)))
   ) {
     return undefined;
   }
@@ -36,6 +41,7 @@ export function parseInstallRecord(value: unknown): InstallRecord | undefined {
     return {
       coreVersion: validateCoreReleaseTag(value.coreVersion),
       installedAt: value.installedAt,
+      ...(typeof value.assetName === "string" ? { assetName: value.assetName } : {}),
       ...(typeof value.sha256 === "string" ? { sha256: value.sha256 } : {}),
     };
   } catch {
@@ -58,11 +64,9 @@ export function writeInstallRecord(record: InstallRecord, layout: SashLayout = s
   if (!isCanonicalIsoTimestamp(record.installedAt)) {
     throw new Error(`Invalid Core install timestamp: ${record.installedAt}`);
   }
-  if (!isSha256(record.sha256)) throw new Error("A verified Core SHA-256 is required");
-  atomicWriteFileSync(
-    layout.installFile,
-    `${JSON.stringify({ coreVersion, installedAt: record.installedAt, sha256: record.sha256 }, null, 2)}\n`,
-  );
+  const normalized = parseInstallRecord({ ...record, coreVersion });
+  if (!normalized) throw new Error("Invalid Core installation record");
+  atomicWriteFileSync(layout.installFile, `${JSON.stringify(normalized, null, 2)}\n`);
 }
 
 /** Best-effort current Core version, read from the committed install record. */
@@ -78,6 +82,6 @@ export function installRecordsEqual(
   return (
     left.coreVersion === right.coreVersion &&
     left.installedAt === right.installedAt &&
-    left.sha256 === right.sha256
+    left.assetName === right.assetName
   );
 }

@@ -1,11 +1,10 @@
-import crypto from "node:crypto";
 import path from "node:path";
 import { readBoundedFile, readBoundedJsonFile } from "./bounded-file.js";
 import { atomicWriteFileSync, pathEntryExists } from "./fs-atomic.js";
 import { npmShimPaths, pathsEqual } from "./installation.js";
 import { isPlainObject } from "./json-shape.js";
 import {
-  assertTreeFingerprint,
+  assertPackageIdentity,
   readShimImage,
   replaceShim,
   type ShimImage,
@@ -18,7 +17,6 @@ import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
 export const RECOVERY_LAUNCHER = String.raw`"use strict";
 const fs = require("node:fs");
 const path = require("node:path");
-const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 function read(file, limit) {
   if (!fs.lstatSync(file).isFile()) throw new Error("Invalid Sash recovery file");
@@ -34,9 +32,9 @@ function read(file, limit) {
   } finally { fs.closeSync(fd); }
 }
 try {
-  const prefix = fs.realpathSync(path.resolve(__dirname, ".."));
+  const prefix = fs.realpathSync.native(path.resolve(__dirname, ".."));
   const info = JSON.parse(read(path.join(__dirname, "launcher.json"), 16384).toString("utf8"));
-  if (info.protocol !== 1 || !/^[a-f0-9]{32}$/.test(info.transactionId) || !/^[a-f0-9]{64}$/.test(info.workerSha256) || typeof info.nodePath !== "string" || !path.isAbsolute(info.nodePath)) throw new Error("Invalid Sash recovery launcher metadata");
+  if (info.protocol !== 1 || !/^[a-f0-9]{32}$/.test(info.transactionId) || typeof info.nodePath !== "string" || !path.isAbsolute(info.nodePath)) throw new Error("Invalid Sash recovery launcher metadata");
   const args = process.argv.slice(2);
   let entry;
   let forwarded;
@@ -44,7 +42,7 @@ try {
     if (args[0] !== "upgrade") throw new Error("Sash upgrade is in progress; run sash upgrade to recover it");
     if (args.includes("--help")) { process.stdout.write("Usage: sash upgrade [version] [--check] [--json]\nAn interrupted upgrade is recovered before a new upgrade can begin.\n"); process.exit(0); }
     entry = path.join(__dirname, "transactions", info.transactionId, "worker.mjs");
-    if (crypto.createHash("sha256").update(read(entry, 16 * 1024 * 1024)).digest("hex") !== info.workerSha256) throw new Error("Sash recovery worker integrity check failed");
+    if (!fs.lstatSync(entry).isFile() || fs.realpathSync.native(path.dirname(entry)) !== path.dirname(entry)) throw new Error("Sash recovery worker has an unexpected location");
     forwarded = [args.includes("--check") ? "--check" : "--recover", prefix, ...args.slice(1)];
   } else {
     entry = path.join(prefix, ...(process.platform === "win32" ? [] : ["lib"]), "node_modules", "@astralyn", "sash", "dist", "cli.js");
@@ -71,7 +69,6 @@ export function recoveryShimImages(platform = process.platform): ShimImage[] {
     '#!/usr/bin/env pwsh\n$basedir = Split-Path $MyInvocation.MyCommand.Definition -Parent\nif (Test-Path "$basedir/node.exe") {\n  & "$basedir/node.exe" "$basedir/.sash-upgrade/launcher.cjs" @args\n} else {\n  & node "$basedir/.sash-upgrade/launcher.cjs" @args\n}\nexit $LASTEXITCODE\n';
   return (platform === "win32" ? [shell, cmd, ps] : [shell]).map((contents) => ({
     kind: "file",
-    sha256: crypto.hash("sha256", contents),
     base64: Buffer.from(contents).toString("base64"),
     mode: platform === "win32" ? 0o666 : 0o755,
   }));
@@ -80,18 +77,18 @@ export function recoveryShimImages(platform = process.platform): ShimImage[] {
 export function publishRecoveryLauncher(journal: UpgradeJournal): void {
   const paths = upgradePaths(journal.installation.prefix);
   if (pathEntryExists(paths.launcher)) {
-    if (readBoundedFile(paths.launcher, 64 * 1024).toString("utf8") !== RECOVERY_LAUNCHER)
-      throw new Error("Sash recovery launcher was changed; files preserved");
+    const current = readBoundedFile(paths.launcher, 64 * 1024).toString("utf8");
     if (pathEntryExists(paths.launcherInfo)) {
       const old = readBoundedJsonFile(paths.launcherInfo, 16 * 1024);
       if (!isPlainObject(old) || old.installationId !== journal.installation.id)
         throw new Error("Recovery launcher belongs to another installation");
-    }
+    } else if (current !== RECOVERY_LAUNCHER)
+      throw new Error("Sash recovery launcher has no ownership record; preserved");
   }
   atomicWriteFileSync(paths.launcher, RECOVERY_LAUNCHER, 0o644);
   atomicWriteFileSync(
     paths.launcherInfo,
-    `${JSON.stringify({ protocol: 1, transactionId: journal.transactionId, installationId: journal.installation.id, nodePath: journal.installation.nodePath, workerSha256: journal.workerSha256 })}\n`,
+    `${JSON.stringify({ protocol: 1, transactionId: journal.transactionId, installationId: journal.installation.id, nodePath: journal.installation.nodePath })}\n`,
     0o644,
   );
 }
@@ -108,9 +105,9 @@ export function activateUpgradeShims(
         : journal.candidateShims;
   if (!next) throw new Error("Candidate npm shims are missing");
   if (role !== "recovery") {
-    const fingerprint = role === "source" ? journal.source : journal.candidate;
-    if (!fingerprint) throw new Error("Candidate package ownership is missing");
-    assertTreeFingerprint(journal.installation.packageRoot, fingerprint);
+    const identity = role === "source" ? journal.source : journal.candidate;
+    if (!identity) throw new Error("Candidate package ownership is missing");
+    assertPackageIdentity(journal.installation.packageRoot, identity);
   }
   npmShimPaths(journal.installation.prefix).forEach((file, index) => {
     const current = readShimImage(file);
@@ -155,7 +152,7 @@ export function verifyStagedShims(prefix: string, packageRoot: string): ShimImag
 
 export function copyUpgradeWorker(
   journal: Pick<UpgradeJournal, "installation" | "transactionId">,
-): string {
+): void {
   const source = readBoundedFile(
     path.join(journal.installation.packageRoot, "dist", "upgrade-worker.mjs"),
     16 * 1024 * 1024,
@@ -165,5 +162,4 @@ export function copyUpgradeWorker(
     journal.transactionId,
   ).worker;
   atomicWriteFileSync(destination, source, 0o600);
-  return crypto.hash("sha256", source);
 }

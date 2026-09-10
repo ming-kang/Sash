@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readBoundedJsonFile } from "./bounded-file.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import { downloadToFile, fetchWithRetry, readErrorSummary } from "./http.js";
+import { fetchWithRetry, readErrorSummary } from "./http.js";
 import { canonicalPath, npmPackageRoot } from "./installation.js";
 import { isPlainObject } from "./json-shape.js";
 import {
@@ -15,40 +15,10 @@ import { runUpgradeCommand, upgradeChildEnv } from "./upgrade-command.js";
 import { upgradeTransactionPaths } from "./upgrade-paths.js";
 
 export const NPM_REGISTRY = "https://registry.npmjs.org";
-export interface SashNpmTarget extends SashPackageInfo {
-  tarball: string;
-  integrity: { algorithm: "sha512"; digest: string };
-}
+export type SashNpmTarget = SashPackageInfo;
 
 export function parseSashNpmTarget(value: unknown): SashNpmTarget {
-  const info = parseSashPackageInfo(value);
-  if (
-    !isPlainObject(value) ||
-    !isPlainObject(value.dist) ||
-    typeof value.dist.tarball !== "string" ||
-    typeof value.dist.integrity !== "string"
-  )
-    throw new Error("Sash release is missing its npm tarball integrity metadata");
-  const url = new URL(value.dist.tarball);
-  if (
-    url.origin !== NPM_REGISTRY ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    !url.pathname.startsWith("/@astralyn/sash/-/")
-  )
-    throw new Error("Sash tarballs must come from the official npm registry");
-  const integrity = value.dist.integrity.match(/^sha512-([A-Za-z0-9+/]{86}==)$/)?.[1];
-  if (!integrity) throw new Error("Sash release requires a canonical npm SHA-512 integrity digest");
-  const digest = Buffer.from(integrity, "base64");
-  if (digest.length !== 64 || digest.toString("base64") !== integrity)
-    throw new Error("Invalid npm integrity digest");
-  return {
-    ...info,
-    tarball: url.href,
-    integrity: { algorithm: "sha512", digest: digest.toString("hex") },
-  };
+  return parseSashPackageInfo(value);
 }
 
 export async function resolveSashNpmTarget(
@@ -124,20 +94,11 @@ export async function stageSashPackage(options: {
   nodePath: string;
   target: SashNpmTarget;
   signal?: AbortSignal;
-  onProgress?: (downloaded: number, total?: number) => void;
   onStage?: (stage: string) => void;
+  runCommand?: typeof runUpgradeCommand;
 }): Promise<string> {
   const paths = upgradeTransactionPaths(options.prefix, options.transactionId);
   const npm = resolveNpmCli(options.nodePath);
-  options.onStage?.("downloading");
-  await downloadToFile(options.target.tarball, paths.archive, {
-    allowedHosts: new Set(["registry.npmjs.org"]),
-    requireHttps: true,
-    integrity: options.target.integrity,
-    maxBytes: 128 * 1024 * 1024,
-    signal: options.signal,
-    onProgress: options.onProgress,
-  });
   atomicWriteFileSync(paths.config, "");
   atomicWriteFileSync(paths.globalConfig, "");
   const common = [
@@ -157,24 +118,20 @@ export async function stageSashPackage(options: {
   ];
   const env = { ...upgradeChildEnv(), SASH_HOME: paths.validationData };
   options.onStage?.("dependencies");
-  await runUpgradeCommand(
+  await (options.runCommand ?? runUpgradeCommand)(
     options.nodePath,
-    [npm, "install", ...common, "--install-strategy=nested", "--omit=dev", paths.archive],
+    [
+      npm,
+      "install",
+      ...common,
+      "--install-strategy=nested",
+      "--omit=dev",
+      `${SASH_PACKAGE_NAME}@${options.target.version}`,
+    ],
     {
       cwd: paths.root,
       purpose: "Prepare Sash and its dependencies",
       timeoutMs: 15 * 60_000,
-      signal: options.signal,
-      env,
-    },
-  );
-  options.onStage?.("dependency-check");
-  await runUpgradeCommand(
-    options.nodePath,
-    [npm, "ls", ...common, "--all", "--omit=dev", "--json"],
-    {
-      cwd: paths.root,
-      purpose: "Verify the prepared npm dependency tree",
       signal: options.signal,
       env,
     },

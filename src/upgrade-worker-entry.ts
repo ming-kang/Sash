@@ -33,6 +33,7 @@ function renderResult(result: UpgradeResult, json: boolean): void {
     process.stderr.write(
       `Sash upgrade failed: ${result.error ?? "unknown error"}${result.recoveryRequired ? "\nRun sash upgrade to retry recovery; installation and runtime handoffs were preserved." : `\nSash ${result.version} and its runtime state were preserved.`}\n`,
     );
+  if (!json && result.warning) process.stderr.write(`${result.warning}\n`);
   process.exitCode = result.outcome === "failed" ? 1 : 0;
 }
 
@@ -61,9 +62,7 @@ const args = process.argv.slice(2);
 const json = args.includes("--json");
 const stages: Record<string, string> = {
   preparing: "Preparing recovery files",
-  downloading: "Downloading Sash",
-  dependencies: "Installing dependencies",
-  "dependency-check": "Checking installed dependencies",
+  dependencies: "Downloading and installing Sash with npm",
   "candidate-check": "Checking the new CLI and dashboard",
   prepared: "New version is ready",
   reserving: "Waiting for running operations to finish",
@@ -123,13 +122,6 @@ try {
               currentStage = stages[stage] ?? stage;
               lastOutput = Date.now();
               if (!json) process.stderr.write(`[sash upgrade] ${currentStage}\n`);
-            },
-            onDownload: (downloaded: number, total?: number) => {
-              if (json || (Date.now() - lastOutput < 1000 && downloaded !== total)) return;
-              lastOutput = Date.now();
-              process.stderr.write(
-                `[sash upgrade] Downloaded ${(downloaded / 1048576).toFixed(1)}${total ? ` / ${(total / 1048576).toFixed(1)}` : ""} MB\n`,
-              );
             },
           };
           if (pending) {

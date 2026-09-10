@@ -1,10 +1,8 @@
 import { MihomoApi } from "./api.js";
 import type { CoreStartResult } from "./contracts.js";
 import type { StagedCore } from "./core.js";
-import { ensureCoreIntegrityRecords } from "./core-install-verification.js";
 import type { CoreRuntimeState } from "./core-runtime-state.js";
 import {
-  type CoreUpdateOptions,
   type CoreUpdateResult,
   commitCoreUpdate,
   readCoreUpdateTransaction,
@@ -25,7 +23,6 @@ export interface RuntimeConfiguration {
 }
 export interface RuntimeLifecycleOptions {
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
-  verifyExecutable?: CoreUpdateOptions["verifyExecutable"];
   layout: SashLayout;
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
@@ -60,8 +57,6 @@ export class RuntimeLifecycle {
   }
 
   async recoverStartup(): Promise<void> {
-    if (readCoreUpdateTransaction(this.options.layout))
-      await ensureCoreIntegrityRecords(this.options.layout);
     await this.options.systemProxy.release();
     await this.options.supervisor.cleanStaleCore();
     if (readCoreUpdateTransaction(this.options.layout)) await this.requireVacantController();
@@ -169,7 +164,11 @@ export class RuntimeLifecycle {
     throw new Error("Core ownership was lost while applying the system proxy");
   }
 
-  async update(staged: StagedCore, configuration: RuntimeConfiguration): Promise<CoreUpdateResult> {
+  async update(
+    staged: StagedCore,
+    configuration: RuntimeConfiguration,
+    startAfterInstall = false,
+  ): Promise<CoreUpdateResult> {
     const wasRunning = this.options.supervisor.isRunning();
     if (!wasRunning) {
       atomicWriteFileSync(this.options.layout.configFile, configuration.generated.yaml);
@@ -178,9 +177,8 @@ export class RuntimeLifecycle {
     return commitCoreUpdate({
       layout: this.options.layout,
       staged,
-      verifyExecutable: this.options.verifyExecutable,
       runtime: {
-        wasRunning,
+        wasRunning: wasRunning || startAfterInstall,
         stop: async () => {
           await this.stop();
           await this.requireVacantController();

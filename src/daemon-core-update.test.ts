@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -16,7 +15,7 @@ describe("daemon-owned Core updates", () => {
     fs.mkdirSync(h.layout.tempDir, { recursive: true });
     const exe = path.join(h.layout.tempDir, "candidate");
     fs.writeFileSync(exe, "v2-core");
-    return { exe, version: "v2", sha256: crypto.hash("sha256", "v2-core") };
+    return { exe, version: "v2", assetName: "mihomo-windows-amd64-v3-v2.zip" };
   }
   it("publishes authenticated progress during preparation and clears it after completion", async () => {
     const entered = deferred();
@@ -96,23 +95,43 @@ describe("daemon-owned Core updates", () => {
     assert.equal((await h.apiRequest("/sash/core/update")).data, null);
   });
 
-  it("rejects modified installed bytes before config validation or Core execution", async () => {
+  it("starts legacy Core without downloading a default build or requiring a stored digest", async () => {
     let validations = 0;
     await h.startServer({
       validateConfig: () => {
         validations += 1;
       },
     });
-    fs.appendFileSync(h.layout.coreExe, "tampered");
+    fs.writeFileSync(h.layout.coreExe, "an existing official v3 build");
+    const saved = fs.readFileSync(h.layout.installFile);
     const result = await h.apiRequest("/sash/core/start", { method: "POST" });
-    assert.equal(result.statusCode, 500);
-    assert.match(JSON.stringify(result.data), /SHA-256 mismatch/);
-    assert.equal(validations, 0);
-    assert.equal(fs.existsSync(h.layout.configFile), false);
+    assert.equal(result.statusCode, 200);
+    assert.equal(validations, 1);
+    assert.deepEqual(fs.readFileSync(h.layout.installFile), saved);
+    assert.equal(fs.existsSync(h.layout.tempDir), false);
     assert.equal(
       parseDaemonStatus((await h.apiRequest("/sash/daemon/status")).data).core.running,
-      false,
+      true,
     );
+  });
+  it("installs and starts a missing Core once with one configuration check", async () => {
+    const core = new FakeCoreSupervisor(h.layout, h.settings);
+    let validations = 0;
+    await h.startServer({
+      installCore: false,
+      supervisor: core,
+      stageCore: stage,
+      validateConfig: () => {
+        validations++;
+      },
+    });
+    const response = await h.apiRequest("/sash/core/start", { method: "POST" });
+    assert.equal(response.statusCode, 200);
+    assert.equal((response.data as { alreadyRunning: boolean }).alreadyRunning, false);
+    assert.equal(core.starts, 1);
+    assert.equal(core.running, true);
+    assert.equal(validations, 1);
+    assert.equal(readInstallRecord(h.layout)?.assetName, "mihomo-windows-amd64-v3-v2.zip");
   });
   for (const running of [false, true])
     it(`finishes validation without restarting daemon or invalidating sessions (running=${running})`, async () => {
@@ -186,7 +205,6 @@ describe("daemon-owned Core updates", () => {
         target: {
           coreVersion: "v2",
           installedAt: "2026-09-08T00:00:00.000Z",
-          sha256: crypto.hash("sha256", "v2-core"),
         },
       }),
     );

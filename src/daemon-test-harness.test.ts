@@ -8,7 +8,6 @@ import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
 import type { AutostartController } from "./autostart.js";
 import { writeInstallRecord } from "./core-install-record.js";
-import { coreBinarySha256 } from "./core-integrity.js";
 import {
   type CoreSupervisor,
   createDaemonServer,
@@ -117,7 +116,6 @@ export class DaemonTestHarness {
         {
           coreVersion: "v1.0.0",
           installedAt: "2026-09-08T00:00:00.000Z",
-          sha256: coreBinarySha256(this.layout.coreExe),
         },
         this.layout,
       );
@@ -145,10 +143,6 @@ export class DaemonTestHarness {
         (async () => {
           throw new Error("A Core download adapter is required in tests");
         }),
-      verifyCoreFn: (exe, version) => {
-        if (fs.readFileSync(exe, "utf8") !== `${version}-core`)
-          throw new Error("Core version mismatch");
-      },
       scheduler: overrides.scheduler,
     });
 

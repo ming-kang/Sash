@@ -12,7 +12,7 @@ Daemon status exposes `mutationQueue: {active: {purpose, startedAt} | null, queu
 
 CLI commands use `runtime-owner.ts` and `daemon-lifecycle.ts` for read-only discovery, management startup and API calls. A live but unverified daemon blocks competing startup and cannot be stopped by an unverified signal. CLI discovery uses the observed daemon port. Self-upgrade additionally owns installation files; application state and private runtime handoffs remain daemon-written.
 
-`doctor.ts` composes read-only installation, package-asset, manifest, Core-digest and runtime observations. Invalid state does not suppress independent installation/Core checks. Port checks skip listeners already owned by the observed runtime and report occupied or unavailable stopped ports; no diagnostic repair starts a daemon or executes an unverified Core.
+`doctor.ts` composes read-only installation, package-asset, manifest, Core-file and runtime observations. It does not hash installed executables. Invalid state does not suppress independent installation/Core checks. Port checks skip listeners already owned by the observed runtime and report occupied or unavailable stopped ports; diagnostics do not start or repair an instance.
 
 Daemon startup also holds an installation admission lock while loading application code and publishing its instance record. The per-user installation registry is independent of `SASH_HOME`, so separate data directories using the same package can be discovered together. Records identify the package, Node executable, data directory, PID and boot; cleanup only removes the matching boot. Health and status expose the version captured at startup and the installation ID, which remain stable if package files change afterward.
 
@@ -61,7 +61,7 @@ Subscription, local-source and upgrade-handoff YAML parsing share `maxAliasCount
 
 The daemon shares a frozen parsed-source LRU across profile actions and Apply: at most eight entries and 16 MiB of source text. File identity, size and nanosecond modification/change timestamps are rechecked on every read; replacement, removal and non-regular paths cannot reuse a cached source. Rendering does not mutate cached documents.
 
-After scheduled updates, a non-overlapping maintenance tick enters the mutation queue, verifies the manifest is current, and prunes only recognized generated files older than 24 hours. Current profile references, unknown names, recent files and links remain intact; directories are removed only when old and empty. Paths must resolve inside the data directory. Cleanup does not recurse through arbitrary directories and skips temporary Core files during download or integrity preparation.
+After scheduled updates, a non-overlapping maintenance tick enters the mutation queue, verifies the manifest is current, and prunes only recognized generated files older than 24 hours. Current profile references, unknown names, recent files and links remain intact; directories are removed only when old and empty. Paths must resolve inside the data directory. Cleanup does not recurse through arbitrary directories and skips temporary Core files during download.
 
 Daemon readers share one deeply frozen snapshot per committed revision. A successful commit invalidates it; failed writes preserve the previous snapshot. Settings PATCH accepts `expectedRevision` and returns the committed `revision`. Stale writes fail with `409` before preference or OS changes. The dashboard supplies its observed revision and ignores older write responses.
 
@@ -79,7 +79,7 @@ Apply executes inside the daemon queue:
 2. Restore the original system proxy. Failure leaves the current healthy Core running.
 3. Stop the verified Core and ensure its controller is vacant.
 4. Atomically publish the generated configuration.
-5. Start Core, verify the expected version through consecutive readiness probes, and record the applied configuration.
+5. Start Core, wait for its controller to report the expected version, and record the applied configuration. The first ready response completes startup.
 6. Reconcile the saved system-proxy preference against the actual running port.
 
 Validation failure leaves the old runtime untouched. Failure after stopping does not roll back saved edits; management stays available and reports the unapplied configuration. There is no general settings/profile/runtime compensation transaction.
@@ -90,39 +90,38 @@ Unexpected Core exits trigger bounded proxy-restoration retries. Late child even
 
 ## Core updates
 
-Core acquisition selects an unmodified upstream release artifact using official GitHub metadata. Mirrors transport bytes only. Initial URLs and redirects must be HTTPS and host-allowlisted; the complete archive must match the official SHA-256 digest. Archives are capped at 128 MiB, extraction at 512 MiB, ZIP paths cannot escape, and the staged executable must report the exact requested version.
+Core acquisition selects an unmodified upstream release artifact using official GitHub metadata. Mirrors transport bytes only. Initial URLs and redirects must be HTTPS and host-allowlisted; the archive is checked against its official SHA-256 while downloading. Archives are capped at 128 MiB and extraction at 512 MiB; ZIP paths cannot escape.
 
 ZIP metadata and file contents are read through `yauzl`; Sash scans all entry names before creating output and streams the selected binary without buffering the archive. Both ZIP and gzip extraction exclusively create the temporary output, preserve pre-existing files/links, honor cancellation and remove only output created by that attempt. The ZIP reader closes before archive cleanup. `adm-zip` remains a development-only ZIP fixture generator; its extraction APIs are not used or installed with Sash.
 
-Extraction also hashes the decompressed executable. New install records and update journals retain this SHA-256; configuration validation and process startup check it before executing Core. Recovery authenticates each binary slot against its journal digest before moving or removing files. Executable probes serve as health checks.
+`cpu-features.ts` detects usable x64 instruction sets once per process. Windows uses an available PowerShell 7 host and .NET CPU/OS intrinsics; Linux and macOS read kernel-reported features. Selection prefers supported v3, then v2/v1 assets. Unknown capabilities admit only compatible/v1 builds. ARM64 selects its native asset. Sash does not download multiple binaries to discover CPU compatibility.
 
-The first staged-executable probe permits 20 seconds for antivirus scanning; installed-binary probes retain their normal deadlines.
-
-Existing version-only install records remain readable. Before their next Core start or update, Sash obtains the same official release, verifies its archive, and compares the extracted digest with the installed file before adding the digest atomically. Existing interrupted journals receive the same verification before recovery. A failed lookup, cancellation, changed metadata or digest mismatch preserves the existing binary and its ownership records.
+Installed executables are trusted local files. Startup, configuration validation, updates, recovery and doctor do not hash them or run additional version-only probes. Install records retain the version, timestamp and optional asset name. Existing version-only records and legacy digest fields remain readable without downloading or migrating anything. The running controller supplies version and readiness during the actual start.
 
 App captures the applied configuration when Core is running, or saved configuration when it is stopped. Download and candidate config validation leave management responsive. Before publication the queue rechecks saved-state and runtime revisions.
 
 Transient `coreUpdate` status reports the stage, target, start time, download activity and byte counts. The authenticated `GET /sash/core/update` endpoint returns this progress directly, avoiding controller/proxy probes for CLI progress reads. Completion or cancellation clears it; callbacks retain their own operation object and cannot modify a successor's progress. Supplemental progress failures never retry or alter the Core update mutation.
 
-`core-update.ts` receives only the staged executable and runtime callbacks. Its fixed journal contains previous/target install records and three phases:
+`core-update.ts` receives only the staged executable and runtime callbacks. Its fixed journal contains previous/target install records and these phases:
 
 | Phase | Meaning |
 | --- | --- |
 | `prepared` | Rollback ownership is durable before moving files |
 | `swapped` | New executable and install metadata are published |
+| `restoring` | Rollback may have renamed the old binary back before restoring its metadata |
 | `verified` | Health verification and restoration of the original running/stopped state succeeded |
 
-The old executable remains `.bak` until the final phase. Even a stopped update or first install performs a temporary start and health check immediately, with no system proxy enabled, then stops again. Failure restores the old binary/install record and, when applicable, the original running state. Recovery preserves unrecognized or corrupt files and blocks another unsafe update. A verified journal only needs final cleanup.
+The old executable remains `.bak` until the final phase. An explicit update while stopped performs one temporary start and then stops again. A first `sash start` installs and starts Core once, leaving it running. Failure restores the old binary/install record and, when applicable, the original running state. Recovery preserves unrecognized filesystem entries and blocks an unsafe replacement. A verified journal only needs cleanup; cleanup failure is logged without undoing a successful update or blocking normal startup.
 
 Profile sources, metadata and settings never participate in this transaction. There is no deferred health decision, force-repair quarantine or coordinated second journal.
 
 ## Sash self-upgrades
 
-`sash upgrade [version]` resolves the official npm release, validates the installation, exact version, Node requirement and handoff protocol, and launches a bundled worker outside the package directory. `--check` performs only reads. npm installs the verified SHA-512 tarball and dependencies into an isolated prefix on the installation filesystem, using private npm configuration and a scrubbed environment. Candidate checks execute its own CLI, daemon imports and independent worker, and verify dashboard build references before reserving any runtime.
+`sash upgrade [version]` resolves the official npm release, validates the installation, exact version, Node requirement and handoff protocol, and launches a bundled worker outside the package directory. `--check` performs only reads. npm installs the exact package version and dependencies from the official registry into an isolated prefix, using private npm configuration and a scrubbed environment. npm owns archive integrity. One candidate probe loads the runtime and checks dashboard references before reserving any runtime; activation does not repeat that probe.
 
 The installation upgrade lock excludes other updaters. A startup barrier and the per-user admission lock exclude competing daemon starts during replacement. Discovery verifies registered PID/lease, executable, boot, version and authenticated API identity; unregistered live owners block replacement. Every instance is reserved before any is stopped. Reservation closes mutation admission immediately, cancels preparation and drains application writes plus runtime-only controller/gateway mutations.
 
-The bounded installation journal at `<prefix>/.sash-upgrade/journal.json` records fixed package/shim roles, per-file SHA-256 manifests and instance references. It contains no subscription content or credentials. Private authority lives in the per-user installation registry; each daemon writes an authenticated `state/sash-upgrade-handoff.json` containing the applied configuration, runtime mode/selections, actual owned proxy state, browser continuation and saved-state identity. Restoring never implicitly applies saved edits or upgrades Core.
+The bounded installation journal at `<prefix>/.sash-upgrade/journal.json` records fixed package/shim roles, directory identities and instance references. Directory device/inode IDs survive rename without scanning package contents; there are no per-file hash manifests. It contains no subscription content or credentials. Private authority lives in the per-user installation registry; each daemon writes an authenticated `state/sash-upgrade-handoff.json` containing the applied configuration, runtime mode/selections, actual owned proxy state, browser continuation and saved-state revision. Restoring never implicitly applies saved edits or upgrades Core. Installed directories are protected by local account permissions rather than continual tamper detection.
 
 A permanent small launcher and temporary npm shims reach the standalone worker while the active package slot is absent. Activation moves the original package to its transaction slot, installs the complete candidate and restores npm's native shims. The original package remains until all restored daemons report the exact target version and pass runtime health checks. Failures before replacement release reservations; later failures restore the prior package and runtime offline. Recovery follows actual verified file placement. A durable commit is never rolled back because cleanup was interrupted; separate cleanup phases safely resume after authority removal, and completed ownership markers identify residual helper files.
 

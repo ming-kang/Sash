@@ -1,7 +1,5 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
-import { readBoundedFile, readBoundedJsonFile } from "./bounded-file.js";
-import { isSha256 } from "./core-integrity.js";
+import { readBoundedJsonFile } from "./bounded-file.js";
 import { errnoCode } from "./error-utils.js";
 import { durableRemoveFileSync, pathEntryExists } from "./fs-atomic.js";
 import { canonicalPath, type NpmInstallation, pathsEqual } from "./installation.js";
@@ -11,7 +9,6 @@ import { observeUpgradeProcesses } from "./upgrade-processes.js";
 
 interface CompletedArtifact {
   transactionId: string;
-  workerSha256: string;
 }
 
 /** Read-only recognition of a cleanup interrupted after the installation journal was removed. */
@@ -40,13 +37,13 @@ export function completedUpgradeArtifacts(installation: NpmInstallation): Comple
     }
     if (
       isPlainObject(owner) &&
-      hasExactOwnKeys(owner, ["transactionId", "installationId", "workerSha256", "complete"]) &&
+      (hasExactOwnKeys(owner, ["transactionId", "installationId", "complete"]) ||
+        hasExactOwnKeys(owner, ["transactionId", "installationId", "workerSha256", "complete"])) &&
       owner.transactionId === entry.name &&
       owner.installationId === installation.id &&
-      owner.complete === true &&
-      isSha256(owner.workerSha256)
+      owner.complete === true
     )
-      found.push({ transactionId: entry.name, workerSha256: owner.workerSha256 });
+      found.push({ transactionId: entry.name });
   }
   return found;
 }
@@ -76,11 +73,8 @@ export async function cleanCompletedUpgradeArtifacts(
     )
       throw new Error("Completed Sash recovery directory contains unrecognized files");
     if (pathEntryExists(paths.worker)) {
-      if (
-        crypto.hash("sha256", readBoundedFile(paths.worker, 16 * 1024 * 1024)) !==
-        artifact.workerSha256
-      )
-        throw new Error("Sash recovery worker ownership changed");
+      if (!fs.lstatSync(paths.worker).isFile())
+        throw new Error("Sash recovery worker is not a regular file");
       durableRemoveFileSync(paths.worker);
     }
     durableRemoveFileSync(paths.owner);

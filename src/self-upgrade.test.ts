@@ -7,14 +7,56 @@ import { describe, it } from "node:test";
 import { MockAgent } from "undici";
 import { proxyAwareDispatcher } from "./http.js";
 import { inspectInstallation, npmShimPaths } from "./installation.js";
-import { inspectSashUpgrade } from "./self-upgrade.js";
+import { executeSashUpgrade, inspectSashUpgrade } from "./self-upgrade.js";
 import { upgradeChildEnv } from "./upgrade-command.js";
-import { fingerprintTree, readShimImage, replaceShim } from "./upgrade-files.js";
+import { readShimImage, replaceShim } from "./upgrade-files.js";
 import { activateUpgradeShims } from "./upgrade-launcher.js";
-import { upgradePaths } from "./upgrade-paths.js";
+import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
 import { upgradeFixture, writeFixturePackage } from "./upgrade-test-fixture.test.js";
 
+function snapshotFiles(root: string) {
+  return fs.readdirSync(root, { recursive: true, withFileTypes: true }).map((entry) => {
+    const file = path.join(entry.parentPath, entry.name);
+    return [
+      path.relative(root, file),
+      entry.isSymbolicLink()
+        ? fs.readlinkSync(file)
+        : entry.isFile()
+          ? fs.readFileSync(file)
+          : null,
+    ];
+  });
+}
+
 describe("read-only Sash upgrade checks", () => {
+  it("delegates an older interrupted journal to its original recovery worker", async () => {
+    const f = upgradeFixture();
+    const paths = upgradeTransactionPaths(f.prefix, f.journal.transactionId);
+    const marker = path.join(f.root, "legacy-worker-ran");
+    const { format: _format, ...legacy } = f.journal;
+    fs.writeFileSync(
+      upgradePaths(f.prefix).journal,
+      JSON.stringify({
+        ...legacy,
+        source: { sha256: "legacy manifest" },
+        workerSha256: "legacy worker digest",
+      }),
+    );
+    fs.writeFileSync(
+      paths.worker,
+      `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)},process.argv[2]);`,
+    );
+    try {
+      const { report } = await inspectSashUpgrade(undefined, {
+        packageRoot: f.installation.packageRoot,
+      });
+      assert.equal(report.pending?.phase, "preparing");
+      assert.equal(await executeSashUpgrade(f.installation, { recover: true, json: true }), 0);
+      assert.equal(fs.readFileSync(marker, "utf8"), "--recover");
+    } finally {
+      f.cleanup();
+    }
+  });
   for (const scenario of [
     { version: "2.0.0", available: true, compatible: true },
     { version: "1.0.0", available: false, compatible: true },
@@ -47,7 +89,7 @@ describe("read-only Sash upgrade checks", () => {
             integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
           },
         });
-      const before = fingerprintTree(prefix);
+      const before = snapshotFiles(prefix);
       try {
         const { report } = await inspectSashUpgrade(scenario.explicit, {
           packageRoot,
@@ -60,7 +102,7 @@ describe("read-only Sash upgrade checks", () => {
         assert.equal(report.supported, true);
         if (!scenario.compatible) assert.ok(report.reason);
         assert.equal(fs.existsSync(upgradePaths(prefix).root), false);
-        assert.deepEqual(fingerprintTree(prefix), before);
+        assert.deepEqual(snapshotFiles(prefix), before);
         agent.assertNoPendingInterceptors();
       } finally {
         await agent.close();
@@ -76,12 +118,12 @@ describe("read-only Sash upgrade checks", () => {
     agent.disableNetConnect();
     t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
     try {
-      const before = fingerprintTree(f.prefix);
+      const before = snapshotFiles(f.prefix);
       const { report } = await inspectSashUpgrade(undefined, {
         packageRoot: f.installation.packageRoot,
       });
       assert.deepEqual(report.pending, { from: "1.0.0", target: "2.0.0", phase: "preparing" });
-      assert.deepEqual(fingerprintTree(f.prefix), before);
+      assert.deepEqual(snapshotFiles(f.prefix), before);
     } finally {
       await agent.close();
       f.cleanup();
@@ -102,13 +144,13 @@ describe("read-only Sash upgrade checks", () => {
         inspectInstallation({ packageRoot: f.installation.packageRoot }).kind,
         "unknown",
       );
-      const before = fingerprintTree(f.prefix);
+      const before = snapshotFiles(f.prefix);
       const { report, installation } = await inspectSashUpgrade(undefined, {
         packageRoot: f.installation.packageRoot,
       });
       assert.equal(installation.kind, "npm-global");
       assert.equal(report.pending?.phase, "preparing");
-      assert.deepEqual(fingerprintTree(f.prefix), before);
+      assert.deepEqual(snapshotFiles(f.prefix), before);
     } finally {
       f.cleanup();
     }
@@ -117,7 +159,7 @@ describe("read-only Sash upgrade checks", () => {
   it("returns registry failures before creating recovery or application state", async (t) => {
     const f = upgradeFixture();
     fs.unlinkSync(upgradePaths(f.prefix).journal);
-    const before = fingerprintTree(f.prefix);
+    const before = snapshotFiles(f.prefix);
     const agent = new MockAgent();
     agent.disableNetConnect();
     t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
@@ -132,7 +174,7 @@ describe("read-only Sash upgrade checks", () => {
         inspectSashUpgrade(undefined, { packageRoot: f.installation.packageRoot }),
         /HTTP 404/,
       );
-      assert.deepEqual(fingerprintTree(f.prefix), before);
+      assert.deepEqual(snapshotFiles(f.prefix), before);
       agent.assertNoPendingInterceptors();
     } finally {
       await agent.close();

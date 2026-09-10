@@ -10,7 +10,7 @@ import { findExecutableOnPath } from "./process.js";
 import { acquireStateLock } from "./state-lock.js";
 import { activateUpgradePackage } from "./upgrade-activation.js";
 import { runUpgradeCommand, upgradeChildEnv } from "./upgrade-command.js";
-import { fingerprintTree } from "./upgrade-files.js";
+import { readPackageIdentity } from "./upgrade-files.js";
 import { completedUpgradeArtifacts } from "./upgrade-garbage.js";
 import {
   publishUpgradeBarrier,
@@ -56,7 +56,8 @@ describe("standalone Sash recovery entry", () => {
         f.installation.id,
       );
       fs.writeFileSync(paths.launcher, "foreign launcher");
-      assert.throws(() => publishRecoveryLauncher(f.journal), /changed/);
+      fs.unlinkSync(paths.launcherInfo);
+      assert.throws(() => publishRecoveryLauncher(f.journal), /no ownership record/);
       assert.equal(fs.readFileSync(paths.launcher, "utf8"), "foreign launcher");
     } finally {
       f.cleanup();
@@ -80,7 +81,7 @@ describe("standalone Sash recovery entry", () => {
         /lock|first upgrade/i,
       );
       assert.deepEqual(readUpgradeJournal(f.prefix), f.journal);
-      assert.deepEqual(fingerprintTree(f.installation.packageRoot), f.journal.source);
+      assert.deepEqual(readPackageIdentity(f.installation.packageRoot), f.journal.source);
     } finally {
       lease.release();
       f.cleanup();
@@ -99,7 +100,7 @@ describe("standalone Sash recovery entry", () => {
         const journal = {
           ...f.journal,
           phase: "activating" as const,
-          candidate: fingerprintTree(candidate),
+          candidate: readPackageIdentity(candidate),
           candidateShims: verifyStagedShims(paths.stage, candidate),
         };
         writeUpgradeJournal(journal);
@@ -161,7 +162,7 @@ describe("standalone Sash recovery entry", () => {
         assert.equal(result.outcome, "recovered");
         assert.equal(result.version, "1.0.0");
         assert.equal(readUpgradeJournal(f.prefix), undefined);
-        assert.deepEqual(fingerprintTree(f.installation.packageRoot), journal.source);
+        assert.deepEqual(readPackageIdentity(f.installation.packageRoot), journal.source);
       } finally {
         f.cleanup();
       }
@@ -256,7 +257,7 @@ describe("standalone Sash recovery entry", () => {
           ? committed
             ? pending.candidate
             : pending.source
-          : fingerprintTree(f.installation.packageRoot);
+          : readPackageIdentity(f.installation.packageRoot);
         const output = await runUpgradeCommand(
           process.execPath,
           [paths.worker, "--recover", f.prefix, "--json"],
@@ -266,7 +267,7 @@ describe("standalone Sash recovery entry", () => {
         assert.equal(result.outcome, "recovered");
         assert.equal(result.version, committed ? "2.0.0" : "1.0.0");
         assert.equal(readUpgradeJournal(f.prefix), undefined);
-        assert.deepEqual(fingerprintTree(f.installation.packageRoot), expected);
+        assert.deepEqual(readPackageIdentity(f.installation.packageRoot), expected);
         assert.deepEqual(completedUpgradeArtifacts(f.installation), []);
       } finally {
         f.cleanup();

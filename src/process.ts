@@ -1,5 +1,4 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
@@ -557,31 +556,15 @@ export function binaryUnlockProbePath(target: string): string {
   return path.join(path.dirname(target), `.${path.basename(target)}.unlock-probe`);
 }
 
-function regularFileStat(file: string): fs.Stats | undefined {
+function regularFileStat(file: string): fs.BigIntStats | undefined {
   try {
-    const stat = fs.lstatSync(file);
+    const stat = fs.lstatSync(file, { bigint: true });
     if (!stat.isFile()) throw new Error(`Binary path is not a regular file: ${file}`);
     return stat;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw err;
   }
-}
-
-function fileDigestSync(file: string): string {
-  const hash = crypto.createHash("sha256");
-  const buffer = Buffer.allocUnsafe(64 * 1024);
-  const fd = fs.openSync(file, "r");
-  try {
-    for (;;) {
-      const bytes = fs.readSync(fd, buffer, 0, buffer.length, null);
-      if (bytes === 0) break;
-      hash.update(buffer.subarray(0, bytes));
-    }
-  } finally {
-    fs.closeSync(fd);
-  }
-  return hash.digest("hex");
 }
 
 /** Restore a binary stranded by an interrupted Windows unlock probe. */
@@ -594,12 +577,16 @@ export function recoverBinaryUnlockProbe(target: string): void {
     durableRenameSync(probe, target);
     return;
   }
-  if (probeStat.size === targetStat.size && fileDigestSync(probe) === fileDigestSync(target)) {
+  if (
+    probeStat.ino !== 0n &&
+    probeStat.dev === targetStat.dev &&
+    probeStat.ino === targetStat.ino
+  ) {
     durableRemoveFileSync(probe);
     return;
   }
   throw new Error(
-    `Core binary and unlock probe both exist with different content; preserved ${target} and ${probe}`,
+    `Core binary and unlock probe are separate files; preserved ${target} and ${probe}`,
   );
 }
 

@@ -217,11 +217,11 @@ describe("process utilities", () => {
       assert.equal(fs.existsSync(probe), false);
     });
 
-    it("removes an identical duplicate probe", () => {
+    it("removes a second link to the same binary without comparing its bytes", () => {
       const target = path.join(tmpDir, "core.exe");
       const probe = binaryUnlockProbePath(target);
       fs.writeFileSync(target, "same-core");
-      fs.writeFileSync(probe, "same-core");
+      fs.linkSync(target, probe);
 
       recoverBinaryUnlockProbe(target);
 
@@ -235,7 +235,7 @@ describe("process utilities", () => {
       fs.writeFileSync(target, "current-core");
       fs.writeFileSync(probe, "different-core");
 
-      assert.throws(() => recoverBinaryUnlockProbe(target), /both exist with different content/);
+      assert.throws(() => recoverBinaryUnlockProbe(target), /separate files/);
       assert.equal(fs.readFileSync(target, "utf8"), "current-core");
       assert.equal(fs.readFileSync(probe, "utf8"), "different-core");
     });

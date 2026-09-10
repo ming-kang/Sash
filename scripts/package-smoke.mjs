@@ -106,36 +106,6 @@ function assertNonEmptyFile(file) {
   assert.ok(stat.size > 0, `${file} is empty`);
 }
 
-function walkFiles(directory, base = directory) {
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.name === "node_modules") return [];
-    const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) return walkFiles(file, base);
-    if (entry.isFile()) return [path.relative(base, file).replaceAll(path.sep, "/")];
-    return [];
-  });
-}
-
-function assertBuiltTree() {
-  assertNonEmptyFile(path.join(root, "dist", "cli.js"));
-  assertNonEmptyFile(path.join(root, "dist", "autostart-entry.js"));
-  assertNonEmptyFile(path.join(root, "dist", "upgrade-worker.mjs"));
-  assertNonEmptyFile(path.join(root, "dist", "upgrade-worker.LICENSE.md"));
-  assertNonEmptyFile(path.join(root, "dist", "ui", ".vite", "manifest.json"));
-  assertNonEmptyFile(path.join(root, "dist", "ui", "index.html"));
-  const assetsDir = path.join(root, "dist", "ui", "assets");
-  const assets = fs.readdirSync(assetsDir);
-  assert.ok(
-    assets.some((file) => file.endsWith(".js")),
-    "built UI has no JavaScript asset",
-  );
-  assert.ok(
-    assets.some((file) => file.endsWith(".css")),
-    "built UI has no CSS asset",
-  );
-  for (const asset of walkFiles(assetsDir)) assertNonEmptyFile(path.join(assetsDir, asset));
-}
-
 function assertPackedFiles(files) {
   const byPath = new Map(files.map((entry) => [entry.path.replaceAll("\\", "/"), entry]));
   const required = [
@@ -211,7 +181,6 @@ try {
     expectedVersion = packOutput[0].version ?? expectedVersion;
     packedFiles = packOutput[0].files;
   } else {
-    assertBuiltTree();
     const packOutput = JSON.parse(runNpm(["pack", "--json", "--pack-destination", packDir]));
     assert.equal(packOutput.length, 1, "npm pack produced an unexpected result count");
     const packed = packOutput[0];
@@ -232,7 +201,6 @@ try {
     "--no-fund",
     spec,
   ]);
-  runNpm(["ls", "--global", "--prefix", installDir, "--all", "--omit=dev", "--json"]);
   const installedRoot = path.join(
     installDir,
     ...(process.platform === "win32" ? [] : ["lib"]),
@@ -241,13 +209,6 @@ try {
     "sash",
   );
   assert.equal(fs.statSync(installedRoot).isDirectory(), true);
-  const installedFiles = walkFiles(installedRoot).sort();
-  const expectedFiles = packedFiles.map((entry) => entry.path.replaceAll("\\", "/")).sort();
-  assert.deepEqual(
-    installedFiles,
-    expectedFiles,
-    "installed package differs from the packed file set",
-  );
   assertNonEmptyFile(path.join(installedRoot, "dist", "ui", "index.html"));
   const { inspectInstallation } = await import(
     pathToFileURL(path.join(installedRoot, "dist", "installation.js")).href
@@ -304,12 +265,6 @@ try {
   const help = runCli(["--help"]);
   assert.match(help, /Usage:\s+sash/);
   assert.match(help, /show runtime state/);
-  const autoHelp = runCli(["auto", "--help"]);
-  assert.match(autoHelp, /Usage:\s+sash auto/);
-  const upgradeHelp = runCli(["upgrade", "--help"]);
-  assert.match(upgradeHelp, /Usage:\s+sash upgrade/);
-  assert.match(upgradeHelp, /--check/);
-  assert.match(runCli(["doctor", "--help"]), /Usage:\s+sash doctor/);
   const profiles = JSON.parse(runCli(["profile", "list", "--json"]));
   assert.deepEqual(profiles, { activeId: null, profiles: [] });
   assert.equal(

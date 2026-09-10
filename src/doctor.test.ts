@@ -79,7 +79,7 @@ it("diagnoses an uninitialized installation without creating application data", 
   }
 });
 
-it("reports corrupt settings and changed Core bytes independently without repairing either", async () => {
+it("reports corrupt settings without treating a legacy Core digest as a runtime requirement", async () => {
   const f = fixture();
   try {
     createTestState(f.layout);
@@ -103,7 +103,7 @@ it("reports corrupt settings and changed Core bytes independently without repair
     assert.equal(result.healthy, false);
     assert.equal(result.complete, false);
     assert.equal(result.checks.find((check) => check.id === "manifest")?.status, "error");
-    assert.equal(result.checks.find((check) => check.id === "core")?.status, "error");
+    assert.equal(result.checks.find((check) => check.id === "core")?.status, "ok");
     assert.equal(fs.readFileSync(f.layout.settingsFile, "utf8"), "{ malformed");
     assert.equal(fs.readFileSync(f.layout.coreExe, "utf8"), "changed bytes");
   } finally {

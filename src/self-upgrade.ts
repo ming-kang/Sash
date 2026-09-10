@@ -17,9 +17,9 @@ import {
 } from "./installation.js";
 import { readSashPackageInfo, supportsNode, UPGRADE_PROTOCOL } from "./package-info.js";
 import { upgradeChildEnv } from "./upgrade-command.js";
-import { fingerprintTree, readShimImage } from "./upgrade-files.js";
+import { readPackageIdentity, readShimImage } from "./upgrade-files.js";
 import { completedUpgradeArtifacts } from "./upgrade-garbage.js";
-import { readUpgradeJournal, type UpgradeJournal, writeUpgradeJournal } from "./upgrade-journal.js";
+import { readPendingUpgrade, type UpgradeJournal, writeUpgradeJournal } from "./upgrade-journal.js";
 import { copyUpgradeWorker, recoveryShimImages } from "./upgrade-launcher.js";
 import { resolveSashNpmTarget, type SashNpmTarget } from "./upgrade-npm.js";
 import { upgradePaths, upgradeTransactionPaths } from "./upgrade-paths.js";
@@ -50,7 +50,7 @@ export async function inspectSashUpgrade(
 ): Promise<SashUpgradeInspection> {
   const observed = inspectInstallation({ packageRoot: options.packageRoot });
   const prefix = npmPrefixForPackage(observed.packageRoot);
-  const pending = prefix ? readUpgradeJournal(canonicalPath(prefix)) : undefined;
+  const pending = prefix ? readPendingUpgrade(canonicalPath(prefix)) : undefined;
   if (pending && !pathsEqual(canonicalPath(observed.packageRoot), pending.installation.packageRoot))
     throw new Error("Sash recovery journal belongs to a different package directory");
   // Native and recovery shims can coexist while Windows command entries are restored.
@@ -133,15 +133,16 @@ export function createSashUpgradeJournal(
   const transactionId = crypto.randomBytes(16).toString("hex");
   const paths = upgradeTransactionPaths(installation.prefix, transactionId);
   const sourceVersion = readSashPackageInfo(installation.packageRoot).version;
-  const source = fingerprintTree(installation.packageRoot);
+  const source = readPackageIdentity(installation.packageRoot);
   const sourceShims = npmShimPaths(installation.prefix).map(readShimImage);
   fs.mkdirSync(paths.root, { mode: 0o700 });
-  const workerSha256 = copyUpgradeWorker({ installation, transactionId });
+  copyUpgradeWorker({ installation, transactionId });
   atomicWriteFileSync(
     paths.owner,
-    `${JSON.stringify({ transactionId, installationId: installation.id, workerSha256, complete: false })}\n`,
+    `${JSON.stringify({ transactionId, installationId: installation.id, complete: false })}\n`,
   );
   const journal: UpgradeJournal = {
+    format: 2,
     protocol: 1,
     transactionId,
     installation,
@@ -154,7 +155,6 @@ export function createSashUpgradeJournal(
     sourceShims,
     candidateShims: null,
     recoveryShims: recoveryShimImages(),
-    workerSha256,
     instances: [],
   };
   writeUpgradeJournal(journal);
@@ -167,14 +167,11 @@ export async function executeSashUpgrade(
   options: { version?: string; json?: boolean; recover?: boolean } = {},
 ): Promise<number> {
   const temporaryParent = canonicalPath(os.tmpdir());
-  const pending = options.recover ? readUpgradeJournal(installation.prefix) : undefined;
+  const pending = options.recover ? readPendingUpgrade(installation.prefix) : undefined;
   const source = pending
     ? upgradeTransactionPaths(installation.prefix, pending.transactionId).worker
     : path.join(installation.packageRoot, "dist", "upgrade-worker.mjs");
   const bytes = readBoundedFile(source, 16 * 1024 * 1024);
-  const digest = crypto.hash("sha256", bytes);
-  if (pending && digest !== pending.workerSha256)
-    throw new Error("Sash recovery worker integrity check failed; recovery files preserved");
   const temporary = fs.mkdtempSync(path.join(temporaryParent, "sash-upgrade-bootstrap-"));
   fs.chmodSync(temporary, 0o700);
   const worker = path.join(temporary, "worker.mjs");
@@ -217,16 +214,12 @@ export async function executeSashUpgrade(
   try {
     if (!pathsEqual(path.dirname(canonicalPath(temporary)), temporaryParent))
       throw new Error("Sash bootstrap cleanup escaped its temporary directory");
-    if (crypto.hash("sha256", readBoundedFile(worker, 16 * 1024 * 1024)) === digest)
-      fs.unlinkSync(worker);
+    fs.unlinkSync(worker);
     fs.rmdirSync(temporary);
   } catch (error) {
-    if ("error" in outcome)
-      throw new AggregateError(
-        [outcome.error, error],
-        "Sash upgrade failed and its bootstrap files could not be cleaned",
-      );
-    throw error;
+    console.warn(
+      `[sash upgrade] Temporary bootstrap files retained: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   if ("error" in outcome) throw outcome.error;
   return outcome.code;

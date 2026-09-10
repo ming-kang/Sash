@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { npmPackageRoot, npmShimPaths } from "./installation.js";
 import { activateUpgradePackage } from "./upgrade-activation.js";
-import { fingerprintTree, readShimImage } from "./upgrade-files.js";
+import { readPackageIdentity, readShimImage } from "./upgrade-files.js";
 import {
   publishUpgradeBarrier,
   readUpgradeJournal,
@@ -25,7 +25,8 @@ describe("recoverable Sash installation transaction", () => {
       const f = upgradeFixture();
       const r = fakeUpgradeRuntimes(f.root, f.installation);
       const signal = new AbortController();
-      const original = fingerprintTree(f.installation.packageRoot);
+      let packageChecks = 0;
+      const original = readPackageIdentity(f.installation.packageRoot);
       const shims = npmShimPaths(f.prefix).map(readShimImage);
       if (failure === "reservation") r.failReservation(1);
       if (failure === "health") r.failRestoration(1);
@@ -33,7 +34,9 @@ describe("recoverable Sash installation transaction", () => {
         runtime: r.runtime,
         signal: signal.signal,
         discoverInstances: async () => r.references,
-        verifyPackage: async () => {},
+        verifyPackage: async () => {
+          packageChecks++;
+        },
         stagePackage: async ({ prefix, transactionId }) => {
           r.events.push("prepared dependencies");
           return writeFixturePackage(upgradeTransactionPaths(prefix, transactionId).stage, "2.0.0");
@@ -47,6 +50,7 @@ describe("recoverable Sash installation transaction", () => {
         const result = await new SashUpgradeTransaction(f.journal, options).run(f.target);
         assert.equal(result.outcome, failure === "none" ? "upgraded" : "failed", result.error);
         assert.equal(result.recoveryRequired, false, result.error);
+        assert.equal(packageChecks, 1, "probe the prepared candidate once");
         assert.equal(result.version, failure === "none" ? "2.0.0" : "1.0.0");
         assert.equal(readUpgradeJournal(f.prefix), undefined);
         assert.equal(fs.existsSync(upgradePaths(f.prefix).barrier), false);
@@ -65,7 +69,7 @@ describe("recoverable Sash installation transaction", () => {
             false,
           );
         if (failure !== "none") {
-          assert.deepEqual(fingerprintTree(f.installation.packageRoot), original);
+          assert.deepEqual(readPackageIdentity(f.installation.packageRoot), original);
           assert.deepEqual(npmShimPaths(f.prefix).map(readShimImage), shims);
         }
       } finally {
@@ -88,6 +92,46 @@ describe("recoverable Sash installation transaction", () => {
       assert.equal(result.recoveryRequired, false, result.error);
       assert.deepEqual(r.events, []);
       assert.equal(r.states.size, 2);
+      assert.equal(readUpgradeJournal(f.prefix), undefined);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  it("keeps a successful upgrade usable when backup cleanup fails", async (t) => {
+    const f = upgradeFixture();
+    const r = fakeUpgradeRuntimes(f.root, f.installation);
+    const previous = upgradeTransactionPaths(
+      f.installation.prefix,
+      f.journal.transactionId,
+    ).previous;
+    const remove = fs.promises.rm;
+    t.mock.method(fs.promises, "rm", async (...args: Parameters<typeof fs.promises.rm>) => {
+      if (String(args[0]) === previous)
+        throw Object.assign(new Error("backup is busy"), { code: "EBUSY" });
+      return remove(...args);
+    });
+    try {
+      const result = await new SashUpgradeTransaction(f.journal, {
+        runtime: r.runtime,
+        discoverInstances: async () => r.references,
+        verifyPackage: async () => {},
+        stagePackage: async ({ prefix, transactionId }) =>
+          writeFixturePackage(upgradeTransactionPaths(prefix, transactionId).stage, "2.0.0"),
+      }).run(f.target);
+      assert.equal(result.outcome, "upgraded", result.error);
+      assert.equal(result.recoveryRequired, false);
+      assert.match(result.warning ?? "", /backup is busy/);
+      assert.equal(fs.existsSync(upgradePaths(f.prefix).barrier), false);
+      assert.ok([...r.states.values()].every((state) => state.phase === "none"));
+      const pending = readUpgradeJournal(f.prefix);
+      assert.equal(pending?.phase, "commit-cleanup");
+      assert.ok(pending);
+      t.mock.restoreAll();
+      assert.equal(
+        (await new SashUpgradeTransaction(pending, { runtime: r.runtime }).recover()).outcome,
+        "recovered",
+      );
       assert.equal(readUpgradeJournal(f.prefix), undefined);
     } finally {
       f.cleanup();
@@ -145,7 +189,7 @@ describe("recoverable Sash installation transaction", () => {
         const journal = {
           ...f.journal,
           phase: "activating" as const,
-          candidate: fingerprintTree(candidate),
+          candidate: readPackageIdentity(candidate),
           candidateShims: verifyStagedShims(paths.stage, candidate),
         };
         writeUpgradeJournal(journal);
@@ -165,7 +209,7 @@ describe("recoverable Sash installation transaction", () => {
         }).recover();
         assert.equal(result.outcome, "recovered", result.error);
         assert.equal(result.version, "1.0.0");
-        assert.deepEqual(fingerprintTree(f.installation.packageRoot), journal.source);
+        assert.deepEqual(readPackageIdentity(f.installation.packageRoot), journal.source);
         assert.equal(readUpgradeJournal(f.prefix), undefined);
       } finally {
         f.cleanup();
@@ -173,7 +217,7 @@ describe("recoverable Sash installation transaction", () => {
     });
   }
 
-  it("preserves a foreign change to the active package instead of replacing it during rollback", async () => {
+  it("preserves a package directory replaced outside the transaction", async () => {
     const f = upgradeFixture();
     const r = fakeUpgradeRuntimes(f.root, f.installation, 0);
     const marker = path.join(f.installation.packageRoot, "foreign.txt");
@@ -185,7 +229,14 @@ describe("recoverable Sash installation transaction", () => {
         stagePackage: async ({ prefix, transactionId }) =>
           writeFixturePackage(upgradeTransactionPaths(prefix, transactionId).stage, "2.0.0"),
         onBoundary: (name) => {
-          if (name === "journal:activating") fs.writeFileSync(marker, "preserve me");
+          if (name === "journal:activating") {
+            fs.renameSync(
+              f.installation.packageRoot,
+              path.join(f.root, "externally-moved-package"),
+            );
+            fs.mkdirSync(f.installation.packageRoot);
+            fs.writeFileSync(marker, "preserve me");
+          }
         },
       }).run(f.target);
       assert.equal(result.recoveryRequired, true);

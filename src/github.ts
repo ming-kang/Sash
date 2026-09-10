@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import { downloadToFile, fetchWithRetry, readErrorSummary, USER_AGENT } from "./http.js";
 
@@ -169,12 +168,6 @@ export function parseSha256Digest(value: string): string {
   const match = value.match(/^sha256:([0-9a-f]{64})$/i);
   if (!match?.[1]) throw new Error(`Release asset has an invalid SHA-256 digest: ${value}`);
   return match[1].toLowerCase();
-}
-
-export async function sha256File(file: string): Promise<string> {
-  const hash = crypto.createHash("sha256");
-  for await (const chunk of fs.createReadStream(file)) hash.update(chunk as Buffer);
-  return hash.digest("hex");
 }
 
 export interface DownloadOptions {

@@ -4,14 +4,13 @@ import { isDeepStrictEqual } from "node:util";
 import { type AutostartStatus, parseAutostartStatus } from "./autostart-contract.js";
 import { readBoundedJsonFile } from "./bounded-file.js";
 import { type InstallRecord, parseInstallRecord } from "./core-install-record.js";
-import { isSha256 } from "./core-integrity.js";
 import { parseCoreRuntimeState } from "./core-runtime-state.js";
 import { parseCoreYaml } from "./core-yaml.js";
 import { parseWebSessionSeeds, type WebSessionSeed } from "./daemon/web-auth.js";
 import { errnoCode } from "./error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
 import { assertAbsolutePath, canonicalPath, pathsEqual } from "./installation.js";
-import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
+import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject, isSha256 } from "./json-shape.js";
 import { isValidMihomoConfig, overlayManagedKeys } from "./mihomo-config.js";
 import { exactSashVersion, UPGRADE_PROTOCOL } from "./package-info.js";
 import type { SashLayout } from "./paths.js";
@@ -163,8 +162,8 @@ export function parseUpgradeHandoff(value: unknown): UpgradeHandoff {
   nodeHistory.forEach(assertAbsolutePath);
   const coreInstallation =
     value.coreInstallation === null ? null : parseInstallRecord(value.coreInstallation);
-  if (coreInstallation === undefined || (coreInstallation && !coreInstallation.sha256))
-    throw new Error("Core handoff lacks a verified installation");
+  if (coreInstallation === undefined)
+    throw new Error("Core handoff lacks a valid installation record");
   const runtime = value.runtime;
   if (
     !isPlainObject(runtime) ||

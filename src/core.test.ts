@@ -15,7 +15,6 @@ import {
   mihomoAssetCandidates,
   readInstallRecord,
   validateCoreReleaseTag,
-  verifyCoreExecutable,
   writeInstallRecord,
 } from "./core.js";
 import { type ReleaseAsset, selectReleaseAsset } from "./github.js";
@@ -74,7 +73,6 @@ describe("core", () => {
       assert.deepEqual(candidates, [
         "mihomo-windows-amd64-compatible-v1.19.30.zip",
         "mihomo-windows-amd64-v1-v1.19.30.zip",
-        "mihomo-windows-amd64-v1.19.30.zip",
       ]);
       for (const c of candidates) {
         assert.ok(c.endsWith(".zip"));
@@ -91,7 +89,6 @@ describe("core", () => {
       assert.deepEqual(candidates, [
         "mihomo-darwin-amd64-compatible-v1.19.30.gz",
         "mihomo-darwin-amd64-v1-v1.19.30.gz",
-        "mihomo-darwin-amd64-v1.19.30.gz",
       ]);
       for (const c of candidates) {
         assert.ok(c.endsWith(".gz"));
@@ -130,12 +127,7 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      const digest = await extractCoreArchive(
-        zipPath,
-        "mihomo-windows-amd64-v1.19.30.zip",
-        destExe,
-      );
-      assert.equal(digest, crypto.hash("sha256", fakeExeData));
+      await extractCoreArchive(zipPath, "mihomo-windows-amd64-v1.19.30.zip", destExe);
 
       assert.equal(fs.existsSync(destExe), true);
       assert.deepEqual(fs.readFileSync(destExe), fakeExeData);
@@ -164,8 +156,7 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      const digest = await extractCoreArchive(gzPath, "mihomo-linux-amd64-v1.19.30.gz", destExe);
-      assert.equal(digest, crypto.hash("sha256", fakeBinaryData));
+      await extractCoreArchive(gzPath, "mihomo-linux-amd64-v1.19.30.gz", destExe);
 
       assert.equal(fs.existsSync(destExe), true);
       assert.deepEqual(fs.readFileSync(destExe), fakeBinaryData);
@@ -350,29 +341,6 @@ describe("core", () => {
       assert.throws(() => validateCoreReleaseTag("../../escape"), /Invalid Core release tag/);
       assert.throws(() => validateCoreReleaseTag("tag/asset"), /Invalid Core release tag/);
       assert.throws(() => validateCoreReleaseTag("bad\ntag"), /Invalid Core release tag/);
-    });
-  });
-
-  describe("staged binary validation", () => {
-    it("accepts an executable that exits successfully for -v", () => {
-      assert.doesNotThrow(() => verifyCoreExecutable(process.execPath));
-    });
-
-    it("rejects a non-executable or invalid binary", () => {
-      const invalid = path.join(tmpDir, "invalid-core.exe");
-      fs.writeFileSync(invalid, "not an executable");
-      assert.throws(() => verifyCoreExecutable(invalid, 1000), /failed validation/);
-    });
-
-    it("rejects a binary whose version output does not match the requested release", () => {
-      assert.throws(
-        () => verifyCoreExecutable(process.execPath, 5000, "v0.0.0-impossible"),
-        /does not contain expected release/,
-      );
-      assert.throws(
-        () => verifyCoreExecutable(process.execPath, 5000, process.version.split(".")[0]),
-        /does not contain expected release/,
-      );
     });
   });
 

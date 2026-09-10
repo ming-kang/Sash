@@ -60,8 +60,6 @@ export function upgradeFixture(worker?: Buffer) {
     version: "2.0.0",
     nodeRange: ">=24",
     upgradeProtocol: 1,
-    tarball: "https://registry.npmjs.org/@astralyn/sash/-/sash-2.0.0.tgz",
-    integrity: { algorithm: "sha512", digest: "0".repeat(128) },
   };
   return {
     root,

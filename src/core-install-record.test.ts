@@ -37,19 +37,21 @@ describe("Core install record codec", () => {
     assert.equal(parseInstallRecord({ ...record, extra: true }), undefined);
     assert.equal(parseInstallRecord({ ...record, installedAt: "2026-01-01" }), undefined);
     assert.equal(parseInstallRecord({ ...record, coreVersion: "../../escape" }), undefined);
-    for (const sha256 of [null, undefined, "", "a".repeat(63), "A".repeat(64)]) {
-      assert.equal(parseInstallRecord({ ...record, sha256 }), undefined);
-    }
+    assert.equal(
+      parseInstallRecord({ ...record, sha256: "obsolete" })?.coreVersion,
+      record.coreVersion,
+    );
     const versionOnly = { coreVersion: record.coreVersion, installedAt: record.installedAt };
     assert.deepEqual(parseInstallRecord(versionOnly), versionOnly);
-    assert.throws(() => writeInstallRecord(versionOnly, layout), /verified Core SHA-256/);
+    writeInstallRecord(versionOnly, layout);
+    assert.deepEqual(readInstallRecord(layout), versionOnly);
   });
 
   it("writes, reads, and reports one canonical committed record", () => {
     const record = {
       coreVersion: "v1.2.3",
       installedAt: "2026-01-01T00:00:00.000Z",
-      sha256: "a".repeat(64),
+      assetName: "mihomo-windows-amd64-v3-v1.2.3.zip",
     };
 
     writeInstallRecord(record, layout);

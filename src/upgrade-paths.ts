@@ -29,7 +29,6 @@ export function upgradeTransactionPaths(prefix: string, transactionId: string) {
     previous: path.join(root, "previous-package"),
     rejected: path.join(root, "rejected-package"),
     worker: path.join(root, "worker.mjs"),
-    archive: path.join(root, "candidate.tgz"),
     validationData: path.join(root, "validation-data"),
   };
 }

@@ -1,5 +1,6 @@
 import { currentCoreVersion, mihomoAssetCandidates } from "./core.js";
 import { validateCoreReleaseTag } from "./core-install-record.js";
+import { detectAmd64Level } from "./cpu-features.js";
 import {
   listReleaseAssets,
   MIHOMO_REPO,
@@ -25,8 +26,14 @@ export async function checkCoreUpdate(
 ): Promise<CoreUpdateCheck> {
   const current = currentCoreVersion(layout) || null;
   const target = validateCoreReleaseTag(version ?? (await resolveLatestTag(MIHOMO_REPO, signal)));
-  const assets = await listReleaseAssets(MIHOMO_REPO, target, signal);
-  const asset = selectReleaseAsset(assets, mihomoAssetCandidates(target));
+  const [assets, level] = await Promise.all([
+    listReleaseAssets(MIHOMO_REPO, target, signal),
+    detectAmd64Level(),
+  ]);
+  const asset = selectReleaseAsset(
+    assets,
+    mihomoAssetCandidates(target, process.platform, process.arch, level),
+  );
   if (!asset)
     throw new Error(
       `No compatible Core artifact is available for ${process.platform}/${process.arch} at ${target}`,

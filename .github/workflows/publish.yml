@@ -17,11 +17,12 @@ concurrency:
 
 jobs:
   publish:
-    name: Verify and publish @astralyn/sash
+    name: Publish the package accepted by CI
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - name: Checkout
@@ -33,7 +34,6 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: npm
 
       - name: Install OIDC-capable npm
         run: npm install --global npm@11.15.0 --ignore-scripts
@@ -82,35 +82,30 @@ jobs:
           }
           NODE
 
-      - name: Install dependencies
-        run: |
-          npm ci --ignore-scripts
-          node node_modules/cn-font-split/dist/cli.js i default@7.6.8
-
-      - name: Verify source
-        run: |
-          npm run audit:prod
-          npm run lint
-          npm test
-          npm run build
-
-      - name: Pack npm artifact
-        id: pack
+      - name: Find successful CI for this commit
+        id: ci
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          package_dir="$RUNNER_TEMP/sash-package"
-          tarball="$package_dir/astralyn-sash-$RELEASE_VERSION.tgz"
-          mkdir -p "$package_dir"
-          npm pack --ignore-scripts --silent --pack-destination "$package_dir" >/dev/null
-          test -f "$tarball"
-          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          ci_run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$ci_run" ]; then
+            echo "Wait for CI to pass on $GITHUB_SHA before publishing." >&2
+            exit 1
+          fi
+          echo "run_id=$ci_run" >> "$GITHUB_OUTPUT"
 
-      - name: Verify packed package installation
-        run: node scripts/package-smoke.mjs "${{ steps.pack.outputs.tarball }}"
+      - name: Download the package tested by CI
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: npm-package
+          path: ${{ runner.temp }}/sash-package
+          run-id: ${{ steps.ci.outputs.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Publish verified artifact
-        run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --provenance --registry=https://registry.npmjs.org
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: npm publish "$RUNNER_TEMP/sash-package/astralyn-sash-$RELEASE_VERSION.tgz" --access public --provenance --registry=https://registry.npmjs.org
 
   release:
     name: Tag and create the GitHub Release

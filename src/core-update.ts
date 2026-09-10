@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { type StagedCore, verifyCoreExecutable } from "./core.js";
+import type { StagedCore } from "./core.js";
+import { assertCoreBinaryFile } from "./core-binary.js";
 import {
   type InstallRecord,
   installRecordsEqual,
@@ -7,7 +8,6 @@ import {
   readInstallRecord,
   writeInstallRecord,
 } from "./core-install-record.js";
-import { assertCoreBinaryDigest } from "./core-integrity.js";
 import {
   atomicWriteFileSync,
   durableRemoveFileSync,
@@ -21,7 +21,7 @@ import { waitForBinaryUnlocked } from "./process.js";
 /** The only upgrade journal: executable and install metadata, never profiles or settings. */
 export interface CoreUpdateTransaction {
   version: 1;
-  phase: "prepared" | "swapped" | "verified";
+  phase: "prepared" | "swapped" | "restoring" | "verified";
   previous: InstallRecord | null;
   target: InstallRecord;
 }
@@ -37,20 +37,11 @@ export interface CoreUpdateOptions {
   layout: SashLayout;
   staged: StagedCore;
   runtime: CoreUpdateRuntime;
-  verifyExecutable?: (exe: string, expectedVersion: string) => void;
 }
 
 export interface CoreUpdateResult {
   version: string;
 }
-function verifyBinary(file: string, record: Pick<InstallRecord, "sha256">): void {
-  assertCoreBinaryDigest(file, record.sha256);
-}
-
-function defaultVerifier(exe: string, version: string): void {
-  verifyCoreExecutable(exe, 5000, version);
-}
-
 export function readCoreUpdateTransaction(layout: SashLayout): CoreUpdateTransaction | undefined {
   let text: string;
   try {
@@ -69,7 +60,7 @@ export function readCoreUpdateTransaction(layout: SashLayout): CoreUpdateTransac
     !hasExactOwnKeys(value, ["version", "phase", "previous", "target"]) ||
     value.version !== 1 ||
     typeof value.phase !== "string" ||
-    !["prepared", "swapped", "verified"].includes(value.phase)
+    !["prepared", "swapped", "restoring", "verified"].includes(value.phase)
   ) {
     throw new Error("Invalid Core update journal");
   }
@@ -97,21 +88,27 @@ function restoreFiles(layout: SashLayout, transaction: CoreUpdateTransaction): v
   const backup = `${layout.coreExe}.bak`;
   if (transaction.previous) {
     if (pathEntryExists(backup)) {
-      verifyBinary(backup, transaction.previous);
+      assertCoreBinaryFile(backup);
+      writeCoreUpdateTransaction(layout, { ...transaction, phase: "restoring" });
       if (pathEntryExists(layout.coreExe)) {
-        verifyBinary(layout.coreExe, transaction.target);
+        assertCoreBinaryFile(layout.coreExe);
         durableRemoveFileSync(layout.coreExe);
       }
       durableRenameSync(backup, layout.coreExe);
     } else {
-      // Also covers interruption after restoring the binary but before its metadata.
-      verifyBinary(layout.coreExe, transaction.previous);
+      if (
+        transaction.phase === "swapped" &&
+        !installRecordsEqual(readInstallRecord(layout), transaction.previous)
+      )
+        throw new Error("Core rollback backup is missing; installation files preserved");
+      // A restoring decision covers interruption after rename but before metadata publication.
+      assertCoreBinaryFile(layout.coreExe);
     }
     writeInstallRecord(transaction.previous, layout);
   } else {
     if (pathEntryExists(backup)) throw new Error("Unexpected Core backup for a first install");
     if (pathEntryExists(layout.coreExe)) {
-      verifyBinary(layout.coreExe, transaction.target);
+      assertCoreBinaryFile(layout.coreExe);
       durableRemoveFileSync(layout.coreExe);
     }
     if (pathEntryExists(layout.installFile)) {
@@ -123,16 +120,22 @@ function restoreFiles(layout: SashLayout, transaction: CoreUpdateTransaction): v
 }
 
 function finishVerified(layout: SashLayout, transaction: CoreUpdateTransaction): void {
-  verifyBinary(layout.coreExe, transaction.target);
+  assertCoreBinaryFile(layout.coreExe);
   if (!installRecordsEqual(readInstallRecord(layout), transaction.target))
     throw new Error("Verified Core install metadata changed");
-  const backup = `${layout.coreExe}.bak`;
-  if (pathEntryExists(backup)) {
-    if (!transaction.previous) throw new Error("Unexpected backup for a first install");
-    verifyBinary(backup, transaction.previous);
-    durableRemoveFileSync(backup);
+  try {
+    const backup = `${layout.coreExe}.bak`;
+    if (pathEntryExists(backup)) {
+      if (!transaction.previous) throw new Error("Unexpected backup for a first install");
+      assertCoreBinaryFile(backup);
+      durableRemoveFileSync(backup);
+    }
+    clearJournal(layout);
+  } catch (error) {
+    console.warn(
+      `[sashd] Core update succeeded; cleanup retained for retry: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  clearJournal(layout);
 }
 
 /** Called by the daemon after proxy recovery and verified orphan termination. */
@@ -153,7 +156,7 @@ export function recoverCoreUpdateTransaction(layout: SashLayout): void {
 /** Every install/update completes a real health check in this operation. */
 export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<CoreUpdateResult> {
   const { layout, staged, runtime } = options;
-  const verify = options.verifyExecutable ?? defaultVerifier;
+  if (readCoreUpdateTransaction(layout)?.phase === "verified") recoverCoreUpdateTransaction(layout);
   if (readCoreUpdateTransaction(layout) || pathEntryExists(`${layout.coreExe}.bak`)) {
     throw new Error("An unfinished Core update requires recovery before another update");
   }
@@ -166,9 +169,9 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
       "Core installation is inconsistent; preserve its files and reinstall into a clean data directory",
     );
   }
-  if (previous) verifyBinary(layout.coreExe, previous);
-  verifyBinary(staged.exe, staged);
-  verify(staged.exe, staged.version);
+  if (previous) assertCoreBinaryFile(layout.coreExe);
+  assertCoreBinaryFile(staged.exe);
+  fs.mkdirSync(layout.binDir, { recursive: true });
   await runtime.stop();
   let transaction: CoreUpdateTransaction = {
     version: 1,
@@ -177,7 +180,7 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
     target: {
       coreVersion: staged.version,
       installedAt: new Date().toISOString(),
-      sha256: staged.sha256,
+      ...(staged.assetName ? { assetName: staged.assetName } : {}),
     },
   };
   let committed = false;

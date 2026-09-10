@@ -43,9 +43,6 @@ describe("Core binary transaction", () => {
     fs.writeFileSync(exe, "v2-core");
     return { exe, version: "v2", sha256: crypto.hash("sha256", "v2-core") };
   }
-  function verify(exe: string, version: string) {
-    assert.equal(fs.readFileSync(exe, "utf8"), `${version}-core`, "binary version mismatch");
-  }
   function runtime(events: string[], wasRunning = true): CoreUpdateRuntime {
     return {
       wasRunning,
@@ -77,46 +74,25 @@ describe("Core binary transaction", () => {
   }
 
   for (const slot of ["current", "staged"]) {
-    it(`rejects tampered ${slot} bytes before any executable probe or runtime change`, async (t) => {
+    it(`rejects an empty ${slot} file before changing the runtime`, async () => {
       seed();
       const candidate = staged();
       const file = slot === "current" ? layout.coreExe : candidate.exe;
-      fs.appendFileSync(file, "modified without changing its claimed version");
+      fs.writeFileSync(file, "");
       const metadata = fs.readFileSync(layout.installFile, "utf8");
-      const probe = t.mock.fn(verify);
       const events: string[] = [];
       await assert.rejects(
         commitCoreUpdate({
           layout,
           staged: candidate,
           runtime: runtime(events),
-          verifyExecutable: probe,
         }),
-        /SHA-256 mismatch/,
+        /nonempty regular file/,
       );
-      assert.equal(probe.mock.callCount(), 0);
       assert.deepEqual(events, []);
       assert.equal(fs.readFileSync(layout.installFile, "utf8"), metadata);
       assert.equal(fs.existsSync(layout.coreUpdateTransactionFile), false);
-      assert.match(fs.readFileSync(file, "utf8"), /modified/);
-    });
-  }
-
-  for (const slot of ["current", "backup"]) {
-    it(`preserves both slots and the journal if ${slot} bytes changed before recovery`, () => {
-      seed();
-      const transaction = journal("swapped");
-      fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
-      fs.writeFileSync(layout.coreExe, "v2-core");
-      writeInstallRecord(transaction.target, layout);
-      saveJournal(transaction);
-      fs.appendFileSync(slot === "current" ? layout.coreExe : `${layout.coreExe}.bak`, "tampered");
-      const current = fs.readFileSync(layout.coreExe, "utf8");
-      const backup = fs.readFileSync(`${layout.coreExe}.bak`, "utf8");
-      assert.throws(() => recoverCoreUpdateTransaction(layout), /SHA-256 mismatch/);
-      assert.equal(fs.readFileSync(layout.coreExe, "utf8"), current);
-      assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), backup);
-      assert.deepEqual(readCoreUpdateTransaction(layout), transaction);
+      assert.equal(fs.readFileSync(file, "utf8"), "");
     });
   }
 
@@ -132,10 +108,9 @@ describe("Core binary transaction", () => {
       events.push("proxy");
       assert.equal(fs.existsSync(`${layout.coreExe}.bak`), true);
     };
-    assert.deepEqual(
-      await commitCoreUpdate({ layout, staged: staged(), runtime: live, verifyExecutable: verify }),
-      { version: "v2" },
-    );
+    assert.deepEqual(await commitCoreUpdate({ layout, staged: staged(), runtime: live }), {
+      version: "v2",
+    });
     assert.deepEqual(events, ["stop", "start:v2", "proxy"]);
     assert.equal(readInstallRecord(layout)?.coreVersion, "v2");
     assert.equal(readCoreUpdateTransaction(layout), undefined);
@@ -150,7 +125,6 @@ describe("Core binary transaction", () => {
         layout,
         staged: staged(),
         runtime: runtime(events, false),
-        verifyExecutable: verify,
       });
       assert.deepEqual(events, ["stop", "start:v2", "stop"]);
       assert.equal(readCoreUpdateTransaction(layout), undefined);
@@ -168,7 +142,7 @@ describe("Core binary transaction", () => {
       if (version === "v2") throw failure;
     };
     await assert.rejects(
-      commitCoreUpdate({ layout, staged: staged(), runtime: live, verifyExecutable: verify }),
+      commitCoreUpdate({ layout, staged: staged(), runtime: live }),
       (error) => error === failure,
     );
     assert.deepEqual(events, ["stop", "start:v2", "stop", "start:v1", "proxy"]);
@@ -188,7 +162,7 @@ describe("Core binary transaction", () => {
       throw new Error("unhealthy");
     };
     await assert.rejects(
-      commitCoreUpdate({ layout, staged: staged(), runtime: live, verifyExecutable: verify }),
+      commitCoreUpdate({ layout, staged: staged(), runtime: live }),
       /rollback failed: candidate still running/,
     );
     assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
@@ -203,7 +177,7 @@ describe("Core binary transaction", () => {
       throw new Error("proxy restoration failed");
     };
     await assert.rejects(
-      commitCoreUpdate({ layout, staged: staged(), runtime: live, verifyExecutable: verify }),
+      commitCoreUpdate({ layout, staged: staged(), runtime: live }),
       /proxy restoration failed/,
     );
     assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
@@ -216,7 +190,7 @@ describe("Core binary transaction", () => {
       throw new Error("bad candidate");
     };
     await assert.rejects(
-      commitCoreUpdate({ layout, staged: staged(), runtime: live, verifyExecutable: verify }),
+      commitCoreUpdate({ layout, staged: staged(), runtime: live }),
       /bad candidate/,
     );
     assert.equal(fs.existsSync(layout.coreExe), false);
@@ -252,7 +226,18 @@ describe("Core binary transaction", () => {
     assert.equal(readCoreUpdateTransaction(layout), undefined);
   });
 
-  it("retains a verified decision if cleanup fails instead of attempting an impossible rollback", async () => {
+  it("finishes rollback after the old binary was renamed back but metadata is still new", () => {
+    seed();
+    const value = journal("restoring");
+    writeInstallRecord(value.target, layout);
+    saveJournal(value);
+    recoverCoreUpdateTransaction(layout);
+    assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v1-core");
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v1");
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+  });
+
+  it("reports success and retains cleanup work when deleting the journal fails", async () => {
     seed();
     const unlink = fs.unlinkSync;
     mock.method(fs, "unlinkSync", (file: fs.PathLike) => {
@@ -260,14 +245,13 @@ describe("Core binary transaction", () => {
         throw Object.assign(new Error("cleanup failed"), { code: "ENOSPC" });
       return unlink(file);
     });
-    await assert.rejects(
-      commitCoreUpdate({
+    assert.deepEqual(
+      await commitCoreUpdate({
         layout,
         staged: staged(),
         runtime: runtime([], false),
-        verifyExecutable: verify,
       }),
-      /cleanup failed/,
+      { version: "v2" },
     );
     assert.equal(readCoreUpdateTransaction(layout)?.phase, "verified");
     assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
@@ -281,7 +265,8 @@ describe("Core binary transaction", () => {
     const value = journal("swapped");
     saveJournal(value);
     fs.writeFileSync(layout.coreExe, "v2-core");
-    assert.throws(() => recoverCoreUpdateTransaction(layout), /mismatch/);
+    writeInstallRecord(value.target, layout);
+    assert.throws(() => recoverCoreUpdateTransaction(layout), /backup is missing/);
     assert.equal(readCoreUpdateTransaction(layout)?.phase, "swapped");
     for (const invalid of [
       "{bad",

@@ -3,7 +3,6 @@ import { errorMessage } from "./error-utils.js";
 import { pathEntryExists } from "./fs-atomic.js";
 import { canonicalPath, npmPackageRoot, pathsEqual } from "./installation.js";
 import { installationRegistryPaths } from "./installation-registry.js";
-import { isPlainObject } from "./json-shape.js";
 import type { SashPackageInfo } from "./package-info.js";
 import { sashLayout } from "./paths.js";
 import { withStateLock } from "./state-lock.js";
@@ -19,8 +18,11 @@ import {
   type UpgradeBoundary,
 } from "./upgrade-activation.js";
 import { type UpgradeAutostartAdapter, upgradeAutostart } from "./upgrade-autostart.js";
-import { runUpgradeCommand } from "./upgrade-command.js";
-import { assertTreeFingerprint, fingerprintTree } from "./upgrade-files.js";
+import {
+  assertPackageIdentity,
+  packageIdentitiesEqual,
+  readPackageIdentity,
+} from "./upgrade-files.js";
 import { readUpgradeHandoff, upgradeHandoffPath } from "./upgrade-handoff.js";
 import {
   createUpgradeRuntimeAdapter,
@@ -46,11 +48,11 @@ export interface UpgradeResult {
   instances: number;
   recoveryRequired: boolean;
   error?: string;
+  warning?: string;
 }
 export interface UpgradeExecutionOptions {
   signal?: AbortSignal;
   onStage?: (stage: string) => void;
-  onDownload?: (downloaded: number, total?: number) => void;
   onBoundary?: UpgradeBoundary;
   runtime?: UpgradeRuntimeAdapter;
   stagePackage?: typeof stageSashPackage;
@@ -63,6 +65,7 @@ export interface UpgradeExecutionOptions {
 export class SashUpgradeTransaction {
   private readonly runtime: UpgradeRuntimeAdapter;
   private access: UpgradeAccess | undefined;
+  private cleanupWarning: string | undefined;
 
   constructor(
     private journal: UpgradeJournal,
@@ -97,6 +100,7 @@ export class SashUpgradeTransaction {
       instances: this.journal.instances.length,
       recoveryRequired,
       ...(error ? { error } : {}),
+      ...(this.cleanupWarning ? { warning: this.cleanupWarning } : {}),
     };
   }
 
@@ -128,15 +132,6 @@ export class SashUpgradeTransaction {
         throw new Error("Sash upgrade is not at its preparation boundary");
       this.options.onStage?.("preparing");
       const paths = upgradeTransactionPaths(j.installation.prefix, j.transactionId);
-      const proof: unknown = JSON.parse(
-        await runUpgradeCommand(j.installation.nodePath, [paths.worker, "--self-test"], {
-          cwd: paths.root,
-          purpose: "Verify independent Sash recovery worker",
-          signal: this.options.signal,
-        }),
-      );
-      if (!isPlainObject(proof) || proof.upgradeProtocol !== 1)
-        throw new Error("Sash recovery worker has an incompatible protocol");
       const prepared = await (this.options.stagePackage ?? stageSashPackage)({
         prefix: j.installation.prefix,
         transactionId: j.transactionId,
@@ -144,12 +139,11 @@ export class SashUpgradeTransaction {
         target,
         signal: this.options.signal,
         onStage: this.options.onStage,
-        onProgress: this.options.onDownload,
       });
       const staged = canonicalPath(prepared);
       if (!pathsEqual(staged, npmPackageRoot(paths.stage)))
         throw new Error("Prepared Sash package escaped its fixed staging slot");
-      const candidate = fingerprintTree(staged);
+      const candidate = readPackageIdentity(staged);
       const candidateShims = verifyStagedShims(paths.stage, staged);
       this.options.onStage?.("candidate-check");
       await (this.options.verifyPackage ?? verifyUpgradePackage)(
@@ -224,14 +218,6 @@ export class SashUpgradeTransaction {
     await this.save("activating");
     await activateUpgradePackage(this.journal, this.boundary);
     this.options.signal?.throwIfAborted();
-    const paths = upgradeTransactionPaths(installation.prefix, this.journal.transactionId);
-    await (this.options.verifyPackage ?? verifyUpgradePackage)(
-      installation.packageRoot,
-      this.journal.targetVersion,
-      installation.nodePath,
-      paths.validationData,
-      this.options.signal,
-    );
     activateUpgradeShims(this.journal, "candidate");
     await this.boundary("candidate-shims-activated");
     await (this.options.autostart ?? upgradeAutostart).run("apply", this.journal, this.access);
@@ -249,7 +235,7 @@ export class SashUpgradeTransaction {
     }
     this.options.signal?.throwIfAborted();
     if (!this.journal.candidate) throw new Error("Sash candidate ownership is missing");
-    assertTreeFingerprint(installation.packageRoot, this.journal.candidate);
+    assertPackageIdentity(installation.packageRoot, this.journal.candidate);
     await this.save("committed");
   }
 
@@ -284,11 +270,11 @@ export class SashUpgradeTransaction {
 
   private async recoverDecision(): Promise<void> {
     if (this.journal.phase.endsWith("-cleanup")) {
-      await cleanUpgradeInstallation(this.journal, this.boundary);
+      this.cleanupWarning = await cleanUpgradeInstallation(this.journal, this.boundary);
       return;
     }
     if (["committed", "rolled-back", "cancelled"].includes(this.journal.phase)) {
-      await this.finishDecision();
+      await this.finishDecision(true);
       return;
     }
     if (["preparing", "prepared", "reserving"].includes(this.journal.phase)) {
@@ -307,9 +293,9 @@ export class SashUpgradeTransaction {
       }
     }
     const active = pathEntryExists(this.journal.installation.packageRoot)
-      ? fingerprintTree(this.journal.installation.packageRoot)
+      ? readPackageIdentity(this.journal.installation.packageRoot)
       : undefined;
-    if (active?.sha256 !== this.journal.source.sha256)
+    if (!packageIdentitiesEqual(active, this.journal.source))
       await this.runtime.assertVacant(this.journal.installation);
     await restorePreviousPackage(this.journal, this.boundary);
     activateUpgradeShims(this.journal, "source");
@@ -330,7 +316,7 @@ export class SashUpgradeTransaction {
     await this.finishDecision();
   }
 
-  private async finishDecision(): Promise<void> {
+  private async finishDecision(recovering = false): Promise<void> {
     const committed = this.journal.phase === "committed";
     const cancelled = this.journal.phase === "cancelled";
     const version = committed ? this.journal.targetVersion : this.journal.sourceVersion;
@@ -364,13 +350,14 @@ export class SashUpgradeTransaction {
         if (current.sashVersion !== version)
           throw new Error("Restored Sash instance has an unexpected package version");
         if (status?.phase !== "committed") {
-          try {
-            await this.runtime.verify(current, access);
-          } catch {
-            await this.runtime.stop(current, access);
-            current = await this.runtime.restore(instance, access, version);
-            await this.runtime.verify(current, access);
-          }
+          if (recovering)
+            try {
+              await this.runtime.verify(current, access);
+            } catch {
+              await this.runtime.stop(current, access);
+              current = await this.runtime.restore(instance, access, version);
+              await this.runtime.verify(current, access);
+            }
           await this.runtime.commit(current, access);
           await this.boundary(`instance-committed:${index}`);
         }
@@ -383,6 +370,6 @@ export class SashUpgradeTransaction {
     await this.save(
       committed ? "commit-cleanup" : cancelled ? "cancel-cleanup" : "rollback-cleanup",
     );
-    await cleanUpgradeInstallation(this.journal, this.boundary);
+    this.cleanupWarning = await cleanUpgradeInstallation(this.journal, this.boundary);
   }
 }

@@ -24,18 +24,16 @@ All fields are case-sensitive and a connection cannot be edited after creation; 
    ```
 
 2. Move the release notes out of `## [Unreleased]` into `## [x.y.z] - YYYY-MM-DD` and keep an empty `[Unreleased]` section on top.
-3. Run the normal checks:
+3. Run checks relevant to the change locally:
 
    ```bash
-   npm ci
-   npm run audit:prod
+   npm run typecheck
    npm run lint
-   npm test
-   npm run build
-   npm run smoke:package
+   npm test -- <changed-module.test.ts>
    ```
 
-4. Commit and push the release change to `main`, then wait for CI to pass.
+   Do not repeat successful checks without another relevant change or failure. CI performs the complete release acceptance.
+4. Commit and push the release change to `main`, then wait for CI to pass. CI runs static checks and the production audit once, builds one tarball, and runs tests plus installation smoke checks on Windows, Linux and macOS using that same tarball. The `npm-package` artifact is retained for 14 days.
 5. Dispatch **Publish npm** from `main` with the same version:
 
    ```bash
@@ -43,7 +41,9 @@ All fields are case-sensitive and a connection cannot be edited after creation; 
    gh run watch --repo ming-kang/Sash --exit-status
    ```
 
-   The workflow verifies the release request, runs the full gate (audit, lint, tests, build), packs and smoke-tests the exact tarball, then publishes it with provenance. A successful `npm publish` completes publication; the only following steps tag that workflow's source commit as `vx.y.z` and create the GitHub Release from the version's `CHANGELOG.md` section.
+   The workflow checks that the requested version matches its source commit, selects successful CI for that exact commit on `main`, downloads its `npm-package` artifact and publishes it with provenance. It does not reinstall project dependencies, repeat tests/audits, rebuild or repack. Missing CI or an expired artifact stops publication; rerun CI to supply the artifact.
+
+   A successful `npm publish` completes publication; the only following steps tag that workflow's source commit as `vx.y.z` and create the GitHub Release from the version's `CHANGELOG.md` section. Local `npm publish` prints the workflow instruction and exits.
 
    There are no post-publication registry polls, provenance queries, repeat installs, or runtime smoke tests. npm processing delays do not fail the workflow. A green run records an accepted publication and completed GitHub release metadata, without promising immediate registry availability.
 

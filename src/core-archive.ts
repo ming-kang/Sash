@@ -1,14 +1,13 @@
-import crypto, { type Hash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { type Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import { type Entry, openPromise, type ZipFile } from "yauzl";
-import { CORE_BINARY_SIZE_LIMIT } from "./core-integrity.js";
+import { CORE_BINARY_SIZE_LIMIT } from "./core-binary.js";
 import { RELEASE_ASSET_SIZE_LIMIT } from "./github.js";
 
-function extractionLimiter(hash: Hash): Transform {
+function extractionLimiter(): Transform {
   let bytes = 0;
   return new Transform({
     transform(chunk: Buffer, _encoding, callback) {
@@ -17,7 +16,6 @@ function extractionLimiter(hash: Hash): Transform {
         callback(new Error("Extracted binary exceeds 512MB safety limit"));
         return;
       }
-      hash.update(chunk);
       callback(null, chunk);
     },
   });
@@ -29,9 +27,8 @@ export async function extractCoreArchive(
   assetName: string,
   destExe: string,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<void> {
   const extracted = `${destExe}.extracted`;
-  const hash = crypto.createHash("sha256");
   let created = false;
   let zip: ZipFile | undefined;
   let closed: Promise<void> | undefined;
@@ -89,10 +86,9 @@ export async function extractCoreArchive(
       fs.closeSync(fd);
       throw error;
     }
-    await pipeline([input, ...transforms, extractionLimiter(hash), output], { signal });
+    await pipeline([input, ...transforms, extractionLimiter(), output], { signal });
     signal?.throwIfAborted();
     fs.renameSync(extracted, destExe);
-    return hash.digest("hex");
   } catch (error) {
     if (created) fs.rmSync(extracted, { force: true });
     throw error;

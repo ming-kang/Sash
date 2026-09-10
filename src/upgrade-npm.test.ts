@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { MockAgent } from "undici";
-import { proxyAwareDispatcher } from "./http.js";
 import { readSashPackageInfo } from "./package-info.js";
 import { runUpgradeCommand } from "./upgrade-command.js";
 import { verifyStagedShims } from "./upgrade-launcher.js";
@@ -13,35 +10,22 @@ import { upgradeTransactionPaths } from "./upgrade-paths.js";
 import { upgradeFixture } from "./upgrade-test-fixture.test.js";
 
 describe("npm self-upgrade preparation", () => {
-  it("accepts exact official artifacts and rejects foreign origins or weak integrity", () => {
+  it("accepts exact package metadata and leaves artifact integrity to npm", () => {
     const value = {
       name: "@astralyn/sash",
       version: "2.0.0",
       engines: { node: ">=24" },
       bin: { sash: "dist/cli.js" },
       sashUpgradeProtocol: 1,
-      dist: {
-        tarball: "https://registry.npmjs.org/@astralyn/sash/-/sash-2.0.0.tgz",
-        integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
-      },
     };
-    assert.equal(parseSashNpmTarget(value).integrity.digest, "0".repeat(128));
-    for (const tarball of [
-      "https://registry.npmjs.org.evil.test/@astralyn/sash/-/file.tgz",
-      "http://registry.npmjs.org/@astralyn/sash/-/file.tgz",
-      "https://user:password@registry.npmjs.org/@astralyn/sash/-/file.tgz",
-      "https://registry.npmjs.org/other/-/file.tgz",
-    ])
-      assert.throws(() => parseSashNpmTarget({ ...value, dist: { ...value.dist, tarball } }));
+    assert.equal(parseSashNpmTarget(value).version, "2.0.0");
     assert.throws(() => parseSashNpmTarget({ ...value, version: "latest" }));
-    assert.throws(() =>
-      parseSashNpmTarget({ ...value, dist: { ...value.dist, integrity: "sha1-deadbeef" } }),
-    );
+    assert.throws(() => parseSashNpmTarget({ ...value, name: "another-package" }));
   });
 
-  it("uses npm to prepare a complete dependency tree and portable native shims from a verified tarball", {
+  it("uses one npm installation to prepare the exact version, dependencies and native shims", {
     timeout: 45_000,
-  }, async (t) => {
+  }, async () => {
     const f = upgradeFixture();
     const packageDir = path.join(f.root, "artifact-source");
     const cli = path.join(packageDir, "dist", "cli.js");
@@ -80,9 +64,6 @@ describe("npm self-upgrade preparation", () => {
     const globalConfig = path.join(f.root, "global-npmrc");
     fs.writeFileSync(config, "");
     fs.writeFileSync(globalConfig, "");
-    const agent = new MockAgent();
-    agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
     try {
       const packed = JSON.parse(
         await runUpgradeCommand(
@@ -102,24 +83,21 @@ describe("npm self-upgrade preparation", () => {
         ),
       ) as Array<{ filename: string }>;
       assert.ok(packed[0]);
-      const tarball = fs.readFileSync(path.join(packageDir, packed[0].filename));
-      const tarballPath = "/@astralyn/sash/-/sash-2.0.0.tgz";
-      agent
-        .get("https://registry.npmjs.org")
-        .intercept({ path: tarballPath, method: "GET" })
-        .reply(200, tarball);
-      const target = parseSashNpmTarget({
-        ...manifest,
-        dist: {
-          tarball: `https://registry.npmjs.org${tarballPath}`,
-          integrity: `sha512-${crypto.hash("sha512", tarball, "base64")}`,
-        },
-      });
+      const tarball = path.join(packageDir, packed[0].filename);
+      const target = parseSashNpmTarget(manifest);
+      let installs = 0;
       const staged = await stageSashPackage({
         prefix: f.prefix,
         transactionId: f.journal.transactionId,
         nodePath: process.execPath,
         target,
+        runCommand: async (command, args, options) => {
+          installs++;
+          assert.equal(args[1], "install");
+          assert.equal(args.at(-1), "@astralyn/sash@2.0.0");
+          assert.equal(args[args.indexOf("--registry") + 1], "https://registry.npmjs.org");
+          return runUpgradeCommand(command, [...args.slice(0, -1), "--offline", tarball], options);
+        },
       });
       assert.equal(readSashPackageInfo(staged).version, "2.0.0");
       assert.equal(
@@ -136,9 +114,8 @@ describe("npm self-upgrade preparation", () => {
           .length > 0,
       );
       assert.equal(readSashPackageInfo(f.installation.packageRoot).version, "1.0.0");
-      agent.assertNoPendingInterceptors();
+      assert.equal(installs, 1);
     } finally {
-      await agent.close();
       f.cleanup();
     }
   });

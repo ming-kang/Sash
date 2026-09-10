@@ -4,8 +4,9 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { cleanUpgradeInstallation } from "./upgrade-activation.js";
 import {
-  fingerprintTree,
-  parseTreeFingerprint,
+  assertPackageIdentity,
+  parsePackageIdentity,
+  readPackageIdentity,
   readShimImage,
   removePackageSlot,
   replaceShim,
@@ -16,64 +17,61 @@ import { upgradeTransactionPaths } from "./upgrade-paths.js";
 import { upgradeFixture } from "./upgrade-test-fixture.test.js";
 
 describe("upgrade file ownership", () => {
-  it("recovers completed cleanup without removing changed or unrecognized files", async () => {
+  it("tracks a renamed package directory without reading files and rejects a replacement", (t) => {
     const f = upgradeFixture();
-    const paths = upgradeTransactionPaths(f.prefix, f.journal.transactionId);
+    const previous = upgradeTransactionPaths(f.prefix, f.journal.transactionId).previous;
     try {
-      await assert.rejects(
-        cleanUpgradeInstallation({ ...f.journal, phase: "cancel-cleanup" }, (boundary) => {
-          if (boundary === "upgrade-journal-cleared") throw new Error("interrupted");
-        }),
-        /interrupted/,
+      const identity = readPackageIdentity(f.installation.packageRoot);
+      assert.deepEqual(parsePackageIdentity(identity), identity);
+      assert.throws(() => parsePackageIdentity({ ...identity, inode: "0" }), /identity/);
+      t.mock.method(fs, "readFileSync", () => {
+        throw new Error("Directory inspection must not read package contents");
+      });
+      fs.renameSync(f.installation.packageRoot, previous);
+      assertPackageIdentity(previous, identity);
+      fs.mkdirSync(f.installation.packageRoot);
+      assert.throws(
+        () => assertPackageIdentity(f.installation.packageRoot, identity),
+        /replaced outside/,
       );
-      assert.equal(readUpgradeJournal(f.prefix), undefined);
-      assert.equal(completedUpgradeArtifacts(f.installation).length, 1);
-      const extra = path.join(paths.root, "keep.txt");
-      fs.writeFileSync(extra, "foreign content");
-      await assert.rejects(cleanCompletedUpgradeArtifacts(f.installation), /unrecognized/);
-      assert.equal(fs.readFileSync(extra, "utf8"), "foreign content");
-      fs.unlinkSync(extra);
-      const worker = fs.readFileSync(paths.worker);
-      fs.writeFileSync(paths.worker, "changed worker");
-      await assert.rejects(cleanCompletedUpgradeArtifacts(f.installation), /ownership changed/);
-      assert.equal(fs.readFileSync(paths.worker, "utf8"), "changed worker");
-      fs.writeFileSync(paths.worker, worker);
-      assert.equal(await cleanCompletedUpgradeArtifacts(f.installation), 1);
-      assert.equal(fs.existsSync(paths.root), false);
-      assert.equal(await cleanCompletedUpgradeArtifacts(f.installation), 0);
     } finally {
       f.cleanup();
     }
   });
 
-  it("authenticates the remaining subset after interrupted cleanup and keeps foreign additions", async () => {
+  it("resumes directory cleanup without following links or scanning file contents", async () => {
     const f = upgradeFixture();
     const paths = upgradeTransactionPaths(f.prefix, f.journal.transactionId);
-    const slot = path.join(paths.root, "previous-package");
     try {
-      await fs.promises.cp(f.installation.packageRoot, slot, { recursive: true });
-      const expected = fingerprintTree(slot);
-      fs.unlinkSync(path.join(slot, "package.json"));
-      fs.writeFileSync(path.join(slot, "foreign.txt"), "keep this change");
-      assert.throws(() => removePackageSlot(slot, expected, paths.root), /changed or unknown/);
-      assert.equal(fs.readFileSync(path.join(slot, "foreign.txt"), "utf8"), "keep this change");
-      fs.unlinkSync(path.join(slot, "foreign.txt"));
-      removePackageSlot(slot, expected, paths.root);
-      assert.equal(fs.existsSync(slot), false);
-    } finally {
-      f.cleanup();
-    }
-  });
-
-  it("does not follow package links out of their slot or replace a changed shim", () => {
-    const f = upgradeFixture();
-    try {
+      await fs.promises.cp(f.installation.packageRoot, paths.previous, { recursive: true });
+      const expected = readPackageIdentity(paths.previous);
       const outside = path.join(f.root, "external");
       fs.mkdirSync(outside);
-      fs.writeFileSync(path.join(outside, "value"), "private");
-      const link = path.join(f.installation.packageRoot, "external-link");
-      fs.symlinkSync(outside, link, process.platform === "win32" ? "junction" : "dir");
-      assert.throws(() => fingerprintTree(f.installation.packageRoot), /escapes/);
+      fs.writeFileSync(path.join(outside, "keep.txt"), "preserve outside the transaction");
+      fs.symlinkSync(
+        outside,
+        path.join(paths.previous, "linked"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      fs.unlinkSync(path.join(paths.previous, "package.json"));
+      await removePackageSlot(paths.previous, expected, paths.root);
+      assert.equal(fs.existsSync(paths.previous), false);
+      assert.equal(
+        fs.readFileSync(path.join(outside, "keep.txt"), "utf8"),
+        "preserve outside the transaction",
+      );
+      await assert.rejects(
+        removePackageSlot(outside, readPackageIdentity(outside), paths.root),
+        /escaped/,
+      );
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  it("preserves a command shim changed by another owner", () => {
+    const f = upgradeFixture();
+    try {
       const shim = path.join(
         f.installation.binDir,
         process.platform === "win32" ? "sash.cmd" : "sash",
@@ -86,24 +84,32 @@ describe("upgrade file ownership", () => {
         /ownership changed/,
       );
       assert.equal(fs.readFileSync(shim, "utf8"), "different owner");
-      assert.equal(fs.readFileSync(path.join(outside, "value"), "utf8"), "private");
     } finally {
       f.cleanup();
     }
   });
 
-  it("rejects manifest traversal and a digest that no longer authenticates its entries", () => {
+  it("finishes interrupted cleanup using its ownership marker without hashing the worker", async () => {
     const f = upgradeFixture();
+    const paths = upgradeTransactionPaths(f.prefix, f.journal.transactionId);
     try {
-      const fingerprint = fingerprintTree(f.installation.packageRoot);
-      const invalid = structuredClone(fingerprint);
-      assert.ok(invalid.manifest[0]);
-      invalid.manifest[0][0] = "../other-package";
-      assert.throws(() => parseTreeFingerprint(invalid), /manifest path/);
-      assert.throws(
-        () => parseTreeFingerprint({ ...fingerprint, sha256: "0".repeat(64) }),
-        /does not match/,
+      await assert.rejects(
+        cleanUpgradeInstallation({ ...f.journal, phase: "cancel-cleanup" }, (boundary) => {
+          if (boundary === "upgrade-journal-cleared") throw new Error("interrupted");
+        }),
+        /interrupted/,
       );
+      assert.equal(readUpgradeJournal(f.prefix), undefined);
+      assert.equal(completedUpgradeArtifacts(f.installation).length, 1);
+      const extra = path.join(paths.root, "keep.txt");
+      fs.writeFileSync(extra, "unknown file");
+      await assert.rejects(cleanCompletedUpgradeArtifacts(f.installation), /unrecognized/);
+      assert.equal(fs.readFileSync(extra, "utf8"), "unknown file");
+      fs.unlinkSync(extra);
+      fs.writeFileSync(paths.worker, "a regular file owned by the completed transaction");
+      assert.equal(await cleanCompletedUpgradeArtifacts(f.installation), 1);
+      assert.equal(fs.existsSync(paths.root), false);
+      assert.equal(await cleanCompletedUpgradeArtifacts(f.installation), 0);
     } finally {
       f.cleanup();
     }

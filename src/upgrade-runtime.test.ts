@@ -11,7 +11,7 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import YAML from "yaml";
 import { MihomoApi } from "./api.js";
-import { extractCoreArchive, verifyCoreExecutable, writeInstallRecord } from "./core.js";
+import { extractCoreArchive, writeInstallRecord } from "./core.js";
 import { SashDaemonClient } from "./daemon-client.js";
 import { stopDaemonFromCli } from "./daemon-lifecycle.js";
 import { fetchWithRetry } from "./http.js";
@@ -278,8 +278,6 @@ describe("real isolated Sash daemon upgrades", () => {
           version: "2.0.0",
           nodeRange: ">=24",
           upgradeProtocol: 1,
-          tarball: "https://registry.npmjs.org/@astralyn/sash/-/sash-2.0.0.tgz",
-          integrity: { algorithm: "sha512", digest: "0".repeat(128) },
         } as const;
         let result: UpgradeResult;
         if (boundary) {
@@ -469,14 +467,14 @@ describe("real isolated Sash daemon upgrades", () => {
         });
         createTestState(layout, settings);
         fs.mkdirSync(layout.binDir, { recursive: true });
-        const binarySha256 = await extractCoreArchive(
-          archive,
-          path.basename(archive),
-          layout.coreExe,
-        );
-        verifyCoreExecutable(layout.coreExe, 20_000, version);
+        await extractCoreArchive(archive, path.basename(archive), layout.coreExe);
+        const originalBinary = fs.readFileSync(layout.coreExe);
         writeInstallRecord(
-          { coreVersion: version, installedAt: new Date().toISOString(), sha256: binarySha256 },
+          {
+            coreVersion: version,
+            installedAt: new Date().toISOString(),
+            assetName: path.basename(archive),
+          },
           layout,
         );
         const client = new SashClient({
@@ -537,14 +535,12 @@ describe("real isolated Sash daemon upgrades", () => {
             version: "2.0.0",
             nodeRange: ">=24",
             upgradeProtocol: 1,
-            tarball: "https://registry.npmjs.org/@astralyn/sash/-/sash-2.0.0.tgz",
-            integrity: { algorithm: "sha512", digest: "0".repeat(128) },
           });
           assert.equal(result.outcome, badDaemon ? "failed" : "upgraded", result.error);
           assert.equal(result.recoveryRequired, false, result.error);
           assert.deepEqual(fs.readFileSync(layout.settingsFile), saved);
           assert.deepEqual(fs.readFileSync(layout.configFile), applied);
-          assert.equal(crypto.hash("sha256", fs.readFileSync(layout.coreExe)), binarySha256);
+          assert.deepEqual(fs.readFileSync(layout.coreExe), originalBinary);
           assert.deepEqual(await controller.runtimeState(), runtime);
           const status = await client.status(true);
           assert.equal(status.core.running, true);

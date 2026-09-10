@@ -12,7 +12,7 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 - **CLI controls** — `sash start`, `stop --core`, `restart`, `profile`, `proxy`, `mode`, `status`, `logs`
 - **Windows login startup** — configure it through `sash auto on/off` or the dashboard settings
 - **Explicit save and apply** — import, edit and update profiles, then apply saved changes with one Core restart
-- **Verified upgrades** — SHA-256-verified downloads, bounded extraction, exact-version checks and atomic rollback (`sash update`)
+- **Core updates** — automatic build selection, download integrity and rollback if the new Core fails to start (`sash update`)
 - **Sash self-upgrade** — `sash upgrade` updates the CLI and dashboard, restores running instances and recovers interrupted upgrades
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
 

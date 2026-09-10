@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { loadSettings } from "./app-state.js";
 import { writeInstallRecord } from "./core.js";
-import { coreBinarySha256 } from "./core-integrity.js";
 import type { CoreState, CoreSupervisor, DaemonScheduler } from "./daemon.js";
 import { useDaemonTestHarness } from "./daemon-test-harness.test.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";
@@ -17,7 +16,6 @@ describe("daemon server", () => {
         {
           coreVersion: "v1.2.3",
           installedAt: "2026-01-01T00:00:00.000Z",
-          sha256: coreBinarySha256(h.layout.coreExe),
         },
         h.layout,
       );

@@ -45,15 +45,16 @@ Do not weaken these without explicit user approval:
 - **Credential hygiene.** Child processes get a scrubbed environment (no `GITHUB_TOKEN`, `NPM_TOKEN`, npm auth config). State files and logs are written `0o600` on POSIX.
 - **Atomic state changes.** All settings/state files go through `fs-atomic.ts`. Core upgrades keep the previous binary as `.bak` until the new one passes a health check; rollback on failure.
 - **Download trust.** Only hosts in the `github.ts` allowlist are valid download origins. Archive extraction rejects path traversal and enforces the size cap.
+- **Integrity scope.** Verify Core archives while downloading; let npm verify Sash packages and dependencies. Trust local installation permissions after installation. Do not add executable/directory hash gates, mandatory digest migration, or repeated package probes to normal commands.
 - **Subscription content is untrusted input.** Parse defensively; reject documents that are not valid core-format YAML before writing config.yaml.
 
 ## Commands
 
-- After code changes (not docs): `npm run typecheck` and `npm run lint`. Fix everything they report before committing.
-- Run the full suite with `npm test` (type-checks, then `node:test` via `tsx`). If you create or modify a test file, run it and iterate until it passes.
+- After code changes (not docs): run `npm run typecheck`, `npm run lint`, and affected tests once. Fix reported failures; repeat successful checks only after relevant changes or a new concern.
+- `npm test` runs `node:test` via `tsx`; it does not repeat type-checking. Use `npm test -- <file.test.ts>` for affected tests. CI owns the full suite on each supported platform; broad runtime changes may also warrant one isolated local full run. Documentation-only changes do not require code tests.
 - Never test against the user's real instance. Use an isolated data dir (`SASH_HOME=<abs path inside a temp dir>`) and non-default ports; machines running Sash may already occupy 7890/9090.
 - Do not start the core with TUN enabled in tests or smoke tests.
-- `npm pack --dry-run` after build changes to verify the published file set.
+- After build/package changes, use `npm run smoke:package` to inspect and install the actual tarball once. Do not add another dry run after the same package has passed this check.
 
 ## UI Verification
 
@@ -64,7 +65,7 @@ Do not weaken these without explicit user approval:
 
 - Treat dependency and lockfile changes as reviewed code. Investigate what a new dependency does before adding it.
 - When updating `undici`, read its changelog first; dispatcher and redirect-interceptor APIs change between majors.
-- Run `npm audit --omit=dev --audit-level=moderate` before releases (also enforced by `prepublishOnly`).
+- CI runs `npm audit --omit=dev --audit-level=moderate` once for the commit being released. Publishing reuses that successful CI result and artifact.
 
 ## Git
 
@@ -78,7 +79,7 @@ Do not weaken these without explicit user approval:
 
 - All notable changes go under the newest section in `CHANGELOG.md` (Keep a Changelog format). Released sections are immutable.
 - Releases publish through the manually dispatched OIDC trusted-publishing workflow (`.github/workflows/publish.yml`); follow `RELEASING.md`. The repository must not contain npm publishing tokens.
-- Version bumps and release dispatches happen only with explicit maintainer approval. Local `npm publish` runs `prepublishOnly` (audit, lint, tests, build, package smoke); never bypass it with `--ignore-scripts` or `--force`. The release workflow runs the same gates explicitly and publishes a pre-packed tarball, so no lifecycle scripts execute in the OIDC context.
+- Version bumps and release dispatches happen only with explicit maintainer approval. `prepublishOnly` directs local publishing to the GitHub workflow; never bypass it with `--ignore-scripts` or `--force`. CI checks source, builds and packs once, and tests the same tarball on each supported platform. The release workflow selects successful CI for its exact main commit and publishes that artifact without rebuilding or repeating checks; no package lifecycle scripts execute in the OIDC context.
 - Complete release checks before publishing, including installing and smoke-testing the exact tarball in isolation. After `npm publish` succeeds, only tag the release commit and create the GitHub Release; do not gate completion on registry visibility, provenance queries, repeat installs, or runtime smoke tests.
 
 ## User Override

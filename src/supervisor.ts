@@ -3,8 +3,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { MihomoApi } from "./api.js";
-import { readInstallRecord } from "./core-install-record.js";
-import { assertCoreBinaryDigest } from "./core-integrity.js";
+import { assertCoreBinaryFile } from "./core-binary.js";
 import { containsCoreVersionToken } from "./core-version.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
 import type { SashLayout } from "./paths.js";
@@ -115,7 +114,7 @@ export class CoreSupervisor {
   }
 
   private defaultSpawn(layout: SashLayout, _settings: SashSettings): ChildProcess {
-    assertCoreBinaryDigest(layout.coreExe, readInstallRecord(layout)?.sha256);
+    assertCoreBinaryFile(layout.coreExe);
     fs.mkdirSync(layout.logsDir, { recursive: true });
     fs.mkdirSync(layout.stateDir, { recursive: true });
 
@@ -224,7 +223,6 @@ export class CoreSupervisor {
     const api = new MihomoApi(settings.controller, settings.secret);
     const deadline = Date.now() + this.waitHealthyMs;
     let version: string | undefined;
-    let healthyProbes = 0;
 
     while (Date.now() < deadline) {
       if (spawnError) {
@@ -255,17 +253,9 @@ export class CoreSupervisor {
             `Controller version ${version} does not match expected ${expectedVersion}`,
           );
         }
-        healthyProbes++;
-        if (healthyProbes >= 2 && this.isAlive(pid)) {
-          if (this.isAlive(pid)) {
-            return {
-              pid,
-              version,
-            };
-          }
-        }
+        if (this.isAlive(pid)) return { pid, version };
       } catch {
-        healthyProbes = 0;
+        // Keep waiting until the owned process exposes a ready controller.
       }
       await sleep(250);
     }

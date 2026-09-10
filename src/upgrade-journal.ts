@@ -1,5 +1,4 @@
 import { readBoundedJsonFile } from "./bounded-file.js";
-import { isSha256 } from "./core-integrity.js";
 import { errnoCode } from "./error-utils.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import {
@@ -12,13 +11,13 @@ import {
   pathsEqual,
 } from "./installation.js";
 import { type InstallationInstance, parseInstallationInstance } from "./installation-registry.js";
-import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
+import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject, isSha256 } from "./json-shape.js";
 import { exactSashVersion, UPGRADE_PROTOCOL } from "./package-info.js";
 import {
+  type PackageIdentity,
+  parsePackageIdentity,
   parseShimImage,
-  parseTreeFingerprint,
   type ShimImage,
-  type TreeFingerprint,
 } from "./upgrade-files.js";
 import { upgradePaths } from "./upgrade-paths.js";
 
@@ -43,6 +42,7 @@ export interface UpgradeInstanceReference {
   restoreNodePath: string;
 }
 export interface UpgradeJournal {
+  format: 2;
   protocol: typeof UPGRADE_PROTOCOL;
   transactionId: string;
   installation: NpmInstallation;
@@ -50,12 +50,11 @@ export interface UpgradeJournal {
   targetVersion: string;
   createdAt: string;
   phase: UpgradePhase;
-  source: TreeFingerprint;
-  candidate: TreeFingerprint | null;
+  source: PackageIdentity;
+  candidate: PackageIdentity | null;
   sourceShims: ShimImage[];
   candidateShims: ShimImage[] | null;
   recoveryShims: ShimImage[];
-  workerSha256: string;
   instances: UpgradeInstanceReference[];
 }
 
@@ -99,6 +98,7 @@ export function parseUpgradeJournal(value: unknown, prefix: string): UpgradeJour
   if (
     !isPlainObject(value) ||
     !hasExactOwnKeys(value, [
+      "format",
       "protocol",
       "transactionId",
       "installation",
@@ -111,15 +111,14 @@ export function parseUpgradeJournal(value: unknown, prefix: string): UpgradeJour
       "sourceShims",
       "candidateShims",
       "recoveryShims",
-      "workerSha256",
       "instances",
     ]) ||
+    value.format !== 2 ||
     value.protocol !== UPGRADE_PROTOCOL ||
     typeof value.transactionId !== "string" ||
     !/^[a-f0-9]{32}$/.test(value.transactionId) ||
     !isCanonicalIsoTimestamp(value.createdAt) ||
     !UPGRADE_PHASES.some((phase) => phase === value.phase) ||
-    !isSha256(value.workerSha256) ||
     !Array.isArray(value.instances) ||
     value.instances.length > 1024
   )
@@ -155,7 +154,7 @@ export function parseUpgradeJournal(value: unknown, prefix: string): UpgradeJour
     )
   )
     throw new Error("Duplicate Sash instance in upgrade journal");
-  const candidate = value.candidate === null ? null : parseTreeFingerprint(value.candidate);
+  const candidate = value.candidate === null ? null : parsePackageIdentity(value.candidate);
   const candidateShims = value.candidateShims === null ? null : images(value.candidateShims);
   if ((candidate === null) !== (candidateShims === null))
     throw new Error("Incomplete candidate package ownership");
@@ -165,6 +164,7 @@ export function parseUpgradeJournal(value: unknown, prefix: string): UpgradeJour
   )
     throw new Error("Sash upgrade phase requires a verified candidate");
   return {
+    format: 2,
     protocol: UPGRADE_PROTOCOL,
     transactionId: value.transactionId,
     installation,
@@ -172,24 +172,59 @@ export function parseUpgradeJournal(value: unknown, prefix: string): UpgradeJour
     targetVersion: exactSashVersion(value.targetVersion),
     createdAt: value.createdAt,
     phase: value.phase as UpgradePhase,
-    source: parseTreeFingerprint(value.source),
+    source: parsePackageIdentity(value.source),
     candidate,
     sourceShims: images(value.sourceShims),
     candidateShims,
     recoveryShims: images(value.recoveryShims),
-    workerSha256: value.workerSha256,
     instances,
   };
 }
 
-export function readUpgradeJournal(prefix: string): UpgradeJournal | undefined {
-  let value: unknown;
+function readJournalValue(prefix: string): unknown {
   try {
-    value = readBoundedJsonFile(upgradePaths(prefix).journal, MAX_JOURNAL_BYTES);
+    return readBoundedJsonFile(upgradePaths(prefix).journal, MAX_JOURNAL_BYTES);
   } catch (error) {
     if (errnoCode(error) === "ENOENT") return undefined;
     throw error;
   }
+}
+
+/** Older pending transactions run their original standalone worker, without migrating its journal. */
+export function readPendingUpgrade(
+  prefix: string,
+):
+  | Pick<
+      UpgradeJournal,
+      "transactionId" | "installation" | "sourceVersion" | "targetVersion" | "phase"
+    >
+  | undefined {
+  const value = readJournalValue(prefix);
+  if (value === undefined) return undefined;
+  const canonicalPrefix = canonicalPath(prefix);
+  if (isPlainObject(value) && value.format === 2)
+    return parseUpgradeJournal(value, canonicalPrefix);
+  if (
+    !isPlainObject(value) ||
+    value.format !== undefined ||
+    value.protocol !== UPGRADE_PROTOCOL ||
+    typeof value.transactionId !== "string" ||
+    !/^[a-f0-9]{32}$/.test(value.transactionId) ||
+    !UPGRADE_PHASES.some((phase) => phase === value.phase)
+  )
+    throw new Error("Invalid pending Sash upgrade");
+  return {
+    transactionId: value.transactionId,
+    installation: parseInstallation(value.installation, canonicalPrefix),
+    sourceVersion: exactSashVersion(value.sourceVersion),
+    targetVersion: exactSashVersion(value.targetVersion),
+    phase: value.phase as UpgradePhase,
+  };
+}
+
+export function readUpgradeJournal(prefix: string): UpgradeJournal | undefined {
+  const value = readJournalValue(prefix);
+  if (value === undefined) return undefined;
   // Normalize caller aliases, while keeping every persisted installation role strictly checked.
   return parseUpgradeJournal(value, canonicalPath(prefix));
 }

@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import net from "node:net";
 import { readState, type SashState } from "./app-state.js";
+import { CORE_BINARY_SIZE_LIMIT } from "./core-binary.js";
 import { readInstallRecord } from "./core-install-record.js";
-import { assertCoreBinaryDigest, CORE_BINARY_SIZE_LIMIT } from "./core-integrity.js";
 import { errorMessage } from "./error-utils.js";
 import { pathEntryExists } from "./fs-atomic.js";
 import { inspectInstallation } from "./installation.js";
@@ -167,23 +167,13 @@ export async function diagnoseSash(
         `Core binary/install metadata is inconsistent: ${layout.coreExe}`,
         "Preserve existing files, stop the instance and inspect its install record before reinstalling",
       );
-    else if (!record.sha256)
-      add(
-        "core",
-        "warning",
-        `Core ${record.coreVersion} has no recorded SHA-256`,
-        "The next sash start or sash update verifies its bytes against the official release",
-      );
-    else {
-      assertCoreBinaryDigest(layout.coreExe, record.sha256);
-      add("core", "ok", `Core ${record.coreVersion}; SHA-256 matches its install record`);
-    }
+    else add("core", "ok", `Core ${record.coreVersion}; executable and install record are present`);
   } catch (error) {
     add(
       "core",
       "error",
       errorMessage(error),
-      "Preserve the executable and install record; do not run unverified bytes",
+      "Inspect the executable and install record before reinstalling Core",
     );
   }
 
