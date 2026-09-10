@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import type http from "node:http";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -85,6 +85,22 @@ export class DaemonTestHarness {
     } finally {
       this.tmpDir = undefined;
     }
+  }
+
+  /** Start a loopback Core stand-in and point the daemon controller at it. */
+  async startMockCore(handler: http.RequestListener): Promise<number> {
+    if (this.mockCoreServer) throw new Error("The mock Core server is already running");
+    const server = http.createServer(handler);
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    this.mockCoreServer = server;
+    this.mockCorePort = address.port;
+    this.settings.controller = `127.0.0.1:${address.port}`;
+    return address.port;
   }
 
   fakeSystemProxy(): SystemProxyController {

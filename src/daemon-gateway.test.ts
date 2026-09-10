@@ -11,7 +11,7 @@ describe("daemon server", () => {
   describe("/core/api/* reverse proxy", () => {
     it("removes hop-by-hop and Connection-nominated fields in both directions", async () => {
       let received: http.IncomingHttpHeaders = {};
-      h.mockCoreServer = http.createServer((req, res) => {
+      await h.startMockCore((req, res) => {
         received = req.headers;
         res.writeHead(200, {
           Connection: "close, x-upstream-hop",
@@ -21,10 +21,6 @@ describe("daemon server", () => {
         });
         res.end("{}");
       });
-      await new Promise<void>((resolve) => h.mockCoreServer?.listen(0, "127.0.0.1", resolve));
-      const address = h.mockCoreServer.address();
-      assert.ok(address && typeof address === "object");
-      h.settings.controller = `127.0.0.1:${address.port}`;
       await h.startServer();
       const response = await h.rawHttpRequest("/core/api/version", {
         headers: {
@@ -43,17 +39,11 @@ describe("daemon server", () => {
     });
     it("rejects every unauthenticated Core GET before opening an upstream request", async () => {
       let upstreamRequests = 0;
-      h.mockCoreServer = http.createServer((_req, res) => {
+      await h.startMockCore((_req, res) => {
         upstreamRequests++;
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end("{}");
       });
-      await new Promise<void>((resolve) => {
-        h.mockCoreServer?.listen(0, "127.0.0.1", () => resolve());
-      });
-      const address = h.mockCoreServer.address();
-      h.mockCorePort = typeof address === "object" && address ? address.port : 0;
-      h.settings.controller = `127.0.0.1:${h.mockCorePort}`;
       await h.startServer();
 
       const delay = await h.apiRequest(
@@ -74,21 +64,13 @@ describe("daemon server", () => {
       let receivedPath: string | undefined;
 
       // Start a mock Core external-controller server
-      h.mockCoreServer = http.createServer((req, res) => {
+      await h.startMockCore((req, res) => {
         receivedAuth = req.headers.authorization;
         receivedWebToken = req.headers["x-sash-token"] as string | undefined;
         receivedPath = req.url;
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ version: "v1.19.30-meta" }));
       });
-
-      await new Promise<void>((resolve) => {
-        h.mockCoreServer?.listen(0, "127.0.0.1", () => resolve());
-      });
-
-      const addr = h.mockCoreServer.address();
-      h.mockCorePort = typeof addr === "object" && addr ? addr.port : 0;
-      h.settings.controller = `127.0.0.1:${h.mockCorePort}`;
 
       await h.startServer();
 

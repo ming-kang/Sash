@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import http from "node:http";
 import { describe, it } from "node:test";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred } from "./testing/state.js";
@@ -12,7 +11,7 @@ describe("runtime routing mode", () => {
       const entered = deferred();
       const release = deferred();
       let body = "";
-      h.mockCoreServer = http.createServer((req, res) => {
+      await h.startMockCore((req, res) => {
         assert.equal(req.method, "PATCH");
         assert.equal(req.url, "/configs");
         req.setEncoding("utf8");
@@ -27,10 +26,6 @@ describe("runtime routing mode", () => {
           });
         });
       });
-      await new Promise<void>((resolve) => h.mockCoreServer?.listen(0, "127.0.0.1", resolve));
-      const address = h.mockCoreServer.address();
-      assert.ok(address && typeof address === "object");
-      h.settings.controller = `127.0.0.1:${address.port}`;
       await h.startServer();
       assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
       const mode = h.apiRequest("/sash/core/mode", { method: "PUT", body: { mode: "global" } });

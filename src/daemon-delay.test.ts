@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import http from "node:http";
 import { describe, it } from "node:test";
 import { MihomoApi } from "./api.js";
 import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, validateDelayTarget } from "./core-delay.js";
@@ -11,18 +10,10 @@ import { deferred, type FakeCoreSupervisor } from "./testing/state.js";
 describe("explicit Core delay probes", () => {
   const h = useDaemonTestHarness();
 
-  async function controller(handler: http.RequestListener): Promise<void> {
-    h.mockCoreServer = http.createServer(handler);
-    await new Promise<void>((resolve) => h.mockCoreServer?.listen(0, "127.0.0.1", resolve));
-    const address = h.mockCoreServer.address();
-    assert.ok(address && typeof address === "object");
-    h.settings.controller = `127.0.0.1:${address.port}`;
-  }
-
   it("authenticates one exact node/group probe and leaves saved state and selection unchanged", async () => {
     const name = "香港 / #?% +组";
     let requests = 0;
-    await controller((req, res) => {
+    await h.startMockCore((req, res) => {
       requests += 1;
       const url = new URL(req.url ?? "", "http://127.0.0.1");
       assert.equal(req.method, "GET");
@@ -50,7 +41,7 @@ describe("explicit Core delay probes", () => {
   });
 
   it("rejects unauthenticated, invalid and stopped-Core requests before probing", async () => {
-    await controller(() => assert.fail("invalid request reached Core"));
+    await h.startMockCore(() => assert.fail("invalid request reached Core"));
     await h.startServer();
     assert.equal(
       (
@@ -90,7 +81,7 @@ describe("explicit Core delay probes", () => {
   it("distinguishes timeout, missing name, failure and malformed measurements without retries or redirects", async () => {
     let response = { code: 504, body: JSON.stringify({ message: "Timeout" }) };
     let requests = 0;
-    await controller((_req, res) => {
+    await h.startMockCore((_req, res) => {
       requests += 1;
       res.writeHead(response.code, { Location: "/must-not-follow" });
       res.end(response.body);
@@ -127,7 +118,7 @@ describe("explicit Core delay probes", () => {
     }, async () => {
       const entered = deferred();
       const release = deferred();
-      await controller((_req, res) => {
+      await h.startMockCore((_req, res) => {
         entered.resolve();
         void release.promise.then(() => res.end('{"delay":12}'));
       });
@@ -155,7 +146,7 @@ describe("explicit Core delay probes", () => {
   }, async () => {
     const entered = deferred();
     const closed = deferred();
-    await controller((_req, res) => {
+    await h.startMockCore((_req, res) => {
       res.once("close", () => closed.resolve());
       entered.resolve();
     });

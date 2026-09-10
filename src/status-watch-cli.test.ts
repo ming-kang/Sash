@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import http from "node:http";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { it } from "node:test";
@@ -26,15 +25,11 @@ for (const withDelay of [false, true]) {
   }, async (t) => {
     let probes = 0;
     if (withDelay) {
-      harness.mockCoreServer = http.createServer((req, res) => {
+      await harness.startMockCore((req, res) => {
         assert.match(req.url ?? "", /^\/proxies\/DIRECT\/delay\?/);
         probes += 1;
         res.end('{"delay":42}');
       });
-      await new Promise<void>((resolve) => harness.mockCoreServer?.listen(0, "127.0.0.1", resolve));
-      const address = harness.mockCoreServer.address();
-      assert.ok(address && typeof address === "object");
-      harness.settings.controller = `127.0.0.1:${address.port}`;
     }
     const instance = await harness.startServer();
     if (withDelay) await harness.apiRequest("/sash/core/start", { method: "POST" });

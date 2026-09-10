@@ -67,7 +67,7 @@ describe("daemon self-upgrade handoff", () => {
       ["节点 / west", "DIRECT"],
     ]);
     let beforeSelection: (() => Promise<void>) | undefined;
-    const server = http.createServer((req, res) => {
+    await h.startMockCore((req, res) => {
       void (async () => {
         let body = "";
         for await (const chunk of req) body += String(chunk);
@@ -98,11 +98,6 @@ describe("daemon self-upgrade handoff", () => {
         }
       })().catch(() => res.destroy());
     });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    assert.ok(address && typeof address === "object");
-    h.mockCoreServer = server;
-    h.settings.controller = `127.0.0.1:${address.port}`;
     return {
       selections,
       mode: () => mode,
