@@ -15,7 +15,7 @@ import {
   type StatusObservationContext,
   type StatusObservationDependencies,
 } from "./status.js";
-import { deferred, testSettings, testStatus } from "./testing/state.js";
+import { testSettings, testStatus } from "./testing/state.js";
 
 const context: StatusObservationContext = {
   layout: sashLayout(path.join(os.tmpdir(), "sash-status-observation-test")),
@@ -191,34 +191,26 @@ describe("CLI runtime status observations", () => {
     process.exitCode = previousExitCode;
   });
 
-  it("overlaps daemon, proxy and autostart probes while keeping authoritative daemon observations", async () => {
-    const gate = deferred();
+  it("skips the local proxy probe when the daemon already reports the OS proxy state", async () => {
     const started = new Set<string>();
-    const pending = collectRuntimeStatus(
+    const status = await collectRuntimeStatus(
       context,
       dependencies({
         queryDaemonStatus: async () => {
           started.add("daemon");
-          await gate.promise;
           return statusResponse({ running: false });
         },
         inspectSystemProxy: async () => {
           started.add("proxy");
-          await gate.promise;
-          throw new Error("unused local probe failed");
+          throw new Error("the local probe must not run when the daemon reported state");
         },
         inspectAutostart: async () => {
           started.add("auto");
-          await gate.promise;
           return { state: "off", canEnable: true, reason: null };
         },
       }),
     );
-    await new Promise((resolve) => setImmediate(resolve));
-    const overlapping = [...started].sort();
-    gate.resolve();
-    const status = await pending;
-    assert.deepEqual(overlapping, ["auto", "daemon", "proxy"]);
+    assert.deepEqual([...started].sort(), ["auto", "daemon"]);
     assert.equal(status.complete, true);
     assert.equal(status.systemProxy.osObserved.enabled, true);
   });

@@ -187,19 +187,14 @@ async function observeSystemProxy(
   dependencies: StatusObservationDependencies,
   source: SystemProxyObservationSource | undefined,
   fallbackDaemonApplied: boolean | null,
-  observed?: PromiseSettledResult<SystemProxyInspection>,
 ): Promise<ResolvedSystemProxyObservation> {
   let inspection: SystemProxyInspection | undefined;
   let inspectionError: string | undefined;
   if (!source?.stateKnown || !source.state) {
     try {
-      if (observed?.status === "rejected") throw observed.reason;
-      inspection =
-        observed?.status === "fulfilled"
-          ? observed.value
-          : dependencies.inspectSystemProxy
-            ? await dependencies.inspectSystemProxy(context)
-            : await new SystemProxyManager({ layout: context.layout }).inspect();
+      inspection = dependencies.inspectSystemProxy
+        ? await dependencies.inspectSystemProxy(context)
+        : await new SystemProxyManager({ layout: context.layout }).inspect();
     } catch (err) {
       inspectionError = `system proxy: ${errorText(err)}`;
     }
@@ -236,12 +231,11 @@ export async function collectRuntimeStatus(
   dependencies: StatusObservationDependencies = {},
 ): Promise<CliRuntimeStatus> {
   const errors: string[] = [];
-  const probes = Promise.allSettled([
-    Promise.resolve().then(() =>
-      dependencies.inspectSystemProxy
-        ? dependencies.inspectSystemProxy(context)
-        : new SystemProxyManager({ layout: context.layout }).inspect(),
-    ),
+  // Autostart exists only at the OS level, so that probe starts now. The OS
+  // proxy probe stays lazy: a healthy daemon already reports it, and probing
+  // anyway would spend a PowerShell/registry round-trip on a discarded result
+  // (observeSystemProxy probes on demand when the daemon did not report one).
+  const autostartProbe = Promise.allSettled([
     Promise.resolve().then(() =>
       dependencies.inspectAutostart
         ? dependencies.inspectAutostart(context)
@@ -317,13 +311,11 @@ export async function collectRuntimeStatus(
     addError(errors, "Sash API is unreachable");
   }
 
-  const [proxyProbe, autostartProbe] = await probes;
   const proxyObservation = await observeSystemProxy(
     context,
     dependencies,
     proxySource,
     daemonState.running ? null : false,
-    proxyProbe,
   );
   addObservationErrors(errors, proxyObservation);
 
@@ -336,10 +328,11 @@ export async function collectRuntimeStatus(
       : null;
   const activeProfile = profile ? { id: profile.id, name: profile.name, url: profile.url } : null;
   const daemonPort = daemon.port || context.settings.daemonPort;
+  const [autostartProbeResult] = await autostartProbe;
   const autostart: AutostartStatus =
-    autostartProbe.status === "fulfilled"
-      ? autostartProbe.value
-      : { state: "unknown", canEnable: false, reason: errorText(autostartProbe.reason) };
+    autostartProbeResult.status === "fulfilled"
+      ? autostartProbeResult.value
+      : { state: "unknown", canEnable: false, reason: errorText(autostartProbeResult.reason) };
   if (autostart.state === "unknown") {
     addError(errors, `start at login: ${autostart.reason ?? "could not read the state"}`);
   }
