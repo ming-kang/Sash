@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
-import type { SashLayout } from "./paths.js";
-import { resolveUiDir } from "./webui.js";
+import type { ApiErrorCode } from "../contracts.js";
+import type { SashLayout } from "../paths.js";
+import { resolveUiDir } from "../webui.js";
+import { sendError } from "./http.js";
 
 const UI_SECURITY_HEADERS = {
   "Content-Security-Policy": "frame-ancestors 'none'",
@@ -34,6 +36,17 @@ const MIME_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
+/** UI error responses keep the dashboard's framing and sniffing isolation. */
+function sendUiError(
+  res: ServerResponse,
+  statusCode: number,
+  code: ApiErrorCode,
+  message: string,
+): void {
+  for (const [name, value] of Object.entries(UI_SECURITY_HEADERS)) res.setHeader(name, value);
+  sendError(res, statusCode, code, message);
+}
+
 /**
  * Handle static file serving for /ui and /ui/* endpoints.
  * Returns true if the request was handled, false otherwise.
@@ -50,8 +63,10 @@ export function serveStaticUi(
 
   const uiRoot = resolveUiDir(layout);
   if (!uiRoot) {
-    res.writeHead(404, { ...UI_SECURITY_HEADERS, "Content-Type": "text/plain; charset=utf-8" });
-    res.end(
+    sendUiError(
+      res,
+      404,
+      "not_found",
       "Dashboard assets are missing. Reinstall Sash, or run npm run build in a source checkout.",
     );
     return true;
@@ -62,8 +77,7 @@ export function serveStaticUi(
 
   // Prevent path traversal
   if (relative.split(/[\\/]/).includes("..")) {
-    res.writeHead(403, { ...UI_SECURITY_HEADERS, "Content-Type": "text/plain" });
-    res.end("Forbidden");
+    sendUiError(res, 403, "unauthorized", "Forbidden");
     return true;
   }
 
@@ -130,11 +144,7 @@ export function serveStaticUi(
     stream.once("close", () => res.off("close", disconnected));
     stream.once("error", () => {
       if (!res.headersSent) {
-        res.writeHead(500, {
-          ...UI_SECURITY_HEADERS,
-          "Content-Type": "text/plain; charset=utf-8",
-        });
-        res.end("Failed to read dashboard asset");
+        sendUiError(res, 500, "internal", "Failed to read dashboard asset");
       } else {
         res.destroy();
       }

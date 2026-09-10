@@ -8,7 +8,7 @@ import {
   WEB_SESSION_TTL_MS,
   WebAuthManager,
   type WebSessionSeed,
-} from "./web-auth.js";
+} from "./auth.js";
 
 const BOOT_ID = "a".repeat(48);
 

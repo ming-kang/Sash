@@ -1,6 +1,5 @@
 import { AutostartUnavailableError } from "../autostart.js";
 import type { ApiErrorCode } from "../contracts.js";
-import { HttpError } from "../daemon-http.js";
 import { errorMessage } from "../error-utils.js";
 import {
   ProfileConflictError,
@@ -8,6 +7,7 @@ import {
   ProfileNotFoundError,
 } from "../profile-service.js";
 import { CoreUnhealthyError, SettingsInputError } from "../settings-service.js";
+import { HttpError } from "./http.js";
 
 /** Rejects state mutations once the daemon shutdown gate has closed. */
 export class ShuttingDownError extends Error {
@@ -23,7 +23,7 @@ export interface HttpErrorMapping {
   message: string;
 }
 
-function defaultCodeForStatus(status: number): ApiErrorCode {
+export function defaultCodeForStatus(status: number): ApiErrorCode {
   if (status === 400 || status === 413) return "invalid_input";
   if (status === 401 || status === 403) return "unauthorized";
   if (status === 404) return "not_found";

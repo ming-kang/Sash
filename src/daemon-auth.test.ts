@@ -9,7 +9,7 @@ import {
   isLoopbackOriginHeader,
   isWebSocketRequestAuthorized,
   webSocketAuthResponseProtocol,
-} from "./daemon-auth.js";
+} from "./daemon/auth.js";
 
 function request(headers: IncomingMessage["headers"]): IncomingMessage {
   return { headers } as IncomingMessage;

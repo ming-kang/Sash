@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isControlRequestAuthorized } from "../daemon-auth.js";
-import { sendError } from "../daemon-http.js";
 import type { DaemonEvent } from "../sash-events.js";
+import { isControlRequestAuthorized } from "./auth.js";
 import type { DaemonContext } from "./context.js";
+import { sendError } from "./http.js";
 
 interface Subscriber {
   send(event: DaemonEvent): void;

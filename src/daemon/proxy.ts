@@ -1,8 +1,10 @@
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
-import { coreWebSocketProtocols, webSocketAuthResponseProtocol } from "./daemon-auth.js";
-import { parseControllerAddress } from "./settings.js";
+import { parseControllerAddress } from "../settings.js";
+import { coreWebSocketProtocols, webSocketAuthResponseProtocol } from "./auth.js";
+import { defaultCodeForStatus } from "./errors.js";
+import { sendError, sendSocketError } from "./http.js";
 
 function parseHostPort(address: string): { host: string; port: number } {
   const parsed = parseControllerAddress(address);
@@ -89,14 +91,7 @@ export function forwardHttpToCore(
 
     proxyReq.on("error", (err) => {
       if (!res.headersSent && !res.destroyed) {
-        const msg = JSON.stringify({
-          error: `Core controller unavailable: ${(err as Error).message}`,
-        });
-        res.writeHead(502, {
-          "Content-Type": "application/json; charset=utf-8",
-          "Content-Length": Buffer.byteLength(msg),
-        });
-        res.end(msg);
+        sendError(res, 502, "internal", `Core controller unavailable: ${err.message}`);
       } else if (!res.destroyed) res.destroy();
     });
 
@@ -231,8 +226,13 @@ export function forwardWsToCore(
       cleanup(false);
       return;
     }
-    const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 502} ${proxyRes.statusMessage ?? "Bad Gateway"}\r\n\r\n`;
-    socket.end(statusLine);
+    const status = proxyRes.statusCode ?? 502;
+    sendSocketError(
+      socket,
+      status,
+      defaultCodeForStatus(status),
+      proxyRes.statusMessage ?? "Bad Gateway",
+    );
     proxyRes.resume();
   });
 

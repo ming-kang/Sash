@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { WebBootstrapInfo } from "./contracts.js";
-import { WEB_BOOTSTRAP_TTL_MS } from "./daemon/web-auth.js";
+import { WEB_BOOTSTRAP_TTL_MS } from "./daemon/auth.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import type { SashLayout } from "./paths.js";
 import { runSanitizedCommand, windowsSystemExecutable } from "./process.js";

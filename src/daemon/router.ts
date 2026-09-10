@@ -5,10 +5,7 @@ import {
   isControlRequestAuthorized,
   isLoopbackHostHeader,
   isLoopbackOriginHeader,
-} from "../daemon-auth.js";
-import { type JsonObject, parseJsonObjectBody, sendError, sendJson } from "../daemon-http.js";
-import { forwardHttpToCore } from "../daemon-proxy.js";
-import { serveStaticUi } from "../daemon-static.js";
+} from "./auth.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
 import { streamDaemonEvents } from "./events.js";
@@ -43,6 +40,9 @@ import {
   writeAutostart,
   writeProfileContent,
 } from "./handlers.js";
+import { type JsonObject, parseJsonObjectBody, sendError, sendJson } from "./http.js";
+import { forwardHttpToCore } from "./proxy.js";
+import { serveStaticUi } from "./static.js";
 
 /* ====================================================================== */
 /* Request target parsing                                                  */

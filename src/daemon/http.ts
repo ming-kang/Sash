@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { STATUS_CODES } from "node:http";
 import type { Duplex } from "node:stream";
-import { type ApiErrorCode, apiErrorBody } from "./contracts.js";
+import { type ApiErrorCode, apiErrorBody } from "../contracts.js";
 
 export class HttpError extends Error {
   constructor(

@@ -11,13 +11,13 @@ import type {
 import { currentCoreVersion } from "../core.js";
 import { validateDelayTarget } from "../core-delay.js";
 import { validateCoreReleaseTag } from "../core-install-record.js";
-import { HttpError, requiredParam } from "../daemon-http.js";
 import { errorMessage } from "../error-utils.js";
 import { isPlainObject } from "../json-shape.js";
 import { ProfileInputError } from "../profile-service.js";
 import { publicSettings } from "../settings.js";
 import type { SystemProxyState } from "../sysproxy.js";
 import type { DaemonContext } from "./context.js";
+import { HttpError, requiredParam } from "./http.js";
 import type { RouteRequest, RouteResponse } from "./router.js";
 
 /* ── autostart ── */

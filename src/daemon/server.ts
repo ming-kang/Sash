@@ -1,12 +1,12 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
-import { isWebSocketRequestAuthorized } from "../daemon-auth.js";
-import { sendSocketError } from "../daemon-http.js";
-import { forwardWsToCore } from "../daemon-proxy.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
+import { isWebSocketRequestAuthorized } from "./auth.js";
+import { sendSocketError } from "./http.js";
+import { forwardWsToCore } from "./proxy.js";
 import {
   buildRoutes,
   checkLoopbackBoundary,

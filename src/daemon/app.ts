@@ -29,11 +29,11 @@ import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../system-proxy-manager.js";
+import { WebAuthManager } from "./auth.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
 import { createEventObserver } from "./event-observations.js";
 import { DaemonEvents } from "./events.js";
 import type { DaemonScheduler } from "./scheduler.js";
-import { WebAuthManager } from "./web-auth.js";
 
 export interface DaemonDeps {
   layout: SashLayout;

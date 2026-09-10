@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { IncomingMessage } from "node:http";
 import { PassThrough } from "node:stream";
 import { describe, it } from "node:test";
-import { HttpError, parseJsonObjectBody } from "./daemon-http.js";
+import { HttpError, parseJsonObjectBody } from "./daemon/http.js";
 
 function requestStream(): IncomingMessage {
   const stream = new PassThrough();
