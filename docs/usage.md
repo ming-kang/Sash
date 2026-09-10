@@ -200,6 +200,9 @@ Daemon, OS proxy and login startup probes run concurrently. Set `SASH_DEBUG=1` (
 | `1` | The command failed, for example due to corrupt local state |
 
 - **Pending configuration:** click Apply or run `sash restart`. Saving alone does not change Core.
+- **Core will not start on a config that uses GEO rules:** the Core downloads its geodata databases (`geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) while it loads a configuration, and it downloads them **itself, ignoring `HTTP_PROXY`**. On a network that cannot reach `github.com` directly this would deadlock — no proxy, because the Core has not started yet, and no Core, because it cannot download geodata. Sash therefore retries once through its release-mirror list and writes that `geox-url` into `runtime/config.yaml`, so the databases land in the data directory and later starts do not need the network again.
+
+  If the retry also fails (`Core could not download its geodata databases`), Sash has no reachable source. Either provide one: set `geox-url` in the profile to a mirror you trust, or copy the databases into the data directory yourself (they are published as release assets of `MetaCubeX/meta-rules-dat`: `geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) and start Core again. A system-wide tunnel also works, because it routes the Core's own traffic; a proxy environment variable does not.
 - **Apply failed:** inspect the displayed error and `sash logs --errors`; correct the saved profile and apply again.
 - **Proxy restoration blocked:** keep the ownership journal and inspect the current Windows settings. Sash will not overwrite third-party changes or stop a healthy Core while restoration fails.
 - **Daemon ownership unknown:** inspect its logs and PID/lease records; Sash will not kill an unverified process or start a competitor.

@@ -209,6 +209,29 @@ export async function fetchSubscriptionProfile(
   };
 }
 
+/**
+ * Geodata URLs used only when the Core cannot fetch its databases directly.
+ * mihomo downloads geodata from `geox-url` on demand; the upstream defaults
+ * point at github.com, which is unreachable on some networks, and the Core
+ * cannot use the proxy it has not started yet. These mirrors are transports
+ * for public data, exactly like the Core release mirrors.
+ */
+export const GEOX_MIRRORS = {
+  geoip:
+    "https://ghfast.top/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat",
+  geosite:
+    "https://ghfast.top/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+  mmdb: "https://ghfast.top/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
+  asn: "https://ghfast.top/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb",
+} as const;
+
+/** Rewrite an already generated configuration to fetch geodata through mirrors. */
+export function withGeodataMirrors(generated: GeneratedConfig): GeneratedConfig {
+  const doc = asCoreConfigDocument(parseCoreYaml(generated.yaml));
+  doc["geox-url"] = { ...GEOX_MIRRORS };
+  return { ...generated, yaml: YAML.stringify(doc, { indent: 2 }) };
+}
+
 /** Keys Sash always controls; user/subscription values for these are dropped. */
 const MANAGED_KEYS = new Set([
   "mixed-port",

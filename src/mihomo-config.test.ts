@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import YAML from "yaml";
 import {
   asCoreConfigDocument,
   buildDefaultConfig,
+  GEOX_MIRRORS,
+  type GeneratedConfig,
   overlayManagedKeys,
   parseContentDispositionFilename,
   parseSafeHttpUrl,
   resolveSubscriptionRedirect,
   stripManagedKeys,
+  withGeodataMirrors,
 } from "./mihomo-config.js";
 import type { SashSettings } from "./settings.js";
 
@@ -81,6 +85,64 @@ describe("mihomo-config", () => {
         { name: "PROXY", type: "select", proxies: ["DIRECT"] },
       ]);
       assert.deepEqual(config.rules, ["MATCH,PROXY"]);
+    });
+  });
+
+  describe("withGeodataMirrors", () => {
+    it("sets all four mirror URLs while preserving the rest of the document", () => {
+      const generated: GeneratedConfig = {
+        yaml: [
+          "mixed-port: 7890",
+          "proxies:",
+          "  - name: node-a",
+          "    type: ss",
+          "    server: 1.2.3.4",
+          "    port: 443",
+          'rules: ["DOMAIN,example.com,DIRECT", "MATCH,PROXY"]',
+          "",
+        ].join("\n"),
+        proxyCount: 1,
+        source: "subscription",
+      };
+
+      const rewritten = withGeodataMirrors(generated);
+      const parsed = YAML.parse(rewritten.yaml) as Record<string, unknown>;
+
+      assert.deepEqual(parsed["geox-url"], { ...GEOX_MIRRORS });
+      assert.equal(parsed["mixed-port"], 7890);
+      assert.deepEqual(parsed.proxies, [
+        { name: "node-a", type: "ss", server: "1.2.3.4", port: 443 },
+      ]);
+      assert.deepEqual(parsed.rules, ["DOMAIN,example.com,DIRECT", "MATCH,PROXY"]);
+      assert.equal(rewritten.proxyCount, 1);
+      assert.equal(rewritten.source, "subscription");
+    });
+
+    it("overrides a profile-supplied geox-url", () => {
+      const generated: GeneratedConfig = {
+        yaml: [
+          "mixed-port: 7890",
+          "geox-url:",
+          "  geoip: https://profile.example/geoip.dat",
+          "  mmdb: https://profile.example/country.mmdb",
+          "",
+        ].join("\n"),
+        proxyCount: 0,
+        source: "subscription",
+      };
+
+      const parsed = YAML.parse(withGeodataMirrors(generated).yaml) as Record<string, unknown>;
+      assert.deepEqual(parsed["geox-url"], { ...GEOX_MIRRORS });
+      assert.equal(parsed["mixed-port"], 7890);
+    });
+
+    it("throws for a document that is not a core-config object", () => {
+      for (const yaml of ["- one\n- two\n", "just a scalar\n", ""]) {
+        assert.throws(
+          () => withGeodataMirrors({ yaml, proxyCount: 0, source: "default" }),
+          /not a core configuration document/,
+        );
+      }
     });
   });
 

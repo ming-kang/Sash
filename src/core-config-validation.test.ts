@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { validateCoreConfig } from "./core-config-validation.js";
+import { isGeodataDownloadFailure, validateCoreConfig } from "./core-config-validation.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { deferred } from "./testing/state.js";
 
@@ -78,6 +78,44 @@ describe("Core config validation", () => {
       () => validateCoreConfig(layout.coreExe, "rules: []\n", layout),
       /Core executable is missing/,
     );
+  });
+
+  describe("isGeodataDownloadFailure", () => {
+    it("recognizes a fast failure that names the geodata download", () => {
+      const error = Object.assign(new Error("command failed"), {
+        stderr: Buffer.from(
+          'can\'t download MMDB: Get "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb": dial tcp 140.82.112.3:443: connectex: A connection attempt failed',
+        ),
+      });
+      assert.equal(isGeodataDownloadFailure(error), true);
+    });
+
+    it("recognizes a killed validation that only started a geodata download", () => {
+      assert.equal(
+        isGeodataDownloadFailure({
+          killed: true,
+          stdout: `time="2026-01-01T00:00:00Z" level=info msg="Can't find MMDB, start download"`,
+        }),
+        true,
+      );
+    });
+
+    it("does not treat an ordinary configuration error as a geodata failure", () => {
+      const error = Object.assign(new Error("command failed"), {
+        stderr: Buffer.from("rules[0] error: rule is invalid"),
+      });
+      assert.equal(isGeodataDownloadFailure(error), false);
+    });
+
+    it("does not treat a killed validation with no geodata line as a geodata failure", () => {
+      assert.equal(
+        isGeodataDownloadFailure({
+          killed: true,
+          stderr: Buffer.from("initial configuration directory error: open config.yaml"),
+        }),
+        false,
+      );
+    });
   });
 
   it("cancels validation and removes its private candidate", async () => {

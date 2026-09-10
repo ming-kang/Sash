@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Start on a configuration that uses GEO rules on a network without direct access to `github.com`. The Core downloads its geodata databases (`geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) while loading a configuration, and it fetches them itself, ignoring `HTTP_PROXY` — so a first start deadlocked: no Core without geodata, and no way to fetch geodata without the Core's own proxy. The pre-flight check now recognizes a geodata download failure instead of reporting "Core rejected generated configuration", retries once with `geox-url` rewritten to the release-mirror hosts, and applies the retried configuration, which leaves the databases and a working source in the data directory. A failure after the retry says so explicitly and names the two ways out (a trusted `geox-url`, or pre-seeded files); a system-wide tunnel also works, a proxy environment variable does not.
+
 ### Changed
 
 - Replace the self-upgrade transaction with a thin npm flow. `sash upgrade` resolves the exact release from the npm registry, stops the daemon, runs `npm install --global @astralyn/sash@<version>` from the installation prefix and starts the daemon again. The upgrade journal, startup barrier, package staging and candidate probe, shim/launcher replacement, upgrade authorization grants, HMAC-signed runtime handoffs, installation instance registry and autostart capture/apply helpers are gone, along with the `/sash/upgrade/*` routes and the daemon's upgrade reservation API.

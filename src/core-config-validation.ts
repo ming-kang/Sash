@@ -33,6 +33,40 @@ function defaultRunner(executable: string, args: string[], signal?: AbortSignal)
   });
 }
 
+/**
+ * The Core downloads its geodata databases while the configuration is loaded,
+ * so a missing database on an unreachable network looks like a configuration
+ * rejection. Recognize that case so the caller can retry through mirrors.
+ */
+const GEODATA_DOWNLOAD = /can't download (MMDB|GeoIP|GeoSite|ASN)/i;
+const GEODATA_ATTEMPT = /(Can't find (MMDB|GeoIP|GeoSite)|start download)/i;
+
+/**
+ * The Core could not fetch the geodata its rules need, and did not report a
+ * configuration problem. Distinct from a rejection so callers can retry through
+ * the mirror list instead of telling the user their configuration is wrong.
+ */
+export class CoreGeodataUnavailableError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "CoreGeodataUnavailableError";
+  }
+}
+
+function looksLikeGeodataDownloadFailure(error: unknown): boolean {
+  const text = errorOutput(error);
+  if (GEODATA_DOWNLOAD.test(text)) return true;
+  // A stalled download is killed by our own timeout and leaves only the
+  // attempt line behind, so treat "we started a geodata download" as the signal.
+  const killed = typeof error === "object" && error !== null && "killed" in error;
+  return killed && GEODATA_ATTEMPT.test(text);
+}
+
+/** True for both a raw Core failure and the error this module throws for it. */
+export function isGeodataDownloadFailure(error: unknown): boolean {
+  return error instanceof CoreGeodataUnavailableError || looksLikeGeodataDownloadFailure(error);
+}
+
 function errorOutput(error: unknown): string {
   if (typeof error !== "object" || error === null) return String(error);
   const record = error as { message?: unknown; stderr?: unknown; stdout?: unknown };
@@ -65,6 +99,15 @@ export async function validateCoreConfig(
     options.signal?.throwIfAborted();
   } catch (error) {
     options.signal?.throwIfAborted();
+    if (looksLikeGeodataDownloadFailure(error)) {
+      throw new CoreGeodataUnavailableError(
+        `Core could not download its geodata databases: ${errorOutput(error)}. ` +
+          `The Core fetches geodata itself and ignores HTTP_PROXY, so it needs a directly ` +
+          `reachable source: place the files in ${layout.root} beforehand, or set geox-url to ` +
+          `a reachable mirror in the profile.`,
+        { cause: error },
+      );
+    }
     throw new Error(`Core rejected generated configuration: ${errorOutput(error)}`, {
       cause: error,
     });

@@ -10,12 +10,16 @@ import {
   type StagedCore,
   stageCore,
 } from "../core.js";
-import { validateCoreConfig } from "../core-config-validation.js";
+import { isGeodataDownloadFailure, validateCoreConfig } from "../core-config-validation.js";
 import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
 import type { CoreUpdateProgress, CoreUpdateStage } from "../core-update-progress.js";
 import { errorMessage } from "../error-utils.js";
 import { installationId } from "../installation.js";
-import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
+import {
+  type GeneratedConfig,
+  type SubscriptionFetch,
+  withGeodataMirrors,
+} from "../mihomo-config.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
 import { ProfileService } from "../profile-service.js";
@@ -131,6 +135,34 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     );
   };
 
+  /**
+   * Validate a configuration, and if the Core failed only because it could not
+   * download its geodata databases, retry once through mirrors. The Core fetches
+   * geodata from github.com by default and cannot use the proxy it has not
+   * started yet, which would otherwise deadlock a fresh installation on a
+   * network that cannot reach github.com directly.
+   */
+  const validateConfiguration = async (
+    configuration: RuntimeConfiguration,
+    executable: string,
+    signal: AbortSignal,
+  ): Promise<RuntimeConfiguration> => {
+    try {
+      await validate(configuration.generated, executable, signal);
+      return configuration;
+    } catch (error) {
+      if (!isGeodataDownloadFailure(error)) throw error;
+      const retried: RuntimeConfiguration = {
+        ...configuration,
+        generated: withGeodataMirrors(configuration.generated),
+      };
+      if (retried.generated.yaml === configuration.generated.yaml) throw error;
+      console.warn("[sashd] geodata download failed; retrying through the mirror list");
+      await validate(retried.generated, executable, signal);
+      return retried;
+    }
+  };
+
   const savedConfiguration = (): RuntimeConfiguration => {
     const snapshot = state.snapshot();
     const profile = getActiveProfile(snapshot.profiles);
@@ -201,7 +233,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       });
       signal.throwIfAborted();
       setStage("validating", staged.version);
-      await validate(configuration.generated, staged.exe, signal);
+      const validated = await validateConfiguration(configuration, staged.exe, signal);
       const candidate = staged;
       setStage("waiting");
       return await mutate("update Core", async () => {
@@ -210,7 +242,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
         if (lifecycle.revision !== epoch)
           throw new StateConflictError("Core changed during download; retry the update");
         setStage("installing");
-        return lifecycle.update(candidate, configuration, startAfterInstall);
+        return lifecycle.update(candidate, validated, startAfterInstall);
       });
     } catch (error) {
       signal.throwIfAborted();
@@ -252,9 +284,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       }
       if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
       const configuration = savedConfiguration();
-      await validate(configuration.generated, layout.coreExe, signal);
+      const validated = await validateConfiguration(configuration, layout.coreExe, signal);
       signal.throwIfAborted();
-      return lifecycle.apply(configuration);
+      return lifecycle.apply(validated);
     });
   };
 
