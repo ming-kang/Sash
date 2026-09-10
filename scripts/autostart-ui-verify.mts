@@ -1,15 +1,15 @@
 // Run after npm run build. Uses a temporary daemon and a fake OS startup controller.
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, firefox, type Page } from "playwright";
+import type { Page } from "playwright";
 import type { AutostartStatus } from "../src/autostart-contract.js";
 import { parseWebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
-import { buildSanitizedEnv } from "../src/process.js";
+import { captureFailurePages, launchUiBrowser, uiArtifactDirectory, UI_ENGINES } from "./ui-harness.mjs";
 
-const output = await mkdtemp(join(tmpdir(), "sash-autostart-ui-"));
+const output = uiArtifactDirectory("sash-autostart-ui-");
 const results: string[] = [];
 const errors: string[] = [];
 const h = new DaemonTestHarness();
@@ -53,10 +53,10 @@ async function capture(page: Page, name: string): Promise<void> {
 }
 
 try {
-  for (const engine of [chromium, firefox]) {
-    console.log(`Verifying ${engine.name()}`);
+  for (const { engine, name } of UI_ENGINES) {
+    console.log(`Verifying ${name}`);
     state = { state: "off", canEnable: true, reason: null };
-    const browser = await engine.launch({ env: buildSanitizedEnv() });
+    const browser = await launchUiBrowser(engine);
     try {
       const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
       page.setDefaultTimeout(10_000);
@@ -95,7 +95,7 @@ try {
       entered = undefined;
       await idle(page);
       assert.equal(await toggle.getAttribute("aria-checked"), "true");
-      results.push(engine.name() + ": only confirmed writes change the switch");
+      results.push(name + ": only confirmed writes change the switch");
 
       failWrite = true;
       const failed = page.waitForResponse((res) =>
@@ -107,7 +107,7 @@ try {
       await idle(page);
       assert.equal(await toggle.getAttribute("aria-checked"), "true");
       failWrite = false;
-      results.push(engine.name() + ": failed write re-reads the committed OS state");
+      results.push(name + ": failed write re-reads the committed OS state");
 
       state = { state: "disabled", canEnable: true, reason: null };
       await card.getByRole("button", { name: "刷新状态" }).click();
@@ -117,7 +117,7 @@ try {
       await toggle.click();
       await idle(page);
       assert.equal(await toggle.getAttribute("aria-checked"), "true");
-      results.push(engine.name() + ": OS-disabled entries can be repaired");
+      results.push(name + ": OS-disabled entries can be repaired");
 
       state = { state: "unknown", canEnable: false, reason: "Simulated inspection failure" };
       await card.getByRole("button", { name: "刷新状态" }).click();
@@ -126,7 +126,7 @@ try {
       await card.getByRole("button", { name: "移除启动项" }).click();
       await idle(page);
       assert.equal(await toggle.getAttribute("aria-checked"), "false");
-      results.push(engine.name() + ": explicit removal remains available after inspection failure");
+      results.push(name + ": explicit removal remains available after inspection failure");
 
       state = { state: "off", canEnable: false, reason: "Autostart requires a direct global installation. Install with npm install -g @astralyn/sash." };
       const beforeBlocked = writes;
@@ -134,7 +134,7 @@ try {
       await idle(page);
       assert.equal(await toggle.isDisabled(), true);
       assert.equal(writes, beforeBlocked);
-      results.push(engine.name() + ": source installs show a reason and cannot enable startup");
+      results.push(name + ": source installs show a reason and cannot enable startup");
 
       for (const locale of ["zh", "en"]) {
         await page.evaluate((value) => localStorage.setItem("sash.locale", value), locale);
@@ -144,17 +144,13 @@ try {
           await page.setViewportSize({ width, height: width < 500 ? 844 : 1000 });
           for (const theme of ["light", "dark"]) {
             await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
-            await capture(page, engine.name() + "-settings-" + locale + "-" + width + "-" + theme);
+            await capture(page, name + "-settings-" + locale + "-" + width + "-" + theme);
           }
         }
       }
       await page.close();
     } catch (error) {
-      for (const context of browser.contexts()) {
-        for (const page of context.pages()) {
-          await page.screenshot({ path: join(output, engine.name() + "-failure.png"), fullPage: true }).catch(() => {});
-        }
-      }
+      await captureFailurePages(browser, output, name);
       throw error;
     } finally {
       await browser.close();

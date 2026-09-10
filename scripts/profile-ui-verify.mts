@@ -1,29 +1,25 @@
 // Run after npm run build: npx tsx scripts/profile-ui-verify.mts
 // Real isolated daemon/profile persistence; synthetic Core, subscriptions and OS proxy.
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import http from "node:http";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Duplex } from "node:stream";
-import { chromium, firefox, type Page } from "playwright";
+import { chromium, type Page } from "playwright";
 import YAML from "yaml";
 import { parseWebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { loadProfiles } from "../src/profiles.js";
-import { buildSanitizedEnv } from "../src/process.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
 import type { ProxyItem } from "../web/src/types/index.js";
+import { launchUiBrowser, startMockCore, uiArtifactDirectory, UI_ENGINES } from "./ui-harness.mjs";
 
-const output = await mkdtemp(join(tmpdir(), "sash-profile-ui-"));
+const output = uiArtifactDirectory("sash-profile-ui-");
 const results: string[] = [];
 const errors: string[] = [];
 const h = new DaemonTestHarness();
 h.setup();
 h.settings.mixedPort = 27893;
 h.settings.daemonPort = 29194;
-const sockets = new Set<Duplex>();
 const supervisor = new FakeCoreSupervisor(h.layout, h.settings);
 const names = [
   "【亚洲】香港 01 · 高速专线 · 原生 IP · 支持流媒体与 AI 服务",
@@ -63,36 +59,22 @@ proxies.GLOBAL = {
   all: ["AI 服务", ...names],
 };
 
-h.mockCoreServer = http.createServer((req, res) => {
-  const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-  const bodies: Record<string, unknown> = {
-    "/configs": { "mixed-port": 27893, "allow-lan": false, mode: "rule" },
-    "/proxies": { proxies },
-    "/rules": { rules: [] },
-    "/connections": { connections: [], uploadTotal: 0, downloadTotal: 0 },
-    "/version": { version: "1.19.30" },
-  };
-  const body = pathname.endsWith("/delay") ? { delay: 128 } : bodies[pathname];
-  res.writeHead(body === undefined ? 404 : 200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body ?? {}));
+const core = await startMockCore({
+  handle: (req, res) => {
+    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    const bodies: Record<string, unknown> = {
+      "/configs": { "mixed-port": 27893, "allow-lan": false, mode: "rule" },
+      "/proxies": { proxies },
+      "/rules": { rules: [] },
+      "/connections": { connections: [], uploadTotal: 0, downloadTotal: 0 },
+      "/version": { version: "1.19.30" },
+    };
+    const body = pathname.endsWith("/delay") ? { delay: 128 } : bodies[pathname];
+    res.writeHead(body === undefined ? 404 : 200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body ?? {}));
+  },
 });
-h.mockCoreServer.on("upgrade", (req, socket) => {
-  sockets.add(socket);
-  socket.on("error", () => {});
-  socket.on("close", () => sockets.delete(socket));
-  const accept = crypto
-    .createHash("sha1")
-    .update(`${req.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-    .digest("base64");
-  socket.write(
-    `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
-  );
-  socket.on("data", () => {});
-});
-await new Promise<void>((resolve) => h.mockCoreServer?.listen(0, "127.0.0.1", resolve));
-const address = h.mockCoreServer.address();
-assert.ok(address && typeof address === "object");
-h.settings.controller = `127.0.0.1:${address.port}`;
+h.settings.controller = `127.0.0.1:${core.port}`;
 await h.startServer({
   supervisor,
   fetchProfile: async () => ({
@@ -199,9 +181,8 @@ async function drag(page: Page, from: number, to: number, cancel = false): Promi
 }
 
 try {
-  for (const engine of process.argv.includes("--touch-only") ? [] : [chromium, firefox]) {
-    const browser = await engine.launch({ env: buildSanitizedEnv() });
-    const tag = engine.name();
+  for (const { engine, name: tag } of process.argv.includes("--touch-only") ? [] : UI_ENGINES) {
+    const browser = await launchUiBrowser(engine);
     try {
       await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids: initialIds } });
       await h.apiRequest("/sash/profiles/active", { method: "PUT", body: { id: initialIds[3] } });
@@ -372,7 +353,7 @@ try {
   }
 
   // Drive actual touch events in Chromium; quick vertical gestures must remain scrollable.
-  const browser = await chromium.launch({ env: buildSanitizedEnv() });
+  const browser = await launchUiBrowser(chromium);
   try {
     await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids: initialIds } });
     const context = await browser.newContext({
@@ -496,7 +477,7 @@ try {
   console.log(JSON.stringify({ output, checks: results.length, results }, null, 2));
 } finally {
   await writeFile(join(output, "report.json"), JSON.stringify({ results, errors }, null, 2));
-  for (const socket of sockets) socket.destroy();
+  await core.close();
   // The harness owns only the fresh directory created by setup and its in-process servers.
   assert.ok(h.layout.root.startsWith(join(tmpdir(), "sash-daemon-test-")));
   await h.cleanup();

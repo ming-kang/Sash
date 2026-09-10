@@ -1,21 +1,19 @@
 // Run after npm run build: npx tsx scripts/web-auth-ui-verify.mts
 // Real daemon authorization and browser navigation; fake Core and system proxy.
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import http from "node:http";
+import { writeFile } from "node:fs/promises";
+import type http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Duplex } from "node:stream";
-import { chromium, firefox, type Page } from "playwright";
+import type { Page } from "playwright";
 import { runWeb } from "../src/commands/web.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
 import { createDaemonClient } from "../src/daemon-client.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { writeBootstrapFile } from "../src/web-bootstrap.js";
-import { buildSanitizedEnv } from "../src/process.js";
+import { launchUiBrowser, startMockCore, uiArtifactDirectory, UI_ENGINES } from "./ui-harness.mjs";
 
-const output = await mkdtemp(join(tmpdir(), "sash-web-auth-ui-"));
+const output = uiArtifactDirectory("sash-web-auth-ui-");
 const h = new DaemonTestHarness();
 h.setup();
 h.settings.mixedPort = 27890;
@@ -24,11 +22,11 @@ const violations: string[] = [];
 const results: string[] = [];
 const versions: Record<string, string> = {};
 const credentials = new Set([h.settings.daemonSecret, h.settings.secret]);
-const coreSockets = new Set<Duplex>();
 const eventStreams = new Set<http.ServerResponse>();
 const supervisor = new FakeCoreSupervisor(h.layout, h.settings);
 
-h.mockCoreServer = http.createServer((req, res) => {
+const core = await startMockCore({
+  handle: (req, res) => {
   if (req.headers.authorization !== `Bearer ${h.settings.secret}` || req.headers["x-sash-token"]) {
     violations.push("Core gateway credential isolation failed");
   }
@@ -51,31 +49,18 @@ h.mockCoreServer = http.createServer((req, res) => {
   if (req.method !== "GET" || body === undefined) violations.push("Unexpected mock Core request");
   res.writeHead(body === undefined ? 404 : 200, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body ?? {}));
+  },
+  stream: (req, socket) => {
+    if (
+      req.headers.authorization !== `Bearer ${h.settings.secret}` ||
+      req.headers["sec-websocket-protocol"] ||
+      req.headers["x-sash-token"]
+    ) {
+      violations.push("WebSocket gateway credential isolation failed");
+    }
+  },
 });
-h.mockCoreServer.on("upgrade", (req, socket) => {
-  coreSockets.add(socket);
-  socket.on("error", () => {});
-  socket.on("close", () => coreSockets.delete(socket));
-  if (
-    req.headers.authorization !== `Bearer ${h.settings.secret}` ||
-    req.headers["sec-websocket-protocol"] ||
-    req.headers["x-sash-token"]
-  ) {
-    violations.push("WebSocket gateway credential isolation failed");
-  }
-  const accept = crypto
-    .createHash("sha1")
-    .update(`${req.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-    .digest("base64");
-  socket.write(
-    `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
-  );
-  socket.on("data", () => {});
-});
-await new Promise<void>((resolve) => h.mockCoreServer?.listen(0, "127.0.0.1", resolve));
-const coreAddress = h.mockCoreServer.address();
-assert.ok(coreAddress && typeof coreAddress === "object");
-h.settings.controller = `127.0.0.1:${coreAddress.port}`;
+h.settings.controller = `127.0.0.1:${core.port}`;
 await h.startServer({ supervisor });
 function trackEventStreams(): void {
   h.instance?.server.on("request", (req, res) => {
@@ -152,16 +137,16 @@ async function capture(page: Page, name: string): Promise<void> {
 
 let failure: unknown;
 try {
-  for (const engine of [chromium, firefox]) {
-    const browser = await engine.launch({ headless: true, env: buildSanitizedEnv() });
-    versions[engine.name()] = browser.version();
+  for (const { engine, name: engineName } of UI_ENGINES) {
+    const browser = await launchUiBrowser(engine);
+    versions[engineName] = browser.version();
     try {
       for (const viewport of [
         { width: 1440, height: 900 },
         { width: 390, height: 844 },
       ]) {
         for (const theme of ["light", "dark"]) {
-          const name = `${engine.name()}-${viewport.width}-${theme}`;
+          const name = `${engineName}-${viewport.width}-${theme}`;
           const context = await browser.newContext({
             viewport,
             colorScheme: theme as "light" | "dark",
@@ -292,7 +277,7 @@ try {
             await replay.close();
 
             await h.instance?.close();
-            for (const socket of coreSockets) socket.destroy();
+            for (const socket of core.sockets) socket.destroy();
             await h.startServer({ supervisor }, port);
             trackEventStreams();
             assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
@@ -321,7 +306,7 @@ try {
 } catch (error) {
   failure = error;
 } finally {
-  for (const socket of coreSockets) socket.destroy();
+  await core.close();
   await h.cleanup();
   await writeFile(
     join(output, "report.json"),

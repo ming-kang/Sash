@@ -30,6 +30,10 @@
     "test": "node scripts/run-tests.mjs",
     "smoke:package": "node scripts/package-smoke.mjs",
     "smoke:ui": "node --import tsx scripts/ui-smoke.mjs",
+    "verify:ui": "node --import tsx scripts/ui-verify.mts",
+    "verify:ui:profiles": "node --import tsx scripts/profile-ui-verify.mts",
+    "verify:ui:auth": "node --import tsx scripts/web-auth-ui-verify.mts",
+    "verify:ui:autostart": "node --import tsx scripts/autostart-ui-verify.mts",
     "prepublishOnly": "node -e \"console.error('Publish with the Publish npm GitHub workflow; it uses the package already accepted by CI.'); process.exit(1)\""
   },
   "engines": {

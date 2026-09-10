@@ -75,11 +75,13 @@ npm run lint
 npm test
 npm run build
 npm run smoke:ui
-node --import tsx scripts/ui-verify.mts
-node --import tsx scripts/profile-ui-verify.mts
-node --import tsx scripts/web-auth-ui-verify.mts
-node --import tsx scripts/autostart-ui-verify.mts
+npm run verify:ui
+npm run verify:ui:profiles
+npm run verify:ui:auth
+npm run verify:ui:autostart
 ```
+
+All browser scripts share `scripts/ui-harness.mts` for the mock Core listener, browser launch and failure captures.
 
 The browser scripts use isolated data, non-default ports and fake Core/OS adapters in Chromium and Firefox. The main script checks saved/applied state, authentication, font loading, request counts and layouts with 300 nodes, 10,000 rules and 500 connections. `smoke:ui` additionally verifies SSE recovery without status polling, latency results, pagination, paused snapshots, contrast and failed route chunks through isolated HTTP/WS fixtures. Other scripts retain focused profile, private-file authorization and autostart interaction coverage. These are behavioral checks, not a real-Core CPU/memory benchmark.
 
