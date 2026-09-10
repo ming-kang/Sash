@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { type AutostartOptions, autostartContext } from "../autostart/context.js";
@@ -9,14 +8,13 @@ import {
   windowsAutostart,
 } from "../autostart/windows.js";
 import { AutostartService } from "../autostart.js";
-import { readBoundedJsonFile } from "../bounded-file.js";
-import { errnoCode } from "../error-utils.js";
-import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
+import { durableRemoveFileSync } from "../fs-atomic.js";
 import { canonicalPath, npmPackageRoot, npmPrefixForPackage, pathsEqual } from "../installation.js";
 import { installationRegistryPaths } from "../installation-registry.js";
-import { hasExactOwnKeys, isPlainObject, isSha256 } from "../json-shape.js";
+import { hasExactOwnKeys, isPlainObject } from "../json-shape.js";
 import { readSashPackageInfo, supportsNode } from "../package-info.js";
 import { sashLayout } from "../paths.js";
+import { readSignedFile, writeSignedFile } from "../signed-file.js";
 import { authorizeInstallationUpgrade, type UpgradeAccess } from "../upgrade-access.js";
 import { runUpgradeCommand } from "../upgrade-command.js";
 import { upgradeTransactionPaths } from "../upgrade-paths.js";
@@ -32,39 +30,29 @@ function handoffFile(access: UpgradeAccess): string {
   return path.join(installationRegistryPaths(access.installationId).root, "autostart-upgrade.json");
 }
 
+const AUTOSTART_ENVELOPE = {
+  domain: "",
+  maxBytes: 32 * 1024,
+  subject: "login startup upgrade handoff",
+} as const;
+
 function writeHandoff(access: UpgradeAccess, payload: LoginHandoff): void {
-  const mac = crypto
-    .createHmac("sha256", access.grant)
-    .update(JSON.stringify(payload))
-    .digest("hex");
-  const text = `${JSON.stringify({ payload, mac })}\n`;
-  if (Buffer.byteLength(text) > 32 * 1024)
-    throw new Error("Login startup upgrade handoff is too large");
-  atomicWriteFileSync(handoffFile(access), text);
+  writeSignedFile(handoffFile(access), access.grant, payload, AUTOSTART_ENVELOPE);
 }
 
 function readHandoff(access: UpgradeAccess): LoginHandoff | undefined {
-  let value: unknown;
-  try {
-    value = readBoundedJsonFile(handoffFile(access), 32 * 1024);
-  } catch (error) {
-    if (errnoCode(error) === "ENOENT") return undefined;
-    throw error;
-  }
+  const value = readSignedFile(handoffFile(access), access.grant, AUTOSTART_ENVELOPE);
+  if (value === undefined) return undefined;
   if (
     !isPlainObject(value) ||
-    !hasExactOwnKeys(value, ["payload", "mac"]) ||
-    !isPlainObject(value.payload) ||
-    !isSha256(value.mac)
+    !hasExactOwnKeys(value, ["transactionId", "installationId", "original", "upgradeNodePath"]) ||
+    value.transactionId !== access.transactionId ||
+    value.installationId !== access.installationId ||
+    typeof value.upgradeNodePath !== "string" ||
+    !path.isAbsolute(value.upgradeNodePath)
   )
-    throw new Error("Invalid login startup upgrade handoff");
-  const mac = crypto
-    .createHmac("sha256", access.grant)
-    .update(JSON.stringify(value.payload))
-    .digest();
-  if (!crypto.timingSafeEqual(mac, Buffer.from(value.mac, "hex")))
-    throw new Error("Login startup handoff authentication failed");
-  const payload = value.payload;
+    throw new Error("Login startup handoff belongs to another upgrade");
+  const payload = value;
   if (
     !hasExactOwnKeys(payload, ["transactionId", "installationId", "original", "upgradeNodePath"]) ||
     payload.transactionId !== access.transactionId ||

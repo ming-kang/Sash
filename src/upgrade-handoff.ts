@@ -1,21 +1,19 @@
-import crypto from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { type AutostartStatus, parseAutostartStatus } from "./autostart-contract.js";
-import { readBoundedJsonFile } from "./bounded-file.js";
 import { type InstallRecord, parseInstallRecord } from "./core-install-record.js";
 import { parseCoreRuntimeState } from "./core-runtime-state.js";
 import { parseCoreYaml } from "./core-yaml.js";
 import { parseWebSessionSeeds, type WebSessionSeed } from "./daemon/web-auth.js";
-import { errnoCode } from "./error-utils.js";
-import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
+import { durableRemoveFileSync } from "./fs-atomic.js";
 import { assertAbsolutePath, canonicalPath, pathsEqual } from "./installation.js";
-import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject, isSha256 } from "./json-shape.js";
+import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
 import { isValidMihomoConfig, overlayManagedKeys } from "./mihomo-config.js";
 import { exactSashVersion, UPGRADE_PROTOCOL } from "./package-info.js";
 import type { SashLayout } from "./paths.js";
 import type { RuntimeConfiguration, RuntimeRestoreState } from "./runtime-lifecycle.js";
 import { validateSettingsCandidate } from "./settings.js";
+import { readSignedFile, writeSignedFile } from "./signed-file.js";
 import { parseUpgradeAccess, type UpgradeAccess } from "./upgrade-access.js";
 
 export type UpgradeHandoffPhase =
@@ -45,6 +43,12 @@ export interface UpgradeHandoff {
 }
 
 const MAX_HANDOFF_BYTES = 16 * 1024 * 1024;
+const HANDOFF_ENVELOPE = {
+  domain: "sash-upgrade-handoff\0",
+  maxBytes: MAX_HANDOFF_BYTES,
+  subject: "Sash runtime handoff",
+  mode: 0o600,
+} as const;
 const PHASES: readonly UpgradeHandoffPhase[] = [
   "reserved",
   "stopping",
@@ -214,36 +218,16 @@ export function writeUpgradeHandoff(
 ): void {
   const payload = parseUpgradeHandoff(handoff);
   assertOwner(payload, layout, access);
-  const mac = crypto
-    .createHmac("sha256", access.grant)
-    .update(`sash-upgrade-handoff\0${JSON.stringify(payload)}`)
-    .digest("hex");
-  const text = `${JSON.stringify({ payload, mac })}\n`;
-  if (Buffer.byteLength(text) > MAX_HANDOFF_BYTES)
-    throw new Error("Sash runtime handoff exceeds its size limit");
-  atomicWriteFileSync(upgradeHandoffPath(layout), text, 0o600);
+  writeSignedFile(upgradeHandoffPath(layout), access.grant, payload, HANDOFF_ENVELOPE);
 }
 
 export function readUpgradeHandoff(
   layout: SashLayout,
   access: UpgradeAccess,
 ): UpgradeHandoff | undefined {
-  let value: unknown;
-  try {
-    value = readBoundedJsonFile(upgradeHandoffPath(layout), MAX_HANDOFF_BYTES);
-  } catch (error) {
-    if (errnoCode(error) === "ENOENT") return undefined;
-    throw error;
-  }
-  if (!isPlainObject(value) || !hasExactOwnKeys(value, ["payload", "mac"]) || !isSha256(value.mac))
-    throw new Error("Invalid signed Sash runtime handoff");
-  const expected = crypto
-    .createHmac("sha256", access.grant)
-    .update(`sash-upgrade-handoff\0${JSON.stringify(value.payload)}`)
-    .digest();
-  if (!crypto.timingSafeEqual(expected, Buffer.from(value.mac, "hex")))
-    throw new Error("Sash runtime handoff authentication failed; files preserved");
-  const handoff = parseUpgradeHandoff(value.payload);
+  const payload = readSignedFile(upgradeHandoffPath(layout), access.grant, HANDOFF_ENVELOPE);
+  if (payload === undefined) return undefined;
+  const handoff = parseUpgradeHandoff(payload);
   assertOwner(handoff, layout, access);
   return handoff;
 }
