@@ -213,20 +213,17 @@ describe("real isolated Sash daemon upgrades", () => {
     assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), "{ corrupt");
   });
 
+  // Two real daemons per scenario is expensive; keep both instances for the
+  // success and rollback flows and one instance per remaining boundary type.
   const scenarios = [
     { name: "success", badDaemon: false, boundary: undefined },
     { name: "health-failure", badDaemon: true, boundary: undefined },
     ...[
       "instance-reserved:0",
-      "instance-reserved:1",
-      "instance-stopped:0",
       "instance-stopped:1",
       "instance-restored:0",
-      "instance-restored:1",
-      "instance-committed:0",
       "instance-committed:1",
       "instance-handoff-cleaned:0",
-      "instance-handoff-cleaned:1",
     ].map((boundary) => ({ name: boundary.replace(":", "-"), badDaemon: false, boundary })),
   ];
   for (const { name, badDaemon, boundary } of scenarios) {

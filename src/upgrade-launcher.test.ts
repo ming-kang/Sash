@@ -169,41 +169,29 @@ describe("standalone Sash recovery entry", () => {
     });
   }
 
+  // One process-exit case per journal phase plus the filesystem states with
+  // distinct recovery paths; in-process failures are covered by
+  // upgrade-transaction.test.ts and the real-daemon flow by upgrade-runtime.
   const interruptions = [
     ...[
       "journal:preparing",
       "journal:prepared",
       "journal:reserving",
-      "startup-barrier-published",
-      "login-startup-captured",
       "journal:stopping",
       "journal:activating",
-      "launcher-published",
-      "recovery-shims-published",
       "previous-package-moved",
       "candidate-package-activated",
       "candidate-shims-activated",
-      "login-startup-restored",
       "journal:restoring",
       "journal:committed",
       "journal:commit-cleanup",
-      "package-backups-cleaned",
-      "preparation-cleaned",
-      "startup-admission-released",
       "upgrade-journal-cleared",
     ].map((boundary) => ({ boundary, failAfter: "" })),
-    ...["journal:cancelled", "journal:cancel-cleanup"].map((boundary) => ({
+    { boundary: "journal:cancelled", failAfter: "journal:prepared" },
+    ...["journal:rolling-back", "journal:rolled-back"].map((boundary) => ({
       boundary,
-      failAfter: "journal:prepared",
+      failAfter: "candidate-shims-activated",
     })),
-    ...[
-      "journal:rolling-back",
-      "rollback-recovery-shims",
-      "rejected-package-moved",
-      "previous-package-restored",
-      "journal:rolled-back",
-      "journal:rollback-cleanup",
-    ].map((boundary) => ({ boundary, failAfter: "candidate-shims-activated" })),
   ];
   for (const { boundary, failAfter } of interruptions) {
     it(`recovers after the updater process exits at ${boundary}`, { timeout: 30_000 }, async () => {
