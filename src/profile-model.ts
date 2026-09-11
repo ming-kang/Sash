@@ -1,4 +1,4 @@
-import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
+import { isPlainObject } from "./json-shape.js";
 import type { SubscriptionUserinfo } from "./mihomo-config.js";
 
 export interface ProfileMeta {
@@ -24,23 +24,27 @@ export interface ProfilesIndex {
 export const DEFAULT_PROFILE_INTERVAL_HOURS = 24;
 export const MAX_PROFILE_INTERVAL_HOURS = 24 * 365;
 
+const EPOCH = new Date(0).toISOString();
+
+/** Reads leniently: unknown fields are ignored, and a damaged entry is skipped
+ * rather than discarding the whole index. Entry ids stay path-safe. */
 export function parseProfilesIndex(value: unknown): ProfilesIndex {
-  if (
-    !isPlainObject(value) ||
-    Object.keys(value).some((key) => key !== "activeId" && key !== "profiles") ||
-    !Array.isArray(value.profiles) ||
-    (value.activeId !== null && typeof value.activeId !== "string")
-  )
+  if (!isPlainObject(value) || !Array.isArray(value.profiles))
     throw new Error("Profiles index has an invalid shape");
-  const profiles = value.profiles.map(parseProfileMeta);
-  const ids = new Set(profiles.map((profile) => profile.id));
-  if (ids.size !== profiles.length) throw new Error("Profiles index has duplicate profile ids");
-  if (value.activeId !== null && !ids.has(value.activeId))
-    throw new Error("Selected profile is missing");
-  return { activeId: value.activeId, profiles };
+  const profiles: ProfileMeta[] = [];
+  const ids = new Set<string>();
+  for (const item of value.profiles) {
+    const profile = parseProfileMeta(item);
+    if (!profile || ids.has(profile.id)) continue;
+    ids.add(profile.id);
+    profiles.push(profile);
+  }
+  const activeId =
+    typeof value.activeId === "string" && ids.has(value.activeId) ? value.activeId : null;
+  return { activeId, profiles };
 }
 
-function parseProfileMeta(item: unknown): ProfileMeta {
+function parseProfileMeta(item: unknown): ProfileMeta | null {
   if (
     !isPlainObject(item) ||
     typeof item.id !== "string" ||
@@ -48,82 +52,69 @@ function parseProfileMeta(item: unknown): ProfileMeta {
     typeof item.revision !== "number" ||
     !Number.isSafeInteger(item.revision) ||
     item.revision < 1 ||
-    typeof item.name !== "string" ||
-    !item.name.trim() ||
-    item.name.length > 120 ||
-    typeof item.url !== "string" ||
-    typeof item.intervalHours !== "number" ||
-    !Number.isSafeInteger(item.intervalHours) ||
-    item.intervalHours < 0 ||
-    item.intervalHours > MAX_PROFILE_INTERVAL_HOURS ||
-    !isCanonicalIsoTimestamp(item.createdAt) ||
-    !isCanonicalIsoTimestamp(item.updatedAt)
+    typeof item.url !== "string"
   )
-    throw new Error("Profiles index has invalid profile metadata");
-  if (item.url) {
-    const url = new URL(item.url);
-    if (url.protocol !== "https:" && url.protocol !== "http:")
-      throw new Error("Invalid profile URL");
-  }
-  let subInfo: SubscriptionUserinfo | undefined;
-  if (item.subInfo !== undefined) {
-    const info = item.subInfo;
-    if (
-      !isPlainObject(info) ||
-      typeof info.upload !== "number" ||
-      !Number.isFinite(info.upload) ||
-      info.upload < 0 ||
-      typeof info.download !== "number" ||
-      !Number.isFinite(info.download) ||
-      info.download < 0 ||
-      typeof info.total !== "number" ||
-      !Number.isFinite(info.total) ||
-      info.total < 0 ||
-      (info.expire !== undefined &&
-        (typeof info.expire !== "number" || !Number.isFinite(info.expire) || info.expire < 0))
-    )
-      throw new Error("Invalid subscription quota");
-    subInfo = {
-      upload: info.upload,
-      download: info.download,
-      total: info.total,
-      ...(typeof info.expire === "number" ? { expire: info.expire } : {}),
-    };
-  }
-  if (item.homePage !== undefined) {
-    if (typeof item.homePage !== "string") throw new Error("Invalid profile home page");
-    const url = new URL(item.homePage);
-    if (url.protocol !== "https:" && url.protocol !== "http:")
-      throw new Error("Invalid profile home page");
-  }
-  if (
-    item.lastError !== undefined &&
-    (typeof item.lastError !== "string" || item.lastError.length > 300)
-  ) {
-    throw new Error("Invalid profile update error");
-  }
-  if (
-    (item.lastAttemptAt !== undefined && !isCanonicalIsoTimestamp(item.lastAttemptAt)) ||
-    (item.failureCount !== undefined &&
-      (typeof item.failureCount !== "number" ||
-        !Number.isSafeInteger(item.failureCount) ||
-        item.failureCount < 0 ||
-        item.failureCount > 31 ||
-        (item.failureCount > 0 && item.lastAttemptAt === undefined)))
-  )
-    throw new Error("Invalid profile retry metadata");
+    return null;
+  const name =
+    typeof item.name === "string" && item.name.trim()
+      ? item.name.slice(0, 120)
+      : `profile-${item.id}`;
+  const intervalHours =
+    typeof item.intervalHours === "number" &&
+    Number.isSafeInteger(item.intervalHours) &&
+    item.intervalHours >= 0
+      ? Math.min(item.intervalHours, MAX_PROFILE_INTERVAL_HOURS)
+      : DEFAULT_PROFILE_INTERVAL_HOURS;
+  const timestamp = (key: "createdAt" | "updatedAt"): string =>
+    typeof item[key] === "string" ? (item[key] as string) : EPOCH;
+  const subInfo = parseSubInfo(item.subInfo);
+  const homePage = httpUrl(item.homePage);
+  const lastError = typeof item.lastError === "string" ? item.lastError.slice(0, 300) : undefined;
+  const lastAttemptAt = typeof item.lastAttemptAt === "string" ? item.lastAttemptAt : undefined;
+  const failureCount =
+    typeof item.failureCount === "number" &&
+    Number.isSafeInteger(item.failureCount) &&
+    item.failureCount >= 0
+      ? item.failureCount
+      : undefined;
   return {
     id: item.id,
     revision: item.revision,
-    name: item.name,
+    name,
     url: item.url,
-    intervalHours: item.intervalHours,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
+    intervalHours,
+    createdAt: timestamp("createdAt"),
+    updatedAt: timestamp("updatedAt"),
     ...(subInfo ? { subInfo } : {}),
-    ...(typeof item.homePage === "string" ? { homePage: item.homePage } : {}),
-    ...(typeof item.lastError === "string" ? { lastError: item.lastError } : {}),
-    ...(typeof item.lastAttemptAt === "string" ? { lastAttemptAt: item.lastAttemptAt } : {}),
-    ...(typeof item.failureCount === "number" ? { failureCount: item.failureCount } : {}),
+    ...(homePage ? { homePage } : {}),
+    ...(lastError !== undefined ? { lastError } : {}),
+    ...(lastAttemptAt !== undefined ? { lastAttemptAt } : {}),
+    ...(failureCount !== undefined ? { failureCount } : {}),
   };
+}
+
+function parseSubInfo(value: unknown): SubscriptionUserinfo | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const number = (key: "upload" | "download" | "total" | "expire"): number | undefined => {
+    const candidate = value[key];
+    return typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0
+      ? candidate
+      : undefined;
+  };
+  const upload = number("upload");
+  const download = number("download");
+  const total = number("total");
+  if (upload === undefined || download === undefined || total === undefined) return undefined;
+  const expire = number("expire");
+  return { upload, download, total, ...(expire !== undefined ? { expire } : {}) };
+}
+
+function httpUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }

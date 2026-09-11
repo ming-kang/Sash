@@ -43,7 +43,7 @@ export function pruneProfileFiles(
   const removeOld = (file: string): void => {
     try {
       const stat = fs.lstatSync(file);
-      if (!stat.isFile() || stat.mtimeMs > cutoff || !owned(file)) return;
+      if (!stat.isFile() || stat.mtimeMs > cutoff) return;
       durableRemoveFileSync(file);
       removed++;
     } catch {

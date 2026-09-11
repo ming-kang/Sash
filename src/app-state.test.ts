@@ -138,8 +138,12 @@ describe("canonical Sash state", () => {
       );
       assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), text);
     }
+    // No read-side size limit: an oversized file simply fails to parse as corrupt.
     fs.truncateSync(layout.settingsFile, 2 * 1024 * 1024 + 1);
-    assert.throws(() => readState(layout), /too large/);
+    assert.throws(
+      () => readState(layout),
+      (error) => error instanceof Error && error.message.includes(layout.settingsFile),
+    );
     fs.unlinkSync(layout.settingsFile);
     fs.mkdirSync(layout.settingsFile);
     assert.throws(

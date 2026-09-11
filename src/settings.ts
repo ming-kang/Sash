@@ -103,8 +103,49 @@ export function validateSettingsCandidate(value: unknown): SashSettings {
     daemonSecret: secret("daemonSecret"),
     systemProxy: boolean("systemProxy"),
   };
-  if (new Set([result.mixedPort, result.daemonPort, controller.port]).size !== 3) {
-    throw new Error("mixedPort, daemonPort and controller must use different ports");
-  }
+  assertDistinctPorts(result.mixedPort, result.daemonPort, controller.port);
   return result;
+}
+
+/**
+ * Lenient read for the stored manifest: unknown keys are ignored and a damaged
+ * value falls back to its default. Port collisions stay fatal — they cannot work.
+ */
+export function parseStoredSettings(value: unknown): SashSettings {
+  if (!isPlainObject(value)) throw new Error("Settings must be a plain object");
+  const port = (key: "mixedPort" | "daemonPort"): number => {
+    const number = value[key];
+    return typeof number === "number" && Number.isInteger(number) && number >= 1 && number <= 65_535
+      ? number
+      : DEFAULT_SETTINGS[key];
+  };
+  const secret = (key: "secret" | "daemonSecret"): string => {
+    const text = value[key];
+    if (typeof text !== "string") return DEFAULT_SETTINGS[key];
+    return [...text]
+      .filter((char) => char.charCodeAt(0) > 31 && char.charCodeAt(0) !== 127)
+      .join("");
+  };
+  const boolean = (key: "allowLan" | "systemProxy"): boolean =>
+    typeof value[key] === "boolean" ? value[key] : DEFAULT_SETTINGS[key];
+  const controller =
+    parseControllerAddress(typeof value.controller === "string" ? value.controller : "") ??
+    parseControllerAddress(DEFAULT_SETTINGS.controller);
+  if (!controller) throw new Error("controller must be a loopback host:port address");
+  const result: SashSettings = {
+    mixedPort: port("mixedPort"),
+    controller: controller.canonical,
+    secret: secret("secret"),
+    allowLan: boolean("allowLan"),
+    daemonPort: port("daemonPort"),
+    daemonSecret: secret("daemonSecret"),
+    systemProxy: boolean("systemProxy"),
+  };
+  assertDistinctPorts(result.mixedPort, result.daemonPort, controller.port);
+  return result;
+}
+
+function assertDistinctPorts(mixedPort: number, daemonPort: number, controllerPort: number): void {
+  if (new Set([mixedPort, daemonPort, controllerPort]).size !== 3)
+    throw new Error("mixedPort, daemonPort and controller must use different ports");
 }

@@ -7,6 +7,7 @@ import { type ProfilesIndex, parseProfilesIndex } from "./profile-model.js";
 import {
   DEFAULT_SETTINGS,
   initialSettings,
+  parseStoredSettings,
   type SashSettings,
   validateSettingsCandidate,
 } from "./settings.js";
@@ -37,9 +38,7 @@ function freezeSnapshot<T>(value: T): T {
 
 function readStateText(layout: SashLayout): string | undefined {
   try {
-    const bytes = fs.readFileSync(layout.settingsFile);
-    if (bytes.length > MAX_STATE_BYTES) throw new Error("Sash state is too large");
-    return bytes.toString("utf8");
+    return fs.readFileSync(layout.settingsFile, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw new Error(`Cannot read Sash state at ${layout.settingsFile}: ${errorMessage(error)}`, {
@@ -62,7 +61,7 @@ export function parseState(value: unknown): SashState {
   return {
     schemaVersion: 2,
     revision: value.revision,
-    settings: validateSettingsCandidate(value.settings),
+    settings: parseStoredSettings(value.settings),
     profiles: parseProfilesIndex(value.profiles),
   };
 }

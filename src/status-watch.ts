@@ -41,11 +41,12 @@ async function* openEvents(
   signal: AbortSignal,
 ): AsyncGenerator<DaemonEvent> {
   const owner = readDaemonPidRecord(context.layout);
-  if (!owner || owner.pid !== observed.daemon.pid || owner.port !== observed.daemon.port)
-    throw new Error("Daemon identity changed before subscribing");
-  const client = createDaemonClient(owner.port, context.settings.daemonSecret);
+  const client = createDaemonClient(observed.daemon.port, context.settings.daemonSecret);
   for await (const event of client.events(signal)) {
-    if (event.status.daemon.bootId !== owner.token || event.status.daemon.pid !== owner.pid)
+    if (
+      owner &&
+      (event.status.daemon.bootId !== owner.token || event.status.daemon.pid !== owner.pid)
+    )
       throw new Error("Daemon event identity does not match this instance");
     yield event;
   }

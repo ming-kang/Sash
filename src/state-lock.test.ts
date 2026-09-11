@@ -58,11 +58,9 @@ describe("state locks", () => {
 
   it("reclaims a lock held by a dead owner", async () => {
     const deadOwner: StateLockRecord = {
-      version: 1,
       pid: 2_147_483_647,
       token: "dead-async-owner-token",
       purpose: "dead async owner",
-      acquiredAt: "2026-01-01T00:00:00.000Z",
     };
     writeLock(deadOwner);
 

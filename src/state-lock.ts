@@ -6,11 +6,9 @@ import { isProcessAlive } from "./process.js";
 
 /** On-disk ownership record for a state-file lock. */
 export interface StateLockRecord {
-  version: 1;
   pid: number;
   token: string;
   purpose: string;
-  acquiredAt: string;
 }
 
 export interface StateLockOptions {
@@ -61,11 +59,9 @@ function readLockRecord(file: string): StateLockRecord | undefined {
   )
     return undefined;
   return {
-    version: 1,
     pid: value.pid,
     token: value.token,
     purpose: typeof value.purpose === "string" ? value.purpose : "unknown",
-    acquiredAt: typeof value.acquiredAt === "string" ? value.acquiredAt : "",
   };
 }
 
@@ -158,11 +154,9 @@ export async function acquireStateLock(
   for (;;) {
     for (let attempt = 0; attempt < 4; attempt++) {
       const record: StateLockRecord = {
-        version: 1,
         pid: process.pid,
         token: crypto.randomBytes(24).toString("hex"),
         purpose,
-        acquiredAt: new Date().toISOString(),
       };
       if (writeLockRecord(file, record)) return createLease(file, record);
       if (!reclaimLock(file)) break;

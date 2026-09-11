@@ -29,32 +29,51 @@ describe("profile input boundaries", () => {
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
   });
-  it("rejects unsafe ids, revisions, metadata and dangling selections", () => {
+  it("refuses unsafe paths and reads damaged metadata leniently", () => {
     const layout = sashLayout(root);
     for (const id of ["../escape", "a/b", "C:\\outside"])
       assert.throws(() => profileFilePath(layout, id, 1));
     for (const revision of [0, -1, 0.5, Infinity])
       assert.throws(() => profileFilePath(layout, "123", revision));
-    assert.throws(() => parseProfilesIndex({ activeId: "missing", profiles: [meta] }), /missing/);
-    assert.throws(
-      () => parseProfilesIndex({ activeId: null, profiles: [meta, meta] }),
-      /duplicate/,
+
+    // A dangling selection reads as "no active profile"; duplicate ids keep the first entry.
+    assert.equal(parseProfilesIndex({ activeId: "missing", profiles: [meta] }).activeId, null);
+    assert.equal(parseProfilesIndex({ activeId: null, profiles: [meta, meta] }).profiles.length, 1);
+
+    // Damaged fields degrade instead of discarding the entry; unknown fields are ignored.
+    const damaged = parseProfilesIndex({
+      activeId: null,
+      profiles: [
+        {
+          ...meta,
+          intervalHours: Infinity,
+          url: "file:///secret",
+          homePage: "javascript:alert(1)",
+          subInfo: { total: -1 },
+          lastAttemptAt: "today",
+          failureCount: -1,
+          surprise: true,
+        },
+      ],
+    }).profiles[0];
+    assert.ok(damaged);
+    assert.equal(damaged.intervalHours, 24);
+    assert.equal(damaged.url, "file:///secret");
+    assert.equal(damaged.homePage, undefined);
+    assert.equal(damaged.subInfo, undefined);
+    assert.equal(damaged.lastAttemptAt, "today");
+    assert.equal(damaged.failureCount, undefined);
+
+    // An entry without a usable source reference is skipped, not fatal.
+    assert.equal(
+      parseProfilesIndex({ activeId: null, profiles: [{ ...meta, revision: 0 }, meta] }).profiles
+        .length,
+      1,
     );
-    for (const patch of [
-      { intervalHours: Infinity },
-      { revision: 0 },
-      { url: "file:///secret" },
-      { homePage: "javascript:alert(1)" },
-      { subInfo: { total: -1 } },
-      { lastAttemptAt: "today" },
-      { failureCount: 1 },
-      { failureCount: -1 },
-      { failureCount: 32, lastAttemptAt: meta.updatedAt },
-    ]) {
-      assert.throws(() =>
-        parseProfilesIndex({ activeId: null, profiles: [{ ...meta, ...patch }] }),
-      );
-    }
+    assert.deepEqual(
+      parseProfilesIndex({ activeId: null, profiles: [{ ...meta, id: "../x" }] }).profiles,
+      [],
+    );
   });
   it("bounds raw sources and rejects invalid roots", () => {
     const layout = sashLayout(root);
