@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-11
+
 ### Fixed
 
 - Relax the default daemon startup timeout from 10 to 20 seconds, preventing premature process termination during Windows cold start and post-install Defender scanning.
