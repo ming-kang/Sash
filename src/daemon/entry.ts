@@ -10,7 +10,6 @@ export interface DaemonPidRecord {
   pid: number;
   token: string;
   port: number;
-  startedAt: string;
 }
 
 /** The sole application writer. The data-directory lease admits one daemon at a time. */
@@ -56,7 +55,6 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
       pid: process.pid,
       token: current.token,
       port,
-      startedAt: current.startedAt,
     };
     atomicWriteFileSync(layout.daemonPidFile, `${JSON.stringify(record, null, 2)}\n`);
     published = true;

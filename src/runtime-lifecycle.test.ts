@@ -40,8 +40,6 @@ describe("Core and proxy lifecycle", () => {
         stateKnown: true,
         state: { supported: true, enabled: false },
       }),
-      isApplied: async () => false,
-      getState: async () => ({ supported: true, enabled: false }),
     };
     const lifecycle = new RuntimeLifecycle({
       layout,
@@ -96,15 +94,6 @@ describe("Core and proxy lifecycle", () => {
     f.events.length = 0;
     await f.lifecycle.reconcileSystemProxy();
     assert.deepEqual(f.events, ["proxy:18780"]);
-  });
-  it("releases a just-applied proxy when Core ownership is lost", async () => {
-    const f = fixture();
-    f.proxy.apply = async () => {
-      f.events.push("proxy");
-      f.core.running = false;
-    };
-    await assert.rejects(f.lifecycle.apply(f.configuration), /ownership was lost/);
-    assert.equal(f.events.at(-1), "release");
   });
   it("retains saved configuration after startup failure and leaves proxy released", async () => {
     const f = fixture();

@@ -116,8 +116,6 @@ export class DaemonTestHarness {
         appliedKnown: true,
         stateKnown: true,
       }),
-      isApplied: async () => applied,
-      getState: async () => state(),
     };
   }
 
@@ -128,7 +126,6 @@ export class DaemonTestHarness {
       writeInstallRecord(
         {
           coreVersion: "v1.0.0",
-          installedAt: "2026-09-08T00:00:00.000Z",
         },
         this.layout,
       );

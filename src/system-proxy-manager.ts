@@ -28,8 +28,6 @@ export interface SystemProxyController {
   apply(opts: EnableOptions): Promise<void>;
   release(): Promise<void>;
   inspect(fresh?: boolean): Promise<SystemProxyInspection>;
-  isApplied(): Promise<boolean>;
-  getState(): Promise<SystemProxyState>;
 }
 
 export interface SystemProxyJournalLayout {
@@ -74,7 +72,7 @@ function parseCreatedAt(value: unknown): string {
 }
 
 /** Strictly parse an on-disk ownership journal before any OS operation. */
-export function parseSystemProxyJournal(value: unknown): SystemProxyJournal {
+function parseSystemProxyJournal(value: unknown): SystemProxyJournal {
   const record = hasExactKeys(value, [
     "schemaVersion",
     "phase",
@@ -116,53 +114,23 @@ export function parseSystemProxyJournal(value: unknown): SystemProxyJournal {
   };
 }
 
-function sameJournal(a: SystemProxyJournal, b: SystemProxyJournal): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-/** Transaction phase may change without changing the captured ownership boundary. */
-function sameJournalOwnership(a: SystemProxyJournal, b: SystemProxyJournal): boolean {
-  return (
-    a.schemaVersion === b.schemaVersion &&
-    a.ownerPid === b.ownerPid &&
-    a.createdAt === b.createdAt &&
-    JSON.stringify(a.original) === JSON.stringify(b.original) &&
-    JSON.stringify(a.target) === JSON.stringify(b.target)
-  );
-}
-
 function combinedError(primary: unknown, recovery: unknown): Error {
   return new Error(
     `${errorMessage(primary)}; conditional restoration failed: ${errorMessage(recovery)}`,
   );
 }
 
-type JournalObservation =
-  | { readonly kind: "read"; readonly journal: SystemProxyJournal | undefined }
-  | { readonly kind: "error"; readonly error: unknown };
-
-interface InspectionAttempt {
-  readonly inspection: SystemProxyInspection;
-  readonly journalStable: boolean;
-}
-
 /**
- * Snapshot/journal based controller. Mutating operations are serialized within
- * this process; every persisted snapshot is parsed again before it is applied.
+ * Snapshot/journal based controller. All operations are serialized within this
+ * process and across processes by the shared state lock, so a persisted
+ * snapshot cannot change while an operation runs.
  */
 export class SystemProxyManager implements SystemProxyController {
   private readonly layout: SystemProxyJournalLayout;
   private readonly backend: SystemProxyBackend;
   private readonly operationLockFile: string;
   private operationQueue: Promise<void> = Promise.resolve();
-  private pendingWrites = 0;
-  private inspectionGeneration = 0;
-  private inspectionCache:
-    | { generation: number; expiresAt: number; inspection: SystemProxyInspection }
-    | undefined;
-  private inspectionInFlight:
-    | { generation: number; promise: Promise<SystemProxyInspection> }
-    | undefined;
+  private inspectionCache: { expiresAt: number; inspection: SystemProxyInspection } | undefined;
 
   constructor(options: SystemProxyManagerOptions = {}) {
     this.layout = options.layout ?? sashLayout();
@@ -174,210 +142,109 @@ export class SystemProxyManager implements SystemProxyController {
   }
 
   apply(opts: EnableOptions): Promise<void> {
-    this.pendingWrites += 1;
-    this.invalidateInspection();
-    return this.enqueue(async () => {
-      try {
-        await withStateLock(
-          this.operationLockFile,
-          { purpose: "apply system proxy", timeoutMs: 30_000 },
-          () => this.applyUnlocked(opts),
-        );
-      } finally {
-        this.pendingWrites -= 1;
-        this.invalidateInspection();
-      }
-    });
+    return this.enqueue(() =>
+      withStateLock(
+        this.operationLockFile,
+        { purpose: "apply system proxy", timeoutMs: 30_000 },
+        () => {
+          this.inspectionCache = undefined;
+          return this.applyUnlocked(opts);
+        },
+      ),
+    );
   }
 
   release(): Promise<void> {
-    this.pendingWrites += 1;
-    this.invalidateInspection();
-    return this.enqueue(async () => {
-      try {
-        await withStateLock(
-          this.operationLockFile,
-          { purpose: "restore system proxy", timeoutMs: 30_000 },
-          () => this.recoverUnlocked(),
-        );
-      } finally {
-        this.pendingWrites -= 1;
-        this.invalidateInspection();
-      }
-    });
+    return this.enqueue(() =>
+      withStateLock(
+        this.operationLockFile,
+        { purpose: "restore system proxy", timeoutMs: 30_000 },
+        () => {
+          this.inspectionCache = undefined;
+          return this.recoverUnlocked();
+        },
+      ),
+    );
   }
 
   inspect(fresh = false): Promise<SystemProxyInspection> {
-    if (this.pendingWrites > 0) {
-      return Promise.resolve({
-        applied: false,
-        appliedKnown: false,
-        stateKnown: false,
-        state: this.inspectionCache?.inspection.state ?? {
-          supported: this.backend.supported ?? isSystemProxySupported(),
-          enabled: false,
-        },
-        queryError: "System proxy change is in progress",
-      });
-    }
-    const generation = this.inspectionGeneration;
-    if (
-      !fresh &&
-      this.inspectionCache?.generation === generation &&
-      this.inspectionCache.expiresAt > Date.now()
-    ) {
-      return Promise.resolve(this.inspectionCache.inspection);
-    }
-    if (this.inspectionInFlight?.generation === generation) {
-      return this.inspectionInFlight.promise;
-    }
-
-    const promise = this.enqueue(async () => {
-      const result = await this.inspectUncached();
-      if (result.journalStable && this.inspectionGeneration === generation) {
-        this.inspectionCache = {
-          generation,
-          expiresAt: Date.now() + 3000,
-          inspection: result.inspection,
-        };
+    return this.enqueue(async () => {
+      if (!fresh && this.inspectionCache && this.inspectionCache.expiresAt > Date.now()) {
+        return this.inspectionCache.inspection;
       }
-      return result.inspection;
-    });
-    this.inspectionInFlight = { generation, promise };
-    const clearInFlight = (): void => {
-      if (
-        this.inspectionInFlight?.generation === generation &&
-        this.inspectionInFlight.promise === promise
-      ) {
-        this.inspectionInFlight = undefined;
-      }
-    };
-    void promise.then(clearInFlight, clearInFlight);
-    return promise;
-  }
-
-  async isApplied(): Promise<boolean> {
-    return (await this.inspect()).applied;
-  }
-
-  async getState(): Promise<SystemProxyState> {
-    return (await this.inspect()).state;
-  }
-
-  private invalidateInspection(): void {
-    this.inspectionGeneration += 1;
-    this.inspectionCache = undefined;
-  }
-
-  private observeJournal(): JournalObservation {
-    try {
-      return { kind: "read", journal: this.readJournal() };
-    } catch (error) {
-      return { kind: "error", error };
-    }
-  }
-
-  private sameJournalObservation(left: JournalObservation, right: JournalObservation): boolean {
-    if (left.kind === "error" || right.kind === "error") {
-      return (
-        left.kind === "error" &&
-        right.kind === "error" &&
-        errorMessage(left.error) === errorMessage(right.error)
+      const inspection = await withStateLock(
+        this.operationLockFile,
+        { purpose: "inspect system proxy", timeoutMs: 30_000 },
+        () => this.inspectUnlocked(),
       );
-    }
-    if (!left.journal || !right.journal) return left.journal === right.journal;
-    return sameJournal(left.journal, right.journal);
+      this.inspectionCache = { expiresAt: Date.now() + 3000, inspection };
+      return inspection;
+    });
   }
 
-  private inspectionMessages(
-    before: JournalObservation,
-    after: JournalObservation,
-    captureError?: { readonly caught: true; readonly error: unknown },
-  ): string[] {
+  private async inspectUnlocked(): Promise<SystemProxyInspection> {
+    if (this.backend.supported === false) {
+      return {
+        applied: false,
+        appliedKnown: true,
+        stateKnown: true,
+        state: {
+          supported: false,
+          enabled: false,
+          details: "System proxy integration is available on Windows only",
+        },
+      };
+    }
+
     const messages: string[] = [];
     const add = (error: unknown): void => {
       const message = errorMessage(error) || "unknown error";
       if (!messages.includes(message)) messages.push(message);
     };
-    if (before.kind === "error") add(before.error);
-    if (after.kind === "error") add(after.error);
-    if (!this.sameJournalObservation(before, after)) {
-      add(new Error("System proxy journal changed during inspection"));
+    let journal: SystemProxyJournal | undefined;
+    try {
+      journal = this.readJournal();
+    } catch (error) {
+      add(error);
     }
-    if (captureError) add(captureError.error);
-    return messages;
-  }
 
-  private async inspectAttempt(): Promise<InspectionAttempt> {
-    const before = this.observeJournal();
     let current: SystemProxySnapshot;
     let state: SystemProxyState;
     try {
       current = await this.captureCurrent();
       state = this.backend.state(current);
     } catch (error) {
-      const after = this.observeJournal();
-      const messages = this.inspectionMessages(before, after, { caught: true, error });
+      add(error);
       const queryError = messages.join("; ");
       return {
-        journalStable: this.sameJournalObservation(before, after),
-        inspection: {
-          applied: false,
-          state: {
-            supported: this.backend.supported ?? isSystemProxySupported(),
-            enabled: false,
-            details: queryError,
-          },
-          appliedKnown: false,
-          stateKnown: false,
-          queryError,
+        applied: false,
+        state: {
+          supported: this.backend.supported ?? isSystemProxySupported(),
+          enabled: false,
+          details: queryError,
         },
+        appliedKnown: false,
+        stateKnown: false,
+        queryError,
       };
     }
 
-    const after = this.observeJournal();
-    const journalStable = this.sameJournalObservation(before, after);
-    const messages = this.inspectionMessages(before, after);
     if (messages.length > 0) {
       state.details = [state.details, ...messages].filter(Boolean).join("; ");
-    }
-    const journal =
-      journalStable && before.kind === "read" && after.kind === "read" ? after.journal : undefined;
-    const appliedKnown = journalStable && messages.length === 0;
-    const queryError = messages.join("; ");
-    return {
-      journalStable,
-      inspection: {
-        applied:
-          appliedKnown &&
-          journal?.phase === "applied" &&
-          this.backend.equivalent(current, journal.target),
-        state,
-        appliedKnown,
-        stateKnown: true,
-        ...(queryError ? { queryError } : {}),
-      },
-    };
-  }
-
-  private async inspectUncached(): Promise<InspectionAttempt> {
-    if (this.backend.supported === false) {
       return {
-        journalStable: true,
-        inspection: {
-          applied: false,
-          appliedKnown: true,
-          stateKnown: true,
-          state: {
-            supported: false,
-            enabled: false,
-            details: "System proxy integration is available on Windows only",
-          },
-        },
+        applied: false,
+        state,
+        appliedKnown: false,
+        stateKnown: true,
+        queryError: messages.join("; "),
       };
     }
-    const first = await this.inspectAttempt();
-    return first.journalStable ? first : this.inspectAttempt();
+    return {
+      applied: journal?.phase === "applied" && this.backend.equivalent(current, journal.target),
+      state,
+      appliedKnown: true,
+      stateKnown: true,
+    };
   }
 
   private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
@@ -425,15 +292,6 @@ export class SystemProxyManager implements SystemProxyController {
     }
   }
 
-  private writeNewJournal(journal: SystemProxyJournal): void {
-    const existing = this.readJournal();
-    if (existing) {
-      throw new Error(`System proxy journal already exists: ${this.layout.systemProxyStateFile}`);
-    }
-    const canonical = parseSystemProxyJournal(journal);
-    this.writeJournal(canonical);
-  }
-
   private writeJournal(journal: SystemProxyJournal): void {
     const text = `${JSON.stringify(journal, null, 2)}\n`;
     if (Buffer.byteLength(text) > MAX_JOURNAL_BYTES) {
@@ -444,33 +302,13 @@ export class SystemProxyManager implements SystemProxyController {
     atomicWriteFileSync(this.layout.systemProxyStateFile, text, 0o600);
   }
 
-  private replaceJournal(expected: SystemProxyJournal, next: SystemProxyJournal): void {
-    const existing = this.readJournal();
-    if (!existing || !sameJournal(existing, expected)) {
-      throw new Error(
-        `System proxy journal changed while applying: ${this.layout.systemProxyStateFile}`,
-      );
-    }
-    const canonical = parseSystemProxyJournal(next);
-    this.writeJournal(canonical);
-  }
-
-  private clearJournal(expected: SystemProxyJournal): void {
-    const existing = this.readJournal();
-    if (!existing || !sameJournalOwnership(existing, expected)) {
-      throw new Error(
-        `System proxy journal changed while restoring: ${this.layout.systemProxyStateFile}`,
-      );
-    }
+  private clearJournal(): void {
     try {
       fs.unlinkSync(this.layout.systemProxyStateFile);
     } catch (err) {
-      if (errnoCode(err) === "ENOENT") {
-        throw new Error(
-          `System proxy journal changed while restoring: ${this.layout.systemProxyStateFile}`,
-        );
+      if (errnoCode(err) !== "ENOENT") {
+        throw new Error(`Could not remove system proxy journal: ${errorMessage(err)}`);
       }
-      throw new Error(`Could not remove system proxy journal: ${errorMessage(err)}`);
     }
   }
 
@@ -506,11 +344,11 @@ export class SystemProxyManager implements SystemProxyController {
       original,
       target,
     };
-    this.writeNewJournal(prepared);
+    this.writeJournal(prepared);
 
     const beforeApply = await this.captureCurrent();
     if (!this.backend.equivalent(beforeApply, original)) {
-      this.clearJournal(prepared);
+      this.clearJournal();
       throw new Error(
         "System proxy settings changed while Sash was preparing ownership; refusing to overwrite them",
       );
@@ -524,7 +362,7 @@ export class SystemProxyManager implements SystemProxyController {
         throw new Error("System proxy target verification failed after apply");
       }
       const applied: SystemProxyJournal = { ...prepared, phase: "applied" };
-      this.replaceJournal(prepared, applied);
+      this.writeJournal(applied);
       activeJournal = applied;
     } catch (err) {
       try {
@@ -549,7 +387,7 @@ export class SystemProxyManager implements SystemProxyController {
   private async restoreJournal(journal: SystemProxyJournal): Promise<void> {
     const current = await this.captureCurrent();
     if (this.backend.equivalent(current, journal.original)) {
-      this.clearJournal(journal);
+      this.clearJournal();
       return;
     }
 
@@ -565,7 +403,7 @@ export class SystemProxyManager implements SystemProxyController {
 
     const restoring: SystemProxyJournal =
       journal.phase === "restoring" ? journal : { ...journal, phase: "restoring" };
-    if (restoring !== journal) this.replaceJournal(journal, restoring);
+    if (restoring !== journal) this.writeJournal(restoring);
 
     let applyResult: { readonly ok: true } | { readonly ok: false; readonly error: unknown } = {
       ok: true,
@@ -594,6 +432,6 @@ export class SystemProxyManager implements SystemProxyController {
         : combinedError(applyResult.error, verificationError);
     }
 
-    this.clearJournal(restoring);
+    this.clearJournal();
   }
 }

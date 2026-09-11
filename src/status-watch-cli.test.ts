@@ -9,8 +9,8 @@ import { atomicWriteFileSync } from "./fs-atomic.js";
 import {
   buildSanitizedEnv,
   classifyProcessIdentity,
-  commandLineContains,
   killProcessGracefully,
+  runSanitizedCommand,
 } from "./process.js";
 import { acquireStateLock } from "./state-lock.js";
 import type { CliRuntimeStatus } from "./status.js";
@@ -18,6 +18,36 @@ import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferredValue } from "./testing/state.js";
 
 const harness = useDaemonTestHarness();
+
+/** Fixture-only identity check: the node child shares its executable with other processes. */
+function pathArgumentMatches(pid: number, marker: string): boolean {
+  try {
+    if (process.platform === "linux")
+      return fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes(marker);
+    if (process.platform === "darwin")
+      return runSanitizedCommand("/bin/ps", ["-ww", "-p", String(pid), "-o", "command="], {
+        timeoutMs: 3000,
+      }).includes(marker);
+    const root = process.env.SystemRoot ?? "C:\\Windows";
+    const shell = path.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const script = [
+      `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction Stop`,
+      "if ($p.CommandLine) { [Console]::Out.Write($p.CommandLine) }",
+    ].join("; ");
+    return runSanitizedCommand(
+      shell,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); ${script}`,
+      ],
+      { timeoutMs: 5000 },
+    ).includes(marker);
+  } catch {
+    return false;
+  }
+}
 
 for (const withDelay of [false, true]) {
   it(`streams CLI NDJSON and exits 0 on a closed output pipe (delay=${withDelay})`, {
@@ -90,7 +120,7 @@ for (const withDelay of [false, true]) {
             timeoutMs: 4000,
             verify: () =>
               classifyProcessIdentity(pid, process.execPath) === "match" &&
-              commandLineContains(pid, pathToFileURL(preload).href)
+              pathArgumentMatches(pid, pathToFileURL(preload).href)
                 ? "match"
                 : "unknown",
           }),

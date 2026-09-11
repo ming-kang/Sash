@@ -11,7 +11,6 @@ import {
   type SystemProxyState,
 } from "./sysproxy.js";
 import {
-  parseSystemProxyJournal,
   type SystemProxyJournal,
   type SystemProxyJournalLayout,
   SystemProxyManager,
@@ -113,6 +112,10 @@ describe("SystemProxyManager", () => {
     return text;
   }
 
+  function readJournal(): SystemProxyJournal {
+    return JSON.parse(fs.readFileSync(layout.systemProxyStateFile, "utf8")) as SystemProxyJournal;
+  }
+
   it("restores an existing proxy snapshot after releasing Sash ownership", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
@@ -120,12 +123,9 @@ describe("SystemProxyManager", () => {
 
     await manager.apply({ port: 17890 });
 
-    const journal = parseSystemProxyJournal(
-      JSON.parse(fs.readFileSync(layout.systemProxyStateFile, "utf8")) as unknown,
-    );
-    assert.equal(journal.phase, "applied");
+    assert.equal(readJournal().phase, "applied");
     assert.deepEqual(backend.current, targetFor(backend, original));
-    assert.equal(await manager.isApplied(), true);
+    assert.equal((await manager.inspect()).applied, true);
     if (process.platform !== "win32") {
       assert.equal(fs.statSync(layout.systemProxyStateFile).mode & 0o777, 0o600);
     }
@@ -134,10 +134,10 @@ describe("SystemProxyManager", () => {
 
     assert.deepEqual(backend.current, original);
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
-    assert.equal(await manager.isApplied(), false);
+    assert.equal((await manager.inspect()).applied, false);
   });
 
-  it("rejects old and malformed journal formats without migrating them", () => {
+  it("rejects old and malformed journal formats without migrating them", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const valid: SystemProxyJournal = {
@@ -148,13 +148,18 @@ describe("SystemProxyManager", () => {
       original,
       target: targetFor(backend, original),
     };
+    const manager = new SystemProxyManager({ layout, backend });
     for (const invalid of [
       { ...valid, schemaVersion: 1 },
       { ...valid, extra: true },
       { ...valid, ownerPid: 0 },
       { ...valid, original: { ...original, extra: true } },
     ]) {
-      assert.throws(() => parseSystemProxyJournal(invalid), /Invalid system proxy journal/);
+      fs.mkdirSync(path.dirname(layout.systemProxyStateFile), { recursive: true });
+      const text = JSON.stringify(invalid);
+      fs.writeFileSync(layout.systemProxyStateFile, text, { mode: 0o600 });
+      await assert.rejects(manager.release(), /journal is invalid/);
+      assert.equal(fs.readFileSync(layout.systemProxyStateFile, "utf8"), text, "left untouched");
     }
   });
 
@@ -326,10 +331,7 @@ describe("SystemProxyManager", () => {
       /target write failed; conditional restoration failed: restore write failed/,
     );
 
-    const journal = parseSystemProxyJournal(
-      JSON.parse(fs.readFileSync(layout.systemProxyStateFile, "utf8")) as unknown,
-    );
-    assert.equal(journal.phase, "restoring");
+    assert.equal(readJournal().phase, "restoring");
     assert.deepEqual(backend.current, partial);
   });
 
@@ -347,10 +349,7 @@ describe("SystemProxyManager", () => {
     };
 
     await assert.rejects(manager.release(), /restore interrupted/);
-    const interrupted = parseSystemProxyJournal(
-      JSON.parse(fs.readFileSync(layout.systemProxyStateFile, "utf8")) as unknown,
-    );
-    assert.equal(interrupted.phase, "restoring");
+    assert.equal(readJournal().phase, "restoring");
     assert.deepEqual(backend.current, partial);
 
     backend.onApply = (snapshot, fake) => {
@@ -384,7 +383,19 @@ describe("SystemProxyManager", () => {
     assert.equal(fs.readFileSync(layout.systemProxyStateFile, "utf8"), corrupt);
   });
 
-  it("deduplicates same-generation inspections and reuses only settled non-fresh cache", async () => {
+  it("reuses a settled non-fresh inspection cache and always captures when fresh", async () => {
+    const backend = new FakeBackend(snapshot("proxy-a", 8000));
+    const manager = new SystemProxyManager({ layout, backend });
+
+    await manager.inspect();
+    assert.equal(backend.captureCalls, 1);
+    await manager.inspect();
+    assert.equal(backend.captureCalls, 1, "non-fresh reads reuse the settled cache");
+    await manager.inspect(true);
+    assert.equal(backend.captureCalls, 2, "fresh reads bypass the cache");
+  });
+
+  it("serializes concurrent inspections behind one capture", async () => {
     const backend = new FakeBackend(snapshot("proxy-a", 8000));
     const entered = deferred();
     const release = deferred();
@@ -400,20 +411,14 @@ describe("SystemProxyManager", () => {
     const first = manager.inspect();
     await entered.promise;
     const second = manager.inspect();
-    const freshWhilePending = manager.inspect(true);
-    assert.equal(second, first);
-    assert.equal(freshWhilePending, first);
     release.resolve();
-    await Promise.all([first, second, freshWhilePending]);
-    assert.equal(backend.captureCalls, 1);
+    const [a, b] = await Promise.all([first, second]);
 
-    await manager.inspect();
-    assert.equal(backend.captureCalls, 1);
-    await manager.inspect(true);
-    assert.equal(backend.captureCalls, 2);
+    assert.deepEqual(a, b);
+    assert.equal(backend.captureCalls, 1, "the queued read is served from the settled cache");
   });
 
-  it("keeps inspection responsive with unknown state while serializing OS writes", async () => {
+  it("serializes inspection behind an in-flight write", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const events: string[] = [];
@@ -431,49 +436,25 @@ describe("SystemProxyManager", () => {
 
     const applying = manager.apply({ port: 17890 });
     await applyEntered.promise;
-    const inspecting = manager.inspect();
+    const inspecting = manager.inspect(true);
     const releasing = manager.release();
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.deepEqual(events, ["target"]);
+    assert.deepEqual(events, ["target"], "inspection waits for the pending write");
 
     releaseApply.resolve();
     await applying;
     const observed = await inspecting;
     await releasing;
 
-    assert.equal(observed.appliedKnown, false);
-    assert.equal(observed.stateKnown, false);
-    assert.match(observed.queryError ?? "", /in progress/);
+    assert.equal(observed.applied, true, "inspection observed the applied target");
+    assert.equal(observed.appliedKnown, true);
+    assert.equal(observed.stateKnown, true);
     assert.deepEqual(events, ["target", "original"]);
     assert.deepEqual(backend.current, original);
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
-  it("retries inspection when another manager removes the journal during capture", async () => {
-    const original = snapshot("proxy-a", 8000);
-    const backend = new FakeBackend(original);
-    const owner = new SystemProxyManager({ layout, backend });
-    await owner.apply({ port: 17890 });
-    const baseline = backend.captureCalls;
-    backend.onCapture = () => {
-      if (backend.captureCalls === baseline + 1) {
-        fs.rmSync(layout.systemProxyStateFile);
-      }
-    };
-    const observer = new SystemProxyManager({ layout, backend });
-
-    const inspection = await observer.inspect(true);
-
-    assert.equal(backend.captureCalls, baseline + 2);
-    assert.equal(inspection.applied, false);
-    assert.equal(inspection.appliedKnown, true);
-    assert.equal(inspection.stateKnown, true);
-    assert.equal(inspection.state.enabled, true);
-    await observer.inspect();
-    assert.equal(backend.captureCalls, baseline + 2);
-  });
-
-  it("reports expected-journal disappearance during verified restoration", async () => {
+  it("tolerates a journal removed during verified restoration", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const manager = new SystemProxyManager({ layout, backend });
@@ -484,7 +465,7 @@ describe("SystemProxyManager", () => {
       if (captures === 2) fs.rmSync(layout.systemProxyStateFile);
     };
 
-    await assert.rejects(manager.release(), /journal changed while restoring/);
+    await manager.release();
 
     assert.deepEqual(backend.current, original);
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
@@ -546,6 +527,6 @@ describe("SystemProxyManager", () => {
 
     await assert.rejects(queued.apply({ port: 17890 }));
     await queued.apply({ port: 17890 });
-    assert.equal(await queued.isApplied(), true);
+    assert.equal((await queued.inspect()).applied, true);
   });
 });

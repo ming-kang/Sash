@@ -39,8 +39,6 @@ describe("saved settings", () => {
         stateKnown: true,
         state: { supported: true, enabled: false },
       }),
-      isApplied: async () => false,
-      getState: async () => ({ supported: true, enabled: false }),
     };
     const lifecycle = new RuntimeLifecycle({
       layout,

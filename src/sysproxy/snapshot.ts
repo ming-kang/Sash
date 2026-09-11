@@ -30,15 +30,6 @@ export function parseSystemProxySnapshot(value: unknown): SystemProxySnapshot {
 
 export { parseSystemProxySnapshot as windowsSnapshot };
 
-export function isSystemProxySnapshot(value: unknown): value is SystemProxySnapshot {
-  try {
-    parseSystemProxySnapshot(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** AutoDetect is observed but Windows owns it; never include it in managed comparisons. */
 export function snapshotsEquivalent(
   left: SystemProxySnapshot,

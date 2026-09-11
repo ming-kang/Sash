@@ -66,6 +66,7 @@ export function testStatus(): DaemonStatus {
       bootId: "test-boot",
       startedAt: "2026-09-08T00:00:00.000Z",
       port: settings.daemonPort,
+      version: "1.2.3",
     },
     revisions: { state: 0, runtime: 1 },
     core: {
@@ -98,7 +99,7 @@ export class FakeCoreSupervisor extends CoreSupervisor {
   healthy = true;
   pid = 9900;
   version = "v1.0.0";
-  generation = 0;
+  private ownership: object = {};
   starts = 0;
   stops = 0;
   onStart?: () => Promise<void> | void;
@@ -115,10 +116,10 @@ export class FakeCoreSupervisor extends CoreSupervisor {
     return this.running;
   }
   override ownedCoreSnapshot(): CoreOwnershipSnapshot | undefined {
-    return this.running ? { pid: this.pid, generation: this.generation } : undefined;
+    return this.running ? { child: this.ownership, pid: this.pid } : undefined;
   }
   override ownsCore(owner: CoreOwnershipSnapshot): boolean {
-    return this.running && owner.pid === this.pid && owner.generation === this.generation;
+    return this.running && owner.child === this.ownership;
   }
   override async status(): Promise<CoreState> {
     await this.onStatus?.();
@@ -137,7 +138,7 @@ export class FakeCoreSupervisor extends CoreSupervisor {
     await this.onStart?.();
     if (this.running) throw new Error("Core is already running");
     this.pid += 1;
-    this.generation += 1;
+    this.ownership = {};
     this.running = true;
     this.version = currentCoreVersion(this.testLayout) || this.version;
     return { pid: this.pid, version: this.version };
@@ -146,7 +147,7 @@ export class FakeCoreSupervisor extends CoreSupervisor {
     this.stops += 1;
     await this.onStop?.();
     this.running = false;
-    this.generation += 1;
+    this.ownership = {};
   }
   override async restart(): Promise<{ pid: number; version: string }> {
     await this.stop();

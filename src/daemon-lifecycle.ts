@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadSettings } from "./app-state.js";
 import type { DaemonPidRecord } from "./daemon/entry.js";
 import { createDaemonClient } from "./daemon-client.js";
-import { isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
+import { isPlainObject } from "./json-shape.js";
 import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-follow.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import {
@@ -24,8 +24,6 @@ export interface DaemonStoppedInfo {
   running: false;
   healthy: false;
   pid?: number;
-  stalePidFile?: true;
-  staleLeaseFile?: true;
 }
 
 export interface DaemonHealthyInfo {
@@ -42,8 +40,6 @@ export interface DaemonUnhealthyInfo {
   healthy: false;
   pid?: number;
   port?: number;
-  stalePidFile?: true;
-  staleLeaseFile?: true;
 }
 
 export type DaemonRunningInfo = DaemonStoppedInfo | DaemonHealthyInfo | DaemonUnhealthyInfo;
@@ -64,8 +60,7 @@ export function readDaemonPidRecord(
       typeof parsed.port !== "number" ||
       !Number.isInteger(parsed.port) ||
       parsed.port < 1 ||
-      parsed.port > 65_535 ||
-      !isCanonicalIsoTimestamp(parsed.startedAt)
+      parsed.port > 65_535
     ) {
       return undefined;
     }
@@ -73,7 +68,6 @@ export function readDaemonPidRecord(
       pid: parsed.pid,
       token: parsed.token,
       port: parsed.port,
-      startedAt: parsed.startedAt,
     };
   } catch {
     return undefined;
@@ -98,8 +92,6 @@ export async function evaluateDaemon(
       running: false,
       healthy: false,
       ...(record || lease ? { pid: record?.pid ?? lease?.pid } : {}),
-      ...(record ? { stalePidFile: true } : {}),
-      ...(lease ? { staleLeaseFile: true } : {}),
     };
   if (!lease || !record || !liveLease || !liveRecord || lease.pid !== record.pid) {
     return { kind: "unhealthy", running: true, healthy: false, pid: lease?.pid ?? record?.pid };

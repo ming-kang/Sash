@@ -85,16 +85,18 @@ describe("daemon ownership evaluation", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it("accepts only canonical bounded daemon PID records", () => {
+  it("accepts bounded daemon PID records and ignores extra fields", () => {
     const layout = sashLayout(root);
     fs.mkdirSync(layout.stateDir, { recursive: true });
     const valid = {
       pid: 1234,
       token: "boot-token",
       port: 19090,
-      startedAt: "2026-01-01T00:00:00.000Z",
     };
-    fs.writeFileSync(layout.daemonPidFile, `${JSON.stringify({ ...valid, future: true })}\n`);
+    fs.writeFileSync(
+      layout.daemonPidFile,
+      `${JSON.stringify({ ...valid, future: true, startedAt: "2026-01-01T00:00:00.000Z" })}\n`,
+    );
     assert.deepEqual(readDaemonPidRecord(layout), valid);
 
     for (const document of [
@@ -107,7 +109,6 @@ describe("daemon ownership evaluation", () => {
       { ...valid, port: 0 },
       { ...valid, port: 65_536 },
       { ...valid, port: 19090.5 },
-      { ...valid, startedAt: "2026-01-01T00:00:00Z" },
     ]) {
       fs.writeFileSync(layout.daemonPidFile, `${JSON.stringify(document)}\n`);
       assert.equal(readDaemonPidRecord(layout), undefined);
@@ -144,11 +145,9 @@ describe("daemon ownership evaluation", () => {
   it("reports a dead singleton lease as stale rather than running", async () => {
     const layout = sashLayout(root);
     const dead: StateLockRecord = {
-      version: 1,
       pid: 2_147_483_647,
       token: "dead-daemon-token",
       purpose: "dead sashd",
-      acquiredAt: "2026-01-01T00:00:00.000Z",
     };
     fs.mkdirSync(layout.stateDir, { recursive: true });
     fs.writeFileSync(layout.daemonLeaseFile, `${JSON.stringify(dead)}\n`);
@@ -159,7 +158,6 @@ describe("daemon ownership evaluation", () => {
       kind: "stopped",
       running: false,
       healthy: false,
-      staleLeaseFile: true,
       pid: dead.pid,
     });
   });

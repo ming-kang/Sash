@@ -29,8 +29,9 @@ export interface CoreState {
 
 /** A point-in-time claim for the child currently owned by this supervisor. */
 export interface CoreOwnershipSnapshot {
-  generation: number;
-  pid: number;
+  /** Opaque identity of the claimed child; only compared, never inspected. */
+  readonly child: object;
+  readonly pid: number;
 }
 
 export interface CoreSupervisorOptions {
@@ -62,7 +63,6 @@ export class CoreSupervisor {
   private child: ChildProcess | null = null;
   private readonly pidRecordOwners = new WeakSet<ChildProcess>();
   private childStartedAt: string | undefined;
-  private childGeneration = 0;
   private stopping = false;
   private readonly layout: SashLayout;
   private readonly getSettings: () => SashSettings;
@@ -116,16 +116,8 @@ export class CoreSupervisor {
     if (this.pidRecordOwners.delete(child)) clearPidRecord(this.layout.pidFile);
   }
 
-  /**
-   * Terminate a just-spawned child after a startup failure. `pidRecord:
-   * "owned"` clears the persisted record because this start wrote it;
-   * "uncertain" leaves any on-disk record untouched.
-   */
-  private async abortStart(
-    child: ChildProcess,
-    pid: number,
-    pidRecord: "uncertain" | "owned",
-  ): Promise<boolean> {
+  /** Terminate a just-spawned child after a startup failure. */
+  private async abortStart(child: ChildProcess, pid: number): Promise<boolean> {
     this.stopping = true;
     const terminated = await this.kill(pid, {
       timeoutMs: 3000,
@@ -134,8 +126,7 @@ export class CoreSupervisor {
     if (terminated && this.child === child) {
       this.child = null;
       this.childStartedAt = undefined;
-      this.childGeneration++;
-      if (pidRecord === "owned") this.clearOwnedPidRecord(child);
+      this.clearOwnedPidRecord(child);
     }
     return terminated;
   }
@@ -169,7 +160,6 @@ export class CoreSupervisor {
 
     this.child = child;
     this.childStartedAt = new Date().toISOString();
-    this.childGeneration++;
 
     child.once("exit", (code, signal) => {
       // A stale exit from a replaced process (restart race) must not clobber
@@ -178,7 +168,6 @@ export class CoreSupervisor {
       const wasStopping = this.stopping;
       this.child = null;
       this.childStartedAt = undefined;
-      this.childGeneration++;
       this.clearOwnedPidRecord(child);
       if (!wasStopping) {
         Promise.resolve(this.onExitCallback?.(code, signal)).catch(() => {
@@ -195,7 +184,7 @@ export class CoreSupervisor {
       });
       this.pidRecordOwners.add(child);
     } catch (err) {
-      const terminated = await this.abortStart(child, pid, "uncertain");
+      const terminated = await this.abortStart(child, pid);
       const cleanup = terminated ? "" : `; process ${pid} could not be confirmed stopped`;
       throw new Error(`Failed to persist Core PID ownership: ${(err as Error).message}${cleanup}`);
     }
@@ -206,7 +195,7 @@ export class CoreSupervisor {
 
     while (Date.now() < deadline) {
       if (spawnError) {
-        const terminated = await this.abortStart(child, pid, "owned");
+        const terminated = await this.abortStart(child, pid);
         const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
           maxLines: 20,
         });
@@ -237,7 +226,7 @@ export class CoreSupervisor {
 
     // Health check timed out. Preserve ownership records unless termination
     // is positively confirmed, so later recovery can still identify the Core.
-    const terminated = await this.abortStart(child, pid, "owned");
+    const terminated = await this.abortStart(child, pid);
     const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
       maxLines: 20,
     });
@@ -254,7 +243,6 @@ export class CoreSupervisor {
   async stop(): Promise<void> {
     const child = this.child;
     if (!child?.pid || !this.isAlive(child.pid)) {
-      if (this.child) this.childGeneration++;
       this.child = null;
       this.childStartedAt = undefined;
       clearPidRecord(this.layout.pidFile);
@@ -273,7 +261,6 @@ export class CoreSupervisor {
     if (this.child === child) {
       this.child = null;
       this.childStartedAt = undefined;
-      this.childGeneration++;
       this.clearOwnedPidRecord(child);
     }
   }
@@ -287,18 +274,12 @@ export class CoreSupervisor {
   ownedCoreSnapshot(): CoreOwnershipSnapshot | undefined {
     const child = this.child;
     if (!child?.pid || !this.isAlive(child.pid)) return undefined;
-    return { generation: this.childGeneration, pid: child.pid };
+    return { child, pid: child.pid };
   }
 
   /** True only while the exact child captured by `ownedCoreSnapshot` remains live. */
   ownsCore(snapshot: CoreOwnershipSnapshot): boolean {
-    const child = this.child;
-    return Boolean(
-      child &&
-        child.pid === snapshot.pid &&
-        this.childGeneration === snapshot.generation &&
-        this.isAlive(snapshot.pid),
-    );
+    return Boolean(this.child && this.child === snapshot.child && this.isAlive(snapshot.pid));
   }
 
   /** Every read probes the controller directly; DaemonEvents already throttles polling. */

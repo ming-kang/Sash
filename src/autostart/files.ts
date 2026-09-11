@@ -35,7 +35,6 @@ export async function registerFile(
   file: string,
   contents: string | Buffer,
   register: () => Promise<void>,
-  compensate?: () => Promise<void>,
 ): Promise<void> {
   const before = readRegistration(file);
   const next = Buffer.from(contents);
@@ -49,7 +48,6 @@ export async function registerFile(
       }
       if (before) atomicWriteFileSync(file, before);
       else durableRemoveFileSync(file);
-      await compensate?.();
     } catch (rollbackError) {
       throw new Error(
         `${errorMessage(error)}; autostart rollback failed: ${errorMessage(rollbackError)}`,

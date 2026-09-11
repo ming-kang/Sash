@@ -16,7 +16,6 @@ describe("daemon server", () => {
       writeInstallRecord(
         {
           coreVersion: "v1.2.3",
-          installedAt: "2026-01-01T00:00:00.000Z",
         },
         h.layout,
       );
@@ -57,8 +56,6 @@ describe("daemon server", () => {
             stateKnown: true,
           };
         },
-        isApplied: async () => false,
-        getState: async () => ({ supported: true, enabled: false }),
       };
       await h.startServer({ systemProxy });
 
@@ -93,34 +90,27 @@ describe("daemon server", () => {
           stateKnown: true,
           state: { supported: true, enabled: applied, server: "127.0.0.1:7890" },
         }),
-        isApplied: async () => applied,
-        getState: async () => ({
-          supported: true,
-          enabled: applied,
-          server: "127.0.0.1:7890",
-        }),
       };
 
       let running = false;
-      let generation = 0;
+      let ownership: object = {};
       const fakeSupervisor = {
         isRunning: () => running,
-        ownedCoreSnapshot: () => (running ? { pid: 1234, generation } : undefined),
-        ownsCore: (snapshot: { pid: number; generation: number }) =>
-          running && snapshot.pid === 1234 && snapshot.generation === generation,
+        ownedCoreSnapshot: () => (running ? { child: ownership, pid: 1234 } : undefined),
+        ownsCore: (snapshot: { child: object }) => running && snapshot.child === ownership,
         status: async (): Promise<CoreState> => ({ running, healthy: running }),
         start: async () => {
           running = true;
-          generation++;
+          ownership = {};
           return { pid: 1234, version: "v1.0.0" };
         },
         stop: async () => {
           running = false;
-          generation++;
+          ownership = {};
         },
         restart: async () => {
           running = true;
-          generation++;
+          ownership = {};
           return { pid: 1234, version: "v1.0.0" };
         },
         cleanStaleCore: async () => {},
@@ -176,8 +166,6 @@ describe("daemon server", () => {
           applied: true,
           state: { supported: true, enabled: true },
         }),
-        isApplied: async () => true,
-        getState: async () => ({ supported: true, enabled: true }),
       };
       h.settings = { ...h.settings, systemProxy: true };
       await h.startServer({
@@ -225,8 +213,6 @@ describe("daemon server", () => {
           applied: false,
           state: { supported: true, enabled: false },
         }),
-        isApplied: async () => false,
-        getState: async () => ({ supported: true, enabled: false }),
       };
       const inst = await h.startServer({ systemProxy, scheduler });
 
@@ -253,7 +239,7 @@ describe("daemon server", () => {
       });
       const supervisor = {
         isRunning: () => running,
-        ownedCoreSnapshot: () => (running ? { pid: 1234, generation: 1 } : undefined),
+        ownedCoreSnapshot: () => (running ? { child: {}, pid: 1234 } : undefined),
         ownsCore: () => running,
         status: async (): Promise<CoreState> => ({ running, healthy: running, pid: 1234 }),
         start: async () => {
@@ -300,8 +286,6 @@ describe("daemon server", () => {
           appliedKnown: true,
           stateKnown: true,
         }),
-        isApplied: async () => false,
-        getState: async () => ({ supported: true, enabled: false }),
       };
       const inst = await h.startServer({ systemProxy });
 

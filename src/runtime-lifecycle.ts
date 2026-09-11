@@ -123,10 +123,6 @@ export class RuntimeLifecycle {
       throw new Error("Cannot enable system proxy without a healthy owned Core");
     }
     await systemProxy.apply({ port: this.runtimeSettings.mixedPort });
-    const after = await supervisor.status();
-    if (after.running && after.healthy && supervisor.ownsCore(owner)) return;
-    await systemProxy.release();
-    throw new Error("Core ownership was lost while applying the system proxy");
   }
 
   async update(

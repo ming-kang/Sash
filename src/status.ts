@@ -398,11 +398,6 @@ export function runtimeStatusHeadline(status: CliRuntimeStatus): StatusHeadline 
   };
 }
 
-export function formatObservedProxy(state: CliObservedSystemProxy): string {
-  if (state.enabled === null) return "unknown";
-  return state.enabled ? `on (${state.server || "unknown server"})` : "off";
-}
-
 /**
  * One line for the three facts about the system proxy: whether the user wants
  * it, and what Windows actually has. "Wanted but not applied", "off but still

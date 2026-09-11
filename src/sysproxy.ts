@@ -1,7 +1,7 @@
 /** Windows registry adapter and the shared system-proxy contract. */
 export { isSystemProxySupported } from "./sysproxy/common.js";
 export { createSystemProxyBackend } from "./sysproxy/factory.js";
-export { isSystemProxySnapshot, parseSystemProxySnapshot } from "./sysproxy/snapshot.js";
+export { parseSystemProxySnapshot } from "./sysproxy/snapshot.js";
 export type {
   EnableOptions,
   SystemProxyBackend,

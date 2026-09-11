@@ -2,7 +2,6 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
-import { commandLineContainsPath } from "./process-command-path.js";
 
 /**
  * Low-level process toolkit: liveness probes, fail-closed identity
@@ -176,44 +175,6 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
   }
 
   return "unknown";
-}
-
-/**
- * Best-effort full command line of a process. Needed because the sash daemon
- * is a Node process: its executable path (node.exe) is shared by unrelated
- * programs, so identity must come from the script argument instead.
- */
-export function readProcessCommandLine(pid: number): string | undefined {
-  try {
-    if (process.platform === "linux") {
-      const raw = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8");
-      const parts = raw.split("\0").filter((s) => s.length > 0);
-      return parts.length > 0 ? parts.join(" ") : undefined;
-    }
-    if (process.platform === "win32") {
-      const script = [
-        `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction Stop`,
-        "if ($p.CommandLine) { [Console]::Out.Write($p.CommandLine) }",
-      ].join("; ");
-      return runPowerShell(script);
-    }
-    if (process.platform === "darwin") {
-      const out = runSanitizedCommand("/bin/ps", ["-ww", "-p", String(pid), "-o", "command="], {
-        timeoutMs: 3000,
-      }).trim();
-      return out || undefined;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
-/** True when the process command line contains the given marker (path fragment). */
-export function commandLineContains(pid: number, marker: string): boolean {
-  const cmdline = readProcessCommandLine(pid);
-  if (!cmdline) return false;
-  return commandLineContainsPath(cmdline, marker);
 }
 
 /** Credentials and CI tokens that must never reach a child process. */
