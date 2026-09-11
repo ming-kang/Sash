@@ -64,8 +64,6 @@ export interface FetchResponse {
   headers: Record<string, string | string[] | undefined>;
   /** Consume the body as UTF-8, rejecting it if it exceeds maxBytes. */
   text: (maxBytes: number) => Promise<string>;
-  /** Consume the body, rejecting it if it exceeds maxBytes. */
-  buffer: (maxBytes: number) => Promise<Buffer>;
   /** Drain the body without buffering it. */
   discard: () => Promise<void>;
 }
@@ -85,8 +83,6 @@ export interface FetchOptions {
   attempts?: number;
   /** Per-attempt time to receive response headers. Default 30 seconds. */
   headersTimeoutMs?: number;
-  /** Maximum inactivity between response-body chunks. Default 30 seconds. */
-  bodyInactivityTimeoutMs?: number;
   /** Absolute request budget, including retries, headers, and body consumption. Default 60 seconds. */
   deadlineMs?: number;
   headers?: Record<string, string>;
@@ -143,11 +139,6 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
     throw new Error("attempts must be a positive integer");
   }
   const headersTimeoutMs = positiveTimeout(opts.headersTimeoutMs, 30_000, "headersTimeoutMs");
-  const bodyInactivityTimeoutMs = positiveTimeout(
-    opts.bodyInactivityTimeoutMs,
-    30_000,
-    "bodyInactivityTimeoutMs",
-  );
   const deadlineMs = positiveTimeout(opts.deadlineMs, 60_000, "deadlineMs");
   const deadline = new AbortController();
   const signal = opts.signal ? AbortSignal.any([deadline.signal, opts.signal]) : deadline.signal;
@@ -172,7 +163,7 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
           headers: { "user-agent": USER_AGENT, ...opts.headers },
           body: opts.body,
           headersTimeout: headersTimeoutMs,
-          bodyTimeout: bodyInactivityTimeoutMs,
+          bodyTimeout: 30_000,
           signal,
           dispatcher: pickDispatcher(opts),
         });
@@ -216,7 +207,6 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
           statusCode: res.statusCode,
           headers: res.headers as Record<string, string | string[] | undefined>,
           text: async (maxBytes) => (await consume(maxBytes)).toString("utf8"),
-          buffer: consume,
           discard: async () => {
             claimBody();
             try {
@@ -261,8 +251,8 @@ export interface DownloadOptions {
   requireHttps?: boolean;
   /** Every initial and redirected download host must be in this set. */
   allowedHosts: ReadonlySet<string>;
-  /** Authenticate bytes as they stream, before a completed download can be used. */
-  integrity?: { algorithm: "sha256" | "sha512"; digest: string };
+  /** Expected SHA-256 digest of the bytes, checked as they stream. */
+  integrity?: string;
 }
 
 function validateRedirectTarget(
@@ -308,14 +298,7 @@ export async function downloadToFile(
 
   try {
     const integrity = opts.integrity;
-    if (
-      integrity &&
-      !new RegExp(`^[a-f0-9]{${integrity.algorithm === "sha256" ? 64 : 128}}$`).test(
-        integrity.digest,
-      )
-    )
-      throw new Error("Invalid expected download digest");
-    const hash = integrity ? crypto.createHash(integrity.algorithm) : undefined;
+    const hash = integrity ? crypto.createHash("sha256") : undefined;
     let currentUrl = validateRedirectTarget(url, url, opts.allowedHosts, opts.requireHttps);
     let hops = 0;
     for (;;) {
@@ -382,10 +365,8 @@ export async function downloadToFile(
     outputStarted = true;
     await pipeline(res.body, limiter, fs.createWriteStream(dest, { mode: 0o600 }));
     if (downloaded === 0) throw new Error(`Empty download from ${currentUrl}`);
-    if (integrity && hash?.digest("hex") !== integrity.digest)
-      throw new Error(
-        `${integrity.algorithm === "sha256" ? "SHA-256" : "SHA-512"} mismatch for downloaded artifact`,
-      );
+    if (integrity && hash?.digest("hex") !== integrity)
+      throw new Error("SHA-256 mismatch for downloaded artifact");
     return downloaded;
   } catch (err) {
     if (res) abortResponseBody(res.body);

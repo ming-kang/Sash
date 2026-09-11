@@ -28,13 +28,7 @@ describe("Core binary transaction", () => {
   });
   function seed() {
     fs.writeFileSync(layout.coreExe, "v1-core");
-    writeInstallRecord(
-      {
-        coreVersion: "v1",
-        installedAt: "2026-01-01T00:00:00.000Z",
-      },
-      layout,
-    );
+    writeInstallRecord({ coreVersion: "v1" }, layout);
   }
   function staged() {
     const exe = path.join(layout.binDir, "candidate");
@@ -55,15 +49,10 @@ describe("Core binary transaction", () => {
       },
     };
   }
-  function journal(phase: CoreUpdateTransaction["phase"]): CoreUpdateTransaction {
+  function journal(): CoreUpdateTransaction {
     return {
-      version: 1,
-      phase,
       previous: readInstallRecord(layout) ?? null,
-      target: {
-        coreVersion: "v2",
-        installedAt: "2026-09-08T00:00:00.000Z",
-      },
+      target: { coreVersion: "v2" },
     };
   }
   function saveJournal(value: CoreUpdateTransaction) {
@@ -164,7 +153,7 @@ describe("Core binary transaction", () => {
     );
     assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
     assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), "v1-core");
-    assert.equal(readCoreUpdateTransaction(layout)?.phase, "swapped");
+    assert.notEqual(readCoreUpdateTransaction(layout), undefined);
   });
 
   it("does not begin a replacement when safe stopping fails", async () => {
@@ -198,7 +187,7 @@ describe("Core binary transaction", () => {
   for (const point of [0, 1, 2, 3])
     it(`recovers an interrupted replacement at publication point ${point}`, () => {
       seed();
-      const value = journal(point === 3 ? "swapped" : "prepared");
+      const value = journal();
       saveJournal(value);
       if (point >= 1) fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
       if (point >= 2) fs.writeFileSync(layout.coreExe, "v2-core");
@@ -212,7 +201,7 @@ describe("Core binary transaction", () => {
 
   it("finishes verified cleanup after a crash, including an already removed backup", () => {
     seed();
-    const value = journal("verified");
+    const value: CoreUpdateTransaction = { ...journal(), verified: true };
     saveJournal(value);
     fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
     fs.writeFileSync(layout.coreExe, "v2-core");
@@ -223,9 +212,27 @@ describe("Core binary transaction", () => {
     assert.equal(readCoreUpdateTransaction(layout), undefined);
   });
 
+  it("tolerates a legacy phase journal from the previous format", () => {
+    seed();
+    const legacy = {
+      version: 1,
+      phase: "verified",
+      previous: { coreVersion: "v1" },
+      target: { coreVersion: "v2" },
+    };
+    fs.writeFileSync(layout.coreUpdateTransactionFile, JSON.stringify(legacy));
+    fs.renameSync(layout.coreExe, `${layout.coreExe}.bak`);
+    fs.writeFileSync(layout.coreExe, "v2-core");
+    writeInstallRecord({ coreVersion: "v2" }, layout);
+    recoverCoreUpdateTransaction(layout);
+    assert.equal(readInstallRecord(layout)?.coreVersion, "v2");
+    assert.equal(fs.existsSync(`${layout.coreExe}.bak`), false);
+    assert.equal(readCoreUpdateTransaction(layout), undefined);
+  });
+
   it("finishes rollback after the old binary was renamed back but metadata is still new", () => {
     seed();
-    const value = journal("restoring");
+    const value = journal();
     writeInstallRecord(value.target, layout);
     saveJournal(value);
     recoverCoreUpdateTransaction(layout);
@@ -250,29 +257,24 @@ describe("Core binary transaction", () => {
       }),
       { version: "v2" },
     );
-    assert.equal(readCoreUpdateTransaction(layout)?.phase, "verified");
+    assert.equal(readCoreUpdateTransaction(layout)?.verified, true);
     assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
     mock.restoreAll();
     recoverCoreUpdateTransaction(layout);
     assert.equal(readCoreUpdateTransaction(layout), undefined);
   });
 
-  it("fails closed on missing rollback ownership and invalid journals", () => {
+  it("reads a damaged journal as absent and refuses an orphaned backup", () => {
     seed();
-    const value = journal("swapped");
-    saveJournal(value);
-    fs.writeFileSync(layout.coreExe, "v2-core");
-    writeInstallRecord(value.target, layout);
-    assert.throws(() => recoverCoreUpdateTransaction(layout), /backup is missing/);
-    assert.equal(readCoreUpdateTransaction(layout)?.phase, "swapped");
+    const value = journal();
     for (const invalid of [
       "{bad",
-      JSON.stringify({ ...value, phase: ["prepared"] }),
-      JSON.stringify({ ...value, extra: true }),
+      JSON.stringify({ ...value, previous: 42 }),
+      JSON.stringify({ ...value, target: { coreVersion: "!" } }),
       "x".repeat(16 * 1024 + 1),
     ]) {
       fs.writeFileSync(layout.coreUpdateTransactionFile, invalid);
-      assert.throws(() => readCoreUpdateTransaction(layout));
+      assert.equal(readCoreUpdateTransaction(layout), undefined);
       assert.equal(fs.readFileSync(layout.coreUpdateTransactionFile, "utf8"), invalid);
     }
     fs.unlinkSync(layout.coreUpdateTransactionFile);

@@ -50,7 +50,6 @@ describe("bounded fetch responses", () => {
     const response = await fetchWithRetry(`http://127.0.0.1:${port}/drip`, {
       attempts: 1,
       direct: true,
-      bodyInactivityTimeoutMs: 1_000,
       deadlineMs: 120,
     });
     await assert.rejects(() => response.text(1024));
@@ -72,6 +71,6 @@ describe("bounded fetch responses", () => {
       direct: true,
     });
     assert.equal(await response.text(10), "1234567890");
-    await assert.rejects(() => response.buffer(10), /already been consumed or discarded/);
+    await assert.rejects(() => response.text(10), /already been consumed or discarded/);
   });
 });

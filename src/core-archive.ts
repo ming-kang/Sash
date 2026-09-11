@@ -5,7 +5,6 @@ import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import { type Entry, openPromise, type ZipFile } from "yauzl";
 import { CORE_BINARY_SIZE_LIMIT } from "./core-binary.js";
-import { RELEASE_ASSET_SIZE_LIMIT } from "./github.js";
 
 function extractionLimiter(): Transform {
   let bytes = 0;
@@ -38,9 +37,6 @@ export async function extractCoreArchive(
     signal?.throwIfAborted();
     if (!assetName.endsWith(".zip") && !assetName.endsWith(".gz"))
       throw new Error(`Unsupported archive type: ${assetName}`);
-    const archive = fs.lstatSync(archivePath);
-    if (!archive.isFile() || archive.size > RELEASE_ASSET_SIZE_LIMIT)
-      throw new Error("Core archive must be a regular file within the download safety limit");
     if (assetName.endsWith(".zip")) {
       zip = await openPromise(archivePath, {
         autoClose: false,
@@ -66,11 +62,6 @@ export async function extractCoreArchive(
           executable = entry;
       }
       if (!executable) throw new Error(`No mihomo*.exe found inside ${assetName}`);
-      if (executable.uncompressedSize > CORE_BINARY_SIZE_LIMIT)
-        throw new Error("Extracted binary exceeds 512MB safety limit");
-      if (executable.isEncrypted()) throw new Error("Encrypted Core archives are not supported");
-      if (executable.compressionMethod !== 0 && executable.compressionMethod !== 8)
-        throw new Error(`Unsupported ZIP compression method: ${executable.compressionMethod}`);
       input = await zip.openReadStreamPromise(executable);
     } else {
       input = fs.createReadStream(archivePath);

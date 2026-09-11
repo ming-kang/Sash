@@ -230,7 +230,7 @@ describe("core", () => {
       assert.equal(fs.existsSync(`${target}.extracted`), false);
     });
 
-    it("rejects oversized ZIP output before allocating the declared contents", async () => {
+    it("rejects an oversized declared ZIP entry without publishing output", async () => {
       const bytes = await zipBytes([["mihomo.exe", Buffer.from("core")]]);
       const directory = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
       assert.ok(directory >= 0);
@@ -238,8 +238,9 @@ describe("core", () => {
       const archive = path.join(tmpDir, "oversized.zip");
       const target = path.join(tmpDir, "core.exe");
       fs.writeFileSync(archive, bytes);
-      await assert.rejects(extractCoreArchive(archive, "core.zip", target), /512MB safety limit/);
+      await assert.rejects(extractCoreArchive(archive, "core.zip", target));
       assert.equal(fs.existsSync(target), false);
+      assert.equal(fs.existsSync(`${target}.extracted`), false);
     });
 
     it("checks unsafe entries after the executable before replacing any destination", async () => {
@@ -366,7 +367,6 @@ describe("core", () => {
 
       const record = {
         coreVersion: "v1.19.30",
-        installedAt: "2025-01-01T00:00:00.000Z",
       };
       writeInstallRecord(record, layout);
 
@@ -397,7 +397,6 @@ describe("core", () => {
       writeInstallRecord(
         {
           coreVersion: "v1.19.30",
-          installedAt: "2025-01-01T00:00:00.000Z",
         },
         layout,
       );

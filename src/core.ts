@@ -168,7 +168,6 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
       opts.onStage?.("extracting", tag);
       await extractCoreArchive(archivePath, assetName, stagedExe, opts.signal);
       opts.signal?.throwIfAborted();
-      fs.chmodSync(stagedExe, 0o755);
       if (await coreBinaryRuns(stagedExe)) return { version: tag, exe: stagedExe, assetName };
       fs.rmSync(stagedExe, { force: true });
     }

@@ -8,9 +8,8 @@ import {
   MIHOMO_REPO,
   parseSha256Digest,
   resolveLatestTag,
-  USER_AGENT,
 } from "./github.js";
-import { ERROR_BODY_LIMIT, proxyAwareDispatcher } from "./http.js";
+import { ERROR_BODY_LIMIT, proxyAwareDispatcher, USER_AGENT } from "./http.js";
 
 describe("github", () => {
   it("preserves AbortError without falling back to another release endpoint", async (t) => {

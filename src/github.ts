@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { downloadToFile, fetchWithRetry, readErrorSummary, USER_AGENT } from "./http.js";
+import { downloadToFile, fetchWithRetry, readErrorSummary } from "./http.js";
 
 /**
  * GitHub release access without hard dependency on the REST API:
@@ -207,9 +207,6 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
   const directUrl = `https://github.com/${opts.repo}/releases/download/${opts.tag}/${chosen.name}`;
   const urls = mirrorize(directUrl);
   const deadlineMs = opts.deadlineMs ?? 15 * 60_000;
-  if (!Number.isSafeInteger(deadlineMs) || deadlineMs <= 0) {
-    throw new Error("Core asset deadlineMs must be a positive safe integer");
-  }
   const deadlineAt = Date.now() + deadlineMs;
 
   let lastError: Error | undefined;
@@ -231,7 +228,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
           reportedBytes = Math.max(reportedBytes, Math.min(downloaded, chosen.size));
           opts.onProgress?.(reportedBytes, chosen.size);
         },
-        integrity: { algorithm: "sha256", digest: expectedDigest },
+        integrity: expectedDigest,
         stallMs: 60_000,
         deadlineMs: remainingMs,
       });
@@ -248,5 +245,3 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
     `Failed to download and verify ${chosen.name} from all mirrors: ${lastError?.message ?? "unknown error"}`,
   );
 }
-
-export { USER_AGENT };

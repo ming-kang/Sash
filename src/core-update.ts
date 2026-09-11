@@ -3,7 +3,6 @@ import type { StagedCore } from "./core.js";
 import { assertCoreBinaryFile } from "./core-binary.js";
 import {
   type InstallRecord,
-  installRecordsEqual,
   parseInstallRecord,
   readInstallRecord,
   writeInstallRecord,
@@ -15,16 +14,16 @@ import {
   durableRenameSync,
   pathEntryExists,
 } from "./fs-atomic.js";
-import { hasExactOwnKeys, isPlainObject } from "./json-shape.js";
+import { isPlainObject } from "./json-shape.js";
 import type { SashLayout } from "./paths.js";
 import { waitForBinaryUnlocked } from "./process.js";
 
 /** The only upgrade journal: executable and install metadata, never profiles or settings. */
 export interface CoreUpdateTransaction {
-  version: 1;
-  phase: "prepared" | "swapped" | "restoring" | "verified";
   previous: InstallRecord | null;
   target: InstallRecord;
+  /** Set once the new binary passed its health check; cleanup may still be pending. */
+  verified?: boolean;
 }
 
 export interface CoreUpdateRuntime {
@@ -43,32 +42,33 @@ export interface CoreUpdateOptions {
 export interface CoreUpdateResult {
   version: string;
 }
+
+/**
+ * Lenient read: a damaged journal reads as absent, so it can never block daemon
+ * startup; the `.bak` binary and the committed install record decide recovery.
+ */
 export function readCoreUpdateTransaction(layout: SashLayout): CoreUpdateTransaction | undefined {
   let text: string;
   try {
-    const stat = fs.lstatSync(layout.coreUpdateTransactionFile);
-    if (!stat.isFile() || stat.size > 16 * 1024)
-      throw new Error("Core update journal must be a bounded regular file");
     text = fs.readFileSync(layout.coreUpdateTransactionFile, "utf8");
-    if (Buffer.byteLength(text) > 16 * 1024) throw new Error("Core update journal is too large");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
+  } catch {
+    return undefined;
   }
-  const value: unknown = JSON.parse(text);
-  if (
-    !isPlainObject(value) ||
-    !hasExactOwnKeys(value, ["version", "phase", "previous", "target"]) ||
-    value.version !== 1 ||
-    typeof value.phase !== "string" ||
-    !["prepared", "swapped", "restoring", "verified"].includes(value.phase)
-  ) {
-    throw new Error("Invalid Core update journal");
+  try {
+    const value: unknown = JSON.parse(text);
+    if (!isPlainObject(value)) throw new Error("Not an object");
+    const previous = value.previous === null ? null : parseInstallRecord(value.previous);
+    const target = parseInstallRecord(value.target);
+    if (previous === undefined || !target) throw new Error("Missing install records");
+    return {
+      previous,
+      target,
+      // Legacy journals recorded the phase as "verified" instead of a flag.
+      ...(value.verified === true || value.phase === "verified" ? { verified: true } : {}),
+    };
+  } catch {
+    return undefined;
   }
-  const previous = value.previous === null ? null : parseInstallRecord(value.previous);
-  const target = parseInstallRecord(value.target);
-  if (previous === undefined || !target) throw new Error("Invalid Core update install records");
-  return { version: 1, phase: value.phase as CoreUpdateTransaction["phase"], previous, target };
 }
 
 function writeCoreUpdateTransaction(layout: SashLayout, transaction: CoreUpdateTransaction): void {
@@ -82,50 +82,37 @@ function clearJournal(layout: SashLayout): void {
   durableRemoveFileSync(layout.coreUpdateTransactionFile);
 }
 
-function restoreFiles(layout: SashLayout, transaction: CoreUpdateTransaction): void {
+/**
+ * Roll a possibly-swapped installation back to its recorded previous state.
+ * A missing backup only means the swap never began or had already been rolled
+ * back, so the recorded previous state is written either way.
+ */
+function restoreTransaction(layout: SashLayout, transaction: CoreUpdateTransaction): void {
   const backup = `${layout.coreExe}.bak`;
   if (transaction.previous) {
     if (pathEntryExists(backup)) {
-      assertCoreBinaryFile(backup);
-      writeCoreUpdateTransaction(layout, { ...transaction, phase: "restoring" });
-      if (pathEntryExists(layout.coreExe)) {
-        assertCoreBinaryFile(layout.coreExe);
-        durableRemoveFileSync(layout.coreExe);
-      }
+      if (pathEntryExists(layout.coreExe)) durableRemoveFileSync(layout.coreExe);
       durableRenameSync(backup, layout.coreExe);
-    } else {
-      if (
-        transaction.phase === "swapped" &&
-        !installRecordsEqual(readInstallRecord(layout), transaction.previous)
-      )
-        throw new Error("Core rollback backup is missing; installation files preserved");
-      // A restoring decision covers interruption after rename but before metadata publication.
-      assertCoreBinaryFile(layout.coreExe);
     }
     writeInstallRecord(transaction.previous, layout);
   } else {
     if (pathEntryExists(backup)) throw new Error("Unexpected Core backup for a first install");
-    if (pathEntryExists(layout.coreExe)) {
-      assertCoreBinaryFile(layout.coreExe);
-      durableRemoveFileSync(layout.coreExe);
-    }
+    if (pathEntryExists(layout.coreExe)) durableRemoveFileSync(layout.coreExe);
     if (pathEntryExists(layout.installFile)) {
-      if (!installRecordsEqual(readInstallRecord(layout), transaction.target))
+      if (readInstallRecord(layout)?.coreVersion !== transaction.target.coreVersion)
         throw new Error("Unrecognized Core install metadata; preserved for inspection");
       durableRemoveFileSync(layout.installFile);
     }
   }
+  clearJournal(layout);
 }
 
+/** The new binary passed its health check; only cleanup can still be pending. */
 function finishVerified(layout: SashLayout, transaction: CoreUpdateTransaction): void {
-  assertCoreBinaryFile(layout.coreExe);
-  if (!installRecordsEqual(readInstallRecord(layout), transaction.target))
-    throw new Error("Verified Core install metadata changed");
   try {
     const backup = `${layout.coreExe}.bak`;
     if (pathEntryExists(backup)) {
       if (!transaction.previous) throw new Error("Unexpected backup for a first install");
-      assertCoreBinaryFile(backup);
       durableRemoveFileSync(backup);
     }
     clearJournal(layout);
@@ -144,17 +131,14 @@ export function recoverCoreUpdateTransaction(layout: SashLayout): void {
       throw new Error("Core backup has no ownership journal; preserved for inspection");
     return;
   }
-  if (transaction.phase === "verified") finishVerified(layout, transaction);
-  else {
-    restoreFiles(layout, transaction);
-    clearJournal(layout);
-  }
+  if (transaction.verified) finishVerified(layout, transaction);
+  else restoreTransaction(layout, transaction);
 }
 
 /** Every install/update completes a real health check in this operation. */
 export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<CoreUpdateResult> {
   const { layout, staged, runtime } = options;
-  if (readCoreUpdateTransaction(layout)?.phase === "verified") recoverCoreUpdateTransaction(layout);
+  if (readCoreUpdateTransaction(layout)) recoverCoreUpdateTransaction(layout);
   if (readCoreUpdateTransaction(layout) || pathEntryExists(`${layout.coreExe}.bak`)) {
     throw new Error("An unfinished Core update requires recovery before another update");
   }
@@ -171,45 +155,31 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
   assertCoreBinaryFile(staged.exe);
   fs.mkdirSync(layout.binDir, { recursive: true });
   await runtime.stop();
-  let transaction: CoreUpdateTransaction = {
-    version: 1,
-    phase: "prepared",
+  const transaction: CoreUpdateTransaction = {
     previous,
-    target: {
-      coreVersion: staged.version,
-      installedAt: new Date().toISOString(),
-      ...(staged.assetName ? { assetName: staged.assetName } : {}),
-    },
+    target: { coreVersion: staged.version },
   };
-  let committed = false;
   try {
     writeCoreUpdateTransaction(layout, transaction);
     await waitForBinaryUnlocked(layout.coreExe);
     if (previous) durableRenameSync(layout.coreExe, `${layout.coreExe}.bak`);
     durableRenameSync(staged.exe, layout.coreExe);
     writeInstallRecord(transaction.target, layout);
-    transaction = { ...transaction, phase: "swapped" };
-    writeCoreUpdateTransaction(layout, transaction);
     await runtime.startAndVerify(staged.version);
     if (runtime.wasRunning) await runtime.applySystemProxy();
     else await runtime.stop();
-    transaction = { ...transaction, phase: "verified" };
-    writeCoreUpdateTransaction(layout, transaction);
-    committed = true;
+    writeCoreUpdateTransaction(layout, { ...transaction, verified: true });
     finishVerified(layout, transaction);
     return { version: staged.version };
   } catch (error) {
-    if (committed || readCoreUpdateTransaction(layout)?.phase === "verified") throw error;
     try {
       // Never replace a binary while candidate termination is uncertain.
       await runtime.stop();
-      const journal = readCoreUpdateTransaction(layout);
-      if (journal) restoreFiles(layout, journal);
+      restoreTransaction(layout, transaction);
       if (runtime.wasRunning && previous) {
         await runtime.startAndVerify(previous.coreVersion);
         await runtime.applySystemProxy();
       }
-      clearJournal(layout);
     } catch (rollback) {
       throw new Error(`${errorMessage(error)}; Core rollback failed: ${errorMessage(rollback)}`, {
         cause: error,

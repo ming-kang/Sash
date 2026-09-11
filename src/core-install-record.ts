@@ -1,14 +1,9 @@
-import { readBoundedJsonFile } from "./bounded-file.js";
+import fs from "node:fs";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
-const INSTALL_RECORD_SIZE_LIMIT = 16 * 1024;
-
 export interface InstallRecord {
   coreVersion: string;
-  installedAt: string;
-  /** The selected release asset, when recorded. */
-  assetName?: string;
 }
 
 export function validateCoreReleaseTag(tag: string): string {
@@ -21,19 +16,13 @@ export function validateCoreReleaseTag(tag: string): string {
 
 function toInstallRecord(value: unknown): InstallRecord {
   const source = value as Record<string, unknown>;
-  return {
-    coreVersion: validateCoreReleaseTag(String(source?.coreVersion ?? "")),
-    installedAt: typeof source?.installedAt === "string" ? source.installedAt : "",
-    ...(typeof source?.assetName === "string" ? { assetName: source.assetName } : {}),
-  };
+  return { coreVersion: validateCoreReleaseTag(String(source?.coreVersion ?? "")) };
 }
 
 /** Lenient read used for private journals and for the committed installation record. */
 export function parseInstallRecord(value: unknown): InstallRecord | undefined {
   const source = value as Record<string, unknown> | null;
-  if (typeof source?.coreVersion !== "string" || typeof source.installedAt !== "string") {
-    return undefined;
-  }
+  if (typeof source?.coreVersion !== "string") return undefined;
   try {
     return toInstallRecord(value);
   } catch {
@@ -44,7 +33,7 @@ export function parseInstallRecord(value: unknown): InstallRecord | undefined {
 /** Best-effort read; an unreadable record means "no Core installed". */
 export function readInstallRecord(layout: SashLayout = sashLayout()): InstallRecord | undefined {
   try {
-    return parseInstallRecord(readBoundedJsonFile(layout.installFile, INSTALL_RECORD_SIZE_LIMIT));
+    return parseInstallRecord(JSON.parse(fs.readFileSync(layout.installFile, "utf8")) as unknown);
   } catch {
     return undefined;
   }
@@ -58,16 +47,4 @@ export function writeInstallRecord(record: InstallRecord, layout: SashLayout = s
 /** Best-effort current Core version, read from the committed install record. */
 export function currentCoreVersion(layout: SashLayout = sashLayout()): string {
   return readInstallRecord(layout)?.coreVersion ?? "";
-}
-
-export function installRecordsEqual(
-  left: InstallRecord | undefined,
-  right: InstallRecord | null,
-): boolean {
-  if (!left || !right) return left === undefined && right === null;
-  return (
-    left.coreVersion === right.coreVersion &&
-    left.installedAt === right.installedAt &&
-    left.assetName === right.assetName
-  );
 }

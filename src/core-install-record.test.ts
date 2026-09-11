@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   currentCoreVersion,
-  installRecordsEqual,
   parseInstallRecord,
   readInstallRecord,
   writeInstallRecord,
@@ -26,32 +25,36 @@ describe("Core install record codec", () => {
   });
 
   it("parses the fields it needs and ignores the rest", () => {
-    const record = { coreVersion: "v1.2.3", installedAt: "2026-01-01T00:00:00.000Z" };
+    const record = { coreVersion: "v1.2.3" };
 
+    assert.deepEqual(parseInstallRecord({ ...record, installedAt: "2026-01-01" }), record);
     assert.deepEqual(parseInstallRecord({ ...record, extra: true }), record);
-    assert.deepEqual(parseInstallRecord({ ...record, installedAt: "2026-01-01" }), {
-      ...record,
-      installedAt: "2026-01-01",
-    });
-    assert.equal(parseInstallRecord({ installedAt: record.installedAt }), undefined);
+    assert.equal(parseInstallRecord({ installedAt: "2026-01-01T00:00:00.000Z" }), undefined);
     assert.equal(parseInstallRecord({ ...record, coreVersion: "../../escape" }), undefined);
     assert.equal(parseInstallRecord(null), undefined);
     writeInstallRecord(record, layout);
     assert.deepEqual(readInstallRecord(layout), record);
   });
 
-  it("writes, reads, and reports one canonical committed record", () => {
-    const record = {
-      coreVersion: "v1.2.3",
-      installedAt: "2026-01-01T00:00:00.000Z",
-      assetName: "mihomo-windows-amd64-v3-v1.2.3.zip",
-    };
+  it("reads leniently and reports one canonical committed record", () => {
+    fs.mkdirSync(path.dirname(layout.installFile), { recursive: true });
+    fs.writeFileSync(
+      layout.installFile,
+      JSON.stringify({
+        coreVersion: "v1.2.3",
+        installedAt: "2026-01-01T00:00:00.000Z",
+        assetName: "mihomo-windows-amd64-v3-v1.2.3.zip",
+      }),
+    );
 
-    writeInstallRecord(record, layout);
-
-    assert.deepEqual(readInstallRecord(layout), record);
+    assert.deepEqual(readInstallRecord(layout), { coreVersion: "v1.2.3" });
     assert.equal(currentCoreVersion(layout), "v1.2.3");
-    assert.equal(installRecordsEqual(readInstallRecord(layout), record), true);
-    assert.equal(installRecordsEqual(undefined, null), true);
+
+    fs.writeFileSync(layout.installFile, "{ broken");
+    assert.equal(readInstallRecord(layout), undefined);
+    assert.equal(currentCoreVersion(layout), "");
+
+    writeInstallRecord({ coreVersion: "v1.2.4" }, layout);
+    assert.deepEqual(readInstallRecord(layout), { coreVersion: "v1.2.4" });
   });
 });
