@@ -136,12 +136,14 @@ export function daemonSpawnEnv(
   return { ...buildSanitizedEnv(sourceEnv), ...githubTokenEnv(sourceEnv), SASH_HOME: layout.root };
 }
 
+export const DEFAULT_DAEMON_START_TIMEOUT_MS = 20_000;
+
 async function spawnDaemonUnlocked(
   opts: { layout?: SashLayout; settings?: SashSettings; timeoutMs?: number } = {},
 ): Promise<{ pid: number }> {
   const layout = opts.layout ?? sashLayout();
   const settings = opts.settings ?? loadSettings(layout);
-  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_DAEMON_START_TIMEOUT_MS;
 
   const state = await evaluateDaemon(layout, settings);
   if (state.kind === "healthy") {
@@ -253,7 +255,7 @@ export async function spawnDaemon(
 ): Promise<{ pid: number }> {
   const layout = opts.layout ?? sashLayout();
   const settings = opts.settings ?? loadSettings(layout);
-  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_DAEMON_START_TIMEOUT_MS;
   return withStateLock(
     layout.daemonStartLockFile,
     { purpose: "start sashd", timeoutMs: timeoutMs + 5000 },
@@ -262,13 +264,13 @@ export async function spawnDaemon(
 }
 
 export async function ensureDaemon(
-  opts: { layout?: SashLayout; settings?: SashSettings } = {},
+  opts: { layout?: SashLayout; settings?: SashSettings; timeoutMs?: number } = {},
 ): Promise<void> {
   const layout = opts.layout ?? sashLayout();
   const settings = opts.settings ?? loadSettings(layout);
   const state = await evaluateDaemon(layout, settings);
   if (state.kind === "healthy") return;
-  await spawnDaemon({ layout, settings });
+  await spawnDaemon({ layout, settings, timeoutMs: opts.timeoutMs });
 }
 
 export async function stopDaemonFromCli(

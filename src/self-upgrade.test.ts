@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 import { MockAgent } from "undici";
-import { proxyAwareDispatcher } from "./http.js";
+import { directDispatcherForLoopback, proxyAwareDispatcher } from "./http.js";
 import { inspectInstallation, type NpmInstallation, npmPackageRoot } from "./installation.js";
 import {
   executeSashUpgrade,
@@ -221,6 +221,35 @@ describe("Sash upgrade inspection", () => {
       await agent.close();
     }
   });
+
+  it("falls back to direct request when loopback proxy is refused", async (t) => {
+    const proxyError = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:7890"), {
+      code: "ECONNREFUSED",
+      address: "127.0.0.1",
+      port: 7890,
+    });
+    t.mock.method(proxyAwareDispatcher(), "dispatch", () => {
+      throw proxyError;
+    });
+
+    const directAgent = new MockAgent();
+    directAgent.disableNetConnect();
+    t.mock.method(
+      directDispatcherForLoopback(),
+      "dispatch",
+      directAgent.dispatch.bind(directAgent),
+    );
+
+    directAgent
+      .get(REGISTRY)
+      .intercept({ path: `/${encodeURIComponent(SASH_PACKAGE_NAME)}/latest` })
+      .reply(200, packageManifest("2.3.4"));
+
+    const target = await resolveSashUpgradeTarget();
+    assert.equal(target.version, "2.3.4");
+    directAgent.assertNoPendingInterceptors();
+    await directAgent.close();
+  });
 });
 
 describe("Sash upgrade sequence", () => {
@@ -235,19 +264,36 @@ describe("Sash upgrade sequence", () => {
   }
 
   /** Records the order of the steps that must not be reordered. */
-  function recorder(running: boolean, calls: string[]) {
+  function recorder(running: boolean, calls: string[], options: { coreRunning?: boolean } = {}) {
     return {
       install: async (_installation: NpmInstallation, version: string) => {
         calls.push(`install ${version}`);
       },
-      resolveOwner: async () => ({ kind: running ? "daemon" : "offline" }) as never,
+      resolveOwner: async () =>
+        ({
+          kind: running ? "daemon" : "offline",
+          client: {
+            status: async () => ({
+              core: { running: options.coreRunning ?? false },
+            }),
+          },
+        }) as never,
       stop: async () => {
         calls.push("stop");
         return { wasRunning: true };
       },
       start: async () => {
         calls.push("start");
-        return {} as never;
+        return {
+          client: {
+            startCore: async () => {
+              calls.push("startCore");
+            },
+          },
+        } as never;
+      },
+      startCore: async () => {
+        calls.push("startCore");
       },
     };
   }
@@ -261,6 +307,32 @@ describe("Sash upgrade sequence", () => {
   it("installs before stopping anything, then restarts onto the new version", async (t) => {
     const calls: string[] = [];
     const outcome = await executeSashUpgrade(installation(t), target, {}, recorder(true, calls));
+    assert.deepEqual(calls, ["install 0.2.0", "stop", "start"]);
+    assert.equal(outcome.restarted, true);
+    assert.equal(outcome.version, "0.2.0");
+  });
+
+  it("restarts the daemon and restores the running Core when Core was active before upgrade", async (t) => {
+    const calls: string[] = [];
+    const outcome = await executeSashUpgrade(
+      installation(t),
+      target,
+      {},
+      recorder(true, calls, { coreRunning: true }),
+    );
+    assert.deepEqual(calls, ["install 0.2.0", "stop", "start", "startCore"]);
+    assert.equal(outcome.restarted, true);
+    assert.equal(outcome.version, "0.2.0");
+  });
+
+  it("restarts the daemon without starting Core when Core was stopped before upgrade", async (t) => {
+    const calls: string[] = [];
+    const outcome = await executeSashUpgrade(
+      installation(t),
+      target,
+      {},
+      recorder(true, calls, { coreRunning: false }),
+    );
     assert.deepEqual(calls, ["install 0.2.0", "stop", "start"]);
     assert.equal(outcome.restarted, true);
     assert.equal(outcome.version, "0.2.0");

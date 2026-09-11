@@ -45,8 +45,11 @@ export async function resolveRuntimeOwner(
 }
 
 /** Boot the management process only; it owns all initialization and recovery. */
-export async function ensureManagement(ctx: RuntimeContext): Promise<HealthyRuntimeOwner> {
-  await ensureDaemon({ layout: ctx.layout, settings: ctx.settings });
+export async function ensureManagement(
+  ctx: RuntimeContext,
+  opts: { timeoutMs?: number } = {},
+): Promise<HealthyRuntimeOwner> {
+  await ensureDaemon({ layout: ctx.layout, settings: ctx.settings, timeoutMs: opts.timeoutMs });
   ctx.settings = loadSettings(ctx.layout);
   const owner = await resolveRuntimeOwner(ctx);
   if (owner.kind !== "daemon") throw new Error("sashd did not become healthy");

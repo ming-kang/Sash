@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
+  DEFAULT_DAEMON_START_TIMEOUT_MS,
   daemonSpawnEnv,
   evaluateDaemon,
   readDaemonPidRecord,
@@ -357,5 +358,9 @@ describe("daemon ownership evaluation", () => {
     } finally {
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
     }
+  });
+
+  it("uses a 20-second default startup timeout for cold-start and defender headroom", () => {
+    assert.equal(DEFAULT_DAEMON_START_TIMEOUT_MS, 20_000);
   });
 });

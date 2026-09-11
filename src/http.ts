@@ -59,6 +59,74 @@ function pickDispatcher(opts: { direct?: boolean }): Dispatcher {
   return opts.direct ? getBaseDirectDispatcher() : getBaseProxyDispatcher();
 }
 
+export function isLoopbackHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host.startsWith("127.") ||
+    host === "[::1]"
+  );
+}
+
+export interface ConnectRefusedEndpoint {
+  address: string;
+  port: number;
+}
+
+export function extractConnectRefusedEndpoint(error: unknown): ConnectRefusedEndpoint | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const candidate = error as {
+    code?: unknown;
+    address?: unknown;
+    port?: unknown;
+    cause?: unknown;
+    message?: unknown;
+  };
+  if (
+    candidate.code === "ECONNREFUSED" &&
+    typeof candidate.address === "string" &&
+    typeof candidate.port === "number"
+  ) {
+    return { address: candidate.address, port: candidate.port };
+  }
+  if (candidate.cause) {
+    const fromCause = extractConnectRefusedEndpoint(candidate.cause);
+    if (fromCause) return fromCause;
+  }
+  if (typeof candidate.message === "string") {
+    const match = /connect ECONNREFUSED ([^\s:]+):(\d+)/.exec(candidate.message);
+    if (match?.[1] && match[2]) return { address: match[1], port: Number(match[2]) };
+  }
+  return undefined;
+}
+
+export function isProxyConnectionRefused(error: unknown, targetUrl: string): boolean {
+  const endpoint = extractConnectRefusedEndpoint(error);
+  if (!endpoint) return false;
+  try {
+    const parsed = new URL(targetUrl);
+    const targetPort = parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80;
+    if (endpoint.port !== targetPort) return true;
+    if (endpoint.address !== parsed.hostname && !isLoopbackHost(parsed.hostname)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function formatProxyRefusedError(error: unknown): Error {
+  const endpoint = extractConnectRefusedEndpoint(error);
+  if (endpoint) {
+    const proxyTarget = `${endpoint.address}:${endpoint.port}`;
+    const remedy = isLoopbackHost(endpoint.address)
+      ? "start Sash (sash start) or check HTTP_PROXY"
+      : "check HTTP_PROXY";
+    return new Error(`proxy ${proxyTarget} refused connection — ${remedy}`, { cause: error });
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export interface FetchResponse {
   statusCode: number;
   headers: Record<string, string | string[] | undefined>;
@@ -223,6 +291,9 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
         if (signal.aborted) break;
       }
     }
+    if (!opts.direct && isProxyConnectionRefused(lastErr, url)) {
+      throw formatProxyRefusedError(lastErr);
+    }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   } finally {
     // Once a response is returned, its ownership methods clear this timer.
@@ -371,6 +442,7 @@ export async function downloadToFile(
   } catch (err) {
     if (res) abortResponseBody(res.body);
     if (outputStarted) fs.rmSync(dest, { force: true });
+    if (isProxyConnectionRefused(err, url)) throw formatProxyRefusedError(err);
     throw err;
   } finally {
     clearTimeout(deadlineTimer);

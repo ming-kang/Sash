@@ -3,7 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 import semver from "semver";
 import { loadSettings } from "./app-state.js";
-import { fetchWithRetry, readErrorSummary } from "./http.js";
+import {
+  extractConnectRefusedEndpoint,
+  type FetchResponse,
+  fetchWithRetry,
+  formatProxyRefusedError,
+  isLoopbackHost,
+  isProxyConnectionRefused,
+  readErrorSummary,
+} from "./http.js";
 import { type Installation, inspectInstallation, type NpmInstallation } from "./installation.js";
 import {
   exactSashVersion,
@@ -16,6 +24,7 @@ import { sashLayout } from "./paths.js";
 import { buildSanitizedEnv } from "./process.js";
 import {
   ensureManagement,
+  type HealthyRuntimeOwner,
   type RuntimeContext,
   resolveRuntimeOwner,
   stopRuntime,
@@ -48,10 +57,31 @@ export async function resolveSashUpgradeTarget(
   signal?: AbortSignal,
 ): Promise<SashPackageInfo> {
   const tag = version === undefined ? "latest" : exactSashVersion(version);
-  const response = await fetchWithRetry(
-    `${NPM_REGISTRY}/${encodeURIComponent(SASH_PACKAGE_NAME)}/${encodeURIComponent(tag)}`,
-    { attempts: 2, deadlineMs: 20_000, signal },
-  );
+  const url = `${NPM_REGISTRY}/${encodeURIComponent(SASH_PACKAGE_NAME)}/${encodeURIComponent(tag)}`;
+  let response: FetchResponse;
+  try {
+    response = await fetchWithRetry(url, { attempts: 2, deadlineMs: 20_000, signal });
+  } catch (error) {
+    if (isProxyConnectionRefused(error, url)) {
+      const endpoint = extractConnectRefusedEndpoint(error);
+      if (endpoint && isLoopbackHost(endpoint.address)) {
+        try {
+          response = await fetchWithRetry(url, {
+            attempts: 1,
+            deadlineMs: 10_000,
+            direct: true,
+            signal,
+          });
+        } catch {
+          throw formatProxyRefusedError(error);
+        }
+      } else {
+        throw formatProxyRefusedError(error);
+      }
+    } else {
+      throw error;
+    }
+  }
   if (response.statusCode !== 200) {
     await readErrorSummary(response);
     throw new Error(
@@ -203,6 +233,7 @@ export interface SashUpgradeDeps {
   resolveOwner?: typeof resolveRuntimeOwner;
   stop?: typeof stopRuntime;
   start?: typeof ensureManagement;
+  startCore?: (owner: HealthyRuntimeOwner) => Promise<unknown>;
   install?: (
     installation: NpmInstallation,
     version: string,
@@ -228,7 +259,26 @@ export async function executeSashUpgrade(
   const shouldRestart = owner.kind === "daemon" && options.restart !== false;
   if (!shouldRestart) return { version: target.version, restarted: false };
 
+  let coreWasRunning = false;
+  if (owner.kind === "daemon" && owner.client) {
+    try {
+      const status = await owner.client.status();
+      coreWasRunning = Boolean(status.core?.running);
+    } catch {
+      coreWasRunning = false;
+    }
+  }
+
   await (deps.stop ?? stopRuntime)(context);
-  await (deps.start ?? ensureManagement)(context);
+  const restarted = await (deps.start ?? ensureManagement)(context);
+
+  if (coreWasRunning) {
+    try {
+      await (deps.startCore ? deps.startCore(restarted) : restarted.client?.startCore());
+    } catch {
+      // Starting Core must not fail an already completed package & daemon upgrade.
+    }
+  }
+
   return { version: target.version, restarted: true };
 }

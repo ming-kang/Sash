@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { fetchWithRetry } from "./http.js";
+import {
+  extractConnectRefusedEndpoint,
+  fetchWithRetry,
+  formatProxyRefusedError,
+  isLoopbackHost,
+  isProxyConnectionRefused,
+} from "./http.js";
 
 describe("bounded fetch responses", () => {
   let server: http.Server;
@@ -72,5 +78,80 @@ describe("bounded fetch responses", () => {
     });
     assert.equal(await response.text(10), "1234567890");
     await assert.rejects(() => response.text(10), /already been consumed or discarded/);
+  });
+});
+
+describe("proxy connection error classification", () => {
+  it("identifies loopback host addresses", () => {
+    assert.equal(isLoopbackHost("127.0.0.1"), true);
+    assert.equal(isLoopbackHost("localhost"), true);
+    assert.equal(isLoopbackHost("::1"), true);
+    assert.equal(isLoopbackHost("[::1]"), true);
+    assert.equal(isLoopbackHost("192.168.1.1"), false);
+    assert.equal(isLoopbackHost("registry.npmjs.org"), false);
+  });
+
+  it("extracts connection refused endpoint from code, message, or cause", () => {
+    const errorWithFields = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+      address: "127.0.0.1",
+      port: 7890,
+    });
+    assert.deepEqual(extractConnectRefusedEndpoint(errorWithFields), {
+      address: "127.0.0.1",
+      port: 7890,
+    });
+
+    const errorWithMessage = new Error("connect ECONNREFUSED 127.0.0.1:18890");
+    assert.deepEqual(extractConnectRefusedEndpoint(errorWithMessage), {
+      address: "127.0.0.1",
+      port: 18890,
+    });
+
+    const nestedError = new Error("fetch failed", { cause: errorWithFields });
+    assert.deepEqual(extractConnectRefusedEndpoint(nestedError), {
+      address: "127.0.0.1",
+      port: 7890,
+    });
+  });
+
+  it("distinguishes proxy refusals from direct target refusals", () => {
+    const refusedLocalProxy = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+      address: "127.0.0.1",
+      port: 7890,
+    });
+    // Remote target port is 443; endpoint is 7890 -> proxy refusal
+    assert.equal(
+      isProxyConnectionRefused(refusedLocalProxy, "https://registry.npmjs.org/@astralyn/sash"),
+      true,
+    );
+
+    // Same local host and port -> direct connection refusal, not proxy
+    assert.equal(isProxyConnectionRefused(refusedLocalProxy, "http://127.0.0.1:7890/test"), false);
+  });
+
+  it("formats actionable proxy refused errors", () => {
+    const loopbackError = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+      address: "127.0.0.1",
+      port: 7890,
+    });
+    const formattedLoopback = formatProxyRefusedError(loopbackError);
+    assert.equal(
+      formattedLoopback.message,
+      "proxy 127.0.0.1:7890 refused connection — start Sash (sash start) or check HTTP_PROXY",
+    );
+
+    const remoteError = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+      address: "10.0.0.1",
+      port: 8080,
+    });
+    const formattedRemote = formatProxyRefusedError(remoteError);
+    assert.equal(
+      formattedRemote.message,
+      "proxy 10.0.0.1:8080 refused connection — check HTTP_PROXY",
+    );
   });
 });

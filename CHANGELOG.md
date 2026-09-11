@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Relax the default daemon startup timeout from 10 to 20 seconds, preventing premature process termination during Windows cold start and post-install Defender scanning.
+- Restore the running Core process after `sash upgrade` restarts the daemon if Core was active before the upgrade.
+- Clarify proxy connection failures with actionable copy (`proxy <host>:<port> refused connection — start Sash (sash start) or check HTTP_PROXY`), and fall back to direct requests for npm registry lookups when a loopback proxy is unavailable.
+
 ## [0.2.3] - 2026-09-11
 
 ### Changed
