@@ -86,7 +86,7 @@ The listener binds to `127.0.0.1`. [router.ts](../src/daemon/router.ts) lists ev
 | `/sash/settings`, `/sash/profiles`, `/sash/profiles/*` | Saved settings, profile content and selection |
 | `/sash/core/*` | Start, Apply, stop, update, mode and delay tests |
 | `/sash/proxy`, `/sash/autostart` | Windows integration |
-| `/sash/web/*` | Browser authorization and session renewal |
+| `/sash/web/*` | Browser authorization and session handoff |
 | `/core/api/*` | Authenticated Core queries, node selection, connection deletion and WebSocket streams |
 | `/ui/*` | Bundled dashboard |
 
@@ -107,4 +107,4 @@ SSE sends complete `{schemaVersion: 1, sequence, status, autostart}` snapshots. 
 - **System proxy:** save original Windows proxy/PAC values before writing. Restore values Sash still owns, preserving later changes made by another application. A per-user lock coordinates different data folders.
 - **Start at login:** the Windows current-user registration launches Sash without a console window. See [Automatic Startup](./autostart.md).
 
-Browser authorization starts with a 90-second, single-use handoff from `sash web`. Sessions use a twelve-hour sliding idle limit. Stored session hashes allow an authorized tab to continue across Sash restarts; the browser presents its existing token to renew access. See [Frontend authorization](./frontend.md#authorization-and-transport).
+Browser authorization starts with a 90-second, single-use handoff from `sash web`. Sessions use a twelve-hour sliding idle limit. Stored session hashes let an authorized tab keep its session across Sash restarts; the daemon reloads them at boot and the browser keeps presenting its existing token. See [Frontend authorization](./frontend.md#authorization-and-transport).

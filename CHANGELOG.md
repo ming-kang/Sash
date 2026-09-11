@@ -8,10 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Keep a browser session by reloading its persisted hashes when Sash starts instead of exchanging it through a signed handoff. Restarting Sash no longer needs a new `sash web` authorization, and the `/sash/web/continue` endpoint, its derived tokens and the health advertisement are gone; an expired or revoked token now surfaces as an ordinary `401`.
+- Read damaged local records leniently instead of refusing to start: a profile entry with unusable metadata is skipped instead of discarding the whole list, stored settings ignore unknown fields and fall back per damaged field, a corrupt or oversized Core update journal reads as absent (it previously blocked startup with no way out), and the daemon PID, install, lock and web-session records ignore fields they do not use.
+- Recover an interrupted Core update from the `.bak` binary and the committed install record instead of a four-phase journal. The journal is written once before the swap and once after the health check; an interrupted run rolls back to the recorded previous state, and a missing backup no longer fails closed.
+- Inspect the system proxy under the same state lock as writes, served from one short-lived cache: generation counters, in-flight deduplication, the "change in progress" placeholder and the per-write journal byte comparison are gone, and an inspection during a write now waits instead of guessing.
+- Track the owned Core by its child handle rather than a generation counter, and subscribe to the daemon event stream without re-reading the PID file a second time.
 - Read profile source text directly for editing and content comparisons. Damaged source text can be opened for repair; save, activation and Apply validate configurations.
 - Use one frozen committed application state and a shared typed client request boundary.
 - Shorten development guidance and keep documentation and tests focused on current behavior.
 - Add SVG architecture diagrams and condense the usage, backend, frontend and startup guides.
+
+### Removed
+
+- About 1,400 lines across source and tests (roughly 700 net) that guarded against opponents that do not exist: the browser-session continuation chain (HMAC-derived tokens, boot-id binding, `/sash/web/continue`, the 409 reconnect signal and its tests); the Core update journal's prepared/swapped/restoring/verified phase machine, its exact-key parsing, the byte comparison of install records and the write-only `installedAt`/`assetName` fields; the system-proxy inspection cache with its generations and the journal compare-and-swap ceremonies; `bounded-file.ts`; `process-command-path.ts` and the command-line identity helpers nothing called; doctor's backup re-validation (advice now only checks that a backup exists); the `sash upgrade` double registry lookup and `previousVersion` bookkeeping; dead HTTP and download options (`buffer`, `bodyInactivityTimeoutMs`, SHA-512 support) and the second SHA-256 re-validation inside `downloadToFile`; the daemon's installation-path identity fingerprint; profile-cleanup's file-side realpath check; the pre-subscribe daemon identity re-read; and a set of test-only exports.
 
 ## [0.2.2] - 2026-09-10
 
