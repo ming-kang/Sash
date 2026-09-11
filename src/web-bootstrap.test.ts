@@ -57,6 +57,8 @@ it("hands off through a private document while keeping the launch URL credential
         "-Command",
         `$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); $identity=[Security.Principal.WindowsIdentity]::GetCurrent(); $acl=[IO.File]::GetAccessControl($p); $rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])); @{owner=$acl.GetOwner([Security.Principal.SecurityIdentifier]).Value; tokenOwner=$identity.Owner.Value; sid=$identity.User.Value; readers=@($rules | Where-Object AccessControlType -eq Allow | ForEach-Object {$_.IdentityReference.Value})} | ConvertTo-Json -Compress`,
       ],
+      // CI runners cold-start powershell.exe well beyond the 5s default.
+      { timeoutMs: 30_000 },
     );
     const acl = JSON.parse(result) as {
       owner: string;
