@@ -139,12 +139,13 @@ export async function* watchStatusWithDelay(
       probing = false;
       probeAbort = undefined;
       notify();
-      if (signal.aborted) return;
-      if (probeAgain) {
-        probeAgain = false;
-        requestProbe();
-      } else {
-        timer = setTimeout(requestProbe, intervalMs);
+      if (!signal.aborted) {
+        if (probeAgain) {
+          probeAgain = false;
+          requestProbe();
+        } else {
+          timer = setTimeout(requestProbe, intervalMs);
+        }
       }
     }
   };
