@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { cliOutputSignal } from "../cli-output.js";
 import { log } from "../log.js";
-import { followLogFile, normalizeLines } from "../log-follow.js";
+import { followLogFile } from "../log-follow.js";
 import { readLogTail } from "../log-tail.js";
 import { sashLayout } from "../paths.js";
 
@@ -29,8 +29,7 @@ export async function runLogs(
     file = opts.errors ? layout.coreErrLogFile : layout.coreLogFile;
   }
 
-  const lines = normalizeLines(opts.lines);
-  const { text, cursor } = readLogTail(file, lines);
+  const { text, cursor } = readLogTail(file, opts.lines ?? 50);
   if (cursor.identity === null) {
     log.info(`${opts.follow ? "waiting for" : "no"} log file at ${file}`);
     if (!opts.follow) return;

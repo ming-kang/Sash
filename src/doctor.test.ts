@@ -91,7 +91,6 @@ it("reports corrupt settings while independently inspecting installed Core", asy
     writeInstallRecord(
       {
         coreVersion: "v1.0.0",
-        installedAt: "2026-09-09T00:00:00.000Z",
       },
       f.layout,
     );
@@ -112,38 +111,13 @@ it("reports corrupt settings while independently inspecting installed Core", asy
   }
 });
 
-it("points corrupt-manifest recovery at a valid state backup when one exists", async () => {
-  const f = fixture();
-  try {
-    const state = createTestState(f.layout);
-    state.commit({
-      ...state.snapshot(),
-      settings: { ...state.snapshot().settings, mixedPort: 18884 },
-    });
-    fs.writeFileSync(f.layout.settingsFile, "{ malformed");
-    const result = await diagnoseSash({
-      ...f,
-      inspectPort: async () => {
-        throw new Error("must not probe ports from corrupt state");
-      },
-    });
-    const check = result.checks.find((check) => check.id === "manifest");
-    assert.equal(check?.status, "error");
-    assert.match(check?.advice ?? "", /copy .*sash\.json\.bak/);
-    assert.match(check?.advice ?? "", /restore the most recently committed/);
-    assert.equal(fs.readFileSync(f.layout.settingsFile, "utf8"), "{ malformed");
-  } finally {
-    await f.cleanup();
-  }
-});
-
-it("keeps the original corrupt-manifest advice without a usable state backup", async () => {
+it("points corrupt-manifest recovery advice at an existing state backup", async () => {
   const f = fixture();
   try {
     createTestState(f.layout);
     fs.writeFileSync(f.layout.settingsFile, "{ malformed");
-    for (const backup of [undefined, "{ also broken"]) {
-      if (backup === undefined) fs.unlinkSync(f.layout.settingsBackupFile);
+    for (const backup of [undefined, "{ anything"]) {
+      if (backup === undefined) fs.rmSync(f.layout.settingsBackupFile, { force: true });
       else fs.writeFileSync(f.layout.settingsBackupFile, backup);
       const result = await diagnoseSash({
         ...f,
@@ -153,10 +127,15 @@ it("keeps the original corrupt-manifest advice without a usable state backup", a
       });
       const check = result.checks.find((check) => check.id === "manifest");
       assert.equal(check?.status, "error");
-      assert.equal(
-        check?.advice,
-        "Preserve the file and restore a valid schema-2 manifest before starting Sash",
-      );
+      if (backup === undefined) {
+        assert.equal(
+          check?.advice,
+          "Preserve the file and restore a valid schema-2 manifest before starting Sash",
+        );
+      } else {
+        assert.match(check?.advice ?? "", /copy .*sash\.json\.bak/);
+        assert.match(check?.advice ?? "", /restore the most recently committed/);
+      }
     }
     assert.equal(fs.readFileSync(f.layout.settingsFile, "utf8"), "{ malformed");
   } finally {
@@ -173,7 +152,6 @@ it("reports port conflicts and unknown proxy observations alongside verified Cor
     writeInstallRecord(
       {
         coreVersion: "v1.0.0",
-        installedAt: "2026-09-09T00:00:00.000Z",
       },
       f.layout,
     );

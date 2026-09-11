@@ -1,6 +1,6 @@
+import fs from "node:fs";
 import path from "node:path";
 import semver from "semver";
-import { readBoundedJsonFile } from "./bounded-file.js";
 import { isPlainObject } from "./json-shape.js";
 
 export const SASH_PACKAGE_NAME = "@astralyn/sash";
@@ -32,8 +32,6 @@ export function exactSashVersion(value: unknown): string {
 export function parseSashPackageInfo(value: unknown): SashPackageInfo {
   if (!isPlainObject(value) || value.name !== SASH_PACKAGE_NAME)
     throw new Error(`Expected package ${SASH_PACKAGE_NAME}`);
-  if (!isPlainObject(value.bin) || value.bin.sash !== SASH_CLI_ENTRY)
-    throw new Error("The Sash package has an unsupported CLI entry");
   const range = isPlainObject(value.engines) ? value.engines.node : undefined;
   if (typeof range !== "string" || range.length > 256 || !semver.validRange(range))
     throw new Error("The Sash package has no valid Node requirement");
@@ -47,7 +45,15 @@ export function parseSashPackageInfo(value: unknown): SashPackageInfo {
 export function readSashPackageInfo(root = currentPackageRoot()): SashPackageInfo {
   const file = path.join(root, "package.json");
   try {
-    return parseSashPackageInfo(readBoundedJsonFile(file, 64 * 1024));
+    const bytes = fs.readFileSync(file);
+    if (bytes.length > 64 * 1024) throw new Error(`File exceeds its read limit: ${file}`);
+    let value: unknown;
+    try {
+      value = JSON.parse(bytes.toString("utf8")) as unknown;
+    } catch (cause) {
+      throw new Error(`Invalid JSON file: ${file}`, { cause });
+    }
+    return parseSashPackageInfo(value);
   } catch (cause) {
     throw new Error(`Cannot read Sash package manifest: ${file}`, { cause });
   }

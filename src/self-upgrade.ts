@@ -119,10 +119,6 @@ export function resolveNpmCli(nodePath = process.execPath, env = process.env): s
     path.join(path.dirname(nodePath), "node_modules", "npm", "bin", "npm-cli.js"),
   ];
   if (env.npm_execpath && path.isAbsolute(env.npm_execpath)) candidates.push(env.npm_execpath);
-  for (const directory of (env.PATH ?? env.Path ?? "").split(path.delimiter)) {
-    if (!path.isAbsolute(directory)) continue;
-    candidates.push(path.join(directory, "node_modules", "npm", "bin", "npm-cli.js"));
-  }
   const found = candidates.find((candidate) => {
     try {
       return path.basename(candidate) === "npm-cli.js" && fs.statSync(candidate).isFile();
@@ -198,15 +194,12 @@ function runNpmInstall(
 
 export interface SashUpgradeOutcome {
   version: string;
-  /** The version the package held before this upgrade, when one was installed. */
-  previousVersion: string | null;
   /** True when the daemon was restarted onto the new code as part of this run. */
   restarted: boolean;
 }
 
 /** Seams for the upgrade sequence so its order can be tested without npm or a daemon. */
 export interface SashUpgradeDeps {
-  resolveTarget?: typeof resolveSashUpgradeTarget;
   resolveOwner?: typeof resolveRuntimeOwner;
   stop?: typeof stopRuntime;
   start?: typeof ensureManagement;
@@ -218,35 +211,24 @@ export interface SashUpgradeDeps {
 }
 
 /**
- * Install one exact version while Sash keeps serving, then restart the running
- * instance when requested.
+ * Install the resolved target while Sash keeps serving, then restart the
+ * running instance when requested.
  */
 export async function executeSashUpgrade(
   installation: NpmInstallation,
-  options: { version?: string; json?: boolean; restart?: boolean } = {},
+  target: SashPackageInfo,
+  options: { json?: boolean; restart?: boolean } = {},
   deps: SashUpgradeDeps = {},
 ): Promise<SashUpgradeOutcome> {
-  const target = await (deps.resolveTarget ?? resolveSashUpgradeTarget)(options.version);
-  const previousVersion = versionOnDisk(installation);
   await (deps.install ?? runNpmInstall)(installation, target.version, options);
 
   const layout = sashLayout();
   const context: RuntimeContext = { layout, settings: loadSettings(layout) };
   const owner = await (deps.resolveOwner ?? resolveRuntimeOwner)(context);
   const shouldRestart = owner.kind === "daemon" && options.restart !== false;
-  if (!shouldRestart) return { version: target.version, previousVersion, restarted: false };
+  if (!shouldRestart) return { version: target.version, restarted: false };
 
   await (deps.stop ?? stopRuntime)(context);
   await (deps.start ?? ensureManagement)(context);
-  return { version: target.version, previousVersion, restarted: true };
-}
-
-/** Best-effort version of the package currently on disk, read before it is replaced. */
-function versionOnDisk(installation: NpmInstallation): string | null {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(installation.packageRoot, "package.json"), "utf8"))
-      .version as string;
-  } catch {
-    return null;
-  }
+  return { version: target.version, restarted: true };
 }

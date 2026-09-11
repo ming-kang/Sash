@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { MAX_STATE_BYTES, parseState, readState, type SashState } from "./app-state.js";
+import { readState, type SashState } from "./app-state.js";
 import { CORE_BINARY_SIZE_LIMIT } from "./core-binary.js";
 import { readInstallRecord } from "./core-install-record.js";
 import { errorMessage } from "./error-utils.js";
@@ -68,18 +68,6 @@ export function inspectListenerPort(host: string, port: number): Promise<PortObs
   });
 }
 
-/** Read-only: a valid state backup only upgrades recovery advice, never the state itself. */
-function restorableStateBackup(layout: SashLayout): boolean {
-  try {
-    const stat = fs.lstatSync(layout.settingsBackupFile);
-    if (!stat.isFile() || stat.size > MAX_STATE_BYTES) return false;
-    parseState(JSON.parse(fs.readFileSync(layout.settingsBackupFile, "utf8")) as unknown);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Independent checks keep diagnostics useful when settings or installation files are damaged. */
 export async function diagnoseSash(
   options: {
@@ -113,8 +101,10 @@ export async function diagnoseSash(
       ? `Global npm installation: ${installation.prefix}`
       : installation.reason,
   );
+  let installedVersion: string | undefined;
   try {
     const info = readSashPackageInfo(packageRoot);
+    installedVersion = info.version;
     add(
       "node",
       supportsNode(info) ? "ok" : "error",
@@ -170,7 +160,7 @@ export async function diagnoseSash(
       "manifest",
       "error",
       `${layout.settingsFile}: ${errorMessage(error)}`,
-      restorableStateBackup(layout)
+      pathEntryExists(layout.settingsBackupFile)
         ? `Stop Sash, then copy ${layout.settingsBackupFile} over ${layout.settingsFile} to restore the most recently committed settings and profile index`
         : "Preserve the file and restore a valid schema-2 manifest before starting Sash",
     );
@@ -223,12 +213,6 @@ export async function diagnoseSash(
       // A daemon keeps executing the code it started with, so a difference here
       // means the installed package was replaced but not loaded yet.
       const runningVersion = runtime.daemon.version;
-      let installedVersion: string | undefined;
-      try {
-        installedVersion = readSashPackageInfo(packageRoot).version;
-      } catch {
-        installedVersion = undefined;
-      }
       if (runningVersion && installedVersion) {
         add(
           "sash-version",
@@ -304,7 +288,7 @@ export async function diagnoseSash(
               runtime.endpoints.mixedProxy === `127.0.0.1:${context.settings.mixedPort}`,
           },
         ];
-        const results = await Promise.allSettled(
+        const results = await Promise.all(
           ports.map(async (port): Promise<DoctorCheck> => {
             if (port.owned)
               return {
@@ -329,10 +313,7 @@ export async function diagnoseSash(
             };
           }),
         );
-        for (const [index, result] of results.entries()) {
-          if (result.status === "fulfilled") checks.push(result.value);
-          else add(ports[index]?.id ?? "port", "warning", errorMessage(result.reason));
-        }
+        checks.push(...results);
       }
     }
   }

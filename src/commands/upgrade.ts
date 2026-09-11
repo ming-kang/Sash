@@ -10,7 +10,7 @@ export async function runUpgrade(
 ): Promise<void> {
   try {
     const exact = version === undefined ? undefined : exactSashVersion(version);
-    const { report, installation } = await inspectSashUpgrade(exact);
+    const { report, installation, target } = await inspectSashUpgrade(exact);
     const installable = installation.kind === "npm-global";
     if (options.check || !installable || !report.available || !report.compatible) {
       if (options.json) {
@@ -36,8 +36,11 @@ export async function runUpgrade(
       if (!options.check && (!report.supported || !report.compatible)) process.exitCode = 1;
       return;
     }
-    const outcome = await executeSashUpgrade(installation, {
-      ...(exact === undefined ? {} : { version: exact }),
+    if (!target)
+      throw new Error(
+        "internal error: an installable upgrade resolved no target; please report this",
+      );
+    const outcome = await executeSashUpgrade(installation, target, {
       json: options.json === true,
       restart: options.restart !== false,
     });
@@ -51,13 +54,10 @@ export async function runUpgrade(
       );
     } else if (outcome.restarted) {
       log.ok(`Sash ${outcome.version} installed · the daemon restarted on it`);
-    } else if (outcome.previousVersion && outcome.previousVersion !== outcome.version) {
-      log.info(
-        `Sash ${outcome.version} installed · the running daemon still uses ${outcome.previousVersion}`,
-      );
-      log.info("Restart it when convenient: sash stop && sash start");
     } else {
-      log.ok(`Sash ${outcome.version} installed`);
+      log.info(
+        `Sash ${outcome.version} installed · restart Sash to load it: sash stop && sash start`,
+      );
     }
     process.exitCode = 0;
   } catch (error) {

@@ -22,8 +22,7 @@ export function readLogTail(
   try {
     fd = fs.openSync(file, "r");
     const stat = fs.fstatSync(fd);
-    if (!stat.isFile() || !Number.isSafeInteger(stat.size) || stat.size < 0)
-      throw new Error(`Log path is not safely readable: ${file}`);
+    if (!stat.isFile()) throw new Error(`Log path is not a regular file: ${file}`);
     const cursor = { identity: fileIdentity(stat), offset: stat.size };
     let position = stat.size;
     let pending = "";

@@ -35,18 +35,13 @@ it("accepts exact versions and rejects npm paths, ranges and noncanonical versio
     assert.throws(() => exactSashVersion(value));
 });
 
-it("verifies package identity, entry point and the full Node engine range", () => {
+it("verifies package identity and the full Node engine range", () => {
   const info = parseSashPackageInfo(manifest);
   assert.equal(supportsNode(info, "v24.6.0"), true);
   assert.equal(supportsNode(info, "v24.4.0"), false);
   assert.equal(supportsNode(info, "v25.0.0"), false);
   assert.equal(supportsNode(info, "v26.0.0"), true);
-  for (const patch of [
-    { name: "other" },
-    { bin: { sash: "../outside.js" } },
-    { engines: {} },
-    { engines: { node: "not a range" } },
-  ])
+  for (const patch of [{ name: "other" }, { engines: {} }, { engines: { node: "not a range" } }])
     assert.throws(() => parseSashPackageInfo({ ...manifest, ...patch }));
 });
 

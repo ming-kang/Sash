@@ -80,17 +80,10 @@ describe("Sash upgrade inspection", () => {
       execPath,
     );
 
-    const binDir = path.join(root, "bin dir");
-    const onPath = path.join(binDir, "node_modules", "npm", "bin", "npm-cli.js");
-    fs.mkdirSync(path.dirname(onPath), { recursive: true });
-    fs.writeFileSync(onPath, "// npm CLI\n");
-    assert.equal(resolveNpmCli(path.join(bare, "node"), { PATH: binDir }), onPath);
-
     for (const env of [
       { PATH: "" },
       { PATH: "", npm_execpath: "relative/npm-cli.js" },
       { PATH: "", npm_execpath: path.join(root, "missing", "npm-cli.js") },
-      { PATH: "relative-dir" },
     ]) {
       assert.throws(() => resolveNpmCli(path.join(bare, "node"), env), /Cannot find the npm CLI/);
     }
@@ -244,13 +237,8 @@ describe("Sash upgrade sequence", () => {
   /** Records the order of the steps that must not be reordered. */
   function recorder(running: boolean, calls: string[]) {
     return {
-      resolveTarget: async () => ({
-        name: SASH_PACKAGE_NAME as typeof SASH_PACKAGE_NAME,
-        version: "0.2.0",
-        nodeRange: ">=24",
-      }),
-      install: async () => {
-        calls.push("install");
+      install: async (_installation: NpmInstallation, version: string) => {
+        calls.push(`install ${version}`);
       },
       resolveOwner: async () => ({ kind: running ? "daemon" : "offline" }) as never,
       stop: async () => {
@@ -264,39 +252,36 @@ describe("Sash upgrade sequence", () => {
     };
   }
 
+  const target = {
+    name: SASH_PACKAGE_NAME as typeof SASH_PACKAGE_NAME,
+    version: "0.2.0",
+    nodeRange: ">=24",
+  };
+
   it("installs before stopping anything, then restarts onto the new version", async (t) => {
     const calls: string[] = [];
-    const outcome = await executeSashUpgrade(
-      installation(t),
-      { version: "0.2.0" },
-      recorder(true, calls),
-    );
-    assert.deepEqual(calls, ["install", "stop", "start"]);
+    const outcome = await executeSashUpgrade(installation(t), target, {}, recorder(true, calls));
+    assert.deepEqual(calls, ["install 0.2.0", "stop", "start"]);
     assert.equal(outcome.restarted, true);
     assert.equal(outcome.version, "0.2.0");
-    assert.equal(outcome.previousVersion, "0.1.7");
   });
 
   it("leaves the running daemon alone with --no-restart", async (t) => {
     const calls: string[] = [];
     const outcome = await executeSashUpgrade(
       installation(t),
-      { version: "0.2.0", restart: false },
+      target,
+      { restart: false },
       recorder(true, calls),
     );
-    assert.deepEqual(calls, ["install"]);
+    assert.deepEqual(calls, ["install 0.2.0"]);
     assert.equal(outcome.restarted, false);
-    assert.equal(outcome.previousVersion, "0.1.7");
   });
 
   it("only installs when no daemon is running", async (t) => {
     const calls: string[] = [];
-    const outcome = await executeSashUpgrade(
-      installation(t),
-      { version: "0.2.0" },
-      recorder(false, calls),
-    );
-    assert.deepEqual(calls, ["install"]);
+    const outcome = await executeSashUpgrade(installation(t), target, {}, recorder(false, calls));
+    assert.deepEqual(calls, ["install 0.2.0"]);
     assert.equal(outcome.restarted, false);
   });
 });

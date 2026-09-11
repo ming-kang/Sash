@@ -21,10 +21,6 @@ export interface FollowLogOptions {
   onChunk: (chunk: Buffer) => void | Promise<void>;
 }
 
-export function normalizeLines(input: unknown, fallback = 50): number {
-  return typeof input === "number" && Number.isSafeInteger(input) && input > 0 ? input : fallback;
-}
-
 export function parseLogLineCount(value: string): number {
   if (!/^[1-9]\d*$/.test(value)) throw new Error("must be a positive integer");
   const parsed = Number(value);
@@ -53,9 +49,6 @@ export function logCursorAtEnd(file: string): LogFileCursor {
     fd = fs.openSync(file, "r");
     const stat = fs.fstatSync(fd);
     if (!stat.isFile()) throw new Error(`Log path is not a regular file: ${file}`);
-    if (!Number.isSafeInteger(stat.size) || stat.size < 0) {
-      throw new Error(`Log file size is not safely readable: ${file}`);
-    }
     return { identity: fileIdentity(stat), offset: stat.size };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -80,9 +73,6 @@ export function readLogGrowth(
     fd = fs.openSync(file, "r");
     const stat = fs.fstatSync(fd);
     if (!stat.isFile()) throw new Error(`Log path is not a regular file: ${file}`);
-    if (!Number.isSafeInteger(stat.size) || stat.size < 0) {
-      throw new Error(`Log file size is not safely readable: ${file}`);
-    }
     const identity = fileIdentity(stat);
     const position = cursor.identity === identity && stat.size >= safeOffset ? safeOffset : 0;
     if (position >= stat.size) {
@@ -154,7 +144,7 @@ export function boundedLogTailSince(
   try {
     fd = fs.openSync(file, "r");
     const stat = fs.fstatSync(fd);
-    if (!stat.isFile() || !Number.isSafeInteger(stat.size) || stat.size < 0) return "";
+    if (!stat.isFile()) return "";
     const identity = fileIdentity(stat);
     const offset = Number.isSafeInteger(cursor.offset) && cursor.offset >= 0 ? cursor.offset : 0;
     if (cursor.identity !== null && cursor.identity !== identity) return "";
