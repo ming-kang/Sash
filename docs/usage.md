@@ -1,215 +1,212 @@
 # Sash User & Operations Guide
 
-Sash is a lightweight network toolbox for developers, learning and research, with a CLI and built-in web dashboard. Windows is the primary desktop platform.
+Sash is a network toolbox for developers, learning and research. Use the CLI for commands and the built-in dashboard for profiles, settings and live traffic. Node.js 24 or newer is required; Windows is the primary desktop platform.
+
+[Backend architecture](./backend.md) · [Frontend architecture](./frontend.md) · [Start at login](./autostart.md)
 
 ## Start and configure
 
 ```sh
-sash web         # start management and authorize the browser; Core stays stopped
-sash start       # install Core if missing, apply saved configuration and start
+sash web         # open and authorize the dashboard
+sash start       # install Core if needed, then start with saved settings
 sash status
-sash stop        # restore the prior proxy, stop Core and exit the daemon
+sash stop        # restore the prior proxy and stop Sash and Core
 ```
 
-In **Profiles**, import YAML or download a remote profile, then select it. Selection, content edits, downloads and scheduled updates are saved without changing the running Core. Click **Apply configuration** to use the saved configuration. This restarts Core and briefly interrupts connections. Overview shows the profile and port actually applied.
+`sash web` works while Core is stopped. In **Profiles**, import a YAML file or remote URL, then select it. Changes are saved first. Click **Apply configuration** or run `sash restart` to use them; restarting Core briefly interrupts connections. Overview shows the profile and proxy port currently in use.
 
-If validation fails, the previous Core keeps running. If starting the new configuration fails, your saved edits remain and the dashboard stays available for correction.
+Validation failure leaves the previous Core running. If the new configuration fails to start, saved edits remain and the dashboard stays available for correction.
 
 ## Commands
 
-| Command | Behavior |
+Run `sash <command> --help` for all options. Bare `sash` reads status once.
+
+| Command | Action |
 | --- | --- |
-| `sash start` | Ensure management exists; start with saved configuration if stopped. Report an already-running Core separately, using its actual applied port. |
-| `sash restart` | Apply saved configuration and restart Core; keep the daemon and browser sessions. |
-| `sash stop` | Restore proxy, stop Core and exit management. Report an error if safe shutdown cannot be verified. |
-| `sash stop --core` | Restore proxy and stop Core while retaining management and browser access. |
-| `sash status [--json] [--watch] [--delay NAME]` | Read runtime, endpoint, saved profile, proxy and autostart observations; optionally follow changes or explicitly test one outbound. Bare `sash` reads once. |
-| `sash doctor [--json]` | Check installation, dashboard, saved state, Core files, ports and desktop integration; print repair suggestions. |
-| `sash web` | Start management if needed and authorize/open the dashboard. |
-| `sash web --no-open` | Start management and print its address without authorizing a browser. |
-| `sash update [tag] [--check] [--json]` | Check a Core release or install it through the daemon, with preparation/download/verification progress. |
-| `sash upgrade [version] [--check] [--no-restart] [--json]` | Update the Sash package through npm, then restart the daemon onto it. |
-| `sash profile [list]` | List saved profiles; `list --json` returns their metadata and saved selection. |
-| `sash profile use <profile>` / `use --default` | Select an ID or unique exact name, or the built-in configuration, for the next Apply. |
-| `sash profile add <url> [--name NAME] [--use]` | Download and save a remote profile; the first profile is selected automatically. |
-| `sash profile update [profile] [--all]` | Update the specified or selected remote profile, or all remote profiles. |
-| `sash profile rename <profile> <name>` / `remove <profile>` | Rename or remove the saved profile identified by ID or exact name. |
-| `sash proxy [on\|off\|status] [--json]` | Set system-proxy intent or inspect desired, Sash-applied and OS-observed state. |
-| `sash mode rule\|global\|direct [--json]` | Change the running Core's mode; the next Apply restores the saved profile's mode. |
-| `sash auto [on\|off\|status] [--json]` | Set or inspect Windows login startup. No argument means status; changes report when they start management. |
-| `sash logs [-n N] [-f] [--errors] [--daemon]` | Read Core or daemon logs; follow waits for creation and handles rotation. |
-| `sash logs --startup [-n N] [-f]` | Read login attempts, including settings errors before daemon startup. |
-| `sash version` | Print the package version. |
+| `sash start` | Start Core with saved settings if it is stopped |
+| `sash restart` | Apply saved settings and restart Core |
+| `sash stop` | Restore the prior proxy and stop Sash and Core |
+| `sash stop --core` | Stop Core and restore the proxy; keep the dashboard open |
+| `sash web [--no-open]` | Open and authorize the dashboard; `--no-open` only prints its address |
+| `sash status [--json] [--watch] [--delay NAME]` | Inspect Sash; optionally follow changes or test one outbound |
+| `sash doctor [--json]` | Check installation, files, ports and Windows integration |
+| `sash update [tag] [--check] [--json]` | Install or check a Core release |
+| `sash upgrade [version] [--check] [--no-restart] [--json]` | Update the Sash package through npm |
+| `sash proxy [on\|off\|status] [--json]` | Set or inspect the Windows system proxy |
+| `sash mode rule\|global\|direct [--json]` | Change the running Core's routing mode |
+| `sash auto [on\|off\|status] [--json]` | Set or inspect Windows start at login |
+| `sash logs [-n N] [-f] [--errors] [--daemon]` | Read Core logs, or Sash logs with `--daemon` |
+| `sash logs --startup [-n N] [-f]` | Read login-startup attempts |
+| `sash version` | Print the installed Sash version |
 
-`sash logs -f` exits successfully when its output pipe closes. Log capture and follow share one file position, including when the log grows or rotates during startup.
+### Profile commands
 
-`sash stop --core` and WebUI **Stop Core** keep Sash and the dashboard open. `sash restart` applies saved configuration to Core.
+All profile commands support `--json`. A profile argument is its full ID or a unique exact name; use the ID if names collide.
+
+| Command | Action |
+| --- | --- |
+| `sash profile [list]` | List saved profiles and selection |
+| `sash profile use <profile>` / `use --default` | Select a profile or the built-in DIRECT-only configuration |
+| `sash profile add <url> [--name NAME] [--use]` | Download a profile; the first is selected automatically |
+| `sash profile update [profile] [--all]` | Update one remote profile, the selected one, or all |
+| `sash profile rename <profile> <name>` | Rename a profile |
+| `sash profile remove <profile>` | Remove a profile |
+
+These commands save changes for the next Apply. Listing profiles also works while Sash is stopped. A partly failed `update --all` returns per-profile errors and exit code `1`.
+
+## Settings and profiles
+
+```sh
+sash profile add https://example.com/profile.yaml --name Work --use
+sash profile update Work
+sash restart               # apply saved profiles and network settings
+sash mode global           # change the running mode
+sash proxy on              # requires a healthy Core
+```
+
+The Settings page saves the proxy port and LAN access for the next Apply. Mode and node selection affect the running Core; a later Apply uses the saved profile again. The system-proxy switch acts immediately. If turning it off fails, the off preference stays saved; resolve the Windows error and retry.
+
+Profiles must be YAML objects in Core format. The editor can open damaged YAML for repair and checks it on save. If another tab has edited the same content, reopen the current version before saving again.
+
+Remote profiles use the provider's update interval, defaulting to 24 hours. Sash checks for due updates every 15 minutes and backs off after failures. Downloads save content for the next Apply; unchanged content keeps its revision. Empty quota/expiry fields display as unknown, while zero remains zero.
+
+See [Automatic Startup](./autostart.md) to start the saved configuration at login.
+
+## Browser access
+
+Run `sash web` with the same user and `SASH_HOME` as the instance. It authorizes a tab using a private, single-use handoff that expires after 90 seconds. Rerun the command if it expires.
+
+Authorization survives page refreshes and Sash/Core restarts. Sessions expire after twelve idle hours and renew while used. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address shows connection instructions.
 
 ## PowerShell completion
 
-Load the bundled completion script in PowerShell 7:
+Load the bundled script in PowerShell 7:
 
 ```powershell
 . (Join-Path (npm root --global) '@astralyn/sash/docs/completions/sash.ps1')
 ```
 
-Add the same line to `$PROFILE` to load it in future sessions. From a source checkout, dot-source `./docs/completions/sash.ps1` instead. The script completes commands, profile subcommands, options and fixed choices such as `mode rule|global|direct`. It handles quoted arguments, option values and the cursor position without running Sash, starting management or accessing the network. Enter profile/node names, URLs and version numbers normally.
-
-## Browser access
-
-Run `sash web` as the same user and with the same `SASH_HOME` as the instance. A private local handoff authorizes the browser without printing credentials. It expires after 90 seconds and works once; rerun the command if needed.
-
-An authorized tab survives refresh, Core restarts/updates and management restarts, including `sash stop` + `sash start`, `sash restart` and `sash upgrade`; the daemon exchanges the previous generation's session for a new one. Sessions expire after twelve idle hours and renew while used. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address displays connection instructions.
-
-## Settings and profiles
-
-Profile commands accept a complete ID or a unique exact display name. Use the ID when names collide. They save changes through management without applying them to Core. `sash profile list` also works while management is stopped and does not initialize a missing data directory. All profile subcommands support `--json`; a partially failed `update --all` returns exit code `1` and per-profile errors.
-
-```sh
-sash profile add https://example.com/profile.yaml --name Work --use
-sash profile list
-sash profile update Work
-sash restart               # apply the saved selection, content and network settings
-sash mode global           # change only the running routing mode
-sash proxy on              # requires a healthy running Core
-```
-
-The Settings page saves the mixed proxy port and LAN access for the next Apply. The system-proxy switch takes effect separately and requires a healthy Core to enable. A failed disable keeps the saved off intent; retry it after resolving the OS problem.
-
-Remote profiles use the provider's update interval, defaulting to 24 hours. The daemon checks for due updates every 15 minutes. Updates save new content and indicate pending Apply. Identical content does not create a new content revision. Rename and reorder do not affect running data or latency results.
-
-Subscriptions must contain a YAML object in Core format. Empty quota/expiry fields remain unknown, while explicit zero values are retained.
-
-The profile editor rejects a save if another edit changed its content revision. Reopen the current content before retrying.
-
-Start at login uses the OS registration and requires a direct global npm installation. See [Automatic Startup](./autostart.md).
+Add that line to `$PROFILE` for future sessions. From a source checkout, use `. ./docs/completions/sash.ps1`. Completion covers commands, options and fixed choices without running Sash; enter profile names, URLs and versions yourself.
 
 ## State format and data
 
-`sash.json` contains `{schemaVersion: 2, revision, settings, profiles}`. `profiles` contains the saved `activeId` and metadata list. The following keys live inside `settings`:
+`sash.json` contains `{schemaVersion: 2, revision, settings, profiles}`. These keys live inside `settings`:
 
-| Key | Initial value | Meaning |
+| Key | Default | Meaning |
 | --- | --- | --- |
-| `mixedPort` | `7890` | HTTP/SOCKS mixed proxy port |
+| `mixedPort` | `7890` | HTTP/SOCKS proxy port |
 | `allowLan` | `false` | Accept proxy traffic from other devices |
-| `systemProxy` | `false` | Desired Windows system-proxy state |
-| `controller` | `127.0.0.1:9090` | Internal loopback controller address |
-| `daemonPort` | `19090` | Management API and dashboard port |
-| `secret` | random | Private controller credential |
-| `daemonSecret` | random | Private CLI credential |
+| `systemProxy` | `false` | Saved Windows system-proxy preference |
+| `controller` | `127.0.0.1:9090` | Internal Core controller |
+| `daemonPort` | `19090` | Local API and dashboard port |
+| `secret` | random | Core controller credential |
+| `daemonSecret` | random | CLI credential |
 
-Controller and local API addresses and credentials can be edited while Sash is stopped, then read at startup. All three ports must differ. Secrets cannot be blank. Invalid state is preserved for correction.
+Edit controller/local API addresses or credentials only while Sash is stopped, then start it again. All three ports must differ, the controller must use loopback and secrets must be nonblank.
 
-| Platform | Default directory |
+| Platform | Default data folder |
 | --- | --- |
 | Windows | `%LOCALAPPDATA%\Sash` |
 | macOS | `~/Library/Application Support/Sash` |
 | Linux | `$XDG_DATA_HOME/sash` or `~/.local/share/sash` |
 
-Use an absolute `SASH_HOME` to select another directory. Use a local filesystem supporting atomic rename and hard links.
+An absolute `SASH_HOME` selects another folder. Use a local filesystem that supports atomic rename and hard links.
 
-```text
-sash.json                       settings, profiles, selection and saved-state revision
-profiles/<id>/<revision>.yaml    immutable source content
-runtime/config.yaml             generated runtime configuration
-bin/                            Core executable and temporary update backup
-state/install.json              installed Core version
-state/core-update-transaction.json  active binary update/recovery
-state/web-sessions.json         hashed browser sessions
-state/system-proxy.json         original proxy snapshot and recovery phase
-state/sash.pid, state/sashd.pid  process discovery records
-state/sashd*.lock               daemon singleton/startup ownership
-logs/                           Core, daemon and login diagnostics
-ui/                             optional custom dashboard override
-```
+| Path in the data folder | Contents |
+| --- | --- |
+| `sash.json`, `sash.json.bak` | Settings, saved profile selection and a recovery copy |
+| `profiles/<id>/<revision>.yaml` | Profile source text |
+| `runtime/config.yaml` | Generated core config |
+| `bin/` | Core executable and update backup |
+| `state/` | Process records, Core installation, proxy recovery and browser session hashes |
+| `logs/` | Core, Sash and login-startup logs |
+| `ui/` | Optional custom dashboard |
 
-On Windows, the browser session file sits directly in the per-user control directory (`%LOCALAPPDATA%\Sash`); elsewhere it stays in `<data directory>/state`. It is independent of `SASH_HOME` and holds only session hashes.
-
-The manifest and sources use atomic publication. Unreferenced source revisions are cleaned after saves and during scheduled maintenance. Do not edit generated runtime configuration. POSIX private state/logs use `0600`.
-
-While management is running, scheduled maintenance removes recognized orphan revisions and temporary files older than 24 hours. Current sources, recent files, unknown names and symbolic links are preserved. Empty generated directories also have a 24-hour grace period. Core preparation files are protected while a download is active.
+Use the profile editor for source changes; Sash generates `runtime/config.yaml` on Apply. Maintenance cleans recognized orphan files after 24 hours. POSIX private state and logs use `0600`.
 
 ## Updates
 
-```sh
-sash update --check         # inspect Core release metadata without starting management
-sash update                # install the latest Core release with progress
-sash update v1.19.30        # select an exact Core release tag
-sash update --json         # one JSON result, without progress text
-```
-
-The Core tag is a positional argument. Global `sash --version` prints the Sash package version. `--check` reads the recorded Core version and official release metadata to check for a compatible artifact and digest. Updates show their current stage and downloaded bytes; JSON mode prints one result object.
-
-Core updates keep the dashboard available and preserve whether Core was running. Even an initially stopped update performs a temporary startup/health check, then stops again. `.bak` is retained until the new binary passes verification and the original running state is restored. Failure rolls back the executable and install record.
-
-Downloads use trusted HTTPS origins, archive integrity verification during transfer, and bounded extraction. A failed download leaves the current installation available.
-
-On x64, Sash tries available official builds in preference order and selects the first that runs successfully. ARM64 uses its native build. The chosen asset name is saved with the installation record.
-
-A first `sash start` downloads and starts Core once. Its controller readiness check supplies the running version; successful readiness ends the check.
-
-Update Sash itself:
+### Core
 
 ```sh
-sash upgrade --check       # inspect the npm release and Node compatibility
-sash upgrade               # install the target version and restart the daemon
-sash upgrade --no-restart  # install only; restart the daemon yourself later
-sash upgrade --json        # one JSON object; npm output stays on stderr
+sash update --check         # inspect release metadata
+sash update                # install the latest Core release
+sash update v1.19.30        # install an exact release tag
 ```
 
-The default target is the official npm `latest` release. An optional exact published version selects an upgrade or downgrade; `available` is true for an explicit version that differs from the installed one, and for `latest` when it is newer. An already-current version exits successfully. `--check` leaves the installation and data directories unchanged and never starts management. Source checkouts, linked packages and other package managers report `supported: false` with the reason and never contact the registry; they exit `1` without `--check`.
+Sash selects an official build that runs on the processor, verifies its download and keeps the previous binary until the new Core passes a health check. Failure restores the executable and install record.
 
-Sash resolves the target and runs `npm install --global --prefix <prefix> --no-audit --no-fund @astralyn/sash@<version>` while the running instance keeps serving. After installation it restarts that instance; `--no-restart` keeps it running. Run `sash start` after a restart to resume Core. Browser authorization continues across the restart. npm owns package integrity, and a failed install leaves the running instance available.
+The dashboard stays available. Updates preserve whether Core was running; an update while stopped starts Core briefly for verification, then stops it. `--check` reads installation and release metadata without starting Sash or Core. `--json` prints one result instead of progress text.
 
-`--check --json` prints the inspection report: `current`, `target`, `available`, `compatible`, `supported`, `installation`, `prefix`, `node`, `requiredNode` and `reason`. Execution `--json` prints `{outcome: "upgraded", version, restarted}` after a successful install, `{outcome: "failed", error}` on failure, or the report plus `version` and `outcome: "current"`, `"unsupported"` or `"incompatible"` when nothing was installed. Exit code `0` means a successful check, no-op or install; `1` means an unsupported or incompatible installation, or a failure.
+### Sash package
 
-For a manual npm upgrade, install the package while Sash is running, then use `sash stop && sash start` to load the installed version. For damaged Core installations, run `sash doctor` and follow its repair advice.
+```sh
+sash upgrade --check        # check the npm release and Node requirement
+sash upgrade               # install, then restart Sash
+sash start                 # resume Core after the Sash restart
+sash upgrade --no-restart   # install now; restart Sash yourself later
+```
+
+The default target is npm's `latest` release. Pass an exact published version to upgrade or downgrade. Automatic upgrades require a direct global npm installation; source checkouts, linked packages and other package managers report why they are unsupported.
+
+npm installs **while Sash keeps running**, then Sash restarts to load the new package. A failed install leaves the running instance available. `--no-restart` keeps the current process running. Other instances sharing the package load it on their next start.
+
+For a manual upgrade, run `npm install -g @astralyn/sash` while Sash is running, then `sash stop && sash start`. `--check` changes nothing and never starts Sash.
+
+| JSON output | Contents |
+| --- | --- |
+| `sash upgrade --check --json` | `current`, `target`, `available`, `compatible`, `supported`, `installation`, `prefix`, `node`, `requiredNode`, `reason` |
+| Successful install | `{outcome: "upgraded", version, restarted}` |
+| Nothing installed | Inspection report, `version` and `outcome`: `current`, `unsupported` or `incompatible` |
+| Failure | `{outcome: "failed", error}` |
+
+With `--json`, npm output goes to stderr. A check, already-current version or successful install exits `0`; an unsupported/incompatible execution or failure exits `1`.
 
 ## Status and troubleshooting
 
-Run `sash doctor` before changing a damaged installation. Its read-only checks continue independently when the manifest or Core files are invalid. It reads installation metadata and file information, observes the current runtime and desktop integration, and briefly checks whether stopped listener ports are available.
+Start with `sash doctor` for installation problems. It reads saved state, files and runtime observations independently, and checks whether stopped listener ports are available.
 
-`doctor --json` reports `schemaVersion: 1`, `healthy`, `complete`, and named checks with `ok`, `info`, `warning` or `error` status and optional advice. Exit code `1` indicates a definite fault; `2` indicates an incomplete observation without a definite fault. A clean stopped or uninitialized installation can return `0` with informational setup guidance.
+`sash status --watch` follows changes and reconnects after Sash restarts. It waits for a stopped instance without starting it. `--watch --json` emits one status object per line when observations change.
 
-On Windows, doctor checks for additional connection-specific proxy records, such as VPN/dial-up registrations. These may include inactive records; their presence does not prove that a connection is active. Sash manages desktop LAN proxy/PAC settings and does not decode or change the per-connection binary records. A warning asks you to inspect those settings in Windows; unavailable registry observations remain unknown.
-
-`sash status --json` uses `schemaVersion: 2`. It includes `complete`, `healthy`, `queryError`, daemon/Core state, desired/applied/observed proxy state, autostart, endpoints, saved active profile and paths. Unknown observations remain `null`; no TUN fields are emitted. The running proxy endpoint comes from applied settings.
-
-`sash status --watch` follows daemon events until interrupted, reconnects after management restarts or upgrades, and waits for a stopped instance without starting it. Interactive terminals redraw; redirected text appends snapshots. `--watch --json` emits one compact schema-2 status object per line, suppressing unchanged observations. The last observation determines the exit code on interruption; a closed output pipe exits `0` after cancelling the stream.
-
-Ordinary status, including `--watch`, makes no outbound latency requests. Request a test explicitly:
+Latency testing is explicit:
 
 ```sh
 sash status --delay DIRECT
 sash status --delay "Proxy Group" --watch --json
 ```
 
-The name must exactly match a node or group in the running configuration. A group tests its current outbound. The Core requests `https://www.gstatic.com/generate_204`, expects HTTP `204`, and uses a five-second timeout. Testing does not select a node, change routing mode or apply saved edits. A stopped/unavailable Core is reported without starting it.
+Use an exact node or group name. Core requests `https://www.gstatic.com/generate_204` with a five-second timeout; a group tests its selected outbound. Watch mode repeats 30 seconds after each result. Tests keep the current node, mode and saved configuration unchanged.
 
-With `--watch --delay`, the first test starts when Core is available; subsequent tests start 30 seconds after the previous result. Status events do not trigger extra tests. Tests never overlap, and Core replacement cancels/discards the old request before sampling the replacement.
+| JSON command | Format |
+| --- | --- |
+| `status --json` | `schemaVersion: 2`; runtime, endpoints, profile, proxy, startup, `complete` and `healthy`; unknown observations are `null` |
+| `status --delay NAME --json` | Also includes `delay: {name, url, timeoutMs, testedAt, state, delayMs, error}` |
+| `doctor --json` | `schemaVersion: 1`; `healthy`, `complete` and named `checks` with status and advice |
 
-Only an explicit delay request adds `delay: {name, url, timeoutMs, testedAt, state, delayMs, error}` to schema-2 JSON. States are `pending`, `ok`, `timeout`, `failed`, `not_found` and `unavailable`; unmeasured values are `null`. A failed or unavailable requested test sets `complete: false` and exit code `2`, while `healthy` still describes daemon/Core health. Invalid command arguments exit `1`.
-
-Daemon, OS proxy and login startup probes run concurrently. Set `SASH_DEBUG=1` (or `true`) to include CLI error stacks on stderr; JSON command results stay on stdout. The generic `DEBUG` environment variable does not enable Sash diagnostics.
+Delay states are `pending`, `ok`, `timeout`, `failed`, `not_found` and `unavailable`. A failed or unavailable requested test sets `complete: false` and exit code `2`; `healthy` still describes Sash/Core health. Doctor check statuses are `ok`, `info`, `warning` and `error`.
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | Complete observation, including a known stopped state |
-| `2` | Output produced, but some runtime/OS observation is unavailable |
-| `1` | The command failed, for example due to corrupt local state |
+| `0` | Success or complete observation, including a known stopped state |
+| `1` | Command failure or a definite diagnostic fault |
+| `2` | Incomplete observation without a definite diagnostic fault |
 
-- **Pending configuration:** click Apply or run `sash restart`. Saving alone does not change Core.
-- **Core will not start on a config that uses GEO rules:** the Core downloads its geodata databases (`geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) while it loads a configuration, and it downloads them **itself, ignoring `HTTP_PROXY`**. On a network that cannot reach `github.com` directly this would deadlock — no proxy, because the Core has not started yet, and no Core, because it cannot download geodata. Sash therefore retries once through its release-mirror list and writes that `geox-url` into `runtime/config.yaml`, so the databases land in the data directory and later starts do not need the network again.
+| Problem | Next step |
+| --- | --- |
+| Pending configuration | Click Apply or run `sash restart` |
+| Apply/start failed | Read `sash logs --errors`, correct the profile and retry |
+| Geodata download failed | Set a trusted `geox-url` in the profile or place the required databases in the data folder; see below |
+| Proxy restoration blocked | Inspect Windows proxy/PAC settings and keep `state/system-proxy.json` for recovery |
+| Sash cannot confirm a process | Inspect `sash logs --daemon --errors` and run `sash doctor` |
+| Interrupted Core update | Restart Sash to run recovery; preserve backup files if recovery reports an error |
+| Interrupted Sash upgrade | Finish `npm install -g @astralyn/sash@<version>` while the running instance stays available, then restart it |
+| Login startup failed | Read `sash auto status` and `sash logs --startup`; repair with `sash auto on` |
+| Shutdown failed | Resolve the reported proxy/Core problem and retry `sash stop` |
+| Proxy change absent in an app | Restart the affected app; if logs report notification failure, repair PowerShell availability |
+| Dashboard assets missing | Reinstall the package, or run `npm run build` in a source checkout |
 
-  If the retry also fails (`Core could not download its geodata databases`), Sash has no reachable source. Either provide one: set `geox-url` in the profile to a mirror you trust, or copy the databases into the data directory yourself (they are published as release assets of `MetaCubeX/meta-rules-dat`: `geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) and start Core again. A system-wide tunnel also works, because it routes the Core's own traffic; a proxy environment variable does not.
-- **Apply failed:** inspect the displayed error and `sash logs --errors`; correct the saved profile and apply again.
-- **Proxy restoration blocked:** keep the ownership journal and inspect the current Windows settings. Sash will not overwrite third-party changes or stop a healthy Core while restoration fails.
-- **Daemon ownership unknown:** inspect its logs and PID/lease records; Sash will not kill an unverified process or start a competitor.
-- **Interrupted update:** stop and start the daemon so its startup recovery can run. Corrupt or unrecognized backup/metadata files are preserved for inspection.
-- **Interrupted Sash upgrade:** keep any running Sash available while completing the installation with `npm install --global @astralyn/sash@<version>`, then run `sash stop && sash start` to load it.
-- **Login startup failed:** read `sash auto status` and `sash logs --startup`; repair the entry with `sash auto on`.
-- **Shutdown failed:** the management API remains available for retry. Resolve the reported proxy/Core failure and repeat `sash stop`.
-- **Proxy changes are not visible in another application:** Sash tries PowerShell 7 and then the Windows PowerShell host to notify WinINet. If neither notification succeeds, registry changes and normal ownership verification still complete, with a warning in the command/daemon log. Restart affected applications or repair PowerShell availability to pick up the changes.
-- **Dashboard assets missing:** reinstall the Sash package, or run `npm run build` in a source checkout. The dashboard route reports this explicitly.
+Core fetches geodata itself, ignoring `HTTP_PROXY`. Sash retries a failed fetch once through mirrors. If that also fails, provide a reachable `geox-url` or pre-seed the databases named by the error: `geoip.metadb`, `geosite.dat`, `country.mmdb` or `GeoLite2-ASN.mmdb`. A system-wide tunnel can also supply connectivity.
 
-Windows proxy/PAC restoration and login startup are the desktop integrations. Basic Core/CLI operation remains portable. The generated core config sets `tun.enable` to `false`.
+Sash manages Windows desktop proxy/PAC settings. Doctor may report separate VPN/dial-up proxy records; inspect those in Windows even if the connection is inactive. Core/CLI operation is portable to macOS and Linux; desktop proxy and startup integration are Windows-only. The generated core config disables TUN.
+
+Logs can be followed with `-f`, including across file creation and rotation. `--startup` cannot be combined with `--daemon` or `--errors`. Set `SASH_DEBUG=1` or `true` to include CLI error stacks on stderr.

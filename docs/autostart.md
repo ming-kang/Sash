@@ -1,90 +1,63 @@
 # Automatic Startup
 
-Sash can start in the background when the current Windows user signs in. Enable it from
-**Settings → Start at Login** in the dashboard or from the CLI:
+Start Sash in the background when the current Windows user signs in. Use **Settings → Start at Login** or the CLI:
 
 ```sh
-sash auto on       # enable or repair the startup entry
-sash auto off      # remove the startup entry
-sash auto status   # inspect without changing anything
-sash auto          # inspect status
+sash auto on       # enable or repair
+sash auto off      # remove
+sash auto status   # inspect; bare "sash auto" does the same
 ```
 
-Changing automatic startup affects future logins. Use `sash start` and `sash stop`
-to control the current runtime. Automatic startup does not open a browser.
+This affects future logins. Use `sash start` and `sash stop` for the current session.
 
-## Installation and Data Directory
+[Usage](./usage.md) · [Backend architecture](./backend.md)
 
-Enabling requires a built, direct npm-global installation:
+## Installation and data folder
+
+Enabling requires a direct global npm installation:
 
 ```sh
 npm install -g @astralyn/sash
 sash auto on
 ```
 
-Source checkouts, `npm link`, local dependencies and temporary `npx` installations
-cannot enable startup. They can still inspect or remove an existing entry.
-The generated launcher records the absolute Node executable, Sash entry point and
-current data directory. An absolute `SASH_HOME` override is preserved; it does not
-depend on the login shell loading the same environment.
+Source checkouts, `npm link`, local dependencies and temporary `npx` installations can inspect or remove an entry, but cannot enable it.
 
-There is one startup entry per operating-system user. Enabling it with another
-`SASH_HOME` replaces the entry to start that instance. Other instances report that
-entry as `stale` because its target differs. Changing the Node installation or npm
-prefix can also make the entry stale; run `sash auto on` from the new installation
-to repair it. Upgrading Sash in the same prefix preserves the entry.
+The launcher records the absolute Node executable, Sash entry point and data folder, including an absolute `SASH_HOME`. There is one entry per Windows user; enabling it with another data folder replaces the target.
 
-Automatic startup uses the normal `sash start` ownership and health-check flow.
-It reads the saved settings and active profile at login, including the saved
-system-proxy preference. The OS holds the startup registration.
+After moving Node or changing the npm prefix, run `sash auto on` to repair the entry. Upgrading Sash in the same prefix preserves it.
 
-## Platform Behavior
+## Login behavior
 
-| Platform | Registration | When it runs |
-| :--- | :--- | :--- |
-| Windows | `Sash` value in the current user's `Run` registry key; hidden WScript launcher | User sign-in, without a console window |
-Other platforms report startup integration as unsupported.
+Windows registers a `Sash` value in the current user's `Run` key. Its hidden WScript launcher runs the normal `sash start` flow, using saved settings, the selected profile and the system-proxy preference. It opens neither a console nor a browser.
 
-The daemon performs registration changes. If it is stopped, `sash auto on/off`
-starts management first, without starting Core. Registration does not require a
-privileged system service or restart the current Core.
+Sash performs registration changes. If stopped, `sash auto on/off` starts Sash's local API without starting Core. Other operating systems report startup integration as unsupported.
 
-## Status and Diagnostics
+## Status and diagnostics
 
-`sash status` includes automatic startup. `sash status --json` returns an
-`autostart` object with `state`, `canEnable` and `reason`:
+`sash auto status --json` returns `state`, `canEnable` and `reason`. `sash status --json` includes the same fields under `autostart`:
 
-| State | Meaning |
-| :--- | :--- |
-| `on` | The current launcher is registered and enabled by the OS |
-| `off` | No startup entry is registered |
-| `stale` | An entry exists, but its launcher, installation paths or data directory differ |
-| `disabled` | The current entry is disabled by the OS |
-| `unknown` | The OS state could not be inspected |
-| `unsupported` | This operating system has no supported startup backend |
+| JSON state | Meaning |
+| --- | --- |
+| `on` | Current launcher is registered and enabled in Windows |
+| `off` | No entry is registered |
+| `stale` | Launcher, installation or data folder differs |
+| `disabled` | Windows has disabled the current entry |
+| `unknown` | Inspection failed; `reason` explains why |
+| `unsupported` | Platform has no supported startup integration |
 
-`canEnable` reports whether this installation can register a stable launcher.
-`reason` explains an unavailable installation or a failed inspection. An inspection
-failure does not erase runtime observations; status still reports them and exits
-with code `2`. Explicit `sash auto off` does not need a successful inspection.
-The dashboard also provides **Refresh status** and **Remove startup entry** for
-recovery.
+`canEnable` says whether this installation can register a launcher. Failed observation returns exit code `2`; `sash auto off` remains available to remove an entry.
 
-Each login attempt records its start and outcome in `<SASH_HOME>/logs/sash.log`.
-The log rotates at 1 MiB, retaining one previous file as `sash.log.1`:
+Each login attempt records its outcome in `<SASH_HOME>/logs/sash.log`, rotating at 1 MiB with one previous file:
 
 ```sh
 sash logs --startup
 sash logs --startup -f
 ```
 
-These diagnostics remain readable when invalid settings prevented startup.
-`--startup` cannot be combined with `--daemon` or `--errors`. If no attempt was
-recorded, check the OS startup entry and the paths above first.
+These logs remain readable if invalid settings prevented startup. If no attempt appears, check the Windows startup entry and the recorded installation paths.
 
 ## Uninstalling
-
-Remove startup before uninstalling the package:
 
 ```sh
 sash auto off
@@ -92,9 +65,4 @@ sash stop
 npm uninstall -g @astralyn/sash
 ```
 
-If Sash has already been uninstalled, remove its startup entry manually:
-
-- Windows: remove the `Sash` value under
-  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` and, if present,
-  `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`.
-  Then remove `%LOCALAPPDATA%\Sash\autostart\start.vbs`.
+If the package is already gone, remove the `Sash` value from `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` and, if present, `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`. Then remove `%LOCALAPPDATA%\Sash\autostart\start.vbs`.

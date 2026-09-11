@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Read profile source text directly for editing and content comparisons. Damaged source text can be opened for repair; save, activation and Apply validate configurations.
 - Use one frozen committed application state and a shared typed client request boundary.
 - Shorten development guidance and keep documentation and tests focused on current behavior.
+- Add SVG architecture diagrams and condense the usage, backend, frontend and startup guides.
 
 ## [0.2.2] - 2026-09-10
 

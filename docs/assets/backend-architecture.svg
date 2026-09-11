@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 640" width="760" height="640" role="img">
+  <title>Sash backend architecture</title>
+  <desc>CLI and dashboard requests enter one local API. The Sash background process serializes saved-state and lifecycle changes, writes the data folder, manages Core and Windows integration, and forwards Core queries and streams independently.</desc>
+  <style>text { font-family: 'Anthropic Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'Noto Sans CJK SC', sans-serif; }</style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect width="760" height="640" fill="#FFFFFF"/>
+  <rect data-role="container" x="40" y="156" width="680" height="272" rx="14" fill="none" stroke="rgba(31,30,29,0.3)" stroke-width="0.5" stroke-dasharray="4 3"/>
+  <text data-role="container-label" x="60" y="182" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">Sash background process</text>
+  <line x1="380" y1="96" x2="380" y2="208" stroke="#73726C" stroke-width="1.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M380 264 L380 296 L228 296 L228 328" fill="none" stroke="#1D9E75" stroke-width="1.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M380 264 L380 296 L606 296 L606 328" fill="none" stroke="#73726C" stroke-width="1.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M228 384 L228 448 L150 448 L150 496" fill="none" stroke="#1D9E75" stroke-width="1.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M228 384 L228 448 L380 448 L380 496" fill="none" stroke="#1D9E75" stroke-width="1.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M228 384 L228 448 L496 448 L496 524 L542 524" fill="none" stroke="#1D9E75" stroke-width="1.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <line x1="606" y1="384" x2="606" y2="496" stroke="#73726C" stroke-width="1.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <rect x="302" y="40" width="156" height="56" rx="8" fill="#F5F4ED" stroke="rgba(31,30,29,0.3)" stroke-width="0.5"/>
+  <rect x="292" y="208" width="176" height="56" rx="8" fill="#F5F4ED" stroke="rgba(31,30,29,0.3)" stroke-width="0.5"/>
+  <rect x="144" y="328" width="168" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <rect x="530" y="328" width="152" height="56" rx="8" fill="#F5F4ED" stroke="rgba(31,30,29,0.3)" stroke-width="0.5"/>
+  <rect x="78" y="496" width="144" height="56" rx="8" fill="#F5F4ED" stroke="rgba(31,30,29,0.3)" stroke-width="0.5"/>
+  <rect x="318" y="496" width="124" height="56" rx="8" fill="#F5F4ED" stroke="rgba(31,30,29,0.3)" stroke-width="0.5"/>
+  <rect x="542" y="496" width="128" height="56" rx="8" fill="#F5F4ED" stroke="rgba(31,30,29,0.3)" stroke-width="0.5"/>
+  <text data-role="node-text" x="380" y="60" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">CLI &amp; dashboard</text>
+  <text data-role="node-text" x="380" y="77" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">Commands · browser</text>
+  <text data-role="node-text" x="380" y="228" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">Local API</text>
+  <text data-role="node-text" x="380" y="245" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">HTTP · auth · routing</text>
+  <text data-role="node-text" x="228" y="348" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#085041">State &amp; lifecycle</text>
+  <text data-role="node-text" x="228" y="365" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">Serial changes</text>
+  <text data-role="node-text" x="606" y="348" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">Core gateway</text>
+  <text data-role="node-text" x="606" y="365" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">Queries · streams</text>
+  <text data-role="node-text" x="150" y="516" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">Data folder</text>
+  <text data-role="node-text" x="150" y="533" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">sash.json · YAML</text>
+  <text data-role="node-text" x="380" y="516" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">Windows</text>
+  <text data-role="node-text" x="380" y="533" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">Proxy · login</text>
+  <text data-role="node-text" x="606" y="516" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">Core</text>
+  <text data-role="node-text" x="606" y="533" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">Network engine</text>
+  <text data-role="arrow-label" x="388" y="152" text-anchor="start" dominant-baseline="central" font-size="12" fill="#3D3D3A">Requests</text>
+  <text data-role="arrow-label" x="304" y="288" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">Changes</text>
+  <text data-role="arrow-label" x="493" y="288" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">Core API</text>
+  <text data-role="arrow-label" x="614" y="440" text-anchor="start" dominant-baseline="central" font-size="12" fill="#3D3D3A">HTTP / WS</text>
+  <rect x="40" y="590" width="12" height="12" rx="3" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text data-role="legend-label" x="58" y="596" dominant-baseline="central" font-size="12" fill="#3D3D3A">Serialized changes</text>
+  <rect x="205" y="590" width="12" height="12" rx="3" fill="#F5F4ED" stroke="rgba(31,30,29,0.3)" stroke-width="0.5"/>
+  <text data-role="legend-label" x="223" y="596" dominant-baseline="central" font-size="12" fill="#3D3D3A">Clients, reads and resources</text>
+</svg>

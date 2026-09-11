@@ -1,98 +1,83 @@
 # Frontend Architecture
 
-Sash's Vue 3 / Vite dashboard is built into `dist/ui/` and served by Sash. LXGW WenKai Lite fonts use Unicode-range splitting.
+The Vue 3 / Vite dashboard lives in `web/src/`, builds to `dist/ui/` and is served by Sash at `/ui/`.
 
-## State ownership
+[Usage](./usage.md) · [Backend](./backend.md) · [Start at login](./autostart.md)
 
-`stores/state.ts` holds shared shallow-reactive state. Large collections are replaced by reference. `stores/index.ts` exports the public actions and selectors.
+![Views send actions through the authenticated API client. Responses and streams update shared state, which renders the views.](./assets/frontend-architecture.svg)
+
+## State and actions
+
+[stores/state.ts](../web/src/stores/state.ts) holds shared shallow-reactive state. Large collections are replaced by reference. [stores/index.ts](../web/src/stores/index.ts) exposes actions and selectors to views.
 
 | Module | Responsibility |
 | --- | --- |
-| `stores/runtime-actions.ts` | Status adoption, boot changes and settings actions |
-| `stores/runtime-events.ts` | Authenticated status subscription, reconnect and visible Core resource scheduling |
-| `stores/profile-actions.ts` | Saved profile mutations and metadata refresh |
-| `stores/core-actions.ts` | Independent Core resource loads and mode/node/connection controls |
-| `stores/telemetry.ts` | Traffic history and batched, bounded log records |
-| `api/session.ts` | One-time bootstrap, per-tab session and daemon identity |
-| `api/index.ts` | Shared daemon client, Core queries and streams |
+| [runtime-actions.ts](../web/src/stores/runtime-actions.ts) | Adopt status and save settings |
+| [profile-actions.ts](../web/src/stores/profile-actions.ts) | Save profiles and refresh metadata |
+| [core-actions.ts](../web/src/stores/core-actions.ts) | Load Core resources and control mode, nodes and connections |
+| [runtime-events.ts](../web/src/stores/runtime-events.ts) | Subscribe to status and schedule resource refreshes |
+| [telemetry.ts](../web/src/stores/telemetry.ts) | Keep traffic history and bounded log batches |
+| [api/](../web/src/api/) | Authorize the tab and transport requests and streams |
 
-Three values determine refresh ownership:
+Refreshes follow three values from Sash:
 
-- `daemon.bootId`: identifies the running Sash process and resets metadata revision comparisons when it changes.
-- `revisions.state`: saved-state changes refresh profile metadata. It does not invalidate Core resources.
-- `revisions.runtime`: with `bootId`, identifies the Core runtime. Replacement clears Core resources, traffic and manual latency results.
-
-Each resource has its own loaded flag and error. A failed rules query preserves working node data. Failures retain prior data and show degradation; Core runtime changes clear its collections and telemetry.
-
-## Refresh and performance
-
-Authorized tabs receive full status snapshots through `/sash/events`. Entry and reconnection validate the daemon identity and restore or continue the private session. A new stream starts with a complete snapshot. Unauthorized tabs probe slowly for availability; a new browser handoff connects immediately.
-
-Core resource snapshots retain a separate, non-overlapping two-second schedule while visible. They pause in hidden tabs and refresh promptly on return. Metadata reads retry independently when their observed revision could not be loaded.
-
-| Visible page | Core requests |
+| Value | When it changes |
 | --- | --- |
-| Overview | Config/mode and proxies approximately every third cycle; connections approximately every fifth cycle |
+| `daemon.bootId` | Reconnect to the new Sash process and reset saved-state comparisons |
+| `revisions.state` | Refresh profile metadata |
+| `daemon.bootId` + `revisions.runtime` | Clear the replaced Core's resources, traffic and manual latency results |
+
+Each Core resource has its own loading state and error. A failed query preserves that resource's previous data and marks it stale; other resources remain usable. Stopping or replacing Core clears its data.
+
+## Refresh and streams
+
+Sash status arrives through authenticated SSE at `/sash/events`. A connection starts with a full snapshot. Core tables use a separate, non-overlapping two-second refresh schedule for the current page.
+
+| Page | Background work |
+| --- | --- |
+| Overview | Config/mode and proxies every third cycle; connections every fifth |
 | Connections | Connections each cycle |
-| Rules | Rules on entry/runtime change, then cached |
-| Profiles / Settings | No background Core tables |
+| Rules | Load on entry or Core replacement, then cache |
+| Profiles / Settings | Saved metadata; no periodic Core table reads |
 | Logs | Log stream while visible |
 
-Entering a page loads its resources immediately. Profile saves only refresh management metadata. Explicit Apply refreshes the resources visible after Core replacement. Traffic is one shared stream for visible consumers; traffic/log sockets pause when the page is hidden or the runtime/session is unavailable.
+Page entry loads the relevant resources immediately. Saving a profile refreshes metadata; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket for visible consumers. Traffic and log streams pause when hidden or when the session/Core is unavailable.
 
-Unchanged proxy responses retain their references; a local selection or runtime replacement invalidates that reuse. Node cards use content visibility and memoization that includes labels, selection, metadata, latency, testing and language. Group collapse choices persist locally, with only the first four groups expanded by default. Connection rows include visible metadata and relative time in their memoization keys; paused snapshots and busy sets remain shallow.
+Unchanged proxy data retains its references. Lists use memoization, pagination or content visibility where useful. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand.
 
-Routes and the editor display loading, failure and reload states. Pagination supports first/last and direct page jumps. Errors remain until dismissed; transient notices pause while hovered or focused. Brief traffic socket disconnections retain history for one reconnect interval. Log batches remain capped at 600 rows and font slices load only for rendered glyph ranges.
+## Views and controls
 
-## Views and shared controls
+[App.vue](../web/src/App.vue) owns navigation, the session gate, the pending-configuration bar and shared stream lifetime. Pages cover Overview, Profiles, Logs, Connections, Rules and Settings.
 
-`App.vue` owns the shell, route composition, session gate, global pending-configuration bar and stream lifetime for the Overview, Profiles, Logs, Connections, Rules and Settings pages.
+[CoreControls.vue](../web/src/components/CoreControls.vue) shares start, stop and Apply behavior through [useCoreControl](../web/src/composables/core-runtime.ts). Apply asks for confirmation when it restarts a running Core.
 
-`CoreControls.vue` and `useCoreControl()` share busy state and Apply/start/stop actions across the Overview, Settings and pending bar. Applying while running asks for confirmation because it restarts Core. Stopping Core keeps management open.
+Profiles shows the saved selection; Overview shows the configuration Core is using. The editor saves against the content revision read on open. Settings drafts stay local until Save and survive status refreshes. The system-proxy switch acts immediately and remains available for restoration when Core is stopped.
 
-Profile selection and edits are saved first. The pending bar indicates that the running configuration differs. Overview displays the applied profile/port; Profiles shows the saved selection. The YAML editor submits the content revision read on open, preventing another tab's later edits from being overwritten.
-
-Settings drafts remain local until Save and survive status updates. A saved port/LAN change waits for Apply. The system-proxy switch performs its own operation and remains available for recovery when Core is stopped. The login-startup card uses the observed OS registration and explicit enable/remove actions.
-
-Views share `PageHeader`, `ProxyGroupSection`, the code editor, pagination, confirmation service and focus/scroll-lock composables. They support light/dark themes, Chinese/English copy and mobile navigation.
+Shared dialogs provide focus trapping, Escape handling and focus return. The dashboard supports Chinese/English, light/dark themes and mobile navigation.
 
 ## Authorization and transport
 
-`src/contracts.ts` and `src/sash-client.ts` define the browser-safe daemon protocol. Runtime imports do not pull Node-specific implementations into the browser. Core types describe only the data the UI uses.
+[api/session.ts](../web/src/api/session.ts) consumes the one-time handoff from `sash web`, removes it from the URL and stores the resulting session in `sessionStorage`. If storage is unavailable, the current page keeps the session in memory. A bare dashboard URL displays connection instructions.
 
-The browser consumes and immediately removes the private handoff fragment, exchanges it once, and stores its session with the issuing daemon identity in `sessionStorage`. Concurrent initialization shares the exchange; storage denial falls back to memory. Old responses cannot resurrect or revoke a newer session. A bare URL shows connection instructions and never gains control through public health.
+[api/index.ts](../web/src/api/index.ts) uses the browser-safe [SashClient](../src/sash-client.ts). HTTP and SSE carry `X-Sash-Token`; WebSockets use a private authentication subprotocol. Sash forwards Core requests using its own controller credential.
 
-Core HTTP requests carry `X-Sash-Token`; streams use private WebSocket subprotocol authentication. The daemon replaces these credentials with its internal controller bearer. Frames require finite nonnegative counters or known textual log records. Each stream owns one reconnect timer and ignores frames from older runtime generations.
-
-Daemon SSE uses `X-Sash-Token` through a streaming fetch, with credentials kept out of URLs. Frames carry a monotonic sequence, full daemon status and a desktop startup observation. Decoding is bounded, validates the shared contract and rejects a boot change or regressing sequence within a connection. Idle deadlines and cancellation release the reader before reconnecting.
+SSE checks stream framing, sequence and process identity. Traffic/log frames are bounded and checked before entering shared state. Reconnects release old readers and ignore frames from replaced runtimes. Existing sessions can continue across Sash restarts.
 
 ## Development and verification
 
-```sh
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm run smoke:ui
-npm run verify:ui
-npm run verify:ui:profiles
-npm run verify:ui:auth
-npm run verify:ui:autostart
-```
-
-All browser scripts share `scripts/ui-harness.mts` for the mock Core listener, browser launch and failure captures.
-
-The browser scripts use isolated data, non-default ports and Core/OS fixtures in Chromium and Firefox. They cover runtime actions, profiles, authorization, start at login, fonts, layouts and stream recovery.
-
-For local source development:
+From a source checkout:
 
 ```sh
-node scripts/dev.mjs web
-node scripts/dev.mjs build    # rebuild UI, then refresh the page
-node scripts/dev.mjs stop     # before loading backend changes
+node scripts/dev.mjs web      # open the development dashboard
+node scripts/dev.mjs build    # rebuild after UI edits, then refresh
+node scripts/dev.mjs stop     # stop before loading backend changes
 node scripts/dev.mjs web
 ```
 
-The launcher uses a separate `-dev` data directory and initial ports `18890`, `18990`, `28990`. `SASH_DEV_HOME` selects another absolute directory. It passes development defaults to the daemon without writing settings itself. `web` starts management only; `restart` applies configuration to Core. A backend code change requires stopping and starting the daemon.
+The launcher uses a separate `-dev` data folder and initial ports `18890`, `18990` and `28990`. Set an absolute `SASH_DEV_HOME` to choose another folder. `web` starts Sash; `restart` applies the saved configuration and starts Core.
 
-The font build continues to use `cn-font-split`, native subsetter `default@7.6.8` and the scoped `koffi: 2.16.3` override. Install the native subsetter explicitly when dependency lifecycle scripts are disabled. Bundled Vue/Remix Icon licenses remain in `THIRD_PARTY_NOTICES.md` and `docs/remix-icon-license.txt`.
+Run `npm run typecheck`, `npm run lint` and affected tests after code changes. After building, use `npm run smoke:ui` and the relevant browser check: `verify:ui`, `verify:ui:profiles`, `verify:ui:auth` or `verify:ui:autostart`.
+
+Browser checks share [ui-harness.mts](../scripts/ui-harness.mts), with temporary data, non-default ports and Core/OS fixtures. Check both Chromium and Firefox. [ui-shot.mjs](../scripts/ui-shot.mjs) captures routes for visual inspection.
+
+Font build setup lives in [build-ui.mjs](../scripts/build-ui.mjs). Bundled licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) and [remix-icon-license.txt](./remix-icon-license.txt).
