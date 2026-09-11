@@ -49,7 +49,11 @@ function createPrivateDirectory(directory: string): void {
     "$actual = [IO.Directory]::GetAccessControl($directory)",
     "if (!$actual.AreAccessRulesProtected -or $actual.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Bootstrap directory is not private' }",
   ].join("; ");
-  runSanitizedCommand(executable, ["-NoProfile", "-NonInteractive", "-Command", script]);
+  // Powershell cold start plus the .NET ACL types take seconds on a loaded
+  // machine; the 5s default fails the handoff before the directory exists.
+  runSanitizedCommand(executable, ["-NoProfile", "-NonInteractive", "-Command", script], {
+    timeoutMs: 30_000,
+  });
 }
 
 /**
