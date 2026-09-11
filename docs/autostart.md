@@ -36,8 +36,7 @@ to repair it. Upgrading Sash in the same prefix preserves the entry.
 
 Automatic startup uses the normal `sash start` ownership and health-check flow.
 It reads the saved settings and active profile at login, including the saved
-system-proxy preference. Startup registration is managed by the OS, not by a
-boolean in `sash.json`.
+system-proxy preference. The OS holds the startup registration.
 
 ## Platform Behavior
 

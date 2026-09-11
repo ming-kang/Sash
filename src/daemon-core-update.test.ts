@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 import type { DaemonStatus } from "./contracts.js";
 import { readInstallRecord } from "./core-install-record.js";
 import { readCoreUpdateTransaction } from "./core-update.js";
-import { parseCoreUpdateProgress } from "./core-update-progress.js";
+import type { CoreUpdateProgress } from "./core-update-progress.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
@@ -34,7 +34,7 @@ describe("daemon-owned Core updates", () => {
     await entered.promise;
     try {
       assert.equal((await h.apiRequest("/sash/core/update", { token: "" })).statusCode, 401);
-      const progress = parseCoreUpdateProgress((await h.apiRequest("/sash/core/update")).data);
+      const progress = (await h.apiRequest("/sash/core/update")).data as CoreUpdateProgress | null;
       assert.equal(progress?.stage, "downloading");
       assert.equal(progress?.downloaded, 100);
       assert.equal(progress?.total, 200);
@@ -85,7 +85,7 @@ describe("daemon-owned Core updates", () => {
     try {
       lateProgress?.(199, 200);
       assert.equal(
-        parseCoreUpdateProgress((await h.apiRequest("/sash/core/update")).data)?.downloaded,
+        ((await h.apiRequest("/sash/core/update")).data as CoreUpdateProgress | null)?.downloaded,
         20,
       );
     } finally {
@@ -95,25 +95,6 @@ describe("daemon-owned Core updates", () => {
     assert.equal((await h.apiRequest("/sash/core/update")).data, null);
   });
 
-  it("starts legacy Core without downloading a default build or requiring a stored digest", async () => {
-    let validations = 0;
-    await h.startServer({
-      validateConfig: () => {
-        validations += 1;
-      },
-    });
-    fs.writeFileSync(h.layout.coreExe, "an existing official v3 build");
-    const saved = fs.readFileSync(h.layout.installFile);
-    const result = await h.apiRequest("/sash/core/start", { method: "POST" });
-    assert.equal(result.statusCode, 200);
-    assert.equal(validations, 1);
-    assert.deepEqual(fs.readFileSync(h.layout.installFile), saved);
-    assert.equal(fs.existsSync(h.layout.tempDir), false);
-    assert.equal(
-      ((await h.apiRequest("/sash/daemon/status")).data as DaemonStatus).core.running,
-      true,
-    );
-  });
   it("installs and starts a missing Core once with one configuration check", async () => {
     const core = new FakeCoreSupervisor(h.layout, h.settings);
     let validations = 0;

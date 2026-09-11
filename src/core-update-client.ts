@@ -4,7 +4,7 @@ import type { CoreUpdateProgress, CoreUpdateStage } from "./core-update-progress
 import type { SashDaemonClient } from "./daemon-client.js";
 
 const STAGE_TEXT: Record<CoreUpdateStage, string> = {
-  checking: "Checking installed Core integrity",
+  checking: "Checking Core installation",
   resolving: "Checking the Core release",
   downloading: "Downloading Core",
   extracting: "Extracting Core",
@@ -43,7 +43,7 @@ export async function updateCoreWithProgress(
         const progress = await client.coreUpdateProgress();
         if (!controller.signal.aborted && progress) onProgress(progress);
       } catch {
-        // Old daemons or a transient read failure still complete the original update request.
+        // Progress errors do not affect the update request.
       }
     }
   })();

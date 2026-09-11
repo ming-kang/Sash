@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "../paths.js";
-import { acquireStateLockSync } from "../state-lock.js";
+import { acquireStateLock } from "../state-lock.js";
 import { createTestState, testSettings } from "../testing/state.js";
 import { runStart, runStop } from "./lifecycle.js";
 
@@ -23,7 +23,7 @@ describe("lifecycle commands", () => {
     process.env.SASH_HOME = root;
     const layout = sashLayout(root);
     requests = [];
-    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test daemon" });
+    const lease = await acquireStateLock(layout.daemonLeaseFile, { purpose: "test daemon" });
     releaseLease = () => lease.release();
     server = http.createServer(async (req, res) => {
       if (req.url !== "/sash/daemon/health")

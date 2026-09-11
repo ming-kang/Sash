@@ -33,7 +33,6 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_MS = 50;
 /** A record that cannot be parsed within this window is abandoned, not being written. */
 const WRITE_GRACE_MS = 250;
-const syncWaitCell = new Int32Array(new SharedArrayBuffer(4));
 
 function ownerText(record?: StateLockRecord): string {
   return `owner PID ${record?.pid ?? "unknown"}, purpose ${JSON.stringify(record?.purpose ?? "unknown")}`;
@@ -107,11 +106,6 @@ function createLease(file: string, record: StateLockRecord): StateLockLease {
 }
 
 /**
- * Remove a lock whose owner is no longer running, or whose record has been
- * unreadable past the write grace. The rename makes the removal exclusive:
- * another contender either moves the same file first or sees ENOENT.
- */
-/**
  * Remove a lock whose owner is no longer running, or whose record has stayed
  * unreadable past the write grace. The rename makes the removal exclusive:
  * another contender either moves the same file first or sees ENOENT. Returns
@@ -145,11 +139,11 @@ function reclaimLock(file: string): boolean {
   return true;
 }
 
-type AcquisitionStep =
-  | { kind: "acquired"; lease: StateLockLease }
-  | { kind: "wait"; delayMs: number };
-
-function acquisitionPlanner(file: string, options: StateLockOptions): () => AcquisitionStep {
+/** Acquire a state-file lock without blocking the Node.js event loop. */
+export async function acquireStateLock(
+  file: string,
+  options: StateLockOptions,
+): Promise<StateLockLease> {
   const purpose = options.purpose?.trim();
   if (!purpose) throw lockError(file, "requires a non-empty purpose");
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -161,7 +155,7 @@ function acquisitionPlanner(file: string, options: StateLockOptions): () => Acqu
   }
   const deadline = Date.now() + timeoutMs;
 
-  return () => {
+  for (;;) {
     for (let attempt = 0; attempt < 4; attempt++) {
       const record: StateLockRecord = {
         version: 1,
@@ -170,41 +164,13 @@ function acquisitionPlanner(file: string, options: StateLockOptions): () => Acqu
         purpose,
         acquiredAt: new Date().toISOString(),
       };
-      if (writeLockRecord(file, record))
-        return { kind: "acquired", lease: createLease(file, record) };
+      if (writeLockRecord(file, record)) return createLease(file, record);
       if (!reclaimLock(file)) break;
     }
     const owner = readLockRecord(file);
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw lockError(file, "is busy", owner);
-    return { kind: "wait", delayMs: Math.min(pollMs, remaining) };
-  };
-}
-
-function sleepSync(ms: number): void {
-  Atomics.wait(syncWaitCell, 0, 0, ms);
-}
-
-/** Acquire a state-file lock without blocking the Node.js event loop. */
-export async function acquireStateLock(
-  file: string,
-  options: StateLockOptions,
-): Promise<StateLockLease> {
-  const next = acquisitionPlanner(file, options);
-  for (;;) {
-    const step = next();
-    if (step.kind === "acquired") return step.lease;
-    await new Promise((resolve) => setTimeout(resolve, step.delayMs));
-  }
-}
-
-/** Acquire a state-file lock synchronously for synchronous state operations. */
-export function acquireStateLockSync(file: string, options: StateLockOptions): StateLockLease {
-  const next = acquisitionPlanner(file, options);
-  for (;;) {
-    const step = next();
-    if (step.kind === "acquired") return step.lease;
-    sleepSync(step.delayMs);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
   }
 }
 

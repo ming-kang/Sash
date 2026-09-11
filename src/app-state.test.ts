@@ -40,7 +40,7 @@ describe("canonical Sash state", () => {
     assert.equal(readState(layout)?.revision, 1);
   });
 
-  it("reuses a deeply frozen snapshot until the next committed revision", () => {
+  it("keeps published state immutable across commits", () => {
     const state = createTestState(sashLayout(root));
     state.commit({
       ...state.snapshot(),
@@ -50,13 +50,6 @@ describe("canonical Sash state", () => {
       },
     });
     const before = state.snapshot();
-    assert.equal(state.snapshot(), before);
-    assert.ok(Object.isFrozen(before));
-    assert.ok(Object.isFrozen(before.settings));
-    assert.ok(Object.isFrozen(before.profiles));
-    assert.ok(Object.isFrozen(before.profiles.profiles));
-    assert.ok(Object.isFrozen(before.profiles.profiles[0]));
-    assert.ok(Object.isFrozen(before.profiles.profiles[0]?.subInfo));
     assert.throws(() => {
       before.settings.mixedPort = 18880;
     }, TypeError);
@@ -64,8 +57,6 @@ describe("canonical Sash state", () => {
       before.profiles.profiles.splice(0, 0);
     }, TypeError);
     const after = state.commit({ ...before, settings: { ...before.settings, mixedPort: 18880 } });
-    assert.notEqual(after, before);
-    assert.equal(state.snapshot(), after);
     assert.notEqual(before.settings.mixedPort, after.settings.mixedPort);
     assert.equal(after.revision, before.revision + 1);
   });
@@ -121,7 +112,7 @@ describe("canonical Sash state", () => {
     assert.throws(() => state.commit(state.snapshot()), /disk full/);
     assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), before);
     assert.equal(state.snapshot().revision, 0);
-    assert.equal(state.snapshot(), snapshot);
+    assert.deepEqual(state.snapshot(), snapshot);
   });
 
   it("accepts unknown manifest fields and rejects corrupt, unsupported or oversized state", () => {

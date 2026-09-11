@@ -101,7 +101,7 @@ describe("saved profiles", () => {
     assert.equal(profiles.readContent(profile.id).content, damaged);
     await assert.rejects(profiles.activate(profile.id));
     await assert.rejects(profiles.writeContent(profile.id, damaged, profile.revision));
-    assert.equal(state.snapshot(), before);
+    assert.deepEqual(state.snapshot(), before);
     await profiles.writeContent(profile.id, yamlB, profile.revision);
     assert.equal(profiles.readContent(profile.id).content, yamlB);
   });

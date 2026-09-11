@@ -7,7 +7,7 @@ const INSTALL_RECORD_SIZE_LIMIT = 16 * 1024;
 export interface InstallRecord {
   coreVersion: string;
   installedAt: string;
-  /** The selected release asset; older installations did not record it. */
+  /** The selected release asset, when recorded. */
   assetName?: string;
 }
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { coreUpdateProgressText, updateCoreWithProgress } from "./core-update-client.js";
-import { type CoreUpdateProgress, parseCoreUpdateProgress } from "./core-update-progress.js";
+import type { CoreUpdateProgress } from "./core-update-progress.js";
 import { deferred } from "./testing/state.js";
 
 const progress: CoreUpdateProgress = {
@@ -64,18 +64,4 @@ it("never polls when progress is not requested and preserves update failures", a
     ),
     /install failed/,
   );
-});
-
-it("validates bounded progress without accepting malformed or contradictory observations", () => {
-  assert.equal(parseCoreUpdateProgress(null), null);
-  assert.deepEqual(parseCoreUpdateProgress(progress), progress);
-  for (const patch of [
-    { stage: "unknown" },
-    { downloaded: -1 },
-    { total: 0 },
-    { startedAt: "yesterday" },
-    { downloading: false },
-    { target: "../release" },
-  ])
-    assert.throws(() => parseCoreUpdateProgress({ ...progress, ...patch }), /Invalid Core update/);
 });

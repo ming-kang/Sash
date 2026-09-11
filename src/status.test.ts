@@ -191,30 +191,6 @@ describe("CLI runtime status observations", () => {
     process.exitCode = previousExitCode;
   });
 
-  it("skips the local proxy probe when the daemon already reports the OS proxy state", async () => {
-    const started = new Set<string>();
-    const status = await collectRuntimeStatus(
-      context,
-      dependencies({
-        queryDaemonStatus: async () => {
-          started.add("daemon");
-          return statusResponse({ running: false });
-        },
-        inspectSystemProxy: async () => {
-          started.add("proxy");
-          throw new Error("the local probe must not run when the daemon reported state");
-        },
-        inspectAutostart: async () => {
-          started.add("auto");
-          return { state: "off", canEnable: true, reason: null };
-        },
-      }),
-    );
-    assert.deepEqual([...started].sort(), ["auto", "daemon"]);
-    assert.equal(status.complete, true);
-    assert.equal(status.systemProxy.osObserved.enabled, true);
-  });
-
   it("reports a complete healthy runtime with observed endpoints", async () => {
     const status = await collectRuntimeStatus(context, dependencies());
 

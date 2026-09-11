@@ -81,13 +81,13 @@ it("diagnoses an uninitialized installation without creating application data", 
   }
 });
 
-it("reports corrupt settings without treating a legacy Core digest as a runtime requirement", async () => {
+it("reports corrupt settings while independently inspecting installed Core", async () => {
   const f = fixture();
   try {
     createTestState(f.layout);
     fs.writeFileSync(f.layout.settingsFile, "{ malformed");
     fs.mkdirSync(f.layout.binDir, { recursive: true });
-    fs.writeFileSync(f.layout.coreExe, "changed bytes");
+    fs.writeFileSync(f.layout.coreExe, "Core executable");
     writeInstallRecord(
       {
         coreVersion: "v1.0.0",
@@ -106,7 +106,7 @@ it("reports corrupt settings without treating a legacy Core digest as a runtime 
     assert.equal(result.checks.find((check) => check.id === "manifest")?.status, "error");
     assert.equal(result.checks.find((check) => check.id === "core")?.status, "ok");
     assert.equal(fs.readFileSync(f.layout.settingsFile, "utf8"), "{ malformed");
-    assert.equal(fs.readFileSync(f.layout.coreExe, "utf8"), "changed bytes");
+    assert.equal(fs.readFileSync(f.layout.coreExe, "utf8"), "Core executable");
   } finally {
     await f.cleanup();
   }

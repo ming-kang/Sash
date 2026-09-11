@@ -14,7 +14,7 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 - **Explicit save and apply** — import, edit and update profiles, then apply saved changes with one Core restart
 - **Core updates** — automatic build selection, download integrity and rollback if the new Core fails to start (`sash update`)
 - **Sash self-upgrade** — `sash upgrade` installs a new version through npm and restarts the daemon
-- **Diagnostics** — `sash doctor [--json]` checks installation, saved state, Core integrity, ports and Windows desktop integration, with repair advice for each finding
+- **Diagnostics** — `sash doctor [--json]` checks installation, saved state, Core files, ports and Windows desktop integration, with repair advice for each finding
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
 
 ## Requirements
@@ -55,14 +55,12 @@ Use `sash web` to authorize and open the dashboard. Opening its address directly
 
 `sash web` also works while Core is stopped or missing. Profile selection, content edits and network settings are saved first; **Apply configuration** (or `sash restart`) restarts Core with those changes. Core updates and restarts keep the dashboard session alive.
 
-Use `sash upgrade --check` to inspect Sash releases and `sash upgrade` to install the target version: it stops the daemon, lets npm replace the package and starts the daemon again, leaving Core stopped, so run `sash start` afterwards. `sash update` updates Core. See [Updates](./docs/usage.md#updates) for compatibility and JSON output.
+Use `sash upgrade --check` to inspect Sash releases. `sash upgrade` installs the target version through npm while Sash keeps running, then restarts Sash to load it; run `sash start` afterwards to resume Core. `sash update` updates Core. See [Updates](./docs/usage.md#updates) for options and JSON output.
 
 Use `sash auto on` to start Sash at login, `sash auto status` to inspect the
 registration and `sash auto off` to remove it. This requires a direct global npm
 installation and preserves the current data directory. See [Automatic Startup](./docs/autostart.md)
 for platform behavior, diagnostics and removal before uninstalling.
-
-This refactor introduces a new state format and API without migration support. Use a fresh data directory and import any profile YAML you want to keep; existing state is never silently overwritten.
 
 ## Documentation
 
@@ -70,7 +68,6 @@ Comprehensive documentation is available in the [`docs/`](./docs) directory:
 
 - [**User & Operations Guide**](./docs/usage.md) — complete CLI command reference, configuration parameters and troubleshooting.
 - [**PowerShell Completion**](./docs/usage.md#powershell-completion) — bundled command, option and fixed-value completion for PowerShell 7.
-- [**High-level Architecture**](./docs/architecture-proposal.md) — the implemented design, ownership boundaries and save/apply flow.
 - [**Automatic Startup**](./docs/autostart.md) — login startup, OS registration state and failure diagnostics.
 - [**Backend Architecture**](./docs/backend.md) — supervisor daemon model (`sashd`), API endpoints, lifecycle management, system proxy adapters, and safety invariants.
 - [**Frontend Architecture**](./docs/frontend.md) — built-in Vue 3 + Vite dashboard, shared API contracts, reactive runtime state, and WebSocket streaming.

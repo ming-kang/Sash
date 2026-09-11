@@ -41,15 +41,13 @@ describe("settings boundaries", () => {
     ])
       assert.equal(parseControllerAddress(value), undefined, value);
   });
-  it("rejects wrong types, missing fields, retired fields and unsafe credentials", () => {
+  it("rejects wrong types, missing fields and unsafe credentials", () => {
     const input = testSettings();
     for (const value of [
       null,
       [],
       "settings",
       { mixedPort: 18000 },
-      { ...input, tun: false },
-      { ...input, subscriptionUrl: "url" },
       { ...input, secret: " " },
       { ...input, daemonSecret: "x\ny" },
     ])

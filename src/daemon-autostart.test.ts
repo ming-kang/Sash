@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { AutostartUnavailableError } from "./autostart.js";
-import { parseAutostartStatus } from "./autostart-contract.js";
+import type { AutostartStatus } from "./autostart-contract.js";
 import { createDaemonClient } from "./daemon-client.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
@@ -63,7 +63,7 @@ describe("autostart HTTP API", () => {
     assert.equal(writes, 0);
   });
 
-  it("shares the validated client protocol and does not modify runtime settings", async (t) => {
+  it("changes the OS registration through CLI and browser clients", async (t) => {
     let enabled = false;
     const state = () => ({
       state: enabled ? ("on" as const) : ("off" as const),
@@ -91,7 +91,7 @@ describe("autostart HTTP API", () => {
       body: { enabled: false },
       webToken: session,
     });
-    assert.equal(parseAutostartStatus(response.data).state, "off");
+    assert.equal((response.data as AutostartStatus).state, "off");
     assert.equal(starts.mock.callCount(), 0);
     assert.equal(stops.mock.callCount(), 0);
     assert.equal(fs.readFileSync(h.layout.settingsFile, "utf8"), settings);

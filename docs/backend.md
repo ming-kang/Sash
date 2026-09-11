@@ -1,6 +1,6 @@
 # Backend Architecture
 
-Sash manages one local Core through one loopback daemon. The [high-level architecture](./architecture-proposal.md) explains the overall design; this document defines its implementation boundaries.
+Sash manages one local Core through one loopback daemon. This document describes backend responsibilities, lifecycle, persistence and the local API.
 
 ## Ownership
 
@@ -10,7 +10,7 @@ Sash manages one local Core through one loopback daemon. The [high-level archite
 
 CLI commands use `runtime-owner.ts` and `daemon-lifecycle.ts` for read-only discovery, management startup and API calls. A live but unverified daemon blocks competing startup and cannot be stopped by an unverified signal. CLI discovery uses the observed daemon port. `sash upgrade` resolves an npm target and runs one global install; it replaces no package files itself, and application state stays daemon-written.
 
-`doctor.ts` composes read-only installation, package-asset, manifest, Core-file and runtime observations. It does not hash installed executables. Invalid state does not suppress independent installation/Core checks. Port checks skip listeners already owned by the observed runtime and report occupied or unavailable stopped ports; diagnostics do not start or repair an instance.
+`doctor.ts` composes read-only installation, package-asset, manifest, Core-file and runtime observations. Invalid state does not suppress independent installation/Core checks. Port checks skip listeners already owned by the observed runtime and report occupied or unavailable stopped ports.
 
 Daemon startup holds the `state/sashd.lock` singleton lease while loading application code and publishing `state/sashd.pid`; `state/sashd-start.lock` serializes competing CLI starts. Health and status expose the version captured at startup and the installation ID, which remain stable if package files change afterward.
 
@@ -52,15 +52,15 @@ Remote updates persist `lastAttemptAt` and `failureCount`. Scheduled retries bac
 
 Saving source content validates bounded core-format YAML, atomically writes a new immutable file, then atomically commits its reference with the rest of `sash.json`. A crash before the manifest commit leaves the previous source referenced. Deletion commits removal before cleanup. Unreferenced files may remain after interrupted cleanup; they are not a second source of truth. Identical remote bytes retain the content revision. Editor writes must include the revision read when opening the editor; stale writes return a conflict.
 
-The manifest is capped at 2 MiB, profile content at 8 MiB. Readers reject invalid schemas, duplicate IDs, invalid revisions, non-regular files and oversized content. Secrets must be nonblank, the controller must be loopback-only, and all listener ports must differ. No legacy formats or migrations are accepted. Existing invalid state is preserved.
+The manifest is capped at 2 MiB, profile content at 8 MiB. Readers reject invalid schemas, duplicate IDs, invalid revisions, non-regular files and oversized content. Secrets must be nonblank, the controller must be loopback-only, and all listener ports must differ. Existing invalid state is preserved.
 
-Subscription and local-source YAML is parsed once with a plain `YAML.parse`; there is no alias cap and no share-link detection. Only a non-array object is accepted, and the Core's own pre-flight check remains the authority on whether the content is a usable configuration. Empty subscription quota values are not interpreted as zero.
+Subscription and local-source YAML is parsed with `YAML.parse`. The document must be a non-array object; Core's pre-flight check determines whether the configuration is usable. Empty subscription quota values remain unknown.
 
 The Core fetches its geodata databases (`geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) while that pre-flight check loads the configuration, and it fetches them itself, ignoring `HTTP_PROXY`. On a network without direct `github.com` access the check therefore fails or stalls, which would deadlock a first start: no Core, because geodata is missing; no geodata, because the Core has not started and cannot serve as the proxy. When the pre-flight check fails and the output shows a geodata download rather than a configuration error, the daemon retries once with `geox-url` rewritten to the same mirror hosts used for Core downloads, and the retried configuration is the one it applies and installs, so the databases are fetched and the data directory keeps a working source. A failure after the retry is reported as `Core could not download its geodata databases`, distinct from a real configuration rejection.
 
 Profile reads return bounded source text. Opening the editor and comparing unchanged content do not parse YAML; import, save, activation and Apply parse it when they need to validate or render a configuration. Damaged YAML can still be opened for repair, while invalid saves and activations remain rejected.
 
-After scheduled updates, a non-overlapping maintenance tick enters the mutation queue, verifies the manifest is current, and prunes only recognized generated files older than 24 hours. Current profile references, unknown names, recent files and links remain intact; directories are removed only when old and empty. Paths must resolve inside the data directory. Cleanup does not recurse through arbitrary directories and skips temporary Core files during download.
+After scheduled updates, a non-overlapping maintenance tick enters the mutation queue and prunes recognized generated files older than 24 hours. Current profile references, unknown names, recent files and links remain intact; directories are removed only when old and empty. Cleanup stays inside the data directory and skips temporary Core files during download.
 
 `SashStateStore` keeps one deeply frozen committed state and returns it directly to readers. A successful atomic write replaces it; failed writes preserve the previous object. Settings PATCH accepts `expectedRevision` and returns the committed `revision`. Stale writes fail with `409` before preference or OS changes. The dashboard supplies its observed revision.
 
@@ -81,7 +81,7 @@ Apply executes inside the daemon queue:
 5. Start Core, wait for its controller to report the expected version, and record the applied configuration. The first ready response completes startup.
 6. Reconcile the saved system-proxy preference against the actual running port.
 
-Validation failure leaves the old runtime untouched. Failure after stopping does not roll back saved edits; management stays available and reports the unapplied configuration. There is no general settings/profile/runtime compensation transaction.
+Validation failure leaves the old runtime untouched. Failure after stopping preserves saved edits; management stays available and reports the unapplied configuration.
 
 Core stop cancels Core downloads and the configuration-test child while allowing profile downloads to finish. Daemon shutdown also cancels profile downloads, rejects later mutations, drains the active operation, restores proxy state, stops Core, acknowledges with `204`, then closes the listener. Cleanup failure keeps the daemon available for retry. An active binary swap completes or rolls back in order.
 
@@ -93,9 +93,9 @@ Core acquisition selects an unmodified upstream release artifact using official 
 
 ZIP metadata and file contents are read through `yauzl`; Sash scans all entry names before creating output and streams the selected binary without buffering the archive. Both ZIP and gzip extraction exclusively create the temporary output, preserve pre-existing files/links, honor cancellation and remove only output created by that attempt. The ZIP reader closes before archive cleanup. Test fixtures generate ZIP archives with the development-only `yazl` writer; no second ZIP library ships with Sash.
 
-There is no CPU feature detection. The amd64 candidate list prefers the newest ISA level (v3, plain, v2, v1, compatible) and `stageCore` preflights each staged build with a `-v` invocation: a processor that lacks the build's instruction set kills it with an illegal-instruction exit, and staging falls through to the next variant. Download, integrity and extraction errors abort immediately — only a failed preflight falls back. ARM64 selects its single native asset.
+The amd64 candidate list prefers the newest ISA level (v3, plain, v2, v1, compatible). `stageCore` runs each staged build with `-v` and tries the next variant if that preflight fails. Download, integrity and extraction errors abort the update. ARM64 selects its native asset.
 
-Installed executables are trusted local files. Startup, configuration validation, updates, recovery and doctor do not hash them or run additional version-only probes. `state/install.json` holds `{coreVersion, installedAt, assetName?}`; a legacy `sha256` field is ignored. The running controller supplies version and readiness during the actual start.
+`state/install.json` holds `{coreVersion, installedAt, assetName?}`. The running controller supplies version and readiness during startup.
 
 App captures the applied configuration when Core is running, or saved configuration when it is stopped. Download and candidate config validation leave management responsive. Before publication the queue rechecks saved-state and runtime revisions.
 
@@ -112,15 +112,11 @@ Transient `coreUpdate` status reports the stage, target, start time, download ac
 
 The old executable remains `.bak` until the final phase. An explicit update while stopped performs one temporary start and then stops again. A first `sash start` installs and starts Core once, leaving it running. Failure restores the old binary/install record and, when applicable, the original running state. Recovery preserves unrecognized filesystem entries and blocks an unsafe replacement. A verified journal only needs cleanup; cleanup failure is logged without undoing a successful update or blocking normal startup.
 
-Profile sources, metadata and settings never participate in this transaction. There is no deferred health decision, force-repair quarantine or coordinated second journal.
-
 ## Sash self-upgrades
 
 `sash upgrade [version]` resolves the official npm release, validates the installation layout and the Node requirement, and lets npm replace the global package. `inspectSashUpgrade` is read-only and reports `{current, target, available, compatible, supported, installation, prefix, node, requiredNode, reason}`. Only an `npm-global` layout can be upgraded: the target comes from `https://registry.npmjs.org/@astralyn/sash/<tag>`, where the tag is `latest` or the exact version the user passed. Source checkouts, linked packages and other package managers report `supported: false` with a reason, never touch the network, and exit `1` outside `--check`. `available` is true for an explicit version that differs from the installed one and for `latest` when it is semver-greater; `compatible` is `!available || supportsNode(target, node)`.
 
-Execution resolves the target and runs `npm install --global --prefix <prefix> --no-audit --no-fund @astralyn/sash@<exact version>` with the Node executable and the resolved npm CLI (no shell) under a scrubbed environment, and only then stops and restarts a running daemon so it executes the new code (`--no-restart` keeps the previous daemon). Installing first is deliberate: the daemon keeps serving the proxy that may be this machine's only route to the registry, and a failed install leaves nothing to undo. npm owns package integrity. A daemon keeps executing the code it started with, so `sash status` and `sash doctor` report when the installed package and the running daemon disagree, with the restart command. Sash stages no package files and coordinates no other daemon: a run restarts only the daemon of the data directory it was invoked in, and a daemon sharing the same package from another data directory loads the new version the next time it starts. `--check` only reads. `--json` prints one object; npm's own output goes to stderr in that mode.
-
-`self-upgrade.test.ts` covers layout inspection, registry resolution and npm CLI resolution against a mocked registry and temporary directories. CI builds and packs once, and each supported platform runs the tests and installs that same artifact. Publication reuses the successful CI artifact without repeating acceptance and does not rebuild or repack.
+Execution runs `npm install --global --prefix <prefix> --no-audit --no-fund @astralyn/sash@<exact version>` with the Node executable and resolved npm CLI under a scrubbed environment. Sash keeps serving during installation, then restarts the running instance selected by its data directory; `--no-restart` keeps it running. A failed install leaves that instance running. npm owns package integrity. Other instances sharing the package load the installed version on their next start. `sash status` and `sash doctor` report a package/runtime version mismatch with a restart command. `--check` reads only; `--json` prints one object and sends npm output to stderr.
 
 ## Windows integration
 
@@ -168,7 +164,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/profiles/:id/update` | POST | Control; download and save new content |
 | `/sash/profiles/:id` | PATCH / DELETE | Control; rename or remove |
 
-Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required; no absent flag is guessed from an old protocol. The shared event observer limits status sampling; the supervisor has no separate status cache. On status and proxy routes, `?fresh=1` requires control authentication and bypasses settled system-proxy observations.
+Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required. The shared event observer limits status sampling. On status and proxy routes, `?fresh=1` requires control authentication and bypasses settled system-proxy observations.
 
 `/sash/events` sends `event: status` with `{schemaVersion: 1, sequence, status, autostart}` and a per-boot SSE ID. Each subscription starts from a complete snapshot; clients do not need a replay log. Mutations and Core preparation progress notify one shared observer, coalesced over 40 ms. A five-second shared sample detects external health/OS changes only while clients are connected; unchanged idle samples send no data. Desktop startup inspection is cached and cannot delay runtime events. Ten-second heartbeats renew/check browser authorization. At most 64 subscribers are admitted; a blocked writer retains only the newest pending snapshot. Disconnect and daemon shutdown release timers and streams.
 
@@ -176,7 +172,7 @@ The CLI watch uses the same direct, non-redirecting event client, verifies the d
 
 Delay tests require an explicit `sash status --delay NAME`. The authenticated POST runs outside the state queue and verifies Core ownership before and after the controller request. It performs one non-retrying `/proxies/{name}/delay` request using direct transport, the fixed HTTP-204 test URL and a five-second Core timeout with request overhead. Success, timeout, missing names and failed tests are distinct validated observations; a Core replacement rejects the stale result. Client cancellation closes the daemon/controller request. Normal status and SSE observation never initiate these probes. `--watch --delay` samples independently every 30 seconds after completion and coalesces output while retaining only the latest observation.
 
-Success bodies use this installation's shared TypeScript contracts; empty mutations return `204`. The client parses JSON and error bodies (`{error: {code, message}}`) without duplicating the daemon's response schemas. Raw settings editing and config reload routes do not exist.
+Success bodies use shared TypeScript contracts; empty mutations return `204`. Error bodies use `{error: {code, message}}`.
 
 The Core gateway permits queries, node selection and connection deletion. Managed configuration changes must use Sash controls. Mode uses `/sash/core/mode`; traffic and log WebSockets use `/core/api/traffic` and `/core/api/logs`.
 

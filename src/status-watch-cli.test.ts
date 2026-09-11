@@ -12,7 +12,7 @@ import {
   commandLineContains,
   killProcessGracefully,
 } from "./process.js";
-import { acquireStateLockSync } from "./state-lock.js";
+import { acquireStateLock } from "./state-lock.js";
 import type { CliRuntimeStatus } from "./status.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferredValue } from "./testing/state.js";
@@ -33,7 +33,7 @@ for (const withDelay of [false, true]) {
     }
     const instance = await harness.startServer();
     if (withDelay) await harness.apiRequest("/sash/core/start", { method: "POST" });
-    const lease = acquireStateLockSync(harness.layout.daemonLeaseFile, {
+    const lease = await acquireStateLock(harness.layout.daemonLeaseFile, {
       purpose: "CLI watch fixture",
     });
     t.after(() => lease.release());

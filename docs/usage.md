@@ -13,7 +13,7 @@ sash stop        # restore the prior proxy, stop Core and exit the daemon
 
 In **Profiles**, import YAML or download a remote profile, then select it. Selection, content edits, downloads and scheduled updates are saved without changing the running Core. Click **Apply configuration** to use the saved configuration. This restarts Core and briefly interrupts connections. Overview shows the profile and port actually applied.
 
-If validation fails, the previous Core keeps running. If starting the new configuration fails, your saved edits remain and the dashboard stays available for correction. There is no automatic rollback of saved edits.
+If validation fails, the previous Core keeps running. If starting the new configuration fails, your saved edits remain and the dashboard stays available for correction.
 
 ## Commands
 
@@ -43,7 +43,7 @@ If validation fails, the previous Core keeps running. If starting the new config
 
 `sash logs -f` exits successfully when its output pipe closes. Log capture and follow share one file position, including when the log grows or rotates during startup.
 
-`sash stop --core` and WebUI **Stop Core** keep the management process open. `sash upgrade` installs the new Sash package through npm while everything keeps running, then restarts the daemon so it loads the new code; `--no-restart` stops after the install and prints the restart command instead. Core itself is never touched by an install: its binary lives in the data directory, not in the npm package. `restart` applies saved configuration to Core.
+`sash stop --core` and WebUI **Stop Core** keep Sash and the dashboard open. `sash restart` applies saved configuration to Core.
 
 ## PowerShell completion
 
@@ -78,15 +78,13 @@ The Settings page saves the mixed proxy port and LAN access for the next Apply. 
 
 Remote profiles use the provider's update interval, defaulting to 24 hours. The daemon checks for due updates every 15 minutes. Updates save new content and indicate pending Apply. Identical content does not create a new content revision. Rename and reorder do not affect running data or latency results.
 
-Subscriptions must contain core-format YAML; a document that is not an object, including a share-link list, receives a format error. Sash does not convert subscription formats. Empty quota/expiry fields remain unknown, while explicit zero values are retained.
+Subscriptions must contain a YAML object in Core format. Empty quota/expiry fields remain unknown, while explicit zero values are retained.
 
-The profile editor rejects a save if another edit changed its content revision. Reopen the current content before retrying. The raw application settings file has no online editor.
+The profile editor rejects a save if another edit changed its content revision. Reopen the current content before retrying.
 
-Login startup is managed through the OS registration, not a boolean in the settings file. Enabling it requires a direct global npm installation. See [Automatic Startup](./autostart.md).
+Start at login uses the OS registration and requires a direct global npm installation. See [Automatic Startup](./autostart.md).
 
 ## State format and data
-
-This branch requires a new schema-2 manifest and provides no migration from older releases. Stop the old instance using its existing installation, keep any profile YAML you need, then use a fresh data directory and import those files normally. Old state is never silently overwritten.
 
 `sash.json` contains `{schemaVersion: 2, revision, settings, profiles}`. `profiles` contains the saved `activeId` and metadata list. The following keys live inside `settings`:
 
@@ -100,7 +98,7 @@ This branch requires a new schema-2 manifest and provides no migration from olde
 | `secret` | random | Private controller credential |
 | `daemonSecret` | random | Private CLI credential |
 
-Controller/daemon addresses and credentials can be edited only while Sash is stopped, then read at daemon startup. All three ports must differ. Secrets cannot be blank. Invalid, unknown-field, oversized or unsupported-format state is rejected intact. There are no TUN or legacy subscription settings.
+Controller and local API addresses and credentials can be edited while Sash is stopped, then read at startup. All three ports must differ. Secrets cannot be blank. Invalid state is preserved for correction.
 
 | Platform | Default directory |
 | --- | --- |
@@ -127,7 +125,7 @@ ui/                             optional custom dashboard override
 
 On Windows, the browser session file sits directly in the per-user control directory (`%LOCALAPPDATA%\Sash`); elsewhere it stays in `<data directory>/state`. It is independent of `SASH_HOME` and holds only session hashes.
 
-The manifest and sources use atomic publication. Old source revisions may be cleaned after successful saves; this is not a version-history feature. Do not edit generated runtime configuration. POSIX private state/logs use `0600`.
+The manifest and sources use atomic publication. Unreferenced source revisions are cleaned after saves and during scheduled maintenance. Do not edit generated runtime configuration. POSIX private state/logs use `0600`.
 
 While management is running, scheduled maintenance removes recognized orphan revisions and temporary files older than 24 hours. Current sources, recent files, unknown names and symbolic links are preserved. Empty generated directories also have a 24-hour grace period. Core preparation files are protected while a download is active.
 
@@ -140,13 +138,13 @@ sash update v1.19.30        # select an exact Core release tag
 sash update --json         # one JSON result, without progress text
 ```
 
-The Core tag is a positional argument; the former `sash update --version TAG` option is replaced. Global `sash --version` prints the Sash package version. `--check` reads the recorded Core version and official release metadata, verifies a compatible artifact and digest are available, and does not download or install the binary. Updates show their current stage and downloaded bytes; JSON mode suppresses these messages.
+The Core tag is a positional argument. Global `sash --version` prints the Sash package version. `--check` reads the recorded Core version and official release metadata to check for a compatible artifact and digest. Updates show their current stage and downloaded bytes; JSON mode prints one result object.
 
-Core updates keep the dashboard available and preserve whether Core was running. Even an initially stopped update performs a temporary startup/health check, then stops again. `.bak` is retained until the new binary passes verification and the original running state is restored. Failure rolls back the executable and install record; saved profiles/settings are not part of this transaction.
+Core updates keep the dashboard available and preserve whether Core was running. Even an initially stopped update performs a temporary startup/health check, then stops again. `.bak` is retained until the new binary passes verification and the original running state is restored. Failure rolls back the executable and install record.
 
-Downloads use trusted HTTPS origins, one archive integrity check during transfer, and bounded extraction. A failed download leaves the current installation available. Startup, restart and doctor do not hash installed Core files. Older install records need no digest migration or background download.
+Downloads use trusted HTTPS origins, archive integrity verification during transfer, and bounded extraction. A failed download leaves the current installation available.
 
-On x64, installation and updates select the highest supported official build: v3, v2 or v1. Detection includes operating-system support for vector instructions. Windows uses PowerShell 7 when available; unavailable detection falls back to compatible/v1 builds. ARM64 uses its native build. The chosen asset name is saved for new installations and updates.
+On x64, Sash tries available official builds in preference order and selects the first that runs successfully. ARM64 uses its native build. The chosen asset name is saved with the installation record.
 
 A first `sash start` downloads and starts Core once. Its controller readiness check supplies the running version; successful readiness ends the check.
 
@@ -161,15 +159,15 @@ sash upgrade --json        # one JSON object; npm output stays on stderr
 
 The default target is the official npm `latest` release. An optional exact published version selects an upgrade or downgrade; `available` is true for an explicit version that differs from the installed one, and for `latest` when it is newer. An already-current version exits successfully. `--check` leaves the installation and data directories unchanged and never starts management. Source checkouts, linked packages and other package managers report `supported: false` with the reason and never contact the registry; they exit `1` without `--check`.
 
-Execution resolves the target, stops the daemon if it is running, runs `npm install --global --prefix <prefix> --no-audit --no-fund @astralyn/sash@<version>` with the Node executable, the resolved npm CLI, no shell and a scrubbed environment, then starts the daemon again only if it had been running. Stopping management also stops Core and restores the prior system proxy, and the restarted daemon leaves Core stopped: run `sash start` to resume traffic. Browser authorization continues across the restart. npm owns package integrity; if npm fails, the daemon is started again on the previously installed version and the npm error is reported.
+Sash resolves the target and runs `npm install --global --prefix <prefix> --no-audit --no-fund @astralyn/sash@<version>` while the running instance keeps serving. After installation it restarts that instance; `--no-restart` keeps it running. Run `sash start` after a restart to resume Core. Browser authorization continues across the restart. npm owns package integrity, and a failed install leaves the running instance available.
 
-`--check --json` prints the inspection report: `current`, `target`, `available`, `compatible`, `supported`, `installation`, `prefix`, `node`, `requiredNode` and `reason`. Execution `--json` prints one object instead: `{outcome: "upgraded", version}` after a successful install, `{outcome: "failed", error}` on failure, or the report plus `outcome: "current"`, `"unsupported"` or `"incompatible"` when nothing was installed. Exit code `0` means a successful check, no-op or install; `1` means an unsupported or incompatible installation, or a failure.
+`--check --json` prints the inspection report: `current`, `target`, `available`, `compatible`, `supported`, `installation`, `prefix`, `node`, `requiredNode` and `reason`. Execution `--json` prints `{outcome: "upgraded", version, restarted}` after a successful install, `{outcome: "failed", error}` on failure, or the report plus `version` and `outcome: "current"`, `"unsupported"` or `"incompatible"` when nothing was installed. Exit code `0` means a successful check, no-op or install; `1` means an unsupported or incompatible installation, or a failure.
 
-For manual package-manager maintenance, stop Sash first, update with that package manager, then start it again so the daemon runs the new code. `sash update --force` is unavailable. Damaged Core installations are diagnosed and preserved; stop the existing instance before using a clean data directory for reinstallation.
+For a manual npm upgrade, install the package while Sash is running, then use `sash stop && sash start` to load the installed version. For damaged Core installations, run `sash doctor` and follow its repair advice.
 
 ## Status and troubleshooting
 
-Run `sash doctor` before changing a damaged installation. Checks continue independently when the manifest or Core files are invalid. Doctor reads installation metadata and file information, observes the current runtime and desktop integration, and briefly checks whether stopped listener ports are available. It does not hash executables, initialize state, install components, start management or apply repairs.
+Run `sash doctor` before changing a damaged installation. Its read-only checks continue independently when the manifest or Core files are invalid. It reads installation metadata and file information, observes the current runtime and desktop integration, and briefly checks whether stopped listener ports are available.
 
 `doctor --json` reports `schemaVersion: 1`, `healthy`, `complete`, and named checks with `ok`, `info`, `warning` or `error` status and optional advice. Exit code `1` indicates a definite fault; `2` indicates an incomplete observation without a definite fault. A clean stopped or uninitialized installation can return `0` with informational setup guidance.
 
@@ -208,10 +206,10 @@ Daemon, OS proxy and login startup probes run concurrently. Set `SASH_DEBUG=1` (
 - **Proxy restoration blocked:** keep the ownership journal and inspect the current Windows settings. Sash will not overwrite third-party changes or stop a healthy Core while restoration fails.
 - **Daemon ownership unknown:** inspect its logs and PID/lease records; Sash will not kill an unverified process or start a competitor.
 - **Interrupted update:** stop and start the daemon so its startup recovery can run. Corrupt or unrecognized backup/metadata files are preserved for inspection.
-- **Interrupted Sash upgrade:** npm was replacing the package while the daemon was stopped. Start the installed version with `sash start`; if npm did not complete the installation, repair it with `npm install --global @astralyn/sash@<version>` before starting again.
+- **Interrupted Sash upgrade:** keep any running Sash available while completing the installation with `npm install --global @astralyn/sash@<version>`, then run `sash stop && sash start` to load it.
 - **Login startup failed:** read `sash auto status` and `sash logs --startup`; repair the entry with `sash auto on`.
 - **Shutdown failed:** the management API remains available for retry. Resolve the reported proxy/Core failure and repeat `sash stop`.
 - **Proxy changes are not visible in another application:** Sash tries PowerShell 7 and then the Windows PowerShell host to notify WinINet. If neither notification succeeds, registry changes and normal ownership verification still complete, with a warning in the command/daemon log. Restart affected applications or repair PowerShell availability to pick up the changes.
 - **Dashboard assets missing:** reinstall the Sash package, or run `npm run build` in a source checkout. The dashboard route reports this explicitly.
 
-Windows proxy/PAC restoration and login startup are the only desktop integrations. Basic Core/CLI operation remains portable. Sash has no TUN or service mode; generated configuration always disables TUN and rejects a separate TUN listener.
+Windows proxy/PAC restoration and login startup are the desktop integrations. Basic Core/CLI operation remains portable. The generated core config sets `tun.enable` to `false`.

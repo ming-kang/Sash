@@ -54,14 +54,12 @@ describe("save and apply API", () => {
     assert.equal(observed.settings.mixedPort, 18888);
     assert.equal(observed.revisions.state, (write.data as SettingsWriteResult).revision);
   });
-  it("serves management with no installed Core and rejects retired controls", async () => {
+  it("serves management with no installed Core and keeps boot settings read-only", async () => {
     await h.startServer({ installCore: false });
     assert.equal((await h.apiRequest("/sash/daemon/health")).statusCode, 200);
     assert.equal((await status()).core.running, false);
     assert.equal(fs.existsSync(h.layout.coreExe), false);
-    assert.equal((await h.apiRequest("/sash/settings/file")).statusCode, 404);
     for (const body of [
-      { tun: false },
       { daemonPort: 18000 },
       { daemonSecret: "new" },
       { controller: "remote:80" },

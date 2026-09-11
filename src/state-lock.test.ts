@@ -5,8 +5,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   acquireStateLock,
-  acquireStateLockSync,
-  readStateLockRecord,
   type StateLockRecord,
   StateMutationQueue,
   withStateLock,
@@ -34,31 +32,10 @@ describe("state locks", () => {
     fs.writeFileSync(lockFile, `${JSON.stringify(record)}\n`, { mode: 0o600 });
   }
 
-  it("accepts extra fields and non-canonical acquiredAt values", () => {
-    const stored = {
-      version: 1,
-      pid: process.pid,
-      token: "existing-token",
-      purpose: "existing owner",
-      acquiredAt: "not-a-canonical-timestamp",
-      futureField: true,
-    };
-    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
-    fs.writeFileSync(lockFile, `${JSON.stringify(stored)}\n`);
-
-    assert.deepEqual(readStateLockRecord(lockFile), {
-      version: 1,
-      pid: process.pid,
-      token: "existing-token",
-      purpose: "existing owner",
-      acquiredAt: "not-a-canonical-timestamp",
-    });
-  });
-
   it("waits asynchronously without blocking the owner release", async () => {
-    const owner = acquireStateLockSync(lockFile, { purpose: "sync owner" });
+    const owner = await acquireStateLock(lockFile, { purpose: "initial owner" });
     const pending = acquireStateLock(lockFile, {
-      purpose: "async owner",
+      purpose: "next owner",
       // The assertion concerns yielding to the owner's setImmediate, not host
       // filesystem latency. Shared Windows runners can take over 500 ms here.
       timeoutMs: 5000,
@@ -73,13 +50,13 @@ describe("state locks", () => {
     });
     const lease = await pending;
     try {
-      assert.equal(lease.record.purpose, "async owner");
+      assert.equal(lease.record.purpose, "next owner");
     } finally {
       lease.release();
     }
   });
 
-  it("reclaims a dead owner through the asynchronous API", async () => {
+  it("reclaims a lock held by a dead owner", async () => {
     const deadOwner: StateLockRecord = {
       version: 1,
       pid: 2_147_483_647,
@@ -93,13 +70,17 @@ describe("state locks", () => {
     try {
       assert.notEqual(lease.record.token, deadOwner.token);
       assert.equal(lease.record.purpose, "async replacement");
+      assert.equal(
+        fs.readdirSync(path.dirname(lockFile)).some((name) => name.includes(".stale.")),
+        false,
+      );
     } finally {
       lease.release();
     }
   });
 
   it("enforces mutual exclusion and reports the live owner", async () => {
-    const first = acquireStateLockSync(lockFile, { purpose: "first owner" });
+    const first = await acquireStateLock(lockFile, { purpose: "first owner" });
     try {
       await assert.rejects(
         acquireStateLock(lockFile, { purpose: "second owner", timeoutMs: 20, pollMs: 5 }),
@@ -116,36 +97,13 @@ describe("state locks", () => {
     }
   });
 
-  it("reclaims a lock held by a dead owner", () => {
-    const deadOwner: StateLockRecord = {
-      version: 1,
-      pid: 2_147_483_647,
-      token: "dead-owner-token",
-      purpose: "dead owner",
-      acquiredAt: "2026-01-01T00:00:00.000Z",
-    };
-    writeLock(deadOwner);
-
-    const lease = acquireStateLockSync(lockFile, { purpose: "replacement" });
-    try {
-      assert.notEqual(lease.record.token, deadOwner.token);
-      assert.equal(lease.record.purpose, "replacement");
-      assert.equal(
-        fs.readdirSync(path.dirname(lockFile)).some((name) => name.includes(".stale.")),
-        false,
-      );
-    } finally {
-      lease.release();
-    }
-  });
-
-  it("reclaims a corrupt record left behind by an interrupted write", () => {
+  it("reclaims a corrupt record left behind by an interrupted write", async () => {
     fs.mkdirSync(path.dirname(lockFile), { recursive: true });
     fs.writeFileSync(lockFile, "{ not valid JSON");
     const past = new Date(Date.now() - 60_000);
     fs.utimesSync(lockFile, past, past);
 
-    const lease = acquireStateLockSync(lockFile, { purpose: "replacement" });
+    const lease = await acquireStateLock(lockFile, { purpose: "replacement" });
     try {
       assert.equal(lease.record.purpose, "replacement");
     } finally {
@@ -153,19 +111,16 @@ describe("state locks", () => {
     }
   });
 
-  it("leaves a record that may still be mid-write alone", () => {
+  it("leaves a record that may still be mid-write alone", async () => {
     fs.mkdirSync(path.dirname(lockFile), { recursive: true });
     fs.writeFileSync(lockFile, "{ not valid JSON");
 
-    assert.throws(
-      () => acquireStateLockSync(lockFile, { purpose: "blocked", timeoutMs: 0 }),
-      /busy/,
-    );
+    await assert.rejects(acquireStateLock(lockFile, { purpose: "blocked", timeoutMs: 0 }), /busy/);
     assert.equal(fs.readFileSync(lockFile, "utf8"), "{ not valid JSON");
   });
 
-  it("does not delete a replacement lock when releasing a mismatched token", () => {
-    const lease = acquireStateLockSync(lockFile, { purpose: "original" });
+  it("does not delete a replacement lock when releasing a mismatched token", async () => {
+    const lease = await acquireStateLock(lockFile, { purpose: "original" });
     const replacement: StateLockRecord = {
       ...lease.record,
       token: "replacement-token",
@@ -188,7 +143,7 @@ describe("state locks", () => {
     );
 
     assert.equal(fs.existsSync(lockFile), false);
-    const next = acquireStateLockSync(lockFile, { purpose: "next action" });
+    const next = await acquireStateLock(lockFile, { purpose: "next action" });
     next.release();
   });
 

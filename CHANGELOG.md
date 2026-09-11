@@ -8,9 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- Simplify profile reads to return source text without parsing YAML for the editor or unchanged-content comparisons. Keep validation at save, activation and Apply; damaged source text can now be opened for repair.
-- Keep one frozen committed application state instead of a mutable state plus a cached clone. Replace per-method response casts with one typed client request boundary.
-- Shorten AGENTS.md while preserving safety, public API and workflow constraints; remove obsolete architecture descriptions and record the simplification ablations.
+- Read profile source text directly for editing and content comparisons. Damaged source text can be opened for repair; save, activation and Apply validate configurations.
+- Use one frozen committed application state and a shared typed client request boundary.
+- Shorten development guidance and keep documentation and tests focused on current behavior.
 
 ## [0.2.2] - 2026-09-10
 

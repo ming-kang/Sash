@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { it } from "node:test";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import { acquireStateLockSync } from "./state-lock.js";
+import { acquireStateLock } from "./state-lock.js";
 import { type CliRuntimeStatus, collectRuntimeStatus } from "./status.js";
 import { collectEventStatus, watchRuntimeStatus } from "./status-watch.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
@@ -25,7 +25,7 @@ async function until(
 
 it("watches profile changes over events and reconnects after daemon replacement without starting Core", async (t) => {
   const instance = await harness.startServer();
-  let lease = acquireStateLockSync(harness.layout.daemonLeaseFile, {
+  let lease = await acquireStateLock(harness.layout.daemonLeaseFile, {
     purpose: "status watch fixture",
   });
   const record = () => {
@@ -79,7 +79,7 @@ it("watches profile changes over events and reconnects after daemon replacement 
   fs.unlinkSync(harness.layout.daemonPidFile);
   await disconnected;
   await harness.startServer();
-  lease = acquireStateLockSync(harness.layout.daemonLeaseFile, {
+  lease = await acquireStateLock(harness.layout.daemonLeaseFile, {
     purpose: "replacement watch fixture",
   });
   record();

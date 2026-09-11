@@ -71,7 +71,7 @@ export async function resolveSashUpgradeTarget(
   return target;
 }
 
-/** `sash upgrade --check` is entirely observational: no locks, daemon or state initialization. */
+/** Inspect the installation and target release for `sash upgrade --check`. */
 export async function inspectSashUpgrade(
   version?: string,
   options: { packageRoot?: string; nodeVersion?: string } = {},
@@ -196,11 +196,6 @@ function runNpmInstall(
   });
 }
 
-/**
- * Install one exact Sash version with npm and restart the daemon on the new
- * code. The daemon runs from the package directory npm replaces, so it is
- * stopped first and started again only after the install succeeded.
- */
 export interface SashUpgradeOutcome {
   version: string;
   /** The version the package held before this upgrade, when one was installed. */
@@ -223,11 +218,8 @@ export interface SashUpgradeDeps {
 }
 
 /**
- * Install one exact Sash version with npm and restart the daemon on the new
- * code. The package is replaced first, while the running daemon keeps serving:
- * on a machine whose only route to the registry is the proxy that daemon runs,
- * stopping it first would make the install impossible. Nothing needs undoing
- * when the install fails, because nothing was stopped.
+ * Install one exact version while Sash keeps serving, then restart the running
+ * instance when requested.
  */
 export async function executeSashUpgrade(
   installation: NpmInstallation,
@@ -244,9 +236,6 @@ export async function executeSashUpgrade(
   const shouldRestart = owner.kind === "daemon" && options.restart !== false;
   if (!shouldRestart) return { version: target.version, previousVersion, restarted: false };
 
-  // The daemon still executes the previous code from memory; only a restart
-  // loads the new one. The install is complete, so the few seconds without a
-  // proxy change nothing.
   await (deps.stop ?? stopRuntime)(context);
   await (deps.start ?? ensureManagement)(context);
   return { version: target.version, previousVersion, restarted: true };

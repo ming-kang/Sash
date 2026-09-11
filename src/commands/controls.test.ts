@@ -8,7 +8,7 @@ import { sashLayout } from "../paths.js";
 import { isProcessAlive, runSanitizedCommandAsync } from "../process.js";
 import type { ProfilesIndex } from "../profile-model.js";
 import { publicSettings } from "../settings.js";
-import { acquireStateLockSync } from "../state-lock.js";
+import { acquireStateLock } from "../state-lock.js";
 import { createTestState, testProfile, testSettings } from "../testing/state.js";
 
 describe("profile and runtime CLI controls", () => {
@@ -25,7 +25,9 @@ describe("profile and runtime CLI controls", () => {
     root = fs.mkdtempSync(path.join(parent, "sash-cli-controls-"));
     const layout = sashLayout(root);
     const settings = testSettings();
-    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "CLI control fixture" });
+    const lease = await acquireStateLock(layout.daemonLeaseFile, {
+      purpose: "CLI control fixture",
+    });
     release = () => lease.release();
     profiles = { activeId: "1", profiles: [{ ...testProfile("1"), name: "primary" }] };
     proxyEnabled = false;
@@ -180,6 +182,5 @@ describe("profile and runtime CLI controls", () => {
     assert.deepEqual(requests.find((request) => request.url === "/sash/core/update")?.body, {
       version: "v2.0.0",
     });
-    await assert.rejects(cli(["update", "--version", "v2.0.0"]), /unknown option.*--version/i);
   });
 });

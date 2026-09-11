@@ -8,7 +8,6 @@ import {
   installRecordsEqual,
   parseInstallRecord,
   readInstallRecord,
-  validateCoreReleaseTag,
   writeInstallRecord,
 } from "./core-install-record.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -29,7 +28,6 @@ describe("Core install record codec", () => {
   it("parses the fields it needs and ignores the rest", () => {
     const record = { coreVersion: "v1.2.3", installedAt: "2026-01-01T00:00:00.000Z" };
 
-    assert.deepEqual(parseInstallRecord({ ...record, sha256: "a".repeat(64) }), record);
     assert.deepEqual(parseInstallRecord({ ...record, extra: true }), record);
     assert.deepEqual(parseInstallRecord({ ...record, installedAt: "2026-01-01" }), {
       ...record,
@@ -55,17 +53,5 @@ describe("Core install record codec", () => {
     assert.equal(currentCoreVersion(layout), "v1.2.3");
     assert.equal(installRecordsEqual(readInstallRecord(layout), record), true);
     assert.equal(installRecordsEqual(undefined, null), true);
-  });
-
-  it("accepts any non-empty tag and keeps a legacy timestamp", () => {
-    assert.equal(validateCoreReleaseTag(" v1.2.3 "), "v1.2.3");
-    assert.throws(() => validateCoreReleaseTag("tag/asset"), /Invalid Core release tag/);
-    writeInstallRecord({ coreVersion: "v1.2.3", installedAt: "2026-01-01T00:00:00Z" }, layout);
-    assert.deepEqual(readInstallRecord(layout), {
-      coreVersion: "v1.2.3",
-      installedAt: "2026-01-01T00:00:00Z",
-    });
-    fs.writeFileSync(layout.installFile, "{ broken");
-    assert.equal(readInstallRecord(layout), undefined);
   });
 });

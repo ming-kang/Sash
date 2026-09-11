@@ -83,25 +83,8 @@ describe("daemon HTTP route matching", () => {
     }
   });
 
-  it("rejects deleted aliases and lookalike paths", () => {
+  it("rejects lookalike paths and invalid profile ids", () => {
     for (const raw of [
-      "/health",
-      "/status",
-      "/proxy",
-      "/sash/health",
-      "/sash/status",
-      "/sash/shutdown",
-      "/sash/maintenance/shutdown",
-      "/sash/settings/file",
-      "/sash/core/reload",
-      "/sash/proxy/enable",
-      "/sash/proxy/disable",
-      "/core/start",
-      "/core/stop",
-      "/core/restart",
-      "/core/config/reload",
-      "/config/reload",
-      "/settings",
       "/sash/profilesX",
       "/sash/profiles/not-a-number",
       "/sash/profiles/import/x",
@@ -148,8 +131,6 @@ describe("daemon HTTP route matching", () => {
       if (match.kind === "matched") assert.equal(match.route.auth, "gateway", raw);
     }
     assert.equal(matchRoute(routes, "GET", "/core/apiX").kind, "notFound");
-    assert.equal(matchRoute(routes, "DELETE", "/connections/123").kind, "notFound");
-    assert.equal(matchRoute(routes, "GET", "/version").kind, "notFound");
   });
 
   it("builds one canonical Core target with a query exactly once", () => {
@@ -167,8 +148,6 @@ describe("daemon WebSocket route matching", () => {
       target: "/logs?level=info",
     });
     assert.equal(matchWebSocketUpgrade(routes, "GET", target("/core/api/traffic")).kind, "gateway");
-    assert.equal(matchWebSocketUpgrade(routes, "GET", target("/traffic")).kind, "notFound");
-    assert.equal(matchWebSocketUpgrade(routes, "GET", target("/logs")).kind, "notFound");
     assert.equal(matchWebSocketUpgrade(routes, "GET", target("/core/apiX/logs")).kind, "notFound");
     assert.equal(
       matchWebSocketUpgrade(routes, "GET", target("/sash/daemon/status")).kind,

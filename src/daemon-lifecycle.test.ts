@@ -15,7 +15,7 @@ import {
 import { sashLayout } from "./paths.js";
 import { githubTokenEnv } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
-import { acquireStateLockSync, type StateLockRecord } from "./state-lock.js";
+import { acquireStateLock, type StateLockRecord } from "./state-lock.js";
 import { createTestState, testSettings } from "./testing/state.js";
 
 describe("daemon spawn environment", () => {
@@ -116,7 +116,7 @@ describe("daemon ownership evaluation", () => {
 
   it("treats a live singleton lease without a PID record as a starting daemon", async () => {
     const layout = sashLayout(root);
-    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test sashd" });
+    const lease = await acquireStateLock(layout.daemonLeaseFile, { purpose: "test sashd" });
     try {
       const state = await evaluateDaemon(layout, { ...DEFAULT_SETTINGS });
       assert.deepEqual(state, {
@@ -210,7 +210,7 @@ describe("daemon ownership evaluation", () => {
       })}\n`,
     );
 
-    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test sashd" });
+    const lease = await acquireStateLock(layout.daemonLeaseFile, { purpose: "test sashd" });
     const state = await evaluateDaemon(layout, testSettings({ daemonPort: port }));
     lease.release();
 
@@ -245,7 +245,7 @@ describe("daemon ownership evaluation", () => {
       })}\n`,
     );
 
-    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test sashd" });
+    const lease = await acquireStateLock(layout.daemonLeaseFile, { purpose: "test sashd" });
     const state = await evaluateDaemon(layout, {
       ...DEFAULT_SETTINGS,
       daemonPort: port,
@@ -262,7 +262,7 @@ describe("daemon ownership evaluation", () => {
     const layout = sashLayout(root);
     let shutdownRequests = 0;
     server = http.createServer((req, res) => {
-      if (req.url === "/sash/shutdown") shutdownRequests += 1;
+      if (req.url === "/sash/daemon/shutdown") shutdownRequests += 1;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
@@ -285,7 +285,7 @@ describe("daemon ownership evaluation", () => {
         startedAt: "2026-01-01T00:00:00.000Z",
       })}\n`,
     );
-    const lease = acquireStateLockSync(layout.daemonLeaseFile, { purpose: "test sashd" });
+    const lease = await acquireStateLock(layout.daemonLeaseFile, { purpose: "test sashd" });
 
     try {
       const stopped = await stopDaemonFromCli({

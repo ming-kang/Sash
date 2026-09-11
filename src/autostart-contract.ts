@@ -1,31 +1,13 @@
 import { hasExactOwnKeys, isPlainObject } from "./json-shape.js";
 
-const AUTOSTART_STATES = ["on", "off", "stale", "disabled", "unknown", "unsupported"] as const;
-export type AutostartState = (typeof AUTOSTART_STATES)[number];
+export type AutostartState = "on" | "off" | "stale" | "disabled" | "unknown" | "unsupported";
 export type RegisteredAutostartState = Exclude<AutostartState, "unknown" | "unsupported">;
 
-/** OS registration is the source of truth; it is not a setting in sash.json. */
+/** Current OS registration for start at login. */
 export interface AutostartStatus {
   state: AutostartState;
   canEnable: boolean;
   reason: string | null;
-}
-
-export function parseAutostartStatus(value: unknown): AutostartStatus {
-  if (
-    !isPlainObject(value) ||
-    !hasExactOwnKeys(value, ["state", "canEnable", "reason"]) ||
-    !AUTOSTART_STATES.some((state) => state === value.state) ||
-    typeof value.canEnable !== "boolean" ||
-    (value.reason !== null && typeof value.reason !== "string")
-  ) {
-    throw new Error("Invalid autostart status");
-  }
-  return {
-    state: value.state as AutostartState,
-    canEnable: value.canEnable,
-    reason: value.reason,
-  };
 }
 
 export function parseAutostartEnabled(value: unknown): boolean {
