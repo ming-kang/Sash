@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-11
+
 ### Changed
 
 - Keep a browser session by reloading its persisted hashes when Sash starts instead of exchanging it through a signed handoff. Restarting Sash no longer needs a new `sash web` authorization, and the `/sash/web/continue` endpoint, its derived tokens and the health advertisement are gone; an expired or revoked token now surfaces as an ordinary `401`.
