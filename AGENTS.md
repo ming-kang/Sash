@@ -1,103 +1,63 @@
 # Development Rules
 
-Instructions for changing this repository. `docs/` explains Sash to users; this file explains how to work on it.
+## Design
 
-## Working Style
+- Delete unnecessary concepts and layers. Before adding a record, process, phase, helper or lock, identify the concrete failure and check whether existing state already handles it. Ask before removing deliberate functionality.
+- `src/daemon/` is the sole application writer; CLI and dashboard use its API. `src/commands/` wires commands only.
+- Validate settings in `settings.ts`. Trust typed responses from this installation's daemon; do not mirror static types with runtime validators.
+- Treat Sash-written state as local: accept unknown fields and treat unreadable records as absent or stale. Do not add MACs, digests, exact-key schemas, filesystem identity checks or disk re-reads to verify Sash's own writes.
+- Build checks belong in the build. Do not inspect `dist/`, walk dashboard manifests or spawn probe processes at runtime or before an upgrade.
+- Leave configuration acceptance to Core: no YAML alias caps, `listeners:` bans, share-link heuristics or private-IP redirect refusals.
+- Use strict TypeScript ESM, Node >= 24 and no `any`. Keep `./node-version-guard.js` as the first import in `src/cli.ts`. `dist/` is generated; never edit it.
 
-- Short and direct. No emojis in commits, issues, PR comments or code. No filler.
-- When the user asks a question, answer it before editing or running commands.
-- When responding to feedback, say whether you agree or disagree before saying what changed.
-- Read whole files before wide-ranging changes; do not work from search snippets.
+## Safety
 
-## Layout
+Do not weaken these boundaries without explicit user approval.
 
-Strict TypeScript ESM, Node >= 24. Entry point `src/cli.ts`; keep its `./node-version-guard.js` import first so nothing touches a Node 24 API earlier. `strict` + `verbatimModuleSyntax` + NodeNext are enabled, so suffixes and type-only imports are checked; no `any`.
+- **Processes:** `process.ts` must verify the PID's executable path before every termination. Unknown identity never authorizes a signal.
+- **Transport:** loopback/controller requests use the direct dispatcher. Proxy environment variables apply only to remote downloads.
+- **Credentials:** scrub child environments, including npm auth config, `GITHUB_PAT` and unrelated tokens. Only `sashd` may receive `GITHUB_TOKEN`/`GH_TOKEN` for release downloads; Core, npm and helpers receive no credentials. Never log secrets. State and logs use POSIX `0600`; log appends never follow symlinks.
+- **Persistence:** state writes use `fs-atomic.ts`. Core updates retain the previous binary as `.bak` until the new one passes its health check.
+- **Downloads:** origins must be allowlisted in `github.ts`; verify archives against the release API's SHA-256 while streaming. Extraction rejects path traversal and enforces a size cap. These are Sash's only integrity checks.
+- **Geodata:** Core fetches it itself and cannot use a proxy it has not started. Retry a geodata pre-flight download failure once with mirror `geox-url` values, then apply that configuration. This fallback uses no digest and never applies to verified downloads.
+- **Self-upgrade:** run npm's global install for one exact version while Sash keeps serving the proxy; only then restart Sash (`--no-restart` skips restarting). npm owns package integrity. No package staging, journals, probes or manual file replacement.
+- **Subscriptions:** parse untrusted YAML once and reject non-object documents before publication. Core's pre-flight check decides deeper acceptance.
 
-- `src/commands/` — one module per command group, wiring only.
-- `src/daemon/` — the sole application writer: mutation queue, HTTP router, handlers. The CLI and dashboard go through its API.
-- `src/` root — `app-state.ts` (`sash.json`), `settings.ts`, `profiles.ts` / `profile-service.ts`, `runtime-lifecycle.ts` (Apply, Core and proxy order), `core.ts` / `core-update.ts`, `self-upgrade.ts` (npm install), `mihomo-config.ts` (generated `runtime/config.yaml`), `process.ts`, `api.ts` (direct controller client), `http.ts` / `github.ts` (downloads), `fs-atomic.ts`, `state-lock.ts`, `paths.ts`.
-- `src/sysproxy/`, `src/autostart/` — Windows desktop integration.
-- Tests sit beside their module as `*.test.ts`. `dist/` is generated (five single-file bundles via `scripts/build-dist.mjs`) and never edited by hand.
+## Copy
 
-## Thin by Default
+Use the same vocabulary in CLI output, help, errors and both dashboard locales:
 
-Sash does what the user asked and reports what happened. It does not re-verify its own decisions.
-
-- **One validation point per value.** Settings live in `settings.ts`; profile YAML is parsed once and the Core's own pre-flight check decides whether a config is usable. Do not mirror a static type in a runtime validator, and do not re-validate a response this installation's daemon just produced.
-- **Local state is not an adversary.** `sash.json`, install records, leases and lock files are written by Sash for this user. No MACs, content digests, byte-for-byte disk re-reads, directory identity gates or exact-key rejection on files Sash itself writes. Read them leniently, accept unknown fields, and treat unreadable files as absent or stale instead of halting.
-- **No repeated probes.** Build-time checks belong in the build. Do not stat or hash `dist/`, walk dashboard manifests, or spawn probe processes at runtime or before an upgrade.
-- **Fewer artifacts and processes.** Before adding a record, journal, phase machine, helper entry point or lock file, check whether an existing one already answers the question and whether a user could hit the failure it guards.
-- **No shell-shape policing.** Do not reject user content over a heuristic the Core does not enforce (YAML alias caps, `listeners:` bans, share-link detection, private-IP redirect refusals).
-- **Ask before deleting deliberate functionality.** Thin is about not re-verifying, not licence to remove a feature or a user-facing behaviour the user did not ask to remove.
-
-## Copy and Vocabulary
-
-One name per concept, in the user's terms. Applies to CLI output, `--help`, error messages, and both dashboard locales.
-
-| Concept | Word |
+| Concept | User-facing word |
 | --- | --- |
-| the background process | **Sash** — never `sashd`, `daemon` or `management` (disk names stay `sashd.*`) |
-| the network engine | **Core** |
-| the OS proxy setting | **system proxy**; name Windows when reporting what the OS has |
-| the inbound proxy port | **proxy port** |
-| the data directory | **data folder** |
-| the generated Core config | **core config** |
-| the management HTTP API | **local API** |
-| the saved configuration | **profile** |
-| login startup | **start at login** |
+| Background process | Sash (never sashd, daemon or management; disk names stay `sashd.*`) |
+| Network engine | Core |
+| OS proxy setting | system proxy (name Windows when reporting its setting) |
+| Inbound port | proxy port |
+| Data directory | data folder |
+| Generated config | core config |
+| Management HTTP API | local API |
+| Saved configuration | profile |
+| Login startup | start at login |
 
-- CLI key/value keys are lower case, complete words, at most two words; dashboard headings are Title Case. Both use the same words for the same concept.
-- Booleans are `on`/`off`. Do not use `yes`/`no`, `applied`/`not applied` or `enabled`/`disabled` for the same fact.
-- `unknown` means "could not observe it" and carries the reason (`unknown — could not read the Windows setting`). A known absence is `not installed`, `off` or `none`, never `unknown`.
-- One sentence takes no trailing period. ` · ` joins facts, ` — ` introduces a consequence or the next command to run.
-- Never print `desired`, `applied`, `observed`, `revision`, `journal`, `snapshot`, `identity`, `ownership`, `gate`, `admission`, `lease`, `mutation`, `handoff`, `transaction`, `protocol`, a boot id, a token or a hash. Print the state the user acts on, not the machinery that produced it. PIDs appear only where they help troubleshooting and always in `--json`.
-- Errors say what happened and what to do next. Invariants a user cannot cause are prefixed `internal error:` and ask for a report.
-- **Frozen**: every JSON field and value, every `doctor --json` `checks[].id`, and the exit-code meanings (0 success, 1 failure, 2 incomplete observation). Renaming those is an API change, not a copy change.
+- CLI keys: lower case, complete words, at most two words. Dashboard headings: Title Case. Booleans: `on`/`off`. Known absence: `not installed`, `off` or `none`; `unknown` means observation failed and must include the reason.
+- Single sentences have no trailing period. Join facts with ` · `; introduce consequences or next commands with ` — `. Errors explain what happened and what to do. Unreachable invariants start with `internal error:` and ask for a report.
+- Prose must not expose `desired`, `applied`, `observed`, `revision`, `journal`, `snapshot`, `identity`, `ownership`, `gate`, `admission`, `lease`, `mutation`, `handoff`, `transaction`, `protocol`, boot ids, tokens or hashes. PIDs appear only where useful for troubleshooting and always in `--json`.
+- JSON fields and values, `doctor --json` check ids and exit meanings are frozen APIs: 0 success, 1 failure, 2 incomplete observation. Copy changes must preserve them.
 
-## Safety Invariants
+## Workflow
 
-Load-bearing. Do not weaken without explicit user approval.
+- Be short and direct; no filler or emojis in commits, issues, PR comments or code. Answer questions before commands or edits; state agreement or disagreement before responding to feedback. Read whole files before broad changes.
+- Run commands with Git Bash or PowerShell 7 (`pwsh`), not PowerShell 5.
+- After code changes: `npm run typecheck`, `npm run lint`, then affected tests once. Tests live beside modules as `*.test.ts`; `npm test -- <filename-or-path-fragment>` filters them. Do not repeat passing checks without a new reason.
+- Tests use an absolute temporary `SASH_HOME`, non-default ports and no TUN, never the user's instance. `npm run dev -- <args>` runs source.
+- Build/packaging changes require `npm run smoke:package` once. UI changes require Chromium and Firefox checks with `scripts/ui-shot.mjs`; if Firefox cannot be automated, ask the user to inspect it.
+- Review dependency and lockfile changes; understand a dependency before adding it. Read `undici`'s changelog before upgrading it. CI's `npm run audit:prod` audits the whole dependency tree because runtime dependencies are bundled.
+- Do not commit unless asked. Check `git status`, stage only explicit paths you changed, and use `{feat,fix,docs,chore}: <imperative summary>`, one concern per commit. Never use `git add -A`, `git reset --hard`, `git checkout .`, `git clean -fd`, `git stash` or `git commit --no-verify`.
+- Put notable changes in the newest `CHANGELOG.md` section; released sections are immutable. Follow `RELEASING.md`: version bumps and workflow dispatches need maintainer approval. Publish through `.github/workflows/publish.yml` with OIDC; no npm publishing secrets or bypassing `prepublishOnly`.
+- Confirm conflicts with these instructions before overriding them.
 
-- **Never signal an unverified process.** `process.ts` verifies PID identity before any termination: path match on the expected executable, and `unknown` stays unverified.
-- **Loopback never goes through a proxy.** Controller requests use the direct dispatcher; proxy environment variables apply to remote downloads only.
-- **Credential hygiene.** Child processes get a scrubbed environment (no npm auth config, no `GITHUB_PAT`, no unrelated tokens). `sashd` is the one exception: it alone receives `GITHUB_TOKEN`/`GH_TOKEN`, because release metadata and asset downloads happen there. Core, npm and helper children never receive a credential, and secrets never reach logs. State files and logs are `0o600` on POSIX, and log appends do not follow symlinks.
-- **Atomic writes.** State goes through `fs-atomic.ts`. Core updates keep the previous binary as `.bak` until the new one passes a health check.
-- **Download trust.** Only `github.ts` allowlisted hosts are download origins, archives are verified against the GitHub release API's SHA-256 while streaming, and extraction rejects path traversal and enforces a size cap. These are the only integrity gates in Sash.
-- **Geodata is fetched by the Core, not by Sash.** mihomo downloads its geodata databases itself and ignores `HTTP_PROXY`, so a network without direct `github.com` access deadlocks a first start. The daemon retries the pre-flight check once with `geox-url` set to the mirror hosts, and that retried configuration is what it applies. Geodata is not digest-verified, exactly like the Core's own default fetch; do not extend this fallback to anything that Sash verifies.
-- **Self-upgrade goes through npm, installing before it stops anything.** `sash upgrade` runs `npm install --global` for one exact version *while the daemon keeps running*, then restarts the daemon so it loads the new code (`--no-restart` skips that). The order is load-bearing: on a machine whose only route to the npm registry is the proxy that daemon serves, stopping first makes the install impossible, and nothing needs undoing when an install fails because nothing was stopped. npm owns package integrity; Sash does not stage, journal, probe or replace package files itself.
-- **Subscription content is untrusted.** Parse it once as YAML and reject non-object documents before writing `config.yaml`; leave deeper acceptance to the Core.
+## Upstream
 
-## Commands
-
-- After code changes: `npm run typecheck`, `npm run lint`, then the affected tests once. Do not repeat a passing check without a new reason.
-- `npm test -- <name>` matches a test file name (`npm test -- contracts.test.ts`) or a path fragment; bare `npm test` runs everything. CI runs the full suite on Windows, Linux and macOS.
-- Never test against the user's real instance: `SASH_HOME=<absolute path in a temp dir>`, non-default ports, no TUN. `npm run dev -- <args>` runs the CLI from source.
-- After build or packaging changes run `npm run smoke:package` once; it installs and exercises the real tarball.
-- UI changes: `scripts/ui-shot.mjs` captures routes. Check Chromium and Firefox, because flex metrics, form controls and fonts differ. If Firefox is not automatable, ask the user to look rather than declaring Chromium-only results done.
-
-## Dependencies and Security
-
-- Dependency and lockfile changes are reviewed code; establish what a new one does before adding it.
-- Read `undici`'s changelog before upgrading it: dispatcher and redirect-interceptor APIs move between majors.
-- CI runs `npm run audit:prod` (whole-tree `npm audit --audit-level=moderate`; runtime dependencies are bundled, so there is no separate production tree).
-
-## Git and Release
-
-- Stage explicit paths, only files you changed, and check `git status` before committing. Never `git add -A`, `git reset --hard`, `git checkout .`, `git clean -fd`, `git stash` or `git commit --no-verify`.
-- Do not commit unless asked. Message: `{feat,fix,docs,chore}: <imperative summary>`, one concern per commit.
-- Record notable changes under the newest `CHANGELOG.md` section; released sections are immutable.
-- Releases follow `RELEASING.md` — OIDC trusted publishing through `.github/workflows/publish.yml`. The repository must not contain npm publishing secrets. Version bumps and workflow dispatches need maintainer approval, and `prepublishOnly` is never bypassed.
-
-## Upstream and Positioning
-
-Hard requirements, not preferences.
-
-- Never put the word "mihomo" in the package name, bin name, data directory or any user-visible identifier.
-- User-visible copy (README, `package.json`, docs, npm and GitHub pages) positions Sash as a network toolbox for developers, learning and research; upstream names appear only in the README attribution section.
-- Code, logs and internal docs may name upstream components factually (for example `mihomo-config.ts`); CLI help text follows the README's neutral wording.
-- Never commit upstream binaries or upstream dashboard assets, and never bundle them in the npm tarball. Sash downloads unmodified release artifacts at install time.
-- The upstream core repository's working branch is `Meta`; `main` holds unrelated content. Consult `Meta` for docs, config schemas and behaviour. Releases are branch-independent.
-
-## User Override
-
-If the user's instructions conflict with this file, get explicit confirmation first and only then proceed.
+- Position Sash as a network toolbox for developers, learning and research. Never use "mihomo" in package/bin names, data folders or user-visible identifiers. Upstream names belong only in README attribution; code, logs and internal docs may name them factually.
+- Never commit or bundle upstream binaries or dashboard assets; download unmodified release artifacts at install time.
+- Consult the upstream Core repository's `Meta` branch for code, schemas and behavior; `main` is unrelated. Releases are branch-independent.

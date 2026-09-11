@@ -15,7 +15,7 @@ import {
   profileDueForUpdate,
   profileFilePath,
   profileNameFromUrl,
-  readProfileSource,
+  readProfileText,
 } from "./profiles.js";
 
 export class ProfileInputError extends Error {
@@ -137,7 +137,7 @@ export class ProfileService {
     let unchanged = false;
     if (previous) {
       try {
-        unchanged = readProfileSource(this.options.layout, previous).yamlText === text;
+        unchanged = readProfileText(this.options.layout, previous) === text;
       } catch {
         /* A valid update can replace a missing or damaged source. */
       }
@@ -257,7 +257,7 @@ export class ProfileService {
     const profile = this.requireProfile(this.list(), id);
     return {
       name: profile.name,
-      content: readProfileSource(this.options.layout, profile).yamlText,
+      content: readProfileText(this.options.layout, profile),
       revision: profile.revision,
     };
   }
@@ -291,7 +291,7 @@ export class ProfileService {
     return this.options.commit(() => {
       const state = this.options.state.snapshot();
       const profile = id === null ? null : this.requireProfile(state.profiles, id);
-      const doc = profile ? readProfileSource(this.options.layout, profile).doc : null;
+      const doc = profile ? parseProfileText(readProfileText(this.options.layout, profile)) : null;
       if (state.profiles.activeId !== id)
         this.options.state.commit({ ...state, profiles: { ...state.profiles, activeId: id } });
       return { activeId: id, proxyCount: Array.isArray(doc?.proxies) ? doc.proxies.length : 0 };

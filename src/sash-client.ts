@@ -78,11 +78,6 @@ export interface SashRequestOptions {
   signal?: AbortSignal;
 }
 
-/** Daemon-owned responses come from this installation's own handlers. */
-function expect<T>(value: unknown): T {
-  return value as T;
-}
-
 const defaultFetch: SashClientFetch = async (url, init) => {
   const deadline = AbortSignal.timeout(init.timeoutMs ?? 5000);
   const response = await fetch(url, {
@@ -115,7 +110,7 @@ export class SashClient {
     if (options.onUnauthorized) this.onUnauthorized = options.onUnauthorized;
   }
 
-  private async request(endpoint: string, options: SashRequestOptions = {}): Promise<unknown> {
+  private async request<T>(endpoint: string, options: SashRequestOptions = {}): Promise<T> {
     const headers: Record<string, string> = {};
     const token = options.authenticate === false ? "" : (this.token?.() ?? "");
     if (token) {
@@ -159,46 +154,44 @@ export class SashClient {
         message || `HTTP ${response.status}`,
       );
     }
-    return data;
+    return data as T;
   }
 
   /* ---- daemon ---- */
 
   async health(): Promise<HealthInfo> {
-    return expect<HealthInfo>(
-      await this.request("/sash/daemon/health", {
-        timeoutMs: 2_000,
-        attempts: 1,
-        authenticate: false,
-      }),
-    );
+    return this.request<HealthInfo>("/sash/daemon/health", {
+      timeoutMs: 2_000,
+      attempts: 1,
+      authenticate: false,
+    });
   }
 
   /** Authenticated CLI clients mint a one-time browser bootstrap token. */
   async createWebBootstrap(): Promise<WebBootstrapInfo> {
-    return expect<WebBootstrapInfo>(
-      await this.request("/sash/web/bootstrap", { method: "POST", timeoutMs: 5_000 }),
-    );
+    return this.request<WebBootstrapInfo>("/sash/web/bootstrap", {
+      method: "POST",
+      timeoutMs: 5_000,
+    });
   }
 
   /** Public exchange: redeem a one-time bootstrap token for a session token. */
   async redeemWebBootstrap(token: string): Promise<WebSessionInfo> {
-    return expect<WebSessionInfo>(
-      await this.request("/sash/web/session", {
-        method: "POST",
-        body: { token },
-        timeoutMs: 5_000,
-        attempts: 1,
-        authenticate: false,
-      }),
-    );
+    return this.request<WebSessionInfo>("/sash/web/session", {
+      method: "POST",
+      body: { token },
+      timeoutMs: 5_000,
+      attempts: 1,
+      authenticate: false,
+    });
   }
 
   async status(fresh = false): Promise<DaemonStatus> {
-    return expect<DaemonStatus>(
-      await this.request(fresh ? "/sash/daemon/status?fresh=1" : "/sash/daemon/status", {
+    return this.request<DaemonStatus>(
+      fresh ? "/sash/daemon/status?fresh=1" : "/sash/daemon/status",
+      {
         timeoutMs: 8000,
-      }),
+      },
     );
   }
 
@@ -214,14 +207,12 @@ export class SashClient {
   }
 
   async continueWebSession(session: WebSessionInfo): Promise<WebSessionInfo> {
-    return expect<WebSessionInfo>(
-      await this.request("/sash/web/continue", {
-        method: "POST",
-        body: session,
-        authenticate: false,
-        attempts: 1,
-      }),
-    );
+    return this.request<WebSessionInfo>("/sash/web/continue", {
+      method: "POST",
+      body: session,
+      authenticate: false,
+      attempts: 1,
+    });
   }
 
   /** Cleanup completes before the daemon acknowledges; the listener closes after the response. */
@@ -230,31 +221,25 @@ export class SashClient {
   }
 
   async autostartStatus(): Promise<AutostartStatus> {
-    return expect<AutostartStatus>(
-      await this.request("/sash/autostart", { timeoutMs: 15_000, attempts: 1 }),
-    );
+    return this.request<AutostartStatus>("/sash/autostart", { timeoutMs: 15_000, attempts: 1 });
   }
 
   async setAutostart(enabled: boolean): Promise<AutostartStatus> {
-    return expect<AutostartStatus>(
-      await this.request("/sash/autostart", {
-        method: "PUT",
-        body: { enabled },
-        timeoutMs: 60_000,
-        attempts: 1,
-      }),
-    );
+    return this.request<AutostartStatus>("/sash/autostart", {
+      method: "PUT",
+      body: { enabled },
+      timeoutMs: 60_000,
+      attempts: 1,
+    });
   }
 
   /* ---- core lifecycle ---- */
 
   async startCore(): Promise<CoreStartResult> {
-    return expect<CoreStartResult>(
-      await this.request("/sash/core/start", {
-        method: "POST",
-        timeoutMs: CORE_OPERATION_TIMEOUT_MS,
-      }),
-    );
+    return this.request<CoreStartResult>("/sash/core/start", {
+      method: "POST",
+      timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+    });
   }
 
   async stopCore(): Promise<void> {
@@ -262,40 +247,35 @@ export class SashClient {
   }
 
   async restartCore(): Promise<CoreStartResult> {
-    return expect<CoreStartResult>(
-      await this.request("/sash/core/restart", {
-        method: "POST",
-        timeoutMs: CORE_OPERATION_TIMEOUT_MS,
-      }),
-    );
+    return this.request<CoreStartResult>("/sash/core/restart", {
+      method: "POST",
+      timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+    });
   }
 
   async updateCore(version?: string): Promise<CoreUpdateResponse> {
-    return expect<CoreUpdateResponse>(
-      await this.request("/sash/core/update", {
-        method: "POST",
-        body: version ? { version } : {},
-        timeoutMs: CORE_OPERATION_TIMEOUT_MS,
-      }),
-    );
+    return this.request<CoreUpdateResponse>("/sash/core/update", {
+      method: "POST",
+      body: version ? { version } : {},
+      timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+    });
   }
 
   async coreUpdateProgress(): Promise<CoreUpdateProgress | null> {
-    return expect<CoreUpdateProgress | null>(
-      await this.request("/sash/core/update", { timeoutMs: 2000, attempts: 1 }),
-    );
+    return this.request<CoreUpdateProgress | null>("/sash/core/update", {
+      timeoutMs: 2000,
+      attempts: 1,
+    });
   }
 
   async testDelay(name: string, signal?: AbortSignal): Promise<CoreDelayResult> {
-    return expect<CoreDelayResult>(
-      await this.request("/sash/core/delay", {
-        method: "POST",
-        body: { name },
-        timeoutMs: CORE_DELAY_REQUEST_MS + 2000,
-        attempts: 1,
-        signal,
-      }),
-    );
+    return this.request<CoreDelayResult>("/sash/core/delay", {
+      method: "POST",
+      body: { name },
+      timeoutMs: CORE_DELAY_REQUEST_MS + 2000,
+      attempts: 1,
+      signal,
+    });
   }
 
   /* ---- system proxy ---- */
@@ -305,85 +285,76 @@ export class SashClient {
   }
 
   async proxyStatus(fresh = false): Promise<SystemProxyStatusResponse> {
-    return expect<SystemProxyStatusResponse>(
-      await this.request(fresh ? "/sash/proxy?fresh=1" : "/sash/proxy"),
-    );
+    return this.request<SystemProxyStatusResponse>(fresh ? "/sash/proxy?fresh=1" : "/sash/proxy");
   }
 
   /* ---- settings ---- */
 
   async getSettings(): Promise<PublicSashSettings> {
-    return expect<PublicSashSettings>(await this.request("/sash/settings"));
+    return this.request<PublicSashSettings>("/sash/settings");
   }
 
   async patchSettings(patch: SettingsPatch): Promise<SettingsWriteResult> {
-    return expect<SettingsWriteResult>(
-      await this.request("/sash/settings", { method: "PATCH", body: patch, timeoutMs: 45_000 }),
-    );
+    return this.request<SettingsWriteResult>("/sash/settings", {
+      method: "PATCH",
+      body: patch,
+      timeoutMs: 45_000,
+    });
   }
 
   /* ---- profiles ---- */
 
   async listProfiles(): Promise<ProfilesIndex> {
-    return expect<ProfilesIndex>(await this.request("/sash/profiles"));
+    return this.request<ProfilesIndex>("/sash/profiles");
   }
 
   async reorderProfiles(ids: readonly string[]): Promise<ProfilesIndex> {
-    return expect<ProfilesIndex>(
-      await this.request("/sash/profiles/order", { method: "PUT", body: { ids } }),
-    );
+    return this.request<ProfilesIndex>("/sash/profiles/order", { method: "PUT", body: { ids } });
   }
 
   async addProfile(
     url: string,
     opts: { name?: string; activate?: boolean } = {},
   ): Promise<ProfileActionResponse> {
-    return expect<ProfileActionResponse>(
-      await this.request("/sash/profiles", {
-        method: "POST",
-        body: { url, ...opts },
-        timeoutMs: 60_000,
-      }),
-    );
+    return this.request<ProfileActionResponse>("/sash/profiles", {
+      method: "POST",
+      body: { url, ...opts },
+      timeoutMs: 60_000,
+    });
   }
 
   async importProfile(name: string, content: string): Promise<ProfileActionResponse> {
-    return expect<ProfileActionResponse>(
-      await this.request("/sash/profiles/import", {
-        method: "POST",
-        body: { name, content },
-        timeoutMs: 30_000,
-      }),
-    );
+    return this.request<ProfileActionResponse>("/sash/profiles/import", {
+      method: "POST",
+      body: { name, content },
+      timeoutMs: 30_000,
+    });
   }
 
   async activateProfile(id: string | null): Promise<ProfileActivateResponse> {
-    return expect<ProfileActivateResponse>(
-      await this.request("/sash/profiles/active", {
-        method: "PUT",
-        body: { id },
-        timeoutMs: 30_000,
-      }),
-    );
+    return this.request<ProfileActivateResponse>("/sash/profiles/active", {
+      method: "PUT",
+      body: { id },
+      timeoutMs: 30_000,
+    });
   }
 
   async updateProfile(id: string): Promise<ProfileUpdateResponse> {
-    return expect<ProfileUpdateResponse>(
-      await this.request(`/sash/profiles/${id}/update`, {
-        method: "POST",
-        timeoutMs: 60_000,
-      }),
-    );
+    return this.request<ProfileUpdateResponse>(`/sash/profiles/${id}/update`, {
+      method: "POST",
+      timeoutMs: 60_000,
+    });
   }
 
   async updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
-    return expect<ProfilesUpdateAllResponse>(
-      await this.request("/sash/profiles/update-all", { method: "POST", timeoutMs: 120_000 }),
-    );
+    return this.request<ProfilesUpdateAllResponse>("/sash/profiles/update-all", {
+      method: "POST",
+      timeoutMs: 120_000,
+    });
   }
 
   async getProfileContent(id: string): Promise<ProfileContentResponse> {
-    return expect<ProfileContentResponse>(await this.request(`/sash/profiles/${id}/content`));
+    return this.request<ProfileContentResponse>(`/sash/profiles/${id}/content`);
   }
 
   async writeProfileContent(
@@ -391,25 +362,25 @@ export class SashClient {
     content: string,
     revision: number,
   ): Promise<ProfileUpdateResponse> {
-    return expect<ProfileUpdateResponse>(
-      await this.request(`/sash/profiles/${id}/content`, {
-        method: "PUT",
-        body: { content, revision },
-        timeoutMs: 30_000,
-      }),
-    );
+    return this.request<ProfileUpdateResponse>(`/sash/profiles/${id}/content`, {
+      method: "PUT",
+      body: { content, revision },
+      timeoutMs: 30_000,
+    });
   }
 
   async renameProfile(id: string, name: string): Promise<ProfileRenameResponse> {
-    return expect<ProfileRenameResponse>(
-      await this.request(`/sash/profiles/${id}`, { method: "PATCH", body: { name } }),
-    );
+    return this.request<ProfileRenameResponse>(`/sash/profiles/${id}`, {
+      method: "PATCH",
+      body: { name },
+    });
   }
 
   async removeProfile(id: string): Promise<ProfileRemoveResponse> {
-    return expect<ProfileRemoveResponse>(
-      await this.request(`/sash/profiles/${id}`, { method: "DELETE", timeoutMs: 30_000 }),
-    );
+    return this.request<ProfileRemoveResponse>(`/sash/profiles/${id}`, {
+      method: "DELETE",
+      timeoutMs: 30_000,
+    });
   }
 }
 

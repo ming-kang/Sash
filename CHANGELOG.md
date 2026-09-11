@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Simplify profile reads to return source text without parsing YAML for the editor or unchanged-content comparisons. Keep validation at save, activation and Apply; damaged source text can now be opened for repair.
+- Keep one frozen committed application state instead of a mutable state plus a cached clone. Replace per-method response casts with one typed client request boundary.
+- Shorten AGENTS.md while preserving safety, public API and workflow constraints; remove obsolete architecture descriptions and record the simplification ablations.
+
 ## [0.2.2] - 2026-09-10
 
 ### Fixed

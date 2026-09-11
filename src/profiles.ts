@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import YAML from "yaml";
 import { readState, type SashState } from "./app-state.js";
-import { parseCoreYaml } from "./core-yaml.js";
 import {
   asCoreConfigDocument,
   buildDefaultConfig,
@@ -27,19 +27,18 @@ export function parseProfileText(text: string): Record<string, unknown> {
   if (!text.trim() || Buffer.byteLength(text) > PROFILE_DOWNLOAD_SIZE_LIMIT) {
     throw new Error("Profile content must be non-empty and no larger than 8 MiB");
   }
-  return asCoreConfigDocument(parseCoreYaml(text));
+  return asCoreConfigDocument(YAML.parse(text));
 }
 
-export function readProfileSource(
+export function readProfileText(
   layout: SashLayout,
   profile: Pick<ProfileMeta, "id" | "revision">,
-): { doc: Record<string, unknown>; yamlText: string } {
+): string {
   const file = profileFilePath(layout, profile.id, profile.revision);
   const stat = fs.lstatSync(file);
   if (!stat.isFile() || stat.size > PROFILE_DOWNLOAD_SIZE_LIMIT)
     throw new Error("Profile must be a bounded regular file");
-  const yamlText = fs.readFileSync(file, "utf8");
-  return { yamlText, doc: parseProfileText(yamlText) };
+  return fs.readFileSync(file, "utf8");
 }
 
 export function loadProfiles(layout: SashLayout): ProfilesIndex {
@@ -53,7 +52,7 @@ export function getActiveProfile(index: ProfilesIndex): ProfileMeta | null {
 export function renderActiveConfig(state: SashState, layout: SashLayout): GeneratedConfig {
   const active = getActiveProfile(state.profiles);
   return renderConfig(
-    active ? readProfileSource(layout, active).doc : buildDefaultConfig(),
+    active ? parseProfileText(readProfileText(layout, active)) : buildDefaultConfig(),
     state.settings,
     active ? "subscription" : "default",
   );

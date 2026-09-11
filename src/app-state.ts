@@ -90,34 +90,31 @@ export function loadSettings(layout: SashLayout = sashLayout()): SashSettings {
 /** One canonical publication point, used only by the daemon owning the instance lease. */
 export class SashStateStore {
   private state: SashState;
-  private text: string;
-  private cachedSnapshot: SashState | undefined;
 
   constructor(
     readonly layout: SashLayout,
     settings?: SashSettings,
   ) {
-    const stored = readStateText(layout);
-    if (stored !== undefined) {
-      this.state = parseStateText(stored, layout);
-      this.text = stored;
-    } else {
-      this.state = {
+    const stored = readState(layout);
+    this.state = freezeSnapshot(
+      stored ?? {
         schemaVersion: 2,
         revision: 0,
         settings: validateSettingsCandidate(settings ?? initialSettings()),
         profiles: { activeId: null, profiles: [] },
-      };
-      this.text = `${JSON.stringify(this.state, null, 2)}\n`;
-      atomicWriteFileSync(layout.settingsFile, this.text);
-      this.publishBackup();
+      },
+    );
+    if (stored === undefined) {
+      const text = `${JSON.stringify(this.state, null, 2)}\n`;
+      atomicWriteFileSync(layout.settingsFile, text);
+      this.publishBackup(text);
     }
   }
 
   /** Recovery copy of the last known-good manifest; never blocks the primary write. */
-  private publishBackup(): void {
+  private publishBackup(text: string): void {
     try {
-      atomicWriteFileSync(this.layout.settingsBackupFile, this.text);
+      atomicWriteFileSync(this.layout.settingsBackupFile, text);
     } catch {
       /* The committed manifest is durable; a failed backup must not reject it. */
     }
@@ -125,8 +122,7 @@ export class SashStateStore {
 
   /** Deeply frozen; reference identity changes only after a successful commit. */
   snapshot(): SashState {
-    this.cachedSnapshot ??= freezeSnapshot(structuredClone(this.state));
-    return this.cachedSnapshot;
+    return this.state;
   }
 
   assertCurrent(revision: number): void {
@@ -139,14 +135,14 @@ export class SashStateStore {
 
   commit(candidate: SashState): SashState {
     this.assertCurrent(candidate.revision);
-    const next: SashState = { ...candidate, revision: candidate.revision + 1 };
+    const next = freezeSnapshot(
+      structuredClone({ ...candidate, revision: candidate.revision + 1 }),
+    );
     const text = `${JSON.stringify(next, null, 2)}\n`;
     if (Buffer.byteLength(text) > MAX_STATE_BYTES) throw new Error("Sash state is too large");
     atomicWriteFileSync(this.layout.settingsFile, text);
     this.state = next;
-    this.text = text;
-    this.cachedSnapshot = undefined;
-    this.publishBackup();
-    return this.snapshot();
+    this.publishBackup(text);
+    return next;
   }
 }

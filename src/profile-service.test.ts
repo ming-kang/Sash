@@ -92,6 +92,20 @@ describe("saved profiles", () => {
     assert.equal(profiles.list().activeId, a.id);
   });
 
+  it("opens damaged source text for repair while still rejecting invalid saved configurations", async () => {
+    const profiles = service();
+    const profile = (await profiles.importLocal("repair", yamlA)).profile;
+    const damaged = "rules: [";
+    fs.writeFileSync(profileFilePath(layout, profile.id, profile.revision), damaged);
+    const before = state.snapshot();
+    assert.equal(profiles.readContent(profile.id).content, damaged);
+    await assert.rejects(profiles.activate(profile.id));
+    await assert.rejects(profiles.writeContent(profile.id, damaged, profile.revision));
+    assert.equal(state.snapshot(), before);
+    await profiles.writeContent(profile.id, yamlB, profile.revision);
+    assert.equal(profiles.readContent(profile.id).content, yamlB);
+  });
+
   it("uses editor revisions so one tab cannot overwrite another saved edit", async () => {
     const profiles = service();
     const a = (await profiles.importLocal("a", yamlA)).profile;

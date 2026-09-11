@@ -9,7 +9,7 @@ import {
   parseProfileText,
   profileDueForUpdate,
   profileFilePath,
-  readProfileSource,
+  readProfileText,
 } from "./profiles.js";
 
 const meta = {
@@ -61,9 +61,9 @@ describe("profile input boundaries", () => {
     const file = profileFilePath(layout, meta.id, meta.revision);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, "rules: [MATCH,DIRECT]\n");
-    assert.deepEqual(readProfileSource(layout, meta).doc.rules, ["MATCH", "DIRECT"]);
+    assert.equal(readProfileText(layout, meta), "rules: [MATCH,DIRECT]\n");
     fs.truncateSync(file, 8 * 1024 * 1024 + 1);
-    assert.throws(() => readProfileSource(layout, meta), /bounded/);
+    assert.throws(() => readProfileText(layout, meta), /bounded/);
     for (const text of ["scalar", "[]", "rules: [", ""])
       assert.throws(() => parseProfileText(text));
     assert.deepEqual(parseProfileText("dns: {}\n"), { dns: {} });

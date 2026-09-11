@@ -1,5 +1,4 @@
 import YAML from "yaml";
-import { parseCoreYaml } from "./core-yaml.js";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
 import type { SashSettings } from "./settings.js";
 
@@ -197,7 +196,7 @@ export async function fetchSubscriptionProfile(
     throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
   }
   const text = await res.text(PROFILE_DOWNLOAD_SIZE_LIMIT);
-  const doc = asCoreConfigDocument(parseCoreYaml(text));
+  const doc = asCoreConfigDocument(YAML.parse(text));
   return {
     doc,
     yamlText: text,
@@ -226,7 +225,7 @@ export const GEOX_MIRRORS = {
 
 /** Rewrite an already generated configuration to fetch geodata through mirrors. */
 export function withGeodataMirrors(generated: GeneratedConfig): GeneratedConfig {
-  const doc = asCoreConfigDocument(parseCoreYaml(generated.yaml));
+  const doc = asCoreConfigDocument(YAML.parse(generated.yaml));
   doc["geox-url"] = { ...GEOX_MIRRORS };
   return { ...generated, yaml: YAML.stringify(doc, { indent: 2 }) };
 }

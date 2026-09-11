@@ -8,8 +8,6 @@ Sash manages one local Core through one loopback daemon. The [high-level archite
 
 `daemon/app.ts` assembles the profile, settings, runtime and Windows services. `DaemonGate` in `daemon/context.ts` owns one in-memory mutation queue and shutdown admission. Reads do not wait for this queue. Downloads happen outside it, with deadlines and cancellation; commits reject stale saved-state revisions or runtime changes.
 
-Operations lasting at least five seconds produce one slow-mutation diagnostic, including synchronous work that delayed the timer. Counters remain accurate across cancellation, errors and shutdown retries.
-
 CLI commands use `runtime-owner.ts` and `daemon-lifecycle.ts` for read-only discovery, management startup and API calls. A live but unverified daemon blocks competing startup and cannot be stopped by an unverified signal. CLI discovery uses the observed daemon port. `sash upgrade` resolves an npm target and runs one global install; it replaces no package files itself, and application state stays daemon-written.
 
 `doctor.ts` composes read-only installation, package-asset, manifest, Core-file and runtime observations. It does not hash installed executables. Invalid state does not suppress independent installation/Core checks. Port checks skip listeners already owned by the observed runtime and report occupied or unavailable stopped ports; diagnostics do not start or repair an instance.
@@ -21,7 +19,7 @@ Daemon startup holds the `state/sashd.lock` singleton lease while loading applic
 | `app-state.ts` | The sole atomic application manifest commit |
 | `settings.ts`, `settings-service.ts` | Validate and save preferences; reconcile explicit proxy intent |
 | `profile-model.ts`, `profiles.ts`, `profile-service.ts` | Validate metadata/YAML, manage immutable sources and saved selection |
-| `core-yaml.ts`, `profile-source-cache.ts`, `profile-cleanup.ts` | One shared YAML entry point, bounded parsed-source reuse and orphan maintenance |
+| `profile-cleanup.ts` | Prune unreferenced generated files |
 | `runtime-lifecycle.ts` | Order Core and proxy changes; retain the applied configuration and runtime revision |
 | `supervisor.ts`, `process.ts` | Owned child handles, health checks and verified termination |
 | `core.ts`, `core-archive.ts`, `core-update.ts`, `core-install-record.ts` | Trusted downloads, bounded extraction and one executable/install-record transaction |
@@ -60,11 +58,11 @@ Subscription and local-source YAML is parsed once with a plain `YAML.parse`; the
 
 The Core fetches its geodata databases (`geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) while that pre-flight check loads the configuration, and it fetches them itself, ignoring `HTTP_PROXY`. On a network without direct `github.com` access the check therefore fails or stalls, which would deadlock a first start: no Core, because geodata is missing; no geodata, because the Core has not started and cannot serve as the proxy. When the pre-flight check fails and the output shows a geodata download rather than a configuration error, the daemon retries once with `geox-url` rewritten to the same mirror hosts used for Core downloads, and the retried configuration is the one it applies and installs, so the databases are fetched and the data directory keeps a working source. A failure after the retry is reported as `Core could not download its geodata databases`, distinct from a real configuration rejection.
 
-The daemon shares a frozen parsed-source LRU across profile actions and Apply: at most eight entries and 16 MiB of source text. File identity, size and nanosecond modification/change timestamps are rechecked on every read; replacement, removal and non-regular paths cannot reuse a cached source. Rendering does not mutate cached documents.
+Profile reads return bounded source text. Opening the editor and comparing unchanged content do not parse YAML; import, save, activation and Apply parse it when they need to validate or render a configuration. Damaged YAML can still be opened for repair, while invalid saves and activations remain rejected.
 
 After scheduled updates, a non-overlapping maintenance tick enters the mutation queue, verifies the manifest is current, and prunes only recognized generated files older than 24 hours. Current profile references, unknown names, recent files and links remain intact; directories are removed only when old and empty. Paths must resolve inside the data directory. Cleanup does not recurse through arbitrary directories and skips temporary Core files during download.
 
-Daemon readers share one deeply frozen snapshot per committed revision. A successful commit invalidates it; failed writes preserve the previous snapshot. Settings PATCH accepts `expectedRevision` and returns the committed `revision`. Stale writes fail with `409` before preference or OS changes. The dashboard supplies its observed revision and ignores older write responses.
+`SashStateStore` keeps one deeply frozen committed state and returns it directly to readers. A successful atomic write replaces it; failed writes preserve the previous object. Settings PATCH accepts `expectedRevision` and returns the committed `revision`. Stale writes fail with `409` before preference or OS changes. The dashboard supplies its observed revision.
 
 `runtime/config.yaml` is derived from the selected saved profile or the built-in DIRECT-only default. Source YAML is preserved verbatim. Sash overlays operational ports, controller credentials and LAN access, removes competing controller sockets/pipes and tunnels, and disables TUN before replacing the runtime configuration.
 
@@ -170,7 +168,7 @@ Autostart uses a current-user registry entry and hidden launcher. See [Automatic
 | `/sash/profiles/:id/update` | POST | Control; download and save new content |
 | `/sash/profiles/:id` | PATCH / DELETE | Control; rename or remove |
 
-Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required; no absent flag is guessed from an old protocol. Diagnostic Core probes share in-flight work and a 500ms cache bound to the owned Core generation. Safety decisions bypass settled Core observations. On status and proxy routes, `?fresh=1` requires control authentication and bypasses settled probe caches.
+Status includes `daemon.bootId`, `revisions.state` (saved-state revision), `revisions.runtime`, and `configuration: {pending, appliedProfile, appliedSettings}`. Saved selection and actual running configuration are distinct. Proxy observation flags are required; no absent flag is guessed from an old protocol. The shared event observer limits status sampling; the supervisor has no separate status cache. On status and proxy routes, `?fresh=1` requires control authentication and bypasses settled system-proxy observations.
 
 `/sash/events` sends `event: status` with `{schemaVersion: 1, sequence, status, autostart}` and a per-boot SSE ID. Each subscription starts from a complete snapshot; clients do not need a replay log. Mutations and Core preparation progress notify one shared observer, coalesced over 40 ms. A five-second shared sample detects external health/OS changes only while clients are connected; unchanged idle samples send no data. Desktop startup inspection is cached and cannot delay runtime events. Ten-second heartbeats renew/check browser authorization. At most 64 subscribers are admitted; a blocked writer retains only the newest pending snapshot. Disconnect and daemon shutdown release timers and streams.
 
@@ -178,7 +176,7 @@ The CLI watch uses the same direct, non-redirecting event client, verifies the d
 
 Delay tests require an explicit `sash status --delay NAME`. The authenticated POST runs outside the state queue and verifies Core ownership before and after the controller request. It performs one non-retrying `/proxies/{name}/delay` request using direct transport, the fixed HTTP-204 test URL and a five-second Core timeout with request overhead. Success, timeout, missing names and failed tests are distinct validated observations; a Core replacement rejects the stale result. Client cancellation closes the daemon/controller request. Normal status and SSE observation never initiate these probes. `--watch --delay` samples independently every 30 seconds after completion and coalesces output while retaining only the latest observation.
 
-Success bodies are resources; empty mutations return `204`. Errors use `{error: {code, message}}`. Unknown required fields or malformed successful payloads are rejected by the shared client. Raw settings editing and config reload routes do not exist.
+Success bodies use this installation's shared TypeScript contracts; empty mutations return `204`. The client parses JSON and error bodies (`{error: {code, message}}`) without duplicating the daemon's response schemas. Raw settings editing and config reload routes do not exist.
 
 The Core gateway permits queries, node selection and connection deletion. Managed configuration changes must use Sash controls. Mode uses `/sash/core/mode`; traffic and log WebSockets use `/core/api/traffic` and `/core/api/logs`.
 
