@@ -5,9 +5,7 @@ import path from "node:path";
 import { it } from "node:test";
 import {
   assertAbsolutePath,
-  canonicalPath,
   inspectInstallation,
-  installationId,
   npmPackageRoot,
   npmPrefixForPackage,
 } from "./installation.js";
@@ -27,9 +25,8 @@ it("recognizes a direct npm prefix and refuses local and mismatched layouts", (t
   assert.equal(result.kind, "npm-global");
   if (result.kind === "npm-global") {
     assert.equal(result.prefix, fs.realpathSync.native(prefix));
-    assert.equal(result.id, installationId(packageRoot));
-    assert.equal(result.cliPath, canonicalPath(path.join(packageRoot, "dist", "cli.js")));
-    assert.equal(result.binDir, fs.realpathSync.native(prefix));
+    assert.equal(result.packageRoot, fs.realpathSync.native(packageRoot));
+    assert.equal(result.nodePath, fs.realpathSync.native(process.execPath));
   }
   // Detection is read-only: it never creates upgrade or installation state.
   assert.equal(fs.readdirSync(prefix).sort().join(","), "node_modules");
@@ -72,14 +69,8 @@ it("derives platform-specific npm layouts and rejects incomplete or non-absolute
   fs.mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
   assert.equal(inspectInstallation({ packageRoot }).kind, "unknown");
 
-  for (const value of [
-    "relative/path",
-    path.join(os.tmpdir(), "control\u0001character"),
-    path.join(os.tmpdir(), "delete\u007fcharacter"),
-  ]) {
-    assert.throws(() => assertAbsolutePath(value), /absolute and contain no control characters/);
-    assert.equal(inspectInstallation({ packageRoot: value }).kind, "unknown");
-  }
+  assert.throws(() => assertAbsolutePath("relative/path"), /must be absolute/);
+  assert.equal(inspectInstallation({ packageRoot: "relative/path" }).kind, "unknown");
   assert.equal(
     inspectInstallation({ packageRoot: os.tmpdir(), nodePath: "relative-node" }).kind,
     "unknown",

@@ -14,6 +14,7 @@ const health: HealthInfo = {
   token: "public-identity",
   pid: 1234,
   startedAt: "2026-01-01T00:00:00.000Z",
+  version: "1.2.3",
 };
 const client = new SashClient({ baseUrl: "", tokenHeader: "x-sash-token" });
 let window: HappyWindow;
@@ -164,22 +165,19 @@ describe("stored session fallback", () => {
     assert.equal(webSession.startedAt(), health.startedAt);
   });
 
-  it("drops a stored session the daemon cannot continue", async () => {
+  it("keeps a stored session when the daemon restarts", async () => {
     window.sessionStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ token: sessionToken, daemonToken: "previous-daemon" }),
     );
     globalThis.fetch = async (input) => {
-      if (String(input).endsWith("/sash/web/continue")) {
-        return respond({ error: { code: "unauthorized", message: "continuation expired" } }, 401);
-      }
-      assert.ok(String(input).endsWith("/sash/daemon/health"));
+      assert.ok(String(input).endsWith("/sash/daemon/health"), "no exchange request");
       return respond(health);
     };
     await webSession.initialize(client, () => true);
-    assert.equal(webSession.token(), "");
-    assert.equal(sessionReady.value, false);
-    assert.equal(storedSession(), null);
+    assert.equal(webSession.token(), sessionToken);
+    assert.equal(sessionReady.value, true);
+    assert.deepEqual(storedSession(), { token: sessionToken, daemonToken: health.token });
   });
 
   it("rejects malformed stored credentials", async () => {

@@ -117,7 +117,6 @@ export interface DaemonContext {
   readonly token: string;
   readonly startedAt: string;
   readonly version: string;
-  readonly installationId: string;
   readonly webAuth: WebAuthManager;
   readonly profiles: ProfileService;
   readonly settingsService: SettingsService;

@@ -145,6 +145,7 @@ beforeEach(() => {
     token: "health",
     pid: 100,
     startedAt: "2026-01-01T00:00:00.000Z",
+    version: "1.2.3",
   });
   api.hasSession = () => true;
   api.sessionMatches = () => true;

@@ -14,7 +14,6 @@ import { isGeodataDownloadFailure, validateCoreConfig } from "../core-config-val
 import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
 import type { CoreUpdateProgress, CoreUpdateStage } from "../core-update-progress.js";
 import { errorMessage } from "../error-utils.js";
-import { installationId } from "../installation.js";
 import {
   type GeneratedConfig,
   type SubscriptionFetch,
@@ -173,8 +172,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
 
   const requireRecoveredInstall = (): void => {
     assertCoreInstallationConsistent(layout);
-    const transaction = readCoreUpdateTransaction(layout);
-    if (transaction && transaction.phase !== "verified")
+    if (readCoreUpdateTransaction(layout))
       throw new StateConflictError(
         "Core update recovery is pending; run sash stop, then sash start",
       );
@@ -292,8 +290,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     token,
     startedAt: new Date().toISOString(),
     version: packageInfo.version,
-    installationId: installationId(packageRoot),
-    webAuth: new WebAuthManager(token, layout.webSessionsFile),
+    webAuth: new WebAuthManager(layout.webSessionsFile),
     profiles,
     settingsService,
     lifecycle,

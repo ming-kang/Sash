@@ -206,16 +206,6 @@ export class SashClient {
     });
   }
 
-  async continueWebSession(session: WebSessionInfo): Promise<WebSessionInfo> {
-    return this.request<WebSessionInfo>("/sash/web/continue", {
-      method: "POST",
-      body: session,
-      authenticate: false,
-      attempts: 1,
-    });
-  }
-
-  /** Cleanup completes before the daemon acknowledges; the listener closes after the response. */
   async shutdown(): Promise<void> {
     await this.request("/sash/daemon/shutdown", { method: "POST", timeoutMs: 45_000 });
   }

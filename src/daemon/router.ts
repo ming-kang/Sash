@@ -12,7 +12,6 @@ import { streamDaemonEvents } from "./events.js";
 import {
   activateProfile,
   addProfile,
-  continueWebSession,
   coreUpdateProgress,
   createWebBootstrap,
   daemonStatus,
@@ -146,12 +145,6 @@ const CORE_API_PREFIX = "/core/api";
 /** The whole daemon HTTP surface, in matching order. */
 export function buildRoutes(): readonly RouteDef[] {
   return [
-    {
-      methods: ["POST"],
-      pattern: path("/sash/web/continue"),
-      auth: "public",
-      handler: continueWebSession,
-    },
     { methods: ["GET"], pattern: path("/sash/daemon/health"), auth: "public", handler: health },
     { methods: ["GET"], pattern: path("/sash/events"), auth: "control", raw: streamDaemonEvents },
     {
@@ -390,7 +383,7 @@ function writeResponse(res: ServerResponse, response: RouteResponse): void {
   res.end();
 }
 
-export type RouteMatch =
+type RouteMatch =
   | { kind: "matched"; route: RouteDef; params: Record<string, string | undefined> }
   | { kind: "methodNotAllowed"; allow: readonly string[] }
   | { kind: "notFound" };
@@ -481,11 +474,6 @@ export async function dispatch(
     isSessionToken: (token) => ctx.webAuth.isSession(token),
   });
   if (requiresAuth && !authorized) {
-    const token = req.headers["x-sash-token"];
-    if (typeof token === "string" && ctx.webAuth.isContinuationToken(token)) {
-      sendError(res, 409, "conflict", "Sash upgraded; reconnect this browser session");
-      return;
-    }
     sendError(res, 401, "unauthorized", "Unauthorized control request");
     return;
   }

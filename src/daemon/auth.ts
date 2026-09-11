@@ -1,11 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import type { IncomingMessage } from "node:http";
-import {
-  WEB_SOCKET_AUTH_PROTOCOL,
-  WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
-  type WebContinuationInfo,
-} from "../contracts.js";
+import { WEB_SOCKET_AUTH_PROTOCOL, WEB_SOCKET_TOKEN_PROTOCOL_PREFIX } from "../contracts.js";
 import { atomicWriteFileSync } from "../fs-atomic.js";
 import { isPlainObject } from "../json-shape.js";
 
@@ -14,16 +10,15 @@ import { isPlainObject } from "../json-shape.js";
 export const WEB_BOOTSTRAP_TTL_MS = 90_000;
 const MAX_PENDING_BOOTSTRAPS = 32;
 const MAX_SESSIONS = 256;
-export const WEB_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const WEB_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const SESSION_FILE_LIMIT = 256 * 1024;
 
-export interface WebSessionSeed {
+interface WebSessionSeed {
   hash: string;
-  bootId: string;
   expiresAt: number;
 }
 
-export function parseWebSessionSeeds(value: unknown): WebSessionSeed[] {
+function parseWebSessionSeeds(value: unknown): WebSessionSeed[] {
   const seeds = (value as { seeds?: unknown })?.seeds;
   if (!Array.isArray(seeds) || seeds.length > MAX_SESSIONS * 2) return [];
   return seeds.flatMap((seed: unknown): WebSessionSeed[] => {
@@ -31,12 +26,11 @@ export function parseWebSessionSeeds(value: unknown): WebSessionSeed[] {
     if (
       !isPlainObject(record) ||
       typeof record.hash !== "string" ||
-      typeof record.bootId !== "string" ||
       typeof record.expiresAt !== "number" ||
       !Number.isSafeInteger(record.expiresAt)
     )
       return [];
-    return [{ hash: record.hash, bootId: record.bootId, expiresAt: record.expiresAt }];
+    return [{ hash: record.hash, expiresAt: record.expiresAt }];
   });
 }
 
@@ -45,37 +39,39 @@ function hashToken(token: string): string {
 }
 
 /**
- * In-memory WebUI credentials, with the hashes of this daemon generation's
- * sessions persisted beside the other state so a browser can exchange them for
- * a session on the next generation without a new `sash web` authorization.
+ * In-memory WebUI credentials. Session hashes persist beside the other state
+ * so an authorized browser keeps its token across daemon restarts; the file
+ * alone cannot authenticate anyone.
  */
 export class WebAuthManager {
   /** Hashed bootstrap token -> expiry (ms since epoch), in insertion order. */
   private readonly pendingBootstraps = new Map<string, number>();
   /** Hashed session tokens, in insertion order for bounded eviction. */
   private readonly sessions = new Map<string, number>();
-  private continuation: { seeds: WebSessionSeed[]; key: string; bootId: string } | undefined;
 
-  constructor(
-    private readonly bootId: string,
-    private readonly sessionsFile?: string,
-  ) {
+  constructor(private readonly sessionsFile?: string) {
     if (!sessionsFile) return;
     try {
       const text = fs.readFileSync(sessionsFile, "utf8");
       if (text.length > SESSION_FILE_LIMIT) return;
-      const seeds = parseWebSessionSeeds(JSON.parse(text) as unknown);
-      if (seeds.length)
-        this.continuation = { seeds, key: crypto.randomBytes(32).toString("hex"), bootId };
+      const now = Date.now();
+      for (const seed of parseWebSessionSeeds(JSON.parse(text) as unknown)) {
+        if (seed.expiresAt > now) this.setSession(seed.hash, seed.expiresAt);
+      }
     } catch {
-      /* A missing or unreadable session file only means no browser can continue. */
+      /* A missing or unreadable session file only means browsers re-authorize. */
     }
   }
 
-  /** Persist this generation's session hashes for the next daemon generation. */
-  private persist(): void {
-    if (!this.sessionsFile || !this.sessions.size) return;
-    const seeds = this.sessionSeeds();
+  /** Persist the live session hashes for the next daemon generation. */
+  private persist(now = Date.now()): void {
+    if (!this.sessionsFile) return;
+    this.sweepExpired(now);
+    if (!this.sessions.size) return;
+    const seeds: WebSessionSeed[] = Array.from(this.sessions, ([hash, expiresAt]) => ({
+      hash,
+      expiresAt,
+    }));
     try {
       atomicWriteFileSync(this.sessionsFile, `${JSON.stringify({ seeds })}\n`, 0o600);
     } catch {
@@ -116,71 +112,23 @@ export class WebAuthManager {
     return true;
   }
 
-  private adoptSession(token: string, now: number, persist = true): void {
-    const hash = hashToken(token);
-    const known = this.sessions.has(hash);
+  private setSession(hash: string, expiresAt: number): void {
     this.sessions.delete(hash);
     while (this.sessions.size >= MAX_SESSIONS) {
       const oldest = this.sessions.keys().next().value;
       if (oldest === undefined) break;
       this.sessions.delete(oldest);
     }
-    this.sessions.set(hash, now + WEB_SESSION_TTL_MS);
-    if (persist && !known) this.persist();
+    this.sessions.set(hash, expiresAt);
   }
 
-  /** Seeds of this generation plus the ones inherited from earlier generations. */
-  private sessionSeeds(now = Date.now()): WebSessionSeed[] {
-    this.sweepExpired(now);
-    const existing = this.continuation?.seeds.filter((seed) => seed.expiresAt > now) ?? [];
-    return [
-      ...existing,
-      ...Array.from(this.sessions, ([hash, expiresAt]) => ({
-        hash,
-        expiresAt,
-        bootId: this.bootId,
-      })),
-    ].slice(-MAX_SESSIONS * 2);
-  }
-
-  continuationInfo(now = Date.now()): WebContinuationInfo | undefined {
-    this.sweepExpired(now);
-    const seeds = this.continuation?.seeds.filter((seed) => seed.expiresAt > now) ?? [];
-    const bootIds = [...new Set(seeds.map((seed) => seed.bootId))];
-    return bootIds.length
-      ? {
-          bootIds,
-          expiresAt: new Date(Math.max(...seeds.map((seed) => seed.expiresAt))).toISOString(),
-        }
-      : undefined;
-  }
-
-  isContinuationToken(token: string, now = Date.now()): boolean {
-    this.sweepExpired(now);
+  private adoptSession(token: string, now: number): void {
     const hash = hashToken(token);
-    return Boolean(
-      token && this.continuation?.seeds.some((seed) => seed.hash === hash && seed.expiresAt > now),
-    );
-  }
-
-  redeemContinuation(token: string, sourceBootId: string, now = Date.now()): string | null {
-    this.sweepExpired(now);
-    const continuation = this.continuation;
-    const hash = hashToken(token);
-    if (
-      !token ||
-      !continuation?.seeds.some(
-        (seed) => seed.hash === hash && seed.bootId === sourceBootId && seed.expiresAt > now,
-      )
-    )
-      return null;
-    // Deterministic within a target boot: duplicate tabs and retried responses are idempotent.
-    const session = crypto
-      .createHmac("sha256", continuation.key)
-      .update(`sash-web-continuation\0${continuation.bootId}\0${sourceBootId}\0${hash}`)
-      .digest("hex");
-    this.adoptSession(session, now);
-    return session;
+    const stored = this.sessions.get(hash);
+    const expiresAt = now + WEB_SESSION_TTL_MS;
+    this.setSession(hash, expiresAt);
+    // Creation and slides beyond half the lifetime reach the persisted set.
+    if (stored === undefined || expiresAt - stored > WEB_SESSION_TTL_MS / 2) this.persist(now);
   }
 
   private sweepExpired(now: number): void {
@@ -274,7 +222,9 @@ export function isWebSocketRequestAuthorized(
   });
 }
 
-/** Select an offered Sash protocol for the downstream 101 response. */
+/** Select an offered Sash protocol for the downstream 101 response: browsers
+ * fail the handshake when they offered protocols and none was selected, and
+ * the marker keeps the credential-bearing token protocol out of the response. */
 export function webSocketAuthResponseProtocol(
   value: string | string[] | undefined,
 ): string | undefined {

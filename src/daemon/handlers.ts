@@ -124,14 +124,11 @@ export function health(ctx: DaemonContext): RouteResponse {
   // The token is a per-boot identity nonce for daemon instance matching. It
   // is deliberately not a credential: control requests require the CLI
   // bearer or a WebUI session token from the bootstrap exchange below.
-  const continuation = ctx.webAuth.continuationInfo();
   const body: HealthInfo = {
     token: ctx.token,
     pid: process.pid,
     startedAt: ctx.startedAt,
     version: ctx.version,
-    installationId: ctx.installationId,
-    ...(continuation ? { webContinuation: continuation } : {}),
   };
   return { status: 200, json: body };
 }
@@ -209,7 +206,6 @@ export async function readDaemonStatus(
       startedAt: ctx.startedAt,
       port: settings.daemonPort,
       version: ctx.version,
-      installationId: ctx.installationId,
     },
     revisions: {
       state: ctx.stateRevision(),
@@ -384,23 +380,4 @@ export async function patchSettings(ctx: DaemonContext, req: RouteRequest): Prom
       settings: publicSettings(result.settings),
     },
   };
-}
-
-/* ── web ── */
-
-/**
- * Exchange a browser credential from an earlier daemon generation for a session
- * on this one, so a restart does not require a new `sash web` authorization.
- */
-export async function continueWebSession(
-  ctx: DaemonContext,
-  req: RouteRequest,
-): Promise<RouteResponse> {
-  const body = await req.readJson(1024);
-  const token = typeof body.token === "string" ? body.token : "";
-  const sourceBootId = typeof body.daemonToken === "string" ? body.daemonToken : "";
-  const session = ctx.webAuth.redeemContinuation(token, sourceBootId);
-  if (!session)
-    throw new HttpError(401, "Browser session continuation is invalid or expired; run sash web");
-  return { status: 200, json: { token: session, daemonToken: ctx.token } };
 }

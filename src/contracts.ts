@@ -22,19 +22,11 @@ export type ApiErrorCode =
 export interface ApiErrorBody {
   error: { code: string; message: string };
 }
-export interface InstallationIdentity {
-  version?: string;
-  installationId?: string;
-}
-export interface HealthInfo extends InstallationIdentity {
+export interface HealthInfo {
   token: string;
   pid: number;
   startedAt: string;
-  webContinuation?: WebContinuationInfo;
-}
-export interface WebContinuationInfo {
-  bootIds: string[];
-  expiresAt: string;
+  version: string;
 }
 export interface WebBootstrapInfo {
   token: string;
@@ -100,7 +92,7 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
 }
 export interface DaemonStatus {
   coreUpdate?: CoreUpdateProgress | null;
-  daemon: { pid: number; bootId: string; startedAt: string; port: number } & InstallationIdentity;
+  daemon: { pid: number; bootId: string; startedAt: string; port: number; version: string };
   revisions: { state: number; runtime: number };
   core: CoreState;
   configuration: {

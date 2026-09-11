@@ -33,7 +33,7 @@ function statusResponse(
       bootId: "test-boot",
       startedAt: "2026-01-01T00:00:00.000Z",
       port: 19090,
-      ...(options.daemonVersion ? { version: options.daemonVersion } : {}),
+      version: options.daemonVersion ?? readSashPackageInfo().version,
     },
     revisions: { state: 1, runtime: 1 },
     configuration: {

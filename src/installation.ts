@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { errorMessage } from "./error-utils.js";
@@ -6,13 +5,9 @@ import { currentPackageRoot, SASH_CLI_ENTRY } from "./package-info.js";
 
 export interface NpmInstallation {
   kind: "npm-global";
-  id: string;
   packageRoot: string;
   prefix: string;
-  binDir: string;
-  cliPath: string;
   nodePath: string;
-  platform: NodeJS.Platform;
 }
 export interface UnsupportedInstallation {
   kind: "source" | "linked" | "unknown";
@@ -22,11 +17,7 @@ export interface UnsupportedInstallation {
 export type Installation = NpmInstallation | UnsupportedInstallation;
 
 export function assertAbsolutePath(value: string): void {
-  if (
-    !path.isAbsolute(value) ||
-    Array.from(value).some((c) => c.charCodeAt(0) <= 31 || c.charCodeAt(0) === 127)
-  )
-    throw new Error("Installation paths must be absolute and contain no control characters");
+  if (!path.isAbsolute(value)) throw new Error("Installation paths must be absolute");
 }
 
 export function canonicalPath(value: string): string {
@@ -38,12 +29,6 @@ export function pathsEqual(left: string, right: string): boolean {
   const a = path.resolve(left);
   const b = path.resolve(right);
   return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
-}
-
-/** Opaque identity for this package directory, exposed through the daemon health API. */
-export function installationId(packageRoot: string): string {
-  const root = canonicalPath(packageRoot);
-  return crypto.hash("sha256", process.platform === "win32" ? root.toLowerCase() : root);
 }
 
 export function npmPackageRoot(prefix: string, platform = process.platform): string {
@@ -101,14 +86,9 @@ export function inspectInstallation(
       return unsupported("unknown", "The Sash CLI entry is missing from this package.");
     return {
       kind: "npm-global",
-      id: installationId(packageRoot),
       packageRoot: canonicalPath(packageRoot),
       prefix: canonicalPath(prefix),
-      binDir:
-        platform === "win32" ? canonicalPath(prefix) : path.join(canonicalPath(prefix), "bin"),
-      cliPath: canonicalPath(cliPath),
       nodePath: canonicalPath(nodePath),
-      platform,
     };
   } catch (error) {
     return unsupported("unknown", `Cannot verify the installation: ${errorMessage(error)}`);

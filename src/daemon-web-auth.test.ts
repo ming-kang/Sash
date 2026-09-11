@@ -144,7 +144,7 @@ describe("daemon browser authorization", () => {
     );
   });
 
-  it("continues browser sessions across daemon restarts while invalidating pending grants", async () => {
+  it("keeps browser sessions across daemon restarts while invalidating pending grants", async () => {
     const before = await h.startServer();
     const session = await h.mintWebSession();
     const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
@@ -152,35 +152,15 @@ describe("daemon browser authorization", () => {
     await before.close();
     const after = await h.startServer();
     assert.notEqual(after.token, before.token);
-    // A stale session is answered with the reconnect signal rather than accepted.
-    assert.equal((await h.apiRequest("/sash/autostart", { webToken: session })).statusCode, 409);
+    // The daemon reloads persisted session hashes, so the browser keeps its credential.
+    assert.equal((await h.apiRequest("/sash/autostart", { webToken: session })).statusCode, 200);
+    // A pending bootstrap grant does not survive the restart.
     assert.equal(
       (await h.apiRequest("/sash/web/session", { method: "POST", token: "", body: bootstrap }))
         .statusCode,
       401,
     );
-    // The browser exchanges its persisted session for one on the new generation.
-    const continued = await h.apiRequest("/sash/web/continue", {
-      method: "POST",
-      token: "",
-      body: { token: session, daemonToken: before.token },
-    });
-    assert.equal(continued.statusCode, 200);
-    const renewed = (continued.data as WebSessionInfo).token;
-    assert.notEqual(renewed, session);
-    assert.equal((continued.data as WebSessionInfo).daemonToken, after.token);
-    assert.equal((await h.apiRequest("/sash/autostart", { webToken: renewed })).statusCode, 200);
-    // Continuation requires the source generation that created the session.
-    assert.equal(
-      (
-        await h.apiRequest("/sash/web/continue", {
-          method: "POST",
-          token: "",
-          body: { token: session, daemonToken: after.token },
-        })
-      ).statusCode,
-      401,
-    );
+    // A fresh bootstrap still authorizes a new session on the new daemon.
     assert.equal(
       (await h.apiRequest("/sash/autostart", { webToken: await h.mintWebSession() })).statusCode,
       200,

@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { DaemonEvent } from "../sash-events.js";
-import { isControlRequestAuthorized } from "./auth.js";
 import type { DaemonContext } from "./context.js";
 import { sendError } from "./http.js";
 
@@ -112,7 +111,7 @@ export class DaemonEvents {
 /** Credentials stay in headers. Slow clients retain at most the newest pending snapshot. */
 export function streamDaemonEvents(
   ctx: DaemonContext,
-  req: IncomingMessage,
+  _req: IncomingMessage,
   res: ServerResponse,
 ): void {
   if (ctx.gate.isClosing || ctx.events.size >= 64) {
@@ -128,17 +127,8 @@ export function streamDaemonEvents(
   let blocked = false;
   let pending: string | undefined;
   let disposed = false;
-  const authorized = () =>
-    isControlRequestAuthorized(req, {
-      daemonSecret: ctx.settings.committed().daemonSecret,
-      isSessionToken: (token) => ctx.webAuth.isSession(token),
-    });
   const send = (text: string): void => {
     if (disposed) return;
-    if (!authorized()) {
-      res.destroy();
-      return;
-    }
     if (blocked) {
       pending = text;
       return;
@@ -153,15 +143,11 @@ export function streamDaemonEvents(
   };
   res.on("drain", onDrain);
   const unsubscribe = ctx.events.subscribe(
-    (event) =>
-      send(
-        `id: ${event.status.daemon.bootId}:${event.sequence}\nevent: status\ndata: ${JSON.stringify(event)}\n\n`,
-      ),
+    (event) => send(`event: status\ndata: ${JSON.stringify(event)}\n\n`),
     () => res.destroy(),
   );
   const heartbeat = setInterval(() => {
-    if (!authorized()) res.destroy();
-    else if (!blocked) send(": heartbeat\n\n");
+    if (!blocked) send(": heartbeat\n\n");
   }, 10_000);
   heartbeat.unref();
   res.once("close", () => {

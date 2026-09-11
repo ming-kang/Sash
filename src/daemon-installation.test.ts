@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { DaemonStatus, HealthInfo } from "./contracts.js";
-import { installationId } from "./installation.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon installation identity", () => {
@@ -25,7 +24,5 @@ describe("daemon installation identity", () => {
     const status = (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
     assert.equal(health.version, "1.2.3");
     assert.equal(status.daemon.version, "1.2.3");
-    assert.equal(health.installationId, installationId(root));
-    assert.equal(status.daemon.installationId, health.installationId);
   });
 });

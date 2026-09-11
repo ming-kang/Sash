@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import type { HealthInfo, WebSessionInfo } from "../../../src/contracts.js";
-import { SashApiError, type SashClient } from "../../../src/sash-client.js";
+import type { SashClient } from "../../../src/sash-client.js";
 
 const STORAGE_KEY = "sash.control-token";
 let credential: WebSessionInfo | null = null;
@@ -14,7 +14,11 @@ export const sessionReady = ref(false);
 function readStoredSession(): WebSessionInfo | null {
   try {
     const stored = window.sessionStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as WebSessionInfo) : null;
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as { token?: unknown; daemonToken?: unknown } | null;
+    // An obsolete or hand-edited value reads as absent; the daemon still checks the token.
+    if (typeof parsed?.token !== "string" || typeof parsed?.daemonToken !== "string") return null;
+    return { token: parsed.token, daemonToken: parsed.daemonToken };
   } catch {
     // Storage may be disabled, unavailable, or contain an obsolete credential.
     return null;
@@ -90,20 +94,14 @@ export const webSession = {
     try {
       if (exchange) candidate = await exchange.catch(() => null);
       const health = await client.health();
-      if (candidate && candidate.daemonToken !== health.token && current()) {
-        // The daemon remembers this browser's session across restarts and
-        // rejects a continuation it can no longer verify.
-        try {
-          candidate = await client.continueWebSession(candidate);
-        } catch (error) {
-          if (error instanceof SashApiError && [400, 401, 403].includes(error.status))
-            candidate = null;
-          else throw error;
-        }
-      }
       if (current()) {
         initialized = true;
-        setCredential(candidate?.daemonToken === health.token ? candidate : null);
+        // Session tokens outlive the daemon that issued them: it reloads their
+        // hashes at boot, so a restart only changes the boot identity. An
+        // expired or revoked token surfaces as a 401 and clears the session.
+        setCredential(
+          candidate && health.token ? { ...candidate, daemonToken: health.token } : null,
+        );
         daemonStartedAt = health.startedAt;
       }
       return health;

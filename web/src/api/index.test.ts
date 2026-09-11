@@ -13,6 +13,7 @@ const health: HealthInfo = {
   token: "public-identity",
   pid: 1234,
   startedAt: "2026-01-01T00:00:00.000Z",
+  version: "1.2.3",
 };
 let window: HappyWindow;
 
@@ -50,7 +51,7 @@ afterEach(async () => {
 });
 
 describe("browser authorization", () => {
-  it("keeps a dormant credential through disconnection and exchanges it on the next daemon boot", async () => {
+  it("keeps a dormant credential through disconnection and adopts the next daemon boot", async () => {
     const source = { ...health, token: "b".repeat(48) };
     const target = { ...health, token: "c".repeat(48) };
     await authorize(sessionToken, source);
@@ -62,45 +63,29 @@ describe("browser authorization", () => {
     assert.equal(api.hasSession(), false);
     assert.ok(window.sessionStorage.getItem(STORAGE_KEY));
     assert.equal(api.sessionMatches(target.token), false);
-    const renewed = "d".repeat(64);
-    globalThis.fetch = async (input, init) => {
-      if (String(input).endsWith("/sash/web/continue")) {
-        assert.deepEqual(JSON.parse(String(init?.body)), {
-          token: sessionToken,
-          daemonToken: source.token,
-        });
-        assert.equal(new Headers(init?.headers).has("x-sash-token"), false);
-        return respond({ token: renewed, daemonToken: target.token });
-      }
-      return respond(target);
-    };
+    globalThis.fetch = async () => respond(target);
     await api.initialize();
     assert.equal(api.hasSession(), true);
+    // The session token outlives the daemon; only the boot identity is refreshed.
     assert.deepEqual(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? ""), {
-      token: renewed,
+      token: sessionToken,
       daemonToken: target.token,
     });
   });
 
-  it("does not resurrect an explicitly cleared credential during upgrade continuation", async () => {
+  it("does not resurrect an explicitly cleared credential when the next boot arrives", async () => {
     const source = { ...health, token: "b".repeat(48) };
     await authorize(sessionToken, source);
     const pending = Promise.withResolvers<Response>();
     const entered = Promise.withResolvers<void>();
-    globalThis.fetch = async (input) => {
-      if (String(input).endsWith("/sash/web/continue")) {
-        entered.resolve();
-        return pending.promise;
-      }
-      return respond({
-        ...health,
-        token: "c".repeat(48),
-      });
+    globalThis.fetch = async () => {
+      entered.resolve();
+      return pending.promise;
     };
     const initialization = api.initialize();
     await entered.promise;
     api.clearSession();
-    pending.resolve(respond({ token: "d".repeat(64), daemonToken: "c".repeat(48) }));
+    pending.resolve(respond({ ...health, token: "c".repeat(48) }));
     await initialization;
     assert.equal(api.hasSession(), false);
     assert.equal(window.sessionStorage.getItem(STORAGE_KEY), null);
@@ -135,7 +120,7 @@ describe("browser authorization", () => {
     await api.getConfigs();
   });
 
-  it("restores only a saved session belonging to the same daemon", async () => {
+  it("keeps a saved session when the daemon restarts", async () => {
     window.sessionStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ token: sessionToken, daemonToken: health.token }),
@@ -147,11 +132,14 @@ describe("browser authorization", () => {
     };
     await api.initialize();
     assert.equal(api.hasSession(), true);
-    // The nonce distinguishes restarts even if wall-clock timestamps coincide.
     globalThis.fetch = async () => respond({ ...health, token: "restarted" });
     await api.initialize();
-    assert.equal(api.hasSession(), false);
-    assert.equal(window.sessionStorage.getItem(STORAGE_KEY), null);
+    // The session survives the restart; only the boot identity is refreshed.
+    assert.equal(api.hasSession(), true);
+    assert.deepEqual(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? ""), {
+      token: sessionToken,
+      daemonToken: "restarted",
+    });
   });
 
   it("rejects obsolete or malformed stored credentials", async () => {
