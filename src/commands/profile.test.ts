@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { it } from "node:test";
-import { CliProfiles, resolveProfileReference } from "./cli-profiles.js";
-import { sashLayout } from "./paths.js";
-import { testProfile, testSettings } from "./testing/state.js";
+import { sashLayout } from "../paths.js";
+import { testProfile, testSettings } from "../testing/state.js";
+import { CliProfiles, resolveProfileReference } from "./profile.js";
 
 it("resolves exact profile IDs and unique names, and refuses ambiguous or missing selections", () => {
   const index = {
@@ -25,7 +25,7 @@ it("resolves exact profile IDs and unique names, and refuses ambiguous or missin
 
 it("reads an empty stopped profile library without initializing data", async () => {
   const parent = fs.realpathSync(os.tmpdir());
-  const root = fs.mkdtempSync(path.join(parent, "sash-cli-profiles-"));
+  const root = fs.mkdtempSync(path.join(parent, "sash-profile-"));
   const layout = sashLayout(path.join(root, "unused"));
   try {
     assert.deepEqual(await new CliProfiles({ layout, settings: testSettings() }).list(), {
