@@ -5,10 +5,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import { readInstallRecord, writeInstallRecord } from "./core.js";
 import {
+  binaryUnlockProbePath,
   type CoreUpdateRuntime,
   type CoreUpdateTransaction,
   commitCoreUpdate,
   readCoreUpdateTransaction,
+  recoverBinaryUnlockProbe,
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -281,5 +283,49 @@ describe("Core binary transaction", () => {
     fs.writeFileSync(`${layout.coreExe}.bak`, "unknown");
     assert.throws(() => recoverCoreUpdateTransaction(layout), /no ownership journal/);
     assert.equal(fs.readFileSync(`${layout.coreExe}.bak`, "utf8"), "unknown");
+  });
+});
+
+describe("binary unlock probe recovery", () => {
+  let tmpDir: string;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-unlock-probe-test-"));
+  });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("restores the only binary stranded under the probe name", () => {
+    const target = path.join(tmpDir, "core.exe");
+    const probe = binaryUnlockProbePath(target);
+    fs.writeFileSync(probe, "core-bytes");
+
+    recoverBinaryUnlockProbe(target);
+
+    assert.equal(fs.readFileSync(target, "utf8"), "core-bytes");
+    assert.equal(fs.existsSync(probe), false);
+  });
+
+  it("removes a second link to the same binary without comparing its bytes", () => {
+    const target = path.join(tmpDir, "core.exe");
+    const probe = binaryUnlockProbePath(target);
+    fs.writeFileSync(target, "same-core");
+    fs.linkSync(target, probe);
+
+    recoverBinaryUnlockProbe(target);
+
+    assert.equal(fs.readFileSync(target, "utf8"), "same-core");
+    assert.equal(fs.existsSync(probe), false);
+  });
+
+  it("preserves and rejects conflicting target and probe files", () => {
+    const target = path.join(tmpDir, "core.exe");
+    const probe = binaryUnlockProbePath(target);
+    fs.writeFileSync(target, "current-core");
+    fs.writeFileSync(probe, "different-core");
+
+    assert.throws(() => recoverBinaryUnlockProbe(target), /separate files/);
+    assert.equal(fs.readFileSync(target, "utf8"), "current-core");
+    assert.equal(fs.readFileSync(probe, "utf8"), "different-core");
   });
 });

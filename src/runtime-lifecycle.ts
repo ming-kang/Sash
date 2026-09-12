@@ -4,13 +4,13 @@ import {
   type CoreUpdateResult,
   commitCoreUpdate,
   readCoreUpdateTransaction,
+  recoverBinaryUnlockProbe,
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { MihomoApi } from "./mihomo-api.js";
 import type { GeneratedConfig } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
-import { recoverBinaryUnlockProbe } from "./process.js";
 import type { SashSettings } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyController } from "./system-proxy-manager.js";

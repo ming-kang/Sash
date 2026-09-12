@@ -1,7 +1,7 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { atomicWriteFileSync, durableRemoveFileSync, durableRenameSync } from "./fs-atomic.js";
+import { atomicWriteFileSync } from "./fs-atomic.js";
 
 /**
  * Low-level process toolkit: liveness probes, fail-closed identity
@@ -495,98 +495,4 @@ export function clearPidRecord(pidFile: string): void {
   } catch {
     // best effort
   }
-}
-
-export function binaryUnlockProbePath(target: string): string {
-  return path.join(path.dirname(target), `.${path.basename(target)}.unlock-probe`);
-}
-
-function regularFileStat(file: string): fs.BigIntStats | undefined {
-  try {
-    const stat = fs.lstatSync(file, { bigint: true });
-    if (!stat.isFile()) throw new Error(`Binary path is not a regular file: ${file}`);
-    return stat;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw err;
-  }
-}
-
-/** Restore a binary stranded by an interrupted Windows unlock probe. */
-export function recoverBinaryUnlockProbe(target: string): void {
-  const probe = binaryUnlockProbePath(target);
-  const probeStat = regularFileStat(probe);
-  if (!probeStat) return;
-  const targetStat = regularFileStat(target);
-  if (!targetStat) {
-    durableRenameSync(probe, target);
-    return;
-  }
-  if (
-    probeStat.ino !== 0n &&
-    probeStat.dev === targetStat.dev &&
-    probeStat.ino === targetStat.ino
-  ) {
-    durableRemoveFileSync(probe);
-    return;
-  }
-  throw new Error(
-    `Core binary and unlock probe are separate files; preserved ${target} and ${probe}`,
-  );
-}
-
-async function recoverUnlockProbeWithRetry(target: string): Promise<void> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    try {
-      recoverBinaryUnlockProbe(target);
-      return;
-    } catch (err) {
-      lastError = err;
-      if (attempt < 3) await sleep(100);
-    }
-  }
-  throw lastError;
-}
-
-/**
- * Wait until a binary file is unlocked by Windows file handles/antivirus.
- * On POSIX platforms, returns immediately.
- */
-export async function waitForBinaryUnlocked(target: string, timeoutMs = 30_000): Promise<void> {
-  await recoverUnlockProbeWithRetry(target);
-  if (process.platform !== "win32" || !fs.existsSync(target)) return;
-
-  const probe = binaryUnlockProbePath(target);
-  const deadline = Date.now() + timeoutMs;
-  let delay = 150;
-
-  while (Date.now() < deadline) {
-    try {
-      durableRenameSync(target, probe);
-    } catch {
-      await sleep(delay);
-      delay = Math.min(1000, Math.floor(delay * 1.5));
-      continue;
-    }
-
-    try {
-      durableRenameSync(probe, target);
-      return;
-    } catch (secondError) {
-      try {
-        await recoverUnlockProbeWithRetry(target);
-        return;
-      } catch (recoveryError) {
-        throw new Error(
-          `Failed to restore the binary after the lock probe; preserved state near ${probe}: ${(secondError as Error).message}; recovery failed: ${(recoveryError as Error).message}`,
-        );
-      }
-    }
-  }
-
-  await recoverUnlockProbeWithRetry(target);
-  throw new Error(
-    `Binary is still locked after ${timeoutMs}ms: ${target}. Close programs using it and retry.`,
-  );
 }

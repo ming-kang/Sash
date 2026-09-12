@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { CoreUpdateResponse } from "./contracts.js";
 import {
@@ -21,7 +22,6 @@ import {
 import { parseSha256Digest, RELEASE_ASSET_SIZE_LIMIT, selectReleaseAsset } from "./github.js";
 import { isPlainObject } from "./json-shape.js";
 import type { SashLayout } from "./paths.js";
-import { waitForBinaryUnlocked } from "./process.js";
 import type { SashDaemonClient } from "./sash-client-node.js";
 
 export type CoreUpdateStage =
@@ -164,6 +164,100 @@ export function recoverCoreUpdateTransaction(layout: SashLayout): void {
   }
   if (transaction.verified) finishVerified(layout, transaction);
   else restoreTransaction(layout, transaction);
+}
+
+export function binaryUnlockProbePath(target: string): string {
+  return path.join(path.dirname(target), `.${path.basename(target)}.unlock-probe`);
+}
+
+function regularFileStat(file: string): fs.BigIntStats | undefined {
+  try {
+    const stat = fs.lstatSync(file, { bigint: true });
+    if (!stat.isFile()) throw new Error(`Binary path is not a regular file: ${file}`);
+    return stat;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
+}
+
+/** Restore a binary stranded by an interrupted Windows unlock probe. */
+export function recoverBinaryUnlockProbe(target: string): void {
+  const probe = binaryUnlockProbePath(target);
+  const probeStat = regularFileStat(probe);
+  if (!probeStat) return;
+  const targetStat = regularFileStat(target);
+  if (!targetStat) {
+    durableRenameSync(probe, target);
+    return;
+  }
+  if (
+    probeStat.ino !== 0n &&
+    probeStat.dev === targetStat.dev &&
+    probeStat.ino === targetStat.ino
+  ) {
+    durableRemoveFileSync(probe);
+    return;
+  }
+  throw new Error(
+    `Core binary and unlock probe are separate files; preserved ${target} and ${probe}`,
+  );
+}
+
+async function recoverUnlockProbeWithRetry(target: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      recoverBinaryUnlockProbe(target);
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt < 3) await delay(100);
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Wait until a binary file is unlocked by Windows file handles/antivirus.
+ * On POSIX platforms, returns immediately.
+ */
+export async function waitForBinaryUnlocked(target: string, timeoutMs = 30_000): Promise<void> {
+  await recoverUnlockProbeWithRetry(target);
+  if (process.platform !== "win32" || !fs.existsSync(target)) return;
+
+  const probe = binaryUnlockProbePath(target);
+  const deadline = Date.now() + timeoutMs;
+  let waitMs = 150;
+
+  while (Date.now() < deadline) {
+    try {
+      durableRenameSync(target, probe);
+    } catch {
+      await delay(waitMs);
+      waitMs = Math.min(1000, Math.floor(waitMs * 1.5));
+      continue;
+    }
+
+    try {
+      durableRenameSync(probe, target);
+      return;
+    } catch (secondError) {
+      try {
+        await recoverUnlockProbeWithRetry(target);
+        return;
+      } catch (recoveryError) {
+        throw new Error(
+          `Failed to restore the binary after the lock probe; preserved state near ${probe}: ${(secondError as Error).message}; recovery failed: ${(recoveryError as Error).message}`,
+        );
+      }
+    }
+  }
+
+  await recoverUnlockProbeWithRetry(target);
+  throw new Error(
+    `Binary is still locked after ${timeoutMs}ms: ${target}. Close programs using it and retry.`,
+  );
 }
 
 /** Every install/update completes a real health check in this operation. */
