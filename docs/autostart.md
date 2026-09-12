@@ -31,6 +31,8 @@ After moving Node or changing the npm prefix, run `sash auto on` to repair the e
 
 Windows registers a `Sash` value in the current user's `Run` key. Its hidden WScript launcher runs the normal `sash start` flow, using saved settings, the selected profile and the system-proxy preference. It opens neither a console nor a browser.
 
+A login start always starts Core, even when Sash was stopped before shutdown: the entry means "Sash is ready after sign-in". A network that is not ready yet (wireless, 802.1X) is retried with backoff before the attempt is declared failed.
+
 Sash performs registration changes. If stopped, `sash auto on/off` starts Sash's local API without starting Core. Other operating systems report startup integration as unsupported.
 
 ## Status and diagnostics
@@ -48,7 +50,7 @@ Sash performs registration changes. If stopped, `sash auto on/off` starts Sash's
 
 `canEnable` says whether this installation can register a launcher. Failed observation returns exit code `2`; `sash auto off` remains available to remove an entry.
 
-Each login attempt records its outcome in `<SASH_HOME>/logs/sash.log`, rotating at 1 MiB with one previous file:
+The last login attempt's outcome is recorded in `state/login-start.json`. `sash status` appends a failure note to the start at login line, and `sash doctor` reports a failed last attempt as the `login-start` check. Every attempt also appends to `<SASH_HOME>/logs/sash.log`, rotating at 1 MiB with one previous file:
 
 ```sh
 sash logs --startup

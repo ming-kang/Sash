@@ -1,5 +1,6 @@
 import { loadProfiles } from "./app-state.js";
 import type { AutostartStatus } from "./autostart/contract.js";
+import { type LoginStartRecord, readLoginStartRecord } from "./autostart/login-record.js";
 import { AutostartService } from "./autostart/service.js";
 import type { DaemonStatus } from "./contracts.js";
 import { currentCoreVersion } from "./core.js";
@@ -49,6 +50,8 @@ export interface CliRuntimeStatus {
   healthy: boolean | null;
   queryError: string | null;
   autostart: AutostartStatus;
+  /** Last login-start outcome; null when none was recorded. */
+  loginStart: LoginStartRecord | null;
   daemon: CliDaemonObservation;
   core: {
     running: boolean | null;
@@ -337,6 +340,7 @@ export async function collectRuntimeStatus(
   if (autostart.state === "unknown") {
     addError(errors, `start at login: ${autostart.reason ?? "could not read the state"}`);
   }
+  const loginStart = readLoginStartRecord(context.layout) ?? null;
 
   return {
     schemaVersion: CLI_STATUS_SCHEMA_VERSION,
@@ -344,6 +348,7 @@ export async function collectRuntimeStatus(
     healthy,
     queryError: errors.length > 0 ? errors.join("; ") : null,
     autostart,
+    loginStart,
     daemon: { ...daemon, port: daemonPort },
     core: {
       running: coreRunning,
@@ -446,6 +451,12 @@ export function formatAutostart(status: {
     default:
       return reason ? `unknown — ${reason}` : "unknown";
   }
+}
+
+/** One appended fact when the last login start failed, otherwise nothing. */
+export function formatLoginStartSuffix(record: LoginStartRecord | null): string {
+  if (!record || record.ok) return "";
+  return " · last login start failed — run sash doctor";
 }
 
 export function markIncompleteObservation(complete: boolean): void {

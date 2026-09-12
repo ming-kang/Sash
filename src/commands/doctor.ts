@@ -17,6 +17,9 @@ const CHECK_LABELS: Record<string, string> = {
   "mixed-port": "Proxy port",
   "proxy-connections": "Windows connections",
   "sash-version": "Sash version",
+  geodata: "Geodata",
+  network: "Network",
+  "login-start": "Login start",
 };
 
 export async function runDoctor(options: { json?: boolean } = {}): Promise<void> {

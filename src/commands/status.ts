@@ -8,6 +8,7 @@ import {
   type CliRuntimeStatus,
   collectRuntimeStatus,
   formatAutostart,
+  formatLoginStartSuffix,
   formatSystemProxyLine,
   markIncompleteObservation,
   runtimeStatusHeadline,
@@ -122,7 +123,10 @@ export async function runStatus(
       `${delay.name}: ${delay.state === "ok" ? `${delay.delayMs} ms` : delay.state === "pending" ? "testing…" : delay.state.replaceAll("_", " ")}`,
     );
   }
-  log.kv("start at login", formatAutostart(status.autostart));
+  log.kv(
+    "start at login",
+    `${formatAutostart(status.autostart)}${formatLoginStartSuffix(status.loginStart)}`,
+  );
   log.kv("data folder", status.paths.root);
   log.kv("core config", status.paths.config);
   markIncompleteObservation(status.complete);

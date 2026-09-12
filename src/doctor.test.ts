@@ -52,6 +52,7 @@ function fixture() {
     status,
     layout: sashLayout(path.join(root, "data")),
     inspectProxyConnections: async () => ({ supported: true as const, additionalRecords: 0 }),
+    probeReachability: async () => true,
     cleanup: async () => {
       assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
       await fs.promises.rm(root, { recursive: true, force: true });
@@ -74,8 +75,91 @@ it("diagnoses an uninitialized installation without creating application data", 
     assert.equal(result.complete, true);
     assert.equal(result.checks.find((check) => check.id === "manifest")?.status, "info");
     assert.equal(result.checks.find((check) => check.id === "core")?.status, "info");
+    assert.equal(result.checks.some((check) => check.id === "login-start"), false);
     assert.equal(ports.length, 3);
     assert.equal(fs.existsSync(f.layout.root), false);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+it("reports the last login start when start at login is on", async () => {
+  const f = fixture();
+  try {
+    createTestState(f.layout);
+    const autostartOn: StatusObservationDependencies = {
+      ...f.status,
+      inspectAutostart: async () => ({ state: "on", canEnable: true, reason: null }),
+    };
+    const withoutRecord = await diagnoseSash({ ...f, status: autostartOn });
+    const loginCheck = withoutRecord.checks.find((check) => check.id === "login-start");
+    assert.equal(loginCheck?.status, "info");
+    assert.equal(loginCheck?.message, "no login start recorded yet");
+
+    fs.mkdirSync(f.layout.stateDir, { recursive: true });
+    fs.writeFileSync(
+      f.layout.loginStartFile,
+      JSON.stringify({ at: "2026-09-15T00:00:00.000Z", ok: false, attempts: 4, error: "network is not ready" }),
+    );
+    const failed = await diagnoseSash({ ...f, status: autostartOn });
+    const failedCheck = failed.checks.find((check) => check.id === "login-start");
+    assert.equal(failedCheck?.status, "error");
+    assert.match(failedCheck?.message ?? "", /last login start failed: network is not ready/);
+    assert.match(failedCheck?.advice ?? "", /sash logs/);
+
+    fs.writeFileSync(
+      f.layout.loginStartFile,
+      JSON.stringify({ at: "2026-09-15T01:00:00.000Z", ok: true, attempts: 2 }),
+    );
+    const recovered = await diagnoseSash({ ...f, status: autostartOn });
+    const okCheck = recovered.checks.find((check) => check.id === "login-start");
+    assert.equal(okCheck?.status, "ok");
+    assert.match(okCheck?.message ?? "", /last login start succeeded/);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+it("reports geodata files and download-source reachability", async () => {
+  const f = fixture();
+  try {
+    const first = await diagnoseSash({ ...f });
+    assert.equal(first.checks.find((check) => check.id === "geodata")?.status, "info");
+    const network = first.checks.find((check) => check.id === "network");
+    assert.equal(network?.status, "ok");
+    assert.match(
+      network?.message ?? "",
+      /reachable: github.com, api.github.com, ghfast.top/,
+    );
+
+    fs.mkdirSync(f.layout.root, { recursive: true });
+    fs.writeFileSync(path.join(f.layout.root, "geosite.dat"), "db");
+    const withData = await diagnoseSash({ ...f });
+    assert.match(
+      withData.checks.find((check) => check.id === "geodata")?.message ?? "",
+      /geodata present: geosite.dat/,
+    );
+
+    const apiDown = await diagnoseSash({
+      ...f,
+      probeReachability: async (url) => !url.includes("api.github.com"),
+    });
+    const apiCheck = apiDown.checks.find((check) => check.id === "network");
+    assert.equal(apiCheck?.status, "warning");
+    assert.match(apiCheck?.message ?? "", /release API is unreachable/);
+
+    const allDown = await diagnoseSash({ ...f, probeReachability: async () => false });
+    const allCheck = allDown.checks.find((check) => check.id === "network");
+    assert.equal(allCheck?.status, "warning");
+    assert.match(allCheck?.message ?? "", /No Core download source is reachable/);
+
+    const mirrorDown = await diagnoseSash({
+      ...f,
+      probeReachability: async (url) => !url.includes("ghfast.top"),
+    });
+    const mirrorCheck = mirrorDown.checks.find((check) => check.id === "network");
+    assert.equal(mirrorCheck?.status, "ok");
+    assert.match(mirrorCheck?.message ?? "", /mirrors are unreachable: ghfast.top/);
   } finally {
     await f.cleanup();
   }
