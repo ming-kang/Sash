@@ -4,7 +4,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { downloadToFile, proxyAwareDispatcher, USER_AGENT } from "./http.js";
+import { proxyAwareDispatcher, USER_AGENT } from "./http.js";
+import { downloadToFile } from "./http-download.js";
 
 /**
  * Redirect allowlist enforcement in downloadToFile. Uses a loopback node:http

@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { downloadToFile, fetchWithRetry, readErrorSummary } from "./http.js";
+import { fetchWithRetry, readErrorSummary } from "./http.js";
+import { downloadToFile } from "./http-download.js";
 
 /**
  * GitHub release access without hard dependency on the REST API:
