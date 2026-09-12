@@ -80,7 +80,7 @@ for (const withDelay of [false, true]) {
     fs.writeFileSync(
       preload,
       [
-        `import { AutostartService } from ${JSON.stringify(new URL("./autostart.ts", import.meta.url).href)};`,
+        `import { AutostartService } from ${JSON.stringify(new URL("./autostart/service.ts", import.meta.url).href)};`,
         `import { SystemProxyManager } from ${JSON.stringify(new URL("./system-proxy-manager.ts", import.meta.url).href)};`,
         'AutostartService.prototype.inspect = async () => ({ state: "off", canEnable: true, reason: null });',
         "SystemProxyManager.prototype.inspect = async () => ({ applied: false, appliedKnown: true, stateKnown: true, state: { supported: true, enabled: false } });",
