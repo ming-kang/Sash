@@ -5,9 +5,9 @@ import { currentRoute } from "../router.js";
 import type {
   ConnectionItem,
   ConnectionsResponse,
-  OutboundMode,
   ProxyDelay,
   ProxyItem,
+  RoutingMode,
 } from "../types/index.js";
 import {
   type CoreResource,
@@ -160,7 +160,7 @@ export async function closeAllConnections(): Promise<void> {
   store.connections = [];
 }
 
-export async function setOutboundMode(mode: OutboundMode): Promise<void> {
+export async function setOutboundMode(mode: RoutingMode): Promise<void> {
   if (store.operations.mode || mode === store.mode) return;
   if (!isCoreHealthy(store.status)) throw new Error(t("errors.coreUnavailable"));
   store.operations = { ...store.operations, mode: true };

@@ -10,8 +10,8 @@ import type {
   ConfigsResponse,
   ConnectionsResponse,
   LogMessage,
-  OutboundMode,
   ProxiesResponse,
+  RoutingMode,
   RulesResponse,
   TrafficMessage,
 } from "../types/index.js";
@@ -213,7 +213,7 @@ export const api = {
   stopCore: () => sash.stopCore(),
 
   getConfigs: () => request<ConfigsResponse>("/core/api/configs"),
-  setMode: (mode: OutboundMode) => sash.setMode(mode),
+  setMode: (mode: RoutingMode) => sash.setMode(mode),
   getProxies: () => request<ProxiesResponse>("/core/api/proxies"),
   selectProxy: (groupName: string, proxyName: string) =>
     request(`/core/api/proxies/${encodeURIComponent(groupName)}`, {

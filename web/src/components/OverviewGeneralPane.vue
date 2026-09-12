@@ -170,7 +170,7 @@ import {
   toast,
   updateProfile,
 } from "../stores/index.js";
-import type { OutboundMode } from "../types/index.js";
+import type { RoutingMode } from "../types/index.js";
 import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 import Icon from "./Icon.vue";
 import TrafficChart from "./TrafficChart.vue";
@@ -189,12 +189,12 @@ const totalNodes = computed(
     ).length,
 );
 const modes = computed(() => [
-  { id: "global" as OutboundMode, label: t("overview.modeGlobal") },
-  { id: "rule" as OutboundMode, label: t("overview.modeRule") },
-  { id: "direct" as OutboundMode, label: t("overview.modeDirect") },
+  { id: "global" as RoutingMode, label: t("overview.modeGlobal") },
+  { id: "rule" as RoutingMode, label: t("overview.modeRule") },
+  { id: "direct" as RoutingMode, label: t("overview.modeDirect") },
 ]);
 
-async function switchMode(mode: OutboundMode): Promise<void> {
+async function switchMode(mode: RoutingMode): Promise<void> {
   if (mode === store.mode) return;
   try {
     await setOutboundMode(mode);

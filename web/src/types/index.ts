@@ -1,8 +1,7 @@
-import type { DaemonStatus } from "../../../src/contracts.js";
+import type { DaemonStatus, RoutingMode } from "../../../src/contracts.js";
 
-export type { ProfileMeta, ProfilesResponse } from "../../../src/contracts.js";
+export type { ProfileMeta, ProfilesResponse, RoutingMode } from "../../../src/contracts.js";
 
-export type OutboundMode = "rule" | "global" | "direct";
 export type SashStatus = DaemonStatus;
 
 /** Zero is a measured timeout; request failures have no measured latency. */
@@ -77,6 +76,6 @@ export interface ConfigsResponse {
   "tproxy-port": number;
   "mixed-port": number;
   "allow-lan": boolean;
-  mode: OutboundMode;
+  mode: RoutingMode;
   "log-level": string;
 }

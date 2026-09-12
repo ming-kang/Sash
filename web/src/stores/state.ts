@@ -3,11 +3,11 @@ import { currentRoute } from "../router.js";
 import type {
   ConnectionItem,
   LogMessage,
-  OutboundMode,
   ProfileMeta,
   ProfilesResponse,
   ProxyDelay,
   ProxyItem,
+  RoutingMode,
   RuleItem,
   SashStatus,
 } from "../types/index.js";
@@ -27,7 +27,7 @@ export interface StoreState {
   lastStateRevision: number | null;
   resourceLoaded: Partial<Record<CoreResource, boolean>>;
   resourceErrors: Partial<Record<CoreResource, string>>;
-  mode: OutboundMode;
+  mode: RoutingMode;
   traffic: { up: number; down: number; historyUp: number[]; historyDown: number[] };
   proxies: Record<string, ProxyItem>;
   proxyGroups: string[];

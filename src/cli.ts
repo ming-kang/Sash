@@ -7,8 +7,8 @@ import { Argument, Command, CommanderError, InvalidArgumentError } from "command
 import { withCliErrors } from "./cli-errors.js";
 import { cliOutputSignal, handleCliOutputError } from "./cli-output.js";
 import type { AutoMode } from "./commands/auto.js";
-import type { RoutingMode } from "./commands/mode.js";
 import type { ProxyAction } from "./commands/proxy.js";
+import type { RoutingMode } from "./contracts.js";
 import { errorMessage } from "./error-utils.js";
 import { parseLogLineCount } from "./log-follow.js";
 
