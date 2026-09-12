@@ -1,6 +1,6 @@
 {
   "name": "@astralyn/sash",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "A network toolbox for developers, learning, and research, with a command-line companion and built-in web dashboard.",
   "license": "MIT",
   "author": "ming-kang",
