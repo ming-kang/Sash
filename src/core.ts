@@ -13,6 +13,7 @@ import {
   type ReleaseAsset,
   resolveLatestTag,
 } from "./github.js";
+import type { ProxyFallbackListener } from "./http.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { buildSanitizedEnv } from "./process.js";
 
@@ -206,6 +207,7 @@ export interface CoreInstallOptions {
   tag?: string;
   onProgress?: (downloaded: number, total: number | undefined) => void;
   onStage?: (stage: "resolving" | "downloading" | "extracting", target?: string) => void;
+  onProxyFallback?: ProxyFallbackListener;
 }
 
 export interface StagedCore {
@@ -223,20 +225,65 @@ export interface CoreReleaseResolution {
 /**
  * Resolve one release to its assets and the compatible asset names for this
  * machine. Both the staging path and the metadata-only check use this so the
- * size/digest and CPU-feature policy cannot drift apart.
+ * size/digest and CPU-feature policy cannot drift apart. SASH_CORE_VERSION
+ * pins the tag and skips the latest-release lookup; the asset metadata (and
+ * its SHA-256 trust anchor) still comes from the release API.
  */
 export async function resolveCoreRelease(
-  options: { tag?: string; signal?: AbortSignal } = {},
+  options: { tag?: string; signal?: AbortSignal; onProxyFallback?: ProxyFallbackListener } = {},
 ): Promise<CoreReleaseResolution> {
-  const tag = validateCoreReleaseTag(
-    options.tag ?? (await resolveLatestTag(MIHOMO_REPO, options.signal)),
+  try {
+    const tag = validateCoreReleaseTag(
+      options.tag ??
+        process.env.SASH_CORE_VERSION ??
+        (await resolveLatestTag(MIHOMO_REPO, options.signal, options.onProxyFallback)),
+    );
+    const assets = await listReleaseAssets(
+      MIHOMO_REPO,
+      tag,
+      options.signal,
+      options.onProxyFallback,
+    );
+    return {
+      tag,
+      assets,
+      candidates: mihomoAssetCandidates(tag, process.platform, process.arch),
+    };
+  } catch (error) {
+    throw explainCoreReleaseFailure(error);
+  }
+}
+
+/** Docs anchor for the manual Core installation path. */
+export const OFFLINE_CORE_INSTALL_URL =
+  "https://github.com/ming-kang/Sash/blob/main/docs/usage.md#install-core-offline";
+
+/**
+ * Attach the next step to release-resolution failures. Errors that already
+ * carry their remedy (proxy guidance) and data-shape errors pass through;
+ * rate limiting points at GITHUB_TOKEN, and plain network failures point at
+ * a proxy or the manual installation path.
+ */
+function explainCoreReleaseFailure(error: unknown): unknown {
+  if (!(error instanceof Error) || error.name === "AbortError") return error;
+  const message = error.message;
+  if (
+    message.includes("HTTP_PROXY") ||
+    message.startsWith("Invalid Core release tag") ||
+    message.startsWith("GitHub release response")
+  ) {
+    return error;
+  }
+  if (/HTTP (403|429)\b/.test(message)) {
+    return new Error(
+      `${message} — the GitHub API rate limit was reached; set GITHUB_TOKEN and retry`,
+      { cause: error },
+    );
+  }
+  return new Error(
+    `${message} — cannot reach GitHub; set HTTP_PROXY to a running proxy, or install Core manually: ${OFFLINE_CORE_INSTALL_URL}`,
+    { cause: error },
   );
-  const assets = await listReleaseAssets(MIHOMO_REPO, tag, options.signal);
-  return {
-    tag,
-    assets,
-    candidates: mihomoAssetCandidates(tag, process.platform, process.arch),
-  };
 }
 
 /**
@@ -268,6 +315,7 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
   const { tag, assets, candidates } = await resolveCoreRelease({
     ...(opts.tag !== undefined ? { tag: opts.tag } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.onProxyFallback !== undefined ? { onProxyFallback: opts.onProxyFallback } : {}),
   });
 
   fs.mkdirSync(layout.tempDir, { recursive: true });
@@ -293,6 +341,7 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
         candidates: [assetName],
         dest: archivePath,
         onProgress: opts.onProgress,
+        onProxyFallback: opts.onProxyFallback,
       });
       opts.onStage?.("extracting", tag);
       await extractCoreArchive(archivePath, assetName, stagedExe, opts.signal);

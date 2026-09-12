@@ -12,7 +12,16 @@ export type CoreConfigTestRunner = (
   signal?: AbortSignal,
 ) => Promise<void> | void;
 
-function defaultRunner(executable: string, args: string[], signal?: AbortSignal): Promise<void> {
+/** Default budget for a configuration test; mirror retries raise it because a geodata download takes time. */
+export const CONFIG_TEST_TIMEOUT_MS = 20_000;
+export const CONFIG_TEST_GEODATA_TIMEOUT_MS = 180_000;
+
+function defaultRunner(
+  executable: string,
+  args: string[],
+  signal?: AbortSignal,
+  timeoutMs = CONFIG_TEST_TIMEOUT_MS,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(
       executable,
@@ -21,7 +30,7 @@ function defaultRunner(executable: string, args: string[], signal?: AbortSignal)
         encoding: "utf8",
         env: buildSanitizedEnv(),
         maxBuffer: 1024 * 1024,
-        timeout: 20_000,
+        timeout: timeoutMs,
         windowsHide: true,
         signal,
       },
@@ -40,6 +49,74 @@ function defaultRunner(executable: string, args: string[], signal?: AbortSignal)
  */
 const GEODATA_DOWNLOAD = /can't download (MMDB|GeoIP|GeoSite|ASN)/i;
 const GEODATA_ATTEMPT = /(Can't find (MMDB|GeoIP|GeoSite)|start download)/i;
+/** A database left by an interrupted download fails to parse on the next run. */
+const GEODATA_CORRUPT =
+  /(can't (open|read|load|parse)|invalid|corrupt)[^\n]*(MMDB|GeoIP|GeoSite|geodata)/i;
+
+/**
+ * Every database file the Core may fetch into the data root. Cleanup after a
+ * failed download must never touch anything outside this list.
+ */
+export const GEODATA_FILE_NAMES = [
+  "geoip.dat",
+  "geoip.metadb",
+  "geosite.dat",
+  "country.mmdb",
+  "GeoLite2-ASN.mmdb",
+] as const;
+
+/** mtime per known geodata file; null when absent or unreadable. */
+type GeodataSnapshot = Map<string, number | null>;
+
+function snapshotGeodataFiles(root: string): GeodataSnapshot {
+  const snapshot: GeodataSnapshot = new Map();
+  for (const name of GEODATA_FILE_NAMES) {
+    let mtime: number | null = null;
+    try {
+      mtime = fs.statSync(path.join(root, name)).mtimeMs;
+    } catch {
+      // Absent or unreadable reads as absent.
+    }
+    snapshot.set(name, mtime);
+  }
+  return snapshot;
+}
+
+/**
+ * Remove only what a failed attempt plausibly damaged: files created or
+ * modified since the snapshot (download partials). When the Core refused to
+ * parse a database, the error output names that file and it is removed too;
+ * a file the Core never mentioned and never rewrote stays untouched.
+ */
+function removeDamagedGeodataFiles(
+  root: string,
+  snapshot: GeodataSnapshot,
+  output: string,
+  options: { includeMentioned: boolean },
+): void {
+  const mentioned = options.includeMentioned
+    ? new Set(
+        GEODATA_FILE_NAMES.filter((name) => output.toLowerCase().includes(name.toLowerCase())),
+      )
+    : new Set<string>();
+  for (const name of GEODATA_FILE_NAMES) {
+    const before = snapshot.get(name) ?? null;
+    let current: fs.Stats;
+    try {
+      current = fs.statSync(path.join(root, name));
+    } catch {
+      continue;
+    }
+    const touched = before === null || current.mtimeMs !== before;
+    if (!touched && !mentioned.has(name)) continue;
+    try {
+      fs.rmSync(path.join(root, name), { force: true });
+      console.warn(`[sashd] removed damaged geodata file ${name}`);
+    } catch {
+      // A file that cannot be removed fails the next validation the same way.
+    }
+  }
+}
 
 /**
  * The Core could not fetch the geodata its rules need, and did not report a
@@ -53,13 +130,18 @@ export class CoreGeodataUnavailableError extends Error {
   }
 }
 
-function looksLikeGeodataDownloadFailure(error: unknown): boolean {
+function classifyGeodataFailure(error: unknown): "download" | "corrupt" | undefined {
   const text = errorOutput(error);
-  if (GEODATA_DOWNLOAD.test(text)) return true;
+  if (GEODATA_DOWNLOAD.test(text)) return "download";
+  if (GEODATA_CORRUPT.test(text)) return "corrupt";
   // A stalled download is killed by our own timeout and leaves only the
   // attempt line behind, so treat "we started a geodata download" as the signal.
   const killed = typeof error === "object" && error !== null && "killed" in error;
-  return killed && GEODATA_ATTEMPT.test(text);
+  return killed && GEODATA_ATTEMPT.test(text) ? "download" : undefined;
+}
+
+function looksLikeGeodataDownloadFailure(error: unknown): boolean {
+  return classifyGeodataFailure(error) !== undefined;
 }
 
 /** True for both a raw Core failure and the error this module throws for it. */
@@ -84,22 +166,27 @@ export async function validateCoreConfig(
   executable: string,
   yaml: string,
   layout: SashLayout,
-  options: { runner?: CoreConfigTestRunner; signal?: AbortSignal } = {},
+  options: { runner?: CoreConfigTestRunner; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<void> {
   options.signal?.throwIfAborted();
   if (!fs.existsSync(executable)) throw new Error(`Core executable is missing: ${executable}`);
   const candidate = path.join(layout.tempDir, `config-validate-${crypto.randomUUID()}.yaml`);
+  const geodataSnapshot = snapshotGeodataFiles(layout.root);
   try {
     atomicWriteFileSync(candidate, yaml);
-    await (options.runner ?? defaultRunner)(
-      executable,
-      ["-t", "-d", layout.root, "-f", candidate],
-      options.signal,
-    );
+    await (
+      options.runner ??
+      ((exe: string, args: string[], sig?: AbortSignal) =>
+        defaultRunner(exe, args, sig, options.timeoutMs))
+    )(executable, ["-t", "-d", layout.root, "-f", candidate], options.signal);
     options.signal?.throwIfAborted();
   } catch (error) {
     options.signal?.throwIfAborted();
-    if (looksLikeGeodataDownloadFailure(error)) {
+    const geodataFailure = classifyGeodataFailure(error);
+    if (geodataFailure) {
+      removeDamagedGeodataFiles(layout.root, geodataSnapshot, errorOutput(error), {
+        includeMentioned: geodataFailure === "corrupt",
+      });
       throw new CoreGeodataUnavailableError(
         `Core could not download its geodata databases: ${errorOutput(error)}. ` +
           `The Core fetches geodata itself and ignores HTTP_PROXY, so it needs a directly ` +

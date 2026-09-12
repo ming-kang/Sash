@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { fetchWithRetry, readErrorSummary } from "./http.js";
+import { fetchWithRetry, type ProxyFallbackListener, readErrorSummary } from "./http.js";
 import { downloadToFile } from "./http-download.js";
 
 /**
@@ -41,7 +41,11 @@ function ghTokenHeaders(): Record<string, string> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
-export async function resolveLatestTag(repo: string, signal?: AbortSignal): Promise<string> {
+export async function resolveLatestTag(
+  repo: string,
+  signal?: AbortSignal,
+  onProxyFallback?: ProxyFallbackListener,
+): Promise<string> {
   // Resolve the release identity only from GitHub itself. Mirrors remain byte
   // transports and cannot choose or downgrade the version being installed.
   const latestUrl = `https://github.com/${repo}/releases/latest`;
@@ -50,6 +54,7 @@ export async function resolveLatestTag(repo: string, signal?: AbortSignal): Prom
       signal,
       attempts: 2,
       deadlineMs: 15_000,
+      onProxyFallback,
     });
     if (res.statusCode >= 300 && res.statusCode < 400) {
       const location = res.headers.location;
@@ -81,6 +86,7 @@ export async function resolveLatestTag(repo: string, signal?: AbortSignal): Prom
     },
     attempts: 2,
     deadlineMs: 15_000,
+    onProxyFallback,
   });
   if (res.statusCode !== 200) {
     await readErrorSummary(res);
@@ -110,6 +116,7 @@ export async function listReleaseAssets(
   repo: string,
   tag: string,
   signal?: AbortSignal,
+  onProxyFallback?: ProxyFallbackListener,
 ): Promise<ReleaseAsset[]> {
   const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
   const res = await fetchWithRetry(apiUrl, {
@@ -120,6 +127,7 @@ export async function listReleaseAssets(
     },
     attempts: 2,
     deadlineMs: 15_000,
+    onProxyFallback,
   });
   if (res.statusCode !== 200) {
     await readErrorSummary(res);
@@ -178,6 +186,7 @@ export interface DownloadOptions {
   candidates: string[];
   dest: string;
   onProgress?: (downloaded: number, total: number | undefined) => void;
+  onProxyFallback?: ProxyFallbackListener;
 }
 
 export function selectReleaseAsset(
@@ -232,6 +241,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
         integrity: expectedDigest,
         stallMs: 60_000,
         deadlineMs: remainingMs,
+        onProxyFallback: opts.onProxyFallback,
       });
       return chosen.name;
     } catch (err) {

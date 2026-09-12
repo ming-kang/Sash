@@ -21,7 +21,13 @@ function getBaseProxyDispatcher(): Dispatcher {
     // EnvHttpProxyAgent covers HTTP_PROXY/HTTPS_PROXY/NO_PROXY; ALL_PROXY is a
     // common extra convention, folded into options without changing process.env.
     const allProxyRaw = process.env.ALL_PROXY ?? process.env.all_proxy;
-    const allProxy = allProxyRaw && /^https?:\/\//i.test(allProxyRaw) ? allProxyRaw : undefined;
+    let allProxy: string | undefined;
+    if (allProxyRaw && /^https?:\/\//i.test(allProxyRaw)) {
+      allProxy = allProxyRaw;
+    } else if (allProxyRaw) {
+      // Warned once per process: the dispatcher below is cached.
+      console.warn("[sash] ignoring ALL_PROXY — only http:// or https:// proxies are supported");
+    }
     const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? allProxy;
     const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? allProxy;
     // allowH2: false keeps the pre-undici-8 HTTP/1.1 wire behavior; the
@@ -115,11 +121,48 @@ export function formatProxyRefusedError(error: unknown): Error {
   if (endpoint) {
     const proxyTarget = `${endpoint.address}:${endpoint.port}`;
     const remedy = isLoopbackHost(endpoint.address)
-      ? "start Sash (sash start) or check HTTP_PROXY"
+      ? "check whether that proxy is running, or unset HTTP_PROXY"
       : "check HTTP_PROXY";
     return new Error(`proxy ${proxyTarget} refused connection — ${remedy}`, { cause: error });
   }
   return error instanceof Error ? error : new Error(String(error));
+}
+
+export interface ProxyRefusedFallback {
+  proxy: ConnectRefusedEndpoint;
+  url: string;
+}
+
+/**
+ * Invoked when a loopback proxy refusal sends the request down a direct
+ * retry. Callers decide how the warning reaches the user.
+ */
+export type ProxyFallbackListener = (info: ProxyRefusedFallback) => void;
+
+export function formatProxyFallbackWarning(info: ProxyRefusedFallback): string {
+  return `proxy ${info.proxy.address}:${info.proxy.port} refused connection — retrying without proxy`;
+}
+
+export function formatProxyFallbackFailure(
+  proxy: ConnectRefusedEndpoint,
+  directError: unknown,
+): Error {
+  const reason = directError instanceof Error ? directError.message : String(directError);
+  return new Error(
+    `proxy ${proxy.address}:${proxy.port} refused connection · direct request also failed: ${reason} — check HTTP_PROXY or your network connection`,
+    { cause: directError },
+  );
+}
+
+/**
+ * Decide whether an exhausted request may retry without the proxy. Only a
+ * loopback refusal qualifies: the dead endpoint is a local tool (often Sash
+ * itself), so direct access matches the caller's intent. A dead remote proxy
+ * means the user's upstream is down and silently bypassing it would surprise.
+ */
+function loopbackRefusalOf(error: unknown): ConnectRefusedEndpoint | undefined {
+  const endpoint = extractConnectRefusedEndpoint(error);
+  return endpoint && isLoopbackHost(endpoint.address) ? endpoint : undefined;
 }
 
 export interface FetchResponse {
@@ -151,6 +194,12 @@ export interface FetchOptions {
   headers?: Record<string, string>;
   /** Use the direct (non-proxy) dispatcher. Reserved for loopback API calls. */
   direct?: boolean;
+  /**
+   * When set, a loopback proxy refusal warns through this listener and the
+   * request retries once without the proxy. Omit it for URLs that must never
+   * leave the machine unproxied (for example user-supplied subscriptions).
+   */
+  onProxyFallback?: ProxyFallbackListener;
   method?: string;
   body?: string | Buffer;
 }
@@ -287,6 +336,17 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
       }
     }
     if (!opts.direct && isProxyConnectionRefused(lastErr, url)) {
+      const loopback = loopbackRefusalOf(lastErr);
+      if (opts.onProxyFallback && loopback) {
+        opts.onProxyFallback({ proxy: loopback, url });
+        try {
+          // direct: true disables this branch in the recursive call.
+          return await fetchWithRetry(url, { ...opts, direct: true });
+        } catch (directError) {
+          signal.throwIfAborted();
+          throw formatProxyFallbackFailure(loopback, directError);
+        }
+      }
       throw formatProxyRefusedError(lastErr);
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));

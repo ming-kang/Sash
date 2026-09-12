@@ -100,6 +100,13 @@ describe("Core config validation", () => {
       );
     });
 
+    it("recognizes a corrupt database the Core refused to parse", () => {
+      const error = Object.assign(new Error("command failed"), {
+        stderr: Buffer.from("can't load GeoSite.dat: unexpected EOF"),
+      });
+      assert.equal(isGeodataDownloadFailure(error), true);
+    });
+
     it("does not treat an ordinary configuration error as a geodata failure", () => {
       const error = Object.assign(new Error("command failed"), {
         stderr: Buffer.from("rules[0] error: rule is invalid"),
@@ -116,6 +123,61 @@ describe("Core config validation", () => {
         false,
       );
     });
+  });
+
+  it("removes a geodata partial left by a failed download but keeps untouched files", async () => {
+    fs.writeFileSync(path.join(layout.root, "geoip.dat"), "valid-bytes");
+    await assert.rejects(
+      () =>
+        validateCoreConfig(layout.coreExe, "rules: []\n", layout, {
+          runner: () => {
+            // The Core leaves a half-written database behind when killed mid-download.
+            fs.writeFileSync(path.join(layout.root, "geosite.dat"), "partial");
+            throw Object.assign(new Error("command failed"), {
+              stderr: Buffer.from(
+                'can\'t download GeoSite: Get "https://github.com/meta-rules-dat/geosite.dat": connection failed',
+              ),
+            });
+          },
+        }),
+      /Core could not download its geodata databases/,
+    );
+    assert.equal(fs.existsSync(path.join(layout.root, "geosite.dat")), false);
+    assert.equal(fs.readFileSync(path.join(layout.root, "geoip.dat"), "utf8"), "valid-bytes");
+  });
+
+  it("removes a corrupt database the Core names in its error", async () => {
+    fs.writeFileSync(path.join(layout.root, "geosite.dat"), "truncated");
+    await assert.rejects(
+      () =>
+        validateCoreConfig(layout.coreExe, "rules: []\n", layout, {
+          runner: () => {
+            throw Object.assign(new Error("command failed"), {
+              stderr: Buffer.from("can't load GeoSite.dat: unexpected EOF"),
+            });
+          },
+        }),
+      /Core could not download its geodata databases/,
+    );
+    assert.equal(fs.existsSync(path.join(layout.root, "geosite.dat")), false);
+  });
+
+  it("keeps untouched databases a download failure merely names in its URL", async () => {
+    fs.writeFileSync(path.join(layout.root, "country.mmdb"), "valid-mmdb");
+    await assert.rejects(
+      () =>
+        validateCoreConfig(layout.coreExe, "rules: []\n", layout, {
+          runner: () => {
+            throw Object.assign(new Error("command failed"), {
+              stderr: Buffer.from(
+                'can\'t download MMDB: Get "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb": dial tcp: connection failed',
+              ),
+            });
+          },
+        }),
+      /Core could not download its geodata databases/,
+    );
+    assert.equal(fs.readFileSync(path.join(layout.root, "country.mmdb"), "utf8"), "valid-mmdb");
   });
 
   it("cancels validation and removes its private candidate", async () => {

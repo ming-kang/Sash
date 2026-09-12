@@ -20,6 +20,7 @@ import {
   pathEntryExists,
 } from "./fs-atomic.js";
 import { parseSha256Digest, RELEASE_ASSET_SIZE_LIMIT, selectReleaseAsset } from "./github.js";
+import type { ProxyFallbackListener } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
 import type { SashLayout } from "./paths.js";
 import type { SashDaemonClient } from "./sash-client-node.js";
@@ -40,6 +41,8 @@ export interface CoreUpdateProgress {
   downloading: boolean;
   downloaded: number;
   total: number | null;
+  /** A non-fatal condition worth surfacing next to the stage, e.g. a proxy fallback. */
+  note?: string;
 }
 
 /** The only upgrade journal: executable and install metadata, never profiles or settings. */
@@ -319,11 +322,13 @@ export async function checkCoreUpdate(
   layout: SashLayout,
   version?: string,
   signal?: AbortSignal,
+  onProxyFallback?: ProxyFallbackListener,
 ): Promise<CoreUpdateCheck> {
   const current = currentCoreVersion(layout) || null;
   const { tag, assets, candidates } = await resolveCoreRelease({
     ...(version !== undefined ? { tag: version } : {}),
     ...(signal !== undefined ? { signal } : {}),
+    ...(onProxyFallback !== undefined ? { onProxyFallback } : {}),
   });
   const asset = selectReleaseAsset(assets, candidates);
   if (!asset)
@@ -352,18 +357,20 @@ export function coreUpdateProgressText(progress: CoreUpdateProgress): string {
   const bytes = progress.downloading
     ? `: ${(progress.downloaded / 1048576).toFixed(1)}${progress.total ? ` / ${(progress.total / 1048576).toFixed(1)}` : ""} MiB`
     : "";
-  return `${STAGE_TEXT[progress.stage]}${target}${bytes}`;
+  const note = progress.note ? ` · ${progress.note}` : "";
+  return `${STAGE_TEXT[progress.stage]}${target}${bytes}${note}`;
 }
 
-/** Supplemental progress reads never retry or determine the outcome of the mutation. */
-export async function updateCoreWithProgress(
-  client: Pick<SashDaemonClient, "updateCore" | "coreUpdateProgress">,
-  version?: string,
-  onProgress?: (progress: CoreUpdateProgress) => void,
-): Promise<CoreUpdateResponse> {
-  if (!onProgress) return client.updateCore(version);
+/**
+ * Poll Core update progress while an operation runs. Supplemental progress
+ * reads never retry or determine the outcome of the operation.
+ */
+export async function withCoreUpdateProgress<T>(
+  client: Pick<SashDaemonClient, "coreUpdateProgress">,
+  operation: Promise<T>,
+  onProgress: (progress: CoreUpdateProgress) => void,
+): Promise<T> {
   const controller = new AbortController();
-  const updating = client.updateCore(version);
   const watching = (async () => {
     while (!controller.signal.aborted) {
       try {
@@ -376,14 +383,24 @@ export async function updateCoreWithProgress(
         const progress = await client.coreUpdateProgress();
         if (!controller.signal.aborted && progress) onProgress(progress);
       } catch {
-        // Progress errors do not affect the update request.
+        // Progress errors do not affect the operation.
       }
     }
   })();
   try {
-    return await updating;
+    return await operation;
   } finally {
     controller.abort();
     await watching;
   }
+}
+
+/** Supplemental progress reads never retry or determine the outcome of the mutation. */
+export async function updateCoreWithProgress(
+  client: Pick<SashDaemonClient, "updateCore" | "coreUpdateProgress">,
+  version?: string,
+  onProgress?: (progress: CoreUpdateProgress) => void,
+): Promise<CoreUpdateResponse> {
+  if (!onProgress) return client.updateCore(version);
+  return withCoreUpdateProgress(client, client.updateCore(version), onProgress);
 }

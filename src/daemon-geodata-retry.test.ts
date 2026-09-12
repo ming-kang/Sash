@@ -50,4 +50,48 @@ describe("daemon geodata mirror retry", () => {
     const published = YAML.parse(publishedText) as Record<string, unknown>;
     assert.deepEqual(published["geox-url"], { ...GEOX_MIRRORS });
   });
+
+  it("walks the mirror list when the first mirror also fails", async () => {
+    const validated: GeneratedConfig[] = [];
+    await h.startServer({
+      validateConfig: (generated) => {
+        validated.push(generated);
+        if (validated.length <= 2) {
+          throw Object.assign(new Error("command failed"), {
+            stderr: Buffer.from(GEODATA_FAILURE),
+          });
+        }
+      },
+    });
+
+    const response = await h.apiRequest("/sash/core/start", { method: "POST" });
+    assert.equal(response.statusCode, 200);
+    assert.equal(validated.length, 3);
+    const second = YAML.parse(validated[1]?.yaml ?? "") as Record<string, unknown>;
+    const third = YAML.parse(validated[2]?.yaml ?? "") as Record<string, unknown>;
+    assert.match((second["geox-url"] as { geoip: string }).geoip, /ghfast\.top/);
+    assert.match((third["geox-url"] as { geoip: string }).geoip, /gh-proxy\.com/);
+    assert.equal(h.instance?.lifecycle.configuration()?.generated, validated[2]);
+  });
+
+  it("stops walking the mirror list when a mirror reports an ordinary configuration error", async () => {
+    const validated: GeneratedConfig[] = [];
+    await h.startServer({
+      validateConfig: (generated) => {
+        validated.push(generated);
+        if (validated.length === 1) {
+          throw Object.assign(new Error("command failed"), {
+            stderr: Buffer.from(GEODATA_FAILURE),
+          });
+        }
+        throw Object.assign(new Error("command failed"), {
+          stderr: Buffer.from("rules[0] error: rule is invalid"),
+        });
+      },
+    });
+
+    const response = await h.apiRequest("/sash/core/start", { method: "POST" });
+    assert.notEqual(response.statusCode, 200);
+    assert.equal(validated.length, 2);
+  });
 });

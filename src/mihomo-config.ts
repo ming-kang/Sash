@@ -214,19 +214,38 @@ export async function fetchSubscriptionProfile(
  * cannot use the proxy it has not started yet. These mirrors are transports
  * for public data, exactly like the Core release mirrors.
  */
-export const GEOX_MIRRORS = {
-  geoip:
-    "https://ghfast.top/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat",
-  geosite:
-    "https://ghfast.top/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-  mmdb: "https://ghfast.top/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country.mmdb",
-  asn: "https://ghfast.top/https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb",
-} as const;
+export interface GeoxMirrorSet {
+  geoip: string;
+  geosite: string;
+  mmdb: string;
+  asn: string;
+}
 
-/** Rewrite an already generated configuration to fetch geodata through mirrors. */
-export function withGeodataMirrors(generated: GeneratedConfig): GeneratedConfig {
+function geoxMirrorSet(mirror: string): GeoxMirrorSet {
+  const asset = (name: string): string =>
+    `${mirror}https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/${name}`;
+  return {
+    geoip: asset("geoip.dat"),
+    geosite: asset("geosite.dat"),
+    mmdb: asset("country.mmdb"),
+    asn: asset("GeoLite2-ASN.mmdb"),
+  };
+}
+
+/** Mirror sets tried in order when the Core cannot fetch geodata directly. */
+const GHFAST_TOP = geoxMirrorSet("https://ghfast.top/");
+const GH_PROXY = geoxMirrorSet("https://gh-proxy.com/");
+export const GEOX_MIRROR_SETS: readonly GeoxMirrorSet[] = [GHFAST_TOP, GH_PROXY];
+
+/** The primary mirror set. */
+export const GEOX_MIRRORS: GeoxMirrorSet = GHFAST_TOP;
+
+/** Rewrite an already generated configuration to fetch geodata through a mirror set. */
+export function withGeodataMirrors(generated: GeneratedConfig, mirrorIndex = 0): GeneratedConfig {
+  const set = GEOX_MIRROR_SETS[mirrorIndex];
+  if (!set) throw new Error(`internal error: unknown geodata mirror index ${mirrorIndex}`);
   const doc = asCoreConfigDocument(YAML.parse(generated.yaml));
-  doc["geox-url"] = { ...GEOX_MIRRORS };
+  doc["geox-url"] = { ...set };
   return { ...generated, yaml: YAML.stringify(doc, { indent: 2 }) };
 }
 

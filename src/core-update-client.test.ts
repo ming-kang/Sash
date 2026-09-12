@@ -5,6 +5,7 @@ import {
   type CoreUpdateProgress,
   coreUpdateProgressText,
   updateCoreWithProgress,
+  withCoreUpdateProgress,
 } from "./core-update.js";
 import { deferred } from "./testing/state.js";
 
@@ -44,6 +45,37 @@ it("keeps a Core update alive through a progress read failure and stops polling 
   await delay(550);
   assert.equal(calls, 2);
   assert.match(coreUpdateProgressText(progress), /1\.0 \/ 2\.0 MiB/);
+});
+
+it("wraps any operation with progress polling and renders notes", async () => {
+  const finished = deferred();
+  let polls = 0;
+  const seen: string[] = [];
+  const result = await withCoreUpdateProgress(
+    {
+      coreUpdateProgress: async () => {
+        polls += 1;
+        return {
+          ...progress,
+          note: "proxy 127.0.0.1:7890 refused connection — retrying without proxy",
+        };
+      },
+    },
+    (async () => {
+      await finished.promise;
+      return 42;
+    })(),
+    (update) => {
+      seen.push(coreUpdateProgressText(update));
+      finished.resolve();
+    },
+  );
+  assert.equal(result, 42);
+  assert.ok(polls >= 1);
+  assert.match(
+    seen[0] ?? "",
+    /Downloading Core \(v2\.0\.0\): 1\.0 \/ 2\.0 MiB · proxy 127\.0\.0\.1:7890 refused connection — retrying without proxy/,
+  );
 });
 
 it("never polls when progress is not requested and preserves update failures", async () => {

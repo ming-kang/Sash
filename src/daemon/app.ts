@@ -10,7 +10,11 @@ import {
   type StagedCore,
   stageCore,
 } from "../core.js";
-import { isGeodataDownloadFailure, validateCoreConfig } from "../core-config-validation.js";
+import {
+  CONFIG_TEST_GEODATA_TIMEOUT_MS,
+  isGeodataDownloadFailure,
+  validateCoreConfig,
+} from "../core-config-validation.js";
 import {
   type CoreUpdateProgress,
   type CoreUpdateResult,
@@ -18,7 +22,9 @@ import {
   readCoreUpdateTransaction,
 } from "../core-update.js";
 import { errorMessage } from "../error-utils.js";
+import { formatProxyFallbackWarning } from "../http.js";
 import {
+  GEOX_MIRROR_SETS,
   type GeneratedConfig,
   type SubscriptionFetch,
   withGeodataMirrors,
@@ -125,20 +131,26 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     generated: GeneratedConfig,
     executable: string,
     signal: AbortSignal,
+    timeoutMs?: number,
   ): Promise<void> => {
     return Promise.resolve(
       deps.validateConfigFn
         ? deps.validateConfigFn(generated, executable, signal)
-        : validateCoreConfig(executable, generated.yaml, layout, { signal }),
+        : validateCoreConfig(executable, generated.yaml, layout, {
+            signal,
+            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+          }),
     );
   };
 
   /**
    * Validate a configuration, and if the Core failed only because it could not
-   * download its geodata databases, retry once through mirrors. The Core fetches
-   * geodata from github.com by default and cannot use the proxy it has not
-   * started yet, which would otherwise deadlock a fresh installation on a
-   * network that cannot reach github.com directly.
+   * download its geodata databases, retry through each mirror set. The Core
+   * fetches geodata from github.com by default and cannot use the proxy it has
+   * not started yet, which would otherwise deadlock a fresh installation on a
+   * network that cannot reach github.com directly. Mirror attempts get a
+   * longer budget: downloading tens of megabytes takes more than the plain
+   * configuration test's timeout.
    */
   const validateConfiguration = async (
     configuration: RuntimeConfiguration,
@@ -150,14 +162,27 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       return configuration;
     } catch (error) {
       if (!isGeodataDownloadFailure(error)) throw error;
-      const retried: RuntimeConfiguration = {
-        ...configuration,
-        generated: withGeodataMirrors(configuration.generated),
-      };
-      if (retried.generated.yaml === configuration.generated.yaml) throw error;
-      console.warn("[sashd] geodata download failed; retrying through the mirror list");
-      await validate(retried.generated, executable, signal);
-      return retried;
+      const seen = new Set([configuration.generated.yaml]);
+      let lastError = error;
+      for (let index = 0; index < GEOX_MIRROR_SETS.length; index += 1) {
+        const retried: RuntimeConfiguration = {
+          ...configuration,
+          generated: withGeodataMirrors(configuration.generated, index),
+        };
+        // The configuration may already fetch through this mirror set.
+        if (seen.has(retried.generated.yaml)) continue;
+        seen.add(retried.generated.yaml);
+        const host = new URL(GEOX_MIRROR_SETS[index]?.geoip ?? "").host;
+        console.warn(`[sashd] geodata download failed; retrying through mirror ${host}`);
+        try {
+          await validate(retried.generated, executable, signal, CONFIG_TEST_GEODATA_TIMEOUT_MS);
+          return retried;
+        } catch (mirrorError) {
+          if (!isGeodataDownloadFailure(mirrorError)) throw mirrorError;
+          lastError = mirrorError;
+        }
+      }
+      throw lastError;
     }
   };
 
@@ -226,6 +251,12 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
           progress.downloaded = downloaded;
           progress.total = total ?? null;
           events.notify();
+        },
+        onProxyFallback: (info) => {
+          const warning = formatProxyFallbackWarning(info);
+          progress.note = warning;
+          events.notify();
+          console.warn(`[sashd] ${warning}`);
         },
       });
       signal.throwIfAborted();
