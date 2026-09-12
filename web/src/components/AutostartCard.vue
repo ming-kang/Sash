@@ -21,7 +21,7 @@
         :disabled="busy || !owner"
         @click="refresh"
       >
-        <Icon name="refresh" :size="14" />
+        <Icon name="refresh" :size="14" :class="{ spin: busy }" />
         {{ t('autostart.refresh') }}
       </button>
       <button

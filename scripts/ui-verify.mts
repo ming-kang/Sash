@@ -22,7 +22,7 @@ const outDir = uiArtifactDirectory("sash-ui-verify-");
 const yaml = "proxies:\n  - name: node-a\n    type: direct\nrules: ['MATCH,DIRECT']\n";
 
 async function apply(page: Page): Promise<void> {
-  await page.locator(".pending-config").getByRole("button", { name: "应用配置", exact: true }).click();
+  await page.locator(".pending-config").getByRole("button", { name: "应用更改", exact: true }).click();
   const confirmation = page.getByRole("alertdialog");
   await confirmation.getByRole("button", { name: "确认", exact: true }).click();
   await page.locator(".pending-config").waitFor({ state: "hidden" });
@@ -121,9 +121,10 @@ async function verify(engine: BrowserType, name: string) {
       await page.screenshot({ path: path.join(outDir, `${name}-${route}-dark.png`) });
     }
     await page.getByRole("button", { name: "停止核心", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "停止核心", exact: true }).click();
     await page.getByRole("button", { name: "启动核心", exact: true }).waitFor(); assert.equal(core.running, false);
     await page.getByRole("button", { name: "启动核心", exact: true }).click();
-    await page.getByRole("button", { name: "应用配置", exact: true }).waitFor();
+    await page.getByRole("button", { name: "应用更改", exact: true }).waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${base}#/overview`); await page.waitForTimeout(300);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "mobile layout overflow");

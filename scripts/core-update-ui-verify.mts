@@ -86,7 +86,7 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     release.resolve();
     await progress.waitFor({ state: "hidden", timeout: 15_000 });
     await page
-      .getByRole("button", { name: uiLocale === "zh" ? "应用配置" : "Apply configuration", exact: true })
+      .getByRole("button", { name: uiLocale === "zh" ? "应用更改" : "Apply configuration", exact: true })
       .first()
       .waitFor();
     assert.deepEqual(errors, []);

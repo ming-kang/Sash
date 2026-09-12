@@ -44,7 +44,22 @@
           </tr>
         </tbody>
       </table>
-      <EmptyState v-if="filteredRules.length === 0" icon="list-filter" :title="t('rules.empty')" />
+      <EmptyState
+        v-if="!isCoreRunning"
+        icon="list-filter"
+        :title="t('rules.coreStopped')"
+        :hint="t('rules.coreStoppedHint')"
+      />
+      <EmptyState
+        v-else-if="!store.resourceLoaded.rules"
+        icon="loader"
+        :title="t('common.loading')"
+      />
+      <EmptyState
+        v-else-if="filteredRules.length === 0"
+        icon="list-filter"
+        :title="searchQuery.trim() ? t('rules.emptyMatch') : t('rules.empty')"
+      />
     </div>
 
     <PaginationFooter v-model:page="currentPage" :pages="totalPages" />
@@ -58,7 +73,7 @@ import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import PaginationFooter from "../components/PaginationFooter.vue";
 import { t } from "../i18n/index.js";
-import { store } from "../stores/index.js";
+import { isCoreRunning, store } from "../stores/index.js";
 
 const PAGE_SIZE = 80;
 

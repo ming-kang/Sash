@@ -102,9 +102,20 @@
       </article>
 
       <EmptyState
-        v-if="filteredConnections.length === 0"
+        v-if="!isCoreRunning"
         icon="swap"
-        :title="t('connections.empty')"
+        :title="t('connections.coreStopped')"
+        :hint="t('connections.coreStoppedHint')"
+      />
+      <EmptyState
+        v-else-if="!store.resourceLoaded.connections"
+        icon="loader"
+        :title="t('common.loading')"
+      />
+      <EmptyState
+        v-else-if="filteredConnections.length === 0"
+        icon="swap"
+        :title="searchQuery.trim() ? t('connections.emptyMatch') : t('connections.empty')"
       />
     </div>
 
@@ -124,6 +135,7 @@ import {
   closeAllConnections,
   closeConnection,
   errorText,
+  isCoreRunning,
   store,
   toast,
 } from "../stores/index.js";
@@ -241,7 +253,7 @@ async function closeOne(id: string): Promise<void> {
     if (paused.value) {
       pausedSnapshot.value = pausedSnapshot.value.filter((connection) => connection.id !== id);
     }
-    toast.success(t("toast.connClosed"));
+    // The row vanishing is the feedback; a toast per row would flood the stack.
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   }

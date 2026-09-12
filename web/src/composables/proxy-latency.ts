@@ -29,14 +29,19 @@ export function useProxyLatency() {
       const values = Object.values(results);
       const timeouts = values.filter((delay) => delay === 0).length;
       const failures = values.filter((delay) => delay === "failed").length;
-      const message = t("toast.testGroupDone", {
-        name: group,
-        n: values.length - timeouts - failures,
-        timeouts,
-        failures,
-      });
-      if (timeouts || failures) toast.error(message);
-      else toast.success(message);
+      if (timeouts || failures) {
+        // A partial sweep is a result, not an action failure: warn and dismiss.
+        toast.warning(
+          t("toast.testGroupPartial", {
+            name: group,
+            n: values.length - timeouts - failures,
+            timeouts,
+            failures,
+          }),
+        );
+      } else {
+        toast.success(t("toast.testGroupOk", { name: group, n: values.length }));
+      }
     } catch (error) {
       if (generation === store.runtimeGeneration)
         toast.error(t("toast.failed", { msg: errorText(error) }));
@@ -60,7 +65,7 @@ export function useProxyLatency() {
       if (!Number.isFinite(delay) || delay < 0) throw new Error(t("errors.latencyInvalid"));
       if (generation !== store.runtimeGeneration) return;
       updateProxyDelay(name, delay, generation);
-      if (delay === 0) toast.error(t("toast.testTimeout", { name }));
+      if (delay === 0) toast.warning(t("toast.testTimeout", { name }));
       else toast.success(t("toast.testNodeDone", { name, delay }));
     } catch (error) {
       if (generation !== store.runtimeGeneration) return;
@@ -69,11 +74,11 @@ export function useProxyLatency() {
         (error.name === "TimeoutError" ||
           /\b(timeout|timed out|deadline exceeded)\b/i.test(error.message));
       updateProxyDelay(name, timeout ? 0 : "failed", generation);
-      toast.error(
-        timeout
-          ? t("toast.testTimeout", { name })
-          : t("toast.testFailed", { name, msg: errorText(error) }),
-      );
+      const text = timeout
+        ? t("toast.testTimeout", { name })
+        : t("toast.testFailed", { name, msg: errorText(error) });
+      if (timeout) toast.warning(text);
+      else toast.error(text);
     } finally {
       const next = new Set(testingNodes.value);
       next.delete(name);

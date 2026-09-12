@@ -8,8 +8,6 @@
         <h2>Sash</h2>
         <span class="identity-meta mono">
           <template v-if="coreVersion">{{ coreVersion }}</template>
-          <template v-if="coreVersion && store.status?.core.pid"> · </template>
-          <template v-if="store.status?.core.pid">PID {{ store.status.core.pid }}</template>
         </span>
       </div>
     </div>
@@ -21,12 +19,16 @@
           :key="mode.id"
           type="button"
           class="mode-button"
-          :class="{ active: store.mode === mode.id }"
+          :class="{ active: store.mode === mode.id, pending: pendingMode === mode.id }"
           :aria-pressed="store.mode === mode.id"
+          :aria-busy="pendingMode === mode.id"
           :disabled="store.operations.mode || !isCoreReady"
           @click="switchMode(mode.id)"
         >
-          <span class="mode-code">{{ mode.id.toUpperCase() }}</span>
+          <span class="mode-code">
+            <Icon v-if="pendingMode === mode.id" name="loader" :size="12" class="spin" />
+            <template v-else>{{ mode.id.toUpperCase() }}</template>
+          </span>
           <span class="mode-name">{{ mode.label }}</span>
         </button>
       </div>
@@ -176,6 +178,7 @@ import Icon from "./Icon.vue";
 import TrafficChart from "./TrafficChart.vue";
 
 const refreshingSub = ref(false);
+const pendingMode = ref<RoutingMode | null>(null);
 const uptime = computed(() => formatDuration(store.status?.core.startedAt));
 const activeProfile = computed(() => {
   const applied = store.status?.configuration.appliedProfile;
@@ -195,7 +198,8 @@ const modes = computed(() => [
 ]);
 
 async function switchMode(mode: RoutingMode): Promise<void> {
-  if (mode === store.mode) return;
+  if (mode === store.mode || pendingMode.value) return;
+  pendingMode.value = mode;
   try {
     await setOutboundMode(mode);
     toast.success(
@@ -205,6 +209,8 @@ async function switchMode(mode: RoutingMode): Promise<void> {
     );
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
+  } finally {
+    pendingMode.value = null;
   }
 }
 
@@ -351,7 +357,15 @@ async function refreshActiveProfile(): Promise<void> {
   cursor: not-allowed;
   opacity: 0.46;
 }
+.mode-button.pending {
+  opacity: 1;
+  color: var(--accent);
+}
 .mode-code {
+  display: inline-flex;
+  min-height: 15px;
+  align-items: center;
+  justify-content: center;
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.055em;

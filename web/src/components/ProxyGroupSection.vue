@@ -59,7 +59,7 @@
       <article
         v-for="member in visibleMembers"
         :key="member.name"
-        v-memo="[member.name, member.selected, member.meta, member.udp, member.text, member.cls, member.testing, busy, selectable, locale]"
+        v-memo="[member.name, member.selected, member.meta, member.udp, member.text, member.cls, member.testing, member.pending, busy, selectable, locale]"
         class="node-card"
         :class="{ selected: member.selected, static: !selectable }"
       >
@@ -73,6 +73,7 @@
         >
           <div class="node-top">
             <span class="node-name" :title="member.name">{{ member.name }}</span>
+            <Icon v-if="member.pending" name="loader" :size="12" class="spin node-pending" />
           </div>
           <div class="node-sub">
             <span class="node-meta">
@@ -113,6 +114,8 @@ const props = defineProps<{
   testing: boolean;
   testingNodes?: ReadonlySet<string>;
   busy?: boolean;
+  /** Node whose selection is in flight; shows a spinner on its card. */
+  pending?: string;
   collapsed?: boolean;
   hideTimeout?: boolean;
 }>();
@@ -141,6 +144,7 @@ const visibleMembers = computed(() => {
       selected: current.value === name,
       meta: `${proxy?.type ?? ""}${groupTypes.has(proxy?.type ?? "") && proxy?.now ? ` · ${proxy.now}` : ""}`,
       udp: proxy?.udp ?? false,
+      pending: props.pending === name,
       testing: props.testing || (props.testingNodes?.has(name) ?? false),
       timeout: delay === 0,
       rank: typeof delay === "number" && delay > 0 ? delay : Number.POSITIVE_INFINITY,
@@ -299,7 +303,12 @@ const visibleMembers = computed(() => {
 .node-top {
   display: flex;
   align-items: center;
+  gap: 6px;
   min-width: 0;
+}
+.node-pending {
+  flex-shrink: 0;
+  color: var(--accent);
 }
 .node-name {
   min-width: 0;

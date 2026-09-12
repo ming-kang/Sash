@@ -89,7 +89,10 @@
               min="1"
               max="65535"
               class="input input-sm port-input"
+              :class="{ 'input-invalid': portInvalid }"
               :aria-label="t('settings.mixedPortTitle')"
+              :aria-invalid="portInvalid || undefined"
+              aria-describedby="mixed-port-hint"
               :disabled="savingPort || store.operations.networkSetting || !store.status"
             />
             <button
@@ -111,6 +114,9 @@
             </button>
           </div>
         </div>
+        <p v-if="portInvalid" id="mixed-port-hint" class="port-hint" role="alert">
+          {{ t('settings.portInvalid') }}
+        </p>
 
         <div class="setting-row">
           <div class="setting-info">
@@ -193,6 +199,11 @@ watch(
 );
 
 const portDirty = computed(() => !Object.is(mixedPort.value, committedMixedPort.value));
+const portInvalid = computed(
+  () =>
+    portDirty.value &&
+    (!Number.isInteger(mixedPort.value) || mixedPort.value < 1 || mixedPort.value > 65535),
+);
 const portValid = computed(
   () =>
     Number.isInteger(mixedPort.value) &&
@@ -327,6 +338,14 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 .port-input::-webkit-inner-spin-button {
   margin: 0;
   -webkit-appearance: none;
+}
+.port-input.input-invalid {
+  border-color: var(--danger);
+}
+.port-hint {
+  margin: -2px 5px 8px;
+  color: var(--danger);
+  font-size: 14px;
 }
 .interrupt-save {
   color: var(--warning);

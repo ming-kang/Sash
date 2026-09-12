@@ -26,7 +26,7 @@
       <div class="dl-actions">
         <button
           type="button"
-          class="btn btn-secondary dl-action-primary"
+          class="btn btn-primary dl-action-primary"
           :disabled="downloading || profileBusy || !dlUrl.trim()"
           @click="download"
         >
@@ -62,7 +62,20 @@
       />
     </div>
 
-    <div v-if="profiles.length === 0" class="empty-panel">
+    <div v-if="loadFailed" class="empty-panel" role="alert">
+      <EmptyState icon="alert" :title="t('common.loadFailed')" :hint="loadFailed" />
+      <div class="empty-retry">
+        <button type="button" class="btn btn-secondary btn-sm" @click="loadProfiles">
+          {{ t('common.reload') }}
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="!store.profilesLoaded" class="empty-panel" aria-busy="true">
+      <EmptyState icon="loader" :title="t('profiles.loading')" />
+    </div>
+
+    <div v-else-if="profiles.length === 0" class="empty-panel">
       <EmptyState
         icon="layers"
         :title="t('profiles.emptyTitle')"
@@ -237,6 +250,7 @@ const updatingId = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
 const editorProfile = ref<ProfileMeta | null>(null);
 const renameTarget = ref<ProfileMeta | null>(null);
+const loadFailed = ref("");
 
 const profilesGrid = ref<HTMLElement | null>(null);
 const { profiles, chosenId, busy: orderBusy, onPointerdown, onClick, moveWithKeyboard } =
@@ -273,13 +287,26 @@ function usagePct(p: ProfileMeta): number {
   return Math.min(100, Math.round((usedBytes(p) / total) * 100));
 }
 
+async function loadProfiles(): Promise<void> {
+  loadFailed.value = "";
+  try {
+    await refreshProfiles();
+  } catch (error) {
+    loadFailed.value = errorText(error);
+  }
+}
+
 onMounted(() => {
-  void refreshProfiles().catch(() => {});
+  void loadProfiles();
 });
 
 async function download(): Promise<void> {
   const url = dlUrl.value.trim();
   if (!url || downloading.value) return;
+  if (!/^https?:\/\/.+/.test(url)) {
+    toast.warning(t("profiles.invalidUrl"));
+    return;
+  }
   downloading.value = true;
   try {
     const res = await addProfile(url);
@@ -319,7 +346,7 @@ async function updateAll(): Promise<void> {
     if (res.failed.length === 0) {
       toast.success(t("toast.profilesUpdateAllOk", { n: res.updated }));
     } else {
-      toast.error(t("toast.profilesUpdateAllPartial", { n: res.updated, f: res.failed.length }));
+      toast.warning(t("toast.profilesUpdateAllPartial", { n: res.updated, f: res.failed.length }));
     }
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -442,6 +469,11 @@ async function pasteFromClipboard(): Promise<void> {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+}
+.empty-retry {
+  display: flex;
+  justify-content: center;
+  padding: 0 20px 18px;
 }
 
 .profiles-grid {

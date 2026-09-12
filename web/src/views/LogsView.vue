@@ -46,7 +46,7 @@
       @scroll="onScroll"
     >
       <div v-if="filteredLogs.length === 0" class="log-empty text-muted">
-        {{ store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
+        {{ !isCoreRunning ? t('logs.coreStopped') : store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
       </div>
       <div v-for="log in filteredLogs" :key="log.id" class="log-line" :class="`lv-${log.type.toLowerCase()}`">
         <Icon :name="levelIcon(log.type)" :size="13" class="log-icon" />
@@ -62,7 +62,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
-import { clearLogs, store } from "../stores/index.js";
+import { clearLogs, isCoreRunning, store } from "../stores/index.js";
 
 const levels = ["all", "info", "warning", "error", "debug"];
 const modeLabel = computed(() => {

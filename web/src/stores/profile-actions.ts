@@ -10,6 +10,7 @@ export async function refreshProfiles(): Promise<void> {
   if (store.status?.daemon.bootId === bootId) {
     setProfiles(profiles);
     store.lastStateRevision = revision ?? null;
+    store.profilesLoaded = true;
   }
 }
 

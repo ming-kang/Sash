@@ -14,8 +14,12 @@ import type {
 
 export interface ToastItem {
   id: number;
-  kind: "success" | "error" | "info";
+  kind: "success" | "error" | "info" | "warning";
   text: string;
+  /** Repeated pushes of the same kind+text fold into one toast and bump this. */
+  count: number;
+  /** Milliseconds until auto-dismiss; 0 means the toast stays until dismissed. */
+  duration: number;
 }
 export interface StoredLogMessage extends LogMessage {
   id: number;
@@ -40,6 +44,8 @@ export interface StoreState {
   rules: RuleItem[];
   logs: StoredLogMessage[];
   profiles: ProfileMeta[];
+  /** False until the first successful profile fetch; keeps the empty state from flashing. */
+  profilesLoaded: boolean;
   activeProfileId: string | null;
   activeGroup: string;
   operations: {
@@ -78,6 +84,7 @@ export const store = shallowReactive<StoreState>({
   rules: [],
   logs: [],
   profiles: [],
+  profilesLoaded: false,
   activeProfileId: null,
   activeGroup: "",
   operations: {

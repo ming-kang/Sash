@@ -60,6 +60,17 @@ export function useCoreControl() {
   }
   async function stopCore(): Promise<void> {
     if (stopping.value || !store.status) return;
+    if (
+      !(await confirmDialog({
+        title: t("settings.stopConfirmTitle"),
+        message: t("settings.stopConfirmMsg"),
+        confirmText: t("settings.stopBtn"),
+        cancelText: t("common.cancel"),
+        danger: true,
+      }))
+    )
+      return;
+    if (stopping.value) return;
     stopping.value = true;
     actionGeneration += 1;
     try {
