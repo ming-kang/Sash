@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Retry remote fetches and Core downloads without the proxy when a loopback proxy (often Sash itself, not yet running) refuses the connection, printing `proxy <host>:<port> refused connection — retrying without proxy`. Profile subscription fetches stay strict and never fall back. The Core update progress carries this note to `sash start`, `sash update` and the dashboard.
+- `sash start` prints Core download progress while the first install runs instead of waiting silently, and the dashboard shows the live stage, size and notes while Core installs or updates.
+- `sash upgrade` reads the npm registry from the user configuration (`.npmrc`, `npm_config_registry`) instead of only the default registry, announces its restart phases, and refuses concurrent runs instead of colliding inside npm.
+- `sash upgrade` rolls back to the previous version when the new daemon fails its health check, and re-registers start at login when the upgrade moved its paths.
+- Login startup retries with backoff (10s/20s/30s) before giving up, records each outcome in `state/login-start.json`, and surfaces it: `sash status` appends a failure note to the start at login line and `sash doctor` reports it as the new `login-start` check alongside new `geodata` and `network` (download-source reachability) checks.
+- `SASH_CORE_VERSION` pins the Core release tag and skips the latest-release lookup; `docs/usage.md` now documents installing Core and geodata offline, and release-resolution failures name the next step (GITHUB_TOKEN for rate limits, HTTP_PROXY or the offline path for unreachable networks).
+- A second geodata mirror (gh-proxy.com); geodata mirror retries walk the mirror list with a validation budget sized for downloads (180s).
+
+### Changed
+
+- The loopback proxy refusal hint no longer suggests running the very command that failed; it now asks to check the proxy or unset HTTP_PROXY.
+- `sash update` states that the proxy pauses briefly while the Core binary is replaced, and `sash upgrade` suggests `sash start` rather than `sash stop && sash start` when Sash was not running.
+- Warn once when `ALL_PROXY` uses a non-http(s) scheme instead of ignoring it silently.
+
+### Fixed
+
+- `sash upgrade` no longer hides a Core that fails to start on the new version: it prints the failure and exits with code 1 while keeping the completed package and daemon upgrade.
+- Interrupted geodata downloads no longer poison later starts: files written during a failed validation are removed, databases the Core reports as unparseable are cleaned up by name, and parse errors count as geodata failures eligible for mirror retry.
+
 ## [0.2.5] - 2026-09-12
 
 ### Changed
