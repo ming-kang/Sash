@@ -8,6 +8,22 @@ export const coreVersion = computed(() => {
   const version = store.status?.core.version;
   return version ? (version.startsWith("v") ? version : `v${version}`) : "";
 });
+
+/**
+ * Live Core install/update progress, shown while the daemon stages a binary.
+ * Empty when no update is running.
+ */
+export const coreUpdateText = computed(() => {
+  const update = store.status?.coreUpdate;
+  if (!update) return "";
+  const stage = t(`coreUpdate.${update.stage}`);
+  const target = update.target ? ` (${update.target})` : "";
+  const bytes = update.downloading
+    ? `: ${(update.downloaded / 1048576).toFixed(1)}${update.total ? ` / ${(update.total / 1048576).toFixed(1)}` : ""} MiB`
+    : "";
+  const note = update.note ? ` · ${update.note}` : "";
+  return `${stage}${target}${bytes}${note}`;
+});
 const restarting = ref(false);
 const stopping = ref(false);
 let actionGeneration = 0;

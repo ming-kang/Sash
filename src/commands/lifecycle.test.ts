@@ -16,6 +16,8 @@ describe("lifecycle commands", () => {
   let releaseLease: () => void;
   let port: number;
   let requests: { url: string; body: string }[];
+  let progressResponse: unknown;
+  let startGate: Promise<void> | undefined;
 
   beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-command-test-"));
@@ -23,6 +25,8 @@ describe("lifecycle commands", () => {
     process.env.SASH_HOME = root;
     const layout = sashLayout(root);
     requests = [];
+    progressResponse = null;
+    startGate = undefined;
     const lease = await acquireStateLock(layout.daemonLeaseFile, { purpose: "test daemon" });
     releaseLease = () => lease.release();
     server = http.createServer(async (req, res) => {
@@ -31,6 +35,8 @@ describe("lifecycle commands", () => {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
       requests.push({ url: req.url ?? "", body: Buffer.concat(chunks).toString() });
+      if (req.method === "POST" && req.url === "/sash/core/start" && startGate) await startGate;
+      if (req.method === "POST" && req.url === "/sash/core/start") progressResponse = null;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify(
@@ -41,9 +47,11 @@ describe("lifecycle commands", () => {
                 pid: process.pid,
                 startedAt: "2026-09-08T00:00:00.000Z",
               }
-            : req.url === "/sash/core/update"
-              ? { version: "v1.2.3" }
-              : { pid: 77, version: "v1.2.3" },
+            : req.url === "/sash/core/update" && req.method === "GET"
+              ? progressResponse
+              : req.url === "/sash/core/update"
+                ? { version: "v1.2.3" }
+                : { pid: 77, version: "v1.2.3" },
         ),
       );
     });
@@ -79,6 +87,38 @@ describe("lifecycle commands", () => {
     assert.equal(requests.filter((request) => request.url === "/sash/core/start").length, 1);
     assert.ok(
       output.some((line) => line.includes("local API") && line.includes(`127.0.0.1:${port}`)),
+    );
+  });
+
+  it("prints Core download progress while the daemon installs", async (t) => {
+    const lines: string[] = [];
+    t.mock.method(
+      process.stderr,
+      "write",
+      ((chunk: unknown) => {
+        lines.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write,
+    );
+    let releaseStart!: () => void;
+    startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    progressResponse = {
+      stage: "downloading",
+      startedAt: "2026-09-08T00:00:00.000Z",
+      target: "v1.2.3",
+      downloading: true,
+      downloaded: 1048576,
+      total: 2097152,
+    };
+    const starting = runStart();
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    releaseStart();
+    await starting;
+    assert.ok(
+      lines.some((line) => line.includes("Downloading Core (v1.2.3): 1.0 / 2.0 MiB")),
+      `expected download progress in stderr: ${lines.join("")}`,
     );
   });
 

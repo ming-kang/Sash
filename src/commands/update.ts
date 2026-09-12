@@ -1,6 +1,7 @@
-import { commandOutput } from "../cli-output.js";
+import { commandOutput, coreUpdateProgressPrinter } from "../cli-output.js";
 import { validateCoreReleaseTag } from "../core.js";
-import { checkCoreUpdate, coreUpdateProgressText, updateCoreWithProgress } from "../core-update.js";
+import { checkCoreUpdate, updateCoreWithProgress } from "../core-update.js";
+import { formatProxyFallbackWarning } from "../http.js";
 import { log } from "../log.js";
 import { sashLayout } from "../paths.js";
 import { ensureManagement } from "../runtime-owner.js";
@@ -13,23 +14,19 @@ export async function runUpdate(
     opts.json,
     async () => {
       const version = opts.version === undefined ? undefined : validateCoreReleaseTag(opts.version);
-      if (opts.check) return checkCoreUpdate(sashLayout(), version);
+      if (opts.check)
+        return checkCoreUpdate(sashLayout(), version, undefined, (info) => {
+          process.stderr.write(`[sash] ${formatProxyFallbackWarning(info)}\n`);
+        });
       const owner = await ensureManagement(runtimeContext());
       if (!opts.json)
-        process.stderr.write("[sash] Updating Core; the dashboard remains available\n");
-      let previous = "";
+        process.stderr.write(
+          "[sash] Updating Core; the proxy pauses briefly while the Core binary is replaced\n",
+        );
       return updateCoreWithProgress(
         owner.client,
         version,
-        opts.json
-          ? undefined
-          : (progress) => {
-              const text = coreUpdateProgressText(progress);
-              if (text !== previous) {
-                previous = text;
-                process.stderr.write(`[sash] ${text}\n`);
-              }
-            },
+        opts.json ? undefined : coreUpdateProgressPrinter(),
       );
     },
     (result) => {

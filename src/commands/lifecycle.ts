@@ -1,10 +1,13 @@
+import { coreUpdateProgressPrinter } from "../cli-output.js";
 import { log } from "../log.js";
 import { ensureRunning, restartRuntime, stopCoreRuntime, stopRuntime } from "../runtime-owner.js";
 import { type RuntimeContext, runtimeContext } from "./shared.js";
 
 export async function runStart(): Promise<void> {
   const ctx = runtimeContext();
-  const { owner, result } = await ensureRunning(ctx);
+  const { owner, result } = await ensureRunning(ctx, {
+    onCoreUpdateProgress: coreUpdateProgressPrinter(),
+  });
   const version = result.version ? `${result.version}, ` : "";
   const core = `Core ${result.alreadyRunning === true ? "already running" : "running"} (${version}PID ${result.pid})`;
   log.ok(

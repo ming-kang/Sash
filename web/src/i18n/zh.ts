@@ -209,6 +209,16 @@ export const zh = {
     aboutTitle: "运行信息",
     coreVersion: "核心版本",
   },
+  coreUpdate: {
+    checking: "正在检查核心安装",
+    resolving: "正在检查核心版本",
+    downloading: "正在下载核心",
+    extracting: "正在解压核心",
+    verifying: "正在校验核心可执行文件",
+    validating: "正在验证运行配置",
+    waiting: "正在等待进行中的操作",
+    installing: "正在安装并验证核心",
+  },
   toast: {
     modeOk: "出站模式已切换为 {mode}",
     sysProxyOn: "系统代理已开启",

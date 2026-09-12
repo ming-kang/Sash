@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { loadSettings } from "./app-state.js";
 import type { RoutingMode } from "./contracts.js";
+import { type CoreUpdateProgress, withCoreUpdateProgress } from "./core-update.js";
 import {
   type DaemonHealthyInfo,
   type DaemonStoppedInfo,
@@ -57,9 +58,19 @@ export async function ensureManagement(
   return owner;
 }
 
-export async function ensureRunning(ctx: RuntimeContext) {
+export async function ensureRunning(
+  ctx: RuntimeContext,
+  opts: { onCoreUpdateProgress?: (progress: CoreUpdateProgress) => void } = {},
+) {
   const owner = await ensureManagement(ctx);
-  return { owner, result: await owner.client.startCore() };
+  const result = opts.onCoreUpdateProgress
+    ? await withCoreUpdateProgress(
+        owner.client,
+        owner.client.startCore(),
+        opts.onCoreUpdateProgress,
+      )
+    : await owner.client.startCore();
+  return { owner, result };
 }
 
 function hasRuntimeLeftovers(layout: SashLayout): boolean {

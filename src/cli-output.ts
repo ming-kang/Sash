@@ -1,4 +1,5 @@
 import { writeCliDebug } from "./cli-errors.js";
+import { type CoreUpdateProgress, coreUpdateProgressText } from "./core-update.js";
 import { errorMessage } from "./error-utils.js";
 
 const outputClosed = new AbortController();
@@ -28,4 +29,15 @@ export async function commandOutput<T>(
     writeCliDebug(error);
     process.exitCode = 1;
   }
+}
+
+/** Print each distinct Core update progress line once, in order. */
+export function coreUpdateProgressPrinter(): (progress: CoreUpdateProgress) => void {
+  let previous = "";
+  return (progress) => {
+    const text = coreUpdateProgressText(progress);
+    if (text === previous) return;
+    previous = text;
+    process.stderr.write(`[sash] ${text}\n`);
+  };
 }

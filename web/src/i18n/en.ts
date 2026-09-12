@@ -212,6 +212,16 @@ export const en: Messages = {
     aboutTitle: "Runtime Info",
     coreVersion: "Core Version",
   },
+  coreUpdate: {
+    checking: "Checking Core installation",
+    resolving: "Checking the Core release",
+    downloading: "Downloading Core",
+    extracting: "Extracting Core",
+    verifying: "Verifying the Core executable",
+    validating: "Validating the runtime configuration",
+    waiting: "Waiting for pending operations",
+    installing: "Installing and verifying Core",
+  },
   toast: {
     modeOk: "Outbound mode switched to {mode}",
     sysProxyOn: "System proxy enabled",
