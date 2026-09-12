@@ -47,6 +47,8 @@ export interface SashLayout {
   daemonStartLockFile: string;
   systemProxyStateFile: string;
   systemProxyLockFile: string;
+  upgradeLockFile: string;
+  loginStartFile: string;
   installFile: string;
   coreUpdateTransactionFile: string;
   webSessionsFile: string;
@@ -84,6 +86,8 @@ export function sashLayout(root: string = sashRoot()): SashLayout {
     daemonStartLockFile: path.join(root, "state", "sashd-start.lock"),
     systemProxyStateFile: path.join(root, "state", "system-proxy.json"),
     systemProxyLockFile: path.join(userControlDir, "system-proxy.lock"),
+    upgradeLockFile: path.join(root, "state", "upgrade.lock"),
+    loginStartFile: path.join(root, "state", "login-start.json"),
     installFile: path.join(root, "state", "install.json"),
     coreUpdateTransactionFile: path.join(root, "state", "core-update-transaction.json"),
     webSessionsFile: path.join(root, "state", "web-sessions.json"),

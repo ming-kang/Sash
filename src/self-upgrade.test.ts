@@ -4,14 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 import { MockAgent } from "undici";
+import type { AutostartStatus } from "./autostart/contract.js";
 import { directDispatcherForLoopback, proxyAwareDispatcher } from "./http.js";
 import { inspectInstallation, type NpmInstallation, npmPackageRoot } from "./sash-installation.js";
 import {
   executeSashUpgrade,
   inspectSashUpgrade,
   resolveNpmCli,
+  resolveNpmRegistry,
   resolveSashUpgradeTarget,
 } from "./self-upgrade.js";
+import { deferred } from "./testing/state.js";
 
 const SASH_PACKAGE_NAME = "@astralyn/sash";
 const REGISTRY = "https://registry.npmjs.org";
@@ -252,6 +255,49 @@ describe("Sash upgrade inspection", () => {
   });
 });
 
+describe("npm registry resolution", () => {
+  function stubRegistryEnv(t: TestContext, value: string | undefined): void {
+    const saved = process.env.npm_config_registry;
+    if (value === undefined) delete process.env.npm_config_registry;
+    else process.env.npm_config_registry = value;
+    t.after(() => {
+      if (saved === undefined) delete process.env.npm_config_registry;
+      else process.env.npm_config_registry = saved;
+    });
+  }
+
+  it("honors npm_config_registry, normalized without a trailing slash", async (t) => {
+    stubRegistryEnv(t, "https://registry.npmmirror.com/");
+    assert.equal(
+      await resolveNpmRegistry(process.execPath, async () => {
+        throw new Error("probe must not run when the environment overrides the registry");
+      }),
+      "https://registry.npmmirror.com",
+    );
+  });
+
+  it("asks npm when the environment does not override the registry", async (t) => {
+    stubRegistryEnv(t, undefined);
+    assert.equal(
+      await resolveNpmRegistry(process.execPath, async () => "https://npm.example.cn/"),
+      "https://npm.example.cn",
+    );
+  });
+
+  it("falls back to the default registry on unusable answers", async (t) => {
+    stubRegistryEnv(t, "not a url");
+    assert.equal(
+      await resolveNpmRegistry(process.execPath, async () => "also not a url"),
+      "https://registry.npmjs.org",
+    );
+    stubRegistryEnv(t, undefined);
+    assert.equal(
+      await resolveNpmRegistry(process.execPath, async () => undefined),
+      "https://registry.npmjs.org",
+    );
+  });
+});
+
 describe("Sash upgrade sequence", () => {
   function installation(t: TestContext): NpmInstallation {
     const prefix = tempRoot(t, "sash-upgrade-order-");
@@ -264,7 +310,16 @@ describe("Sash upgrade sequence", () => {
   }
 
   /** Records the order of the steps that must not be reordered. */
-  function recorder(running: boolean, calls: string[], options: { coreRunning?: boolean } = {}) {
+  function recorder(
+    running: boolean,
+    calls: string[],
+    options: {
+      coreRunning?: boolean;
+      failStart?: number;
+      autostartState?: AutostartStatus["state"];
+    } = {},
+  ) {
+    let startAttempts = 0;
     return {
       install: async (_installation: NpmInstallation, version: string) => {
         calls.push(`install ${version}`);
@@ -283,11 +338,19 @@ describe("Sash upgrade sequence", () => {
         return { wasRunning: true };
       },
       start: async () => {
+        startAttempts += 1;
         calls.push("start");
+        if (startAttempts <= (options.failStart ?? 0)) {
+          throw new Error("sashd did not become healthy");
+        }
         return {
           client: {
             startCore: async () => {
               calls.push("startCore");
+            },
+            setAutostart: async (enabled: boolean) => {
+              calls.push(`setAutostart ${enabled}`);
+              return { state: "on", canEnable: true };
             },
           },
         } as never;
@@ -295,6 +358,8 @@ describe("Sash upgrade sequence", () => {
       startCore: async () => {
         calls.push("startCore");
       },
+      inspectAutostart: async () =>
+        ({ state: options.autostartState ?? "off", canEnable: true }) as AutostartStatus,
     };
   }
 
@@ -323,6 +388,58 @@ describe("Sash upgrade sequence", () => {
     assert.deepEqual(calls, ["install 0.2.0", "stop", "start", "startCore"]);
     assert.equal(outcome.restarted, true);
     assert.equal(outcome.version, "0.2.0");
+    assert.equal(outcome.coreRestarted, true);
+    assert.equal(outcome.wasRunning, true);
+  });
+
+  it("reports a Core restart failure instead of hiding it", async (t) => {
+    const calls: string[] = [];
+    const deps = recorder(true, calls, { coreRunning: true });
+    deps.startCore = async () => {
+      calls.push("startCore");
+      throw new Error("proxy port 7890 is already in use");
+    };
+    const outcome = await executeSashUpgrade(installation(t), target, {}, deps);
+    assert.deepEqual(calls, ["install 0.2.0", "stop", "start", "startCore"]);
+    assert.equal(outcome.restarted, true);
+    assert.equal(outcome.coreRestarted, false);
+    assert.equal(outcome.coreRestartError, "proxy port 7890 is already in use");
+  });
+
+  it("announces the restart phases in order", async (t) => {
+    const calls: string[] = [];
+    const phases: string[] = [];
+    await executeSashUpgrade(
+      installation(t),
+      target,
+      { onPhase: (phase) => phases.push(phase) },
+      recorder(true, calls, { coreRunning: true }),
+    );
+    assert.deepEqual(phases, ["restarting", "starting-core"]);
+  });
+
+  it("refuses a concurrent upgrade instead of colliding inside npm", async (t) => {
+    const installEntered = deferred();
+    const finishInstall = deferred();
+    const first = executeSashUpgrade(
+      installation(t),
+      target,
+      {},
+      {
+        ...recorder(false, []),
+        install: async () => {
+          installEntered.resolve();
+          await finishInstall.promise;
+        },
+      },
+    );
+    await installEntered.promise;
+    await assert.rejects(
+      executeSashUpgrade(installation(t), target, {}, recorder(false, [])),
+      /another Sash upgrade is in progress/,
+    );
+    finishInstall.resolve();
+    await first;
   });
 
   it("restarts the daemon without starting Core when Core was stopped before upgrade", async (t) => {
@@ -336,6 +453,49 @@ describe("Sash upgrade sequence", () => {
     assert.deepEqual(calls, ["install 0.2.0", "stop", "start"]);
     assert.equal(outcome.restarted, true);
     assert.equal(outcome.version, "0.2.0");
+    assert.equal(outcome.coreRestarted, false);
+  });
+
+  it("rolls back to the previous version when the new daemon fails its health check", async (t) => {
+    const calls: string[] = [];
+    await assert.rejects(
+      executeSashUpgrade(installation(t), target, {}, recorder(true, calls, { failStart: 1 })),
+      /the upgraded Sash did not start: sashd did not become healthy — rolled back to Sash 0\.1\.7/,
+    );
+    assert.deepEqual(calls, ["install 0.2.0", "stop", "start", "install 0.1.7", "start"]);
+  });
+
+  it("reports a failed rollback with the manual recovery command", async (t) => {
+    const calls: string[] = [];
+    await assert.rejects(
+      executeSashUpgrade(installation(t), target, {}, recorder(true, calls, { failStart: 2 })),
+      /— the rollback to Sash 0\.1\.7 also failed: sashd did not become healthy; reinstall it manually: npm install -g @astralyn\/sash@0\.1\.7/,
+    );
+    assert.deepEqual(calls, ["install 0.2.0", "stop", "start", "install 0.1.7", "start"]);
+  });
+
+  it("repairs a stale start-at-login entry after the restart", async (t) => {
+    const calls: string[] = [];
+    const outcome = await executeSashUpgrade(
+      installation(t),
+      target,
+      {},
+      recorder(true, calls, { autostartState: "stale" }),
+    );
+    assert.deepEqual(calls, ["install 0.2.0", "stop", "start", "setAutostart true"]);
+    assert.equal(outcome.autostartRepaired, true);
+  });
+
+  it("leaves a healthy start-at-login entry alone", async (t) => {
+    const calls: string[] = [];
+    const outcome = await executeSashUpgrade(
+      installation(t),
+      target,
+      {},
+      recorder(true, calls, { autostartState: "on" }),
+    );
+    assert.deepEqual(calls, ["install 0.2.0", "stop", "start"]);
+    assert.equal(outcome.autostartRepaired, undefined);
   });
 
   it("leaves the running daemon alone with --no-restart", async (t) => {
@@ -355,5 +515,6 @@ describe("Sash upgrade sequence", () => {
     const outcome = await executeSashUpgrade(installation(t), target, {}, recorder(false, calls));
     assert.deepEqual(calls, ["install 0.2.0"]);
     assert.equal(outcome.restarted, false);
+    assert.equal(outcome.wasRunning, false);
   });
 });

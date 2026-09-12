@@ -2,7 +2,7 @@ import { writeCliDebug } from "../cli-errors.js";
 import { errorMessage } from "../error-utils.js";
 import { log } from "../log.js";
 import { exactSashVersion } from "../package-info.js";
-import { executeSashUpgrade, inspectSashUpgrade } from "../self-upgrade.js";
+import { executeSashUpgrade, inspectSashUpgrade, resolveNpmRegistry } from "../self-upgrade.js";
 
 export async function runUpgrade(
   version?: string,
@@ -10,7 +10,9 @@ export async function runUpgrade(
 ): Promise<void> {
   try {
     const exact = version === undefined ? undefined : exactSashVersion(version);
-    const { report, installation, target } = await inspectSashUpgrade(exact);
+    const { report, installation, target } = await inspectSashUpgrade(exact, {
+      registry: await resolveNpmRegistry(),
+    });
     const installable = installation.kind === "npm-global";
     if (options.check || !installable || !report.available || !report.compatible) {
       if (options.json) {
@@ -43,6 +45,17 @@ export async function runUpgrade(
     const outcome = await executeSashUpgrade(installation, target, {
       json: options.json === true,
       restart: options.restart !== false,
+      ...(options.json
+        ? {}
+        : {
+            onPhase: (phase) => {
+              process.stderr.write(
+                phase === "restarting"
+                  ? "[sash] Restarting Sash on the new version\n"
+                  : "[sash] Starting Core\n",
+              );
+            },
+          }),
     });
     if (options.json) {
       process.stdout.write(
@@ -50,16 +63,33 @@ export async function runUpgrade(
           outcome: "upgraded",
           version: outcome.version,
           restarted: outcome.restarted,
+          coreRestarted: outcome.coreRestarted,
+          autostartRepaired: outcome.autostartRepaired === true,
+          ...(outcome.coreRestartError !== undefined
+            ? { coreRestartError: outcome.coreRestartError }
+            : {}),
         })}\n`,
       );
     } else if (outcome.restarted) {
       log.ok(`Sash ${outcome.version} installed · the daemon restarted on it`);
+      if (outcome.autostartRepaired === true) log.info("start at login: repaired");
     } else {
       log.info(
-        `Sash ${outcome.version} installed · restart Sash to load it: sash stop && sash start`,
+        outcome.wasRunning
+          ? `Sash ${outcome.version} installed · restart Sash to load it: sash stop && sash start`
+          : `Sash ${outcome.version} installed · start Sash to load it: sash start`,
       );
     }
-    process.exitCode = 0;
+    if (outcome.coreRestartError !== undefined) {
+      if (!options.json) {
+        log.error(
+          `Core did not start on the new version: ${outcome.coreRestartError} — run sash logs for details, sash doctor to diagnose`,
+        );
+      }
+      process.exitCode = 1;
+    } else {
+      process.exitCode = 0;
+    }
   } catch (error) {
     if (!options.json) throw error;
     process.stdout.write(`${JSON.stringify({ outcome: "failed", error: errorMessage(error) })}\n`);
