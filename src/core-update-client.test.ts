@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { coreUpdateProgressText, updateCoreWithProgress } from "./core-update-client.js";
-import type { CoreUpdateProgress } from "./core-update-progress.js";
+import {
+  type CoreUpdateProgress,
+  coreUpdateProgressText,
+  updateCoreWithProgress,
+} from "./core-update.js";
 import { deferred } from "./testing/state.js";
 
 const progress: CoreUpdateProgress = {

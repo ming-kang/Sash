@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
-import { MihomoApi } from "./api.js";
 import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, validateDelayTarget } from "./core-delay.js";
-import { createDaemonClient } from "./daemon-client.js";
+import { MihomoApi } from "./mihomo-api.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, type FakeCoreSupervisor } from "./testing/state.js";
 

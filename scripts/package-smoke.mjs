@@ -123,7 +123,7 @@ function assertPackedFiles(files) {
     "dist/daemon-entry.js",
     "dist/autostart-entry.js",
     "dist/webui.js",
-    "dist/installation.js",
+    "dist/sash-installation.js",
     "dist/ui/index.html",
     "dist/ui/.vite/manifest.json",
   ];
@@ -208,7 +208,7 @@ try {
   assert.equal(fs.statSync(installedRoot).isDirectory(), true);
   assertNonEmptyFile(path.join(installedRoot, "dist", "ui", "index.html"));
   const { inspectInstallation } = await import(
-    pathToFileURL(path.join(installedRoot, "dist", "installation.js")).href
+    pathToFileURL(path.join(installedRoot, "dist", "sash-installation.js")).href
   );
   assert.equal(inspectInstallation().kind, "npm-global");
   assert.match(

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathsEqual } from "../installation.js";
+import { pathsEqual } from "../sash-installation.js";
 import {
   type AutostartBackend,
   type AutostartContext,

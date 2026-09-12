@@ -1,8 +1,7 @@
 import { once } from "node:events";
 import { cliOutputSignal } from "../cli-output.js";
 import { log } from "../log.js";
-import { followLogFile } from "../log-follow.js";
-import { readLogTail } from "../log-tail.js";
+import { followLogFile, readLogTail } from "../log-follow.js";
 import { sashLayout } from "../paths.js";
 
 /** Print the last N lines of logs; with follow, wait for and stream future files. */

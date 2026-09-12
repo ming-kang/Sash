@@ -13,10 +13,11 @@ import { DEFAULT_SETTINGS } from "./settings.js";
 import { CoreSupervisor } from "./supervisor.js";
 
 /**
- * Regression test for the restart race: when `restart()` stops the old core
- * and starts a new one, the old process's `exit` event may be dispatched
- * AFTER the new child handle is assigned. A stale exit must not clear the
- * new child, the new PID record, or fire the onExit callback.
+ * Regression test for the restart race: when the production restart path
+ * (stop() followed by start()) replaces the core, the old process's `exit`
+ * event may be dispatched AFTER the new child handle is assigned. A stale
+ * exit must not clear the new child, the new PID record, or fire the onExit
+ * callback.
  */
 test("restart: stale exit event from the replaced core does not clobber the new one", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-"));
@@ -68,7 +69,8 @@ test("restart: stale exit event from the replaced core does not clobber the new 
     const firstStatus = await supervisor.status();
     assert.equal(firstStatus.pid, first.pid);
 
-    const second = await supervisor.restart();
+    await supervisor.stop();
+    const second = await supervisor.start();
     assert.ok(second.pid);
     assert.notEqual(first.pid, second.pid);
 

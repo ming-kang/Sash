@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { SashStateStore } from "../app-state.js";
 import type { DaemonStatus, ProfileMeta } from "../contracts.js";
-import { currentCoreVersion } from "../core-install-record.js";
+import { currentCoreVersion } from "../core.js";
 import type { SashLayout } from "../paths.js";
 import { DEFAULT_SETTINGS, publicSettings, type SashSettings } from "../settings.js";
 import { type CoreOwnershipSnapshot, type CoreState, CoreSupervisor } from "../supervisor.js";
@@ -148,10 +148,6 @@ export class FakeCoreSupervisor extends CoreSupervisor {
     await this.onStop?.();
     this.running = false;
     this.ownership = {};
-  }
-  override async restart(): Promise<{ pid: number; version: string }> {
-    await this.stop();
-    return this.start();
   }
   override async cleanStaleCore(): Promise<void> {}
 }

@@ -1,4 +1,3 @@
-import { MihomoApi } from "./api.js";
 import type { CoreStartResult } from "./contracts.js";
 import type { StagedCore } from "./core.js";
 import {
@@ -8,6 +7,7 @@ import {
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
+import { MihomoApi } from "./mihomo-api.js";
 import type { GeneratedConfig } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import { recoverBinaryUnlockProbe } from "./process.js";

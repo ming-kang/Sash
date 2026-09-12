@@ -1,11 +1,10 @@
-import type { CoreUpdateProgress } from "./core-update-progress.js";
+import type { CoreUpdateProgress } from "./core-update.js";
 import { isPlainObject } from "./json-shape.js";
-import type { ProfileMeta, ProfilesIndex } from "./profile-model.js";
+import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy.js";
 
-export { parseProfilesIndex } from "./profile-model.js";
 export type { ProfileMeta, ProfilesIndex };
 export const WEB_SOCKET_AUTH_PROTOCOL = "sash";
 export const WEB_SOCKET_TOKEN_PROTOCOL_PREFIX = "sash-token.";
@@ -41,6 +40,12 @@ export interface CoreStartResult {
   version?: string;
   alreadyRunning?: boolean;
   mixedPort?: number;
+}
+
+export type RoutingMode = "rule" | "global" | "direct";
+
+export function isRoutingMode(value: unknown): value is RoutingMode {
+  return value === "rule" || value === "global" || value === "direct";
 }
 export interface CoreUpdateResponse {
   version: string;
@@ -114,6 +119,18 @@ export interface DaemonStatus {
 
 export function apiErrorBody(code: ApiErrorCode, message: string): ApiErrorBody {
   return { error: { code, message } };
+}
+
+/** HTTP failure from the daemon API, carrying the error-envelope fields. */
+export class SashApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | undefined,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SashApiError";
+  }
 }
 
 /** Error bodies may arrive as plain text; extract the daemon's code and message when present. */

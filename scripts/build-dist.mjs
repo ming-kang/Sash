@@ -9,15 +9,15 @@ const outDir = path.join(root, "dist");
 const REQUIRE_BANNER =
   'import { createRequire as __sashCreateRequire } from "node:module"; const require = __sashCreateRequire(import.meta.url);';
 
-// One self-contained single-file bundle per process entry. webui/installation
+// One self-contained single-file bundle per process entry. webui/sash-installation
 // are bundled as standalone modules because package-smoke imports them directly.
 // Rolldown preserves the source shebang itself; do not add one via banner.
 const entries = [
   { source: "src/cli.ts", output: "cli.js" },
-  { source: "src/daemon-entry.ts", output: "daemon-entry.js" },
+  { source: "src/daemon/entry.ts", output: "daemon-entry.js" },
   { source: "src/autostart-entry.ts", output: "autostart-entry.js" },
   { source: "src/webui.ts", output: "webui.js" },
-  { source: "src/installation.ts", output: "installation.js" },
+  { source: "src/sash-installation.ts", output: "sash-installation.js" },
 ];
 
 for (const entry of entries) {

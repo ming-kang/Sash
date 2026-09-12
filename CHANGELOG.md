@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidate internal modules with no behavior change: Core update check, progress, polling and transaction code live in one `core-update` module; Core binary, archive and install-record helpers moved into `core.ts`; log tailing merged into log following; the daemon entry shim merged into `daemon/entry`; profile metadata parsing merged into `profiles`; the misleadingly named `api`, `daemon-client` and `installation` modules are now `mihomo-api`, `sash-client-node` and `sash-installation`; `RoutingMode` is defined once in the shared API contracts.
+- Remove the unused `CoreSupervisor.restart` shortcut and the single-platform system-proxy factory.
+
 ## [0.2.4] - 2026-09-11
 
 ### Fixed

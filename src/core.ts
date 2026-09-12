@@ -1,15 +1,11 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { extractCoreArchive } from "./core-archive.js";
-import {
-  currentCoreVersion,
-  readInstallRecord,
-  validateCoreReleaseTag,
-  writeInstallRecord,
-} from "./core-install-record.js";
-import { pathEntryExists } from "./fs-atomic.js";
-
+import { type Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import zlib from "node:zlib";
+import { type Entry, openPromise, type ZipFile } from "yauzl";
+import { atomicWriteFileSync, pathEntryExists } from "./fs-atomic.js";
 import {
   downloadReleaseAsset,
   listReleaseAssets,
@@ -21,8 +17,8 @@ import { type SashLayout, sashLayout } from "./paths.js";
 import { buildSanitizedEnv } from "./process.js";
 
 /**
- * Mihomo core acquisition: platform asset selection, download, decompression,
- * and atomic install/update with rollback.
+ * Mihomo core acquisition: platform asset selection, verified download,
+ * decompression, install records, and atomic install/update with rollback.
  */
 
 export function goOsArch(
@@ -61,14 +57,147 @@ export function mihomoAssetCandidates(
   return [`mihomo-${os}-arm64-${tag}.${ext}`];
 }
 
-export type { InstallRecord } from "./core-install-record.js";
-export {
-  currentCoreVersion,
-  extractCoreArchive,
-  readInstallRecord,
-  validateCoreReleaseTag,
-  writeInstallRecord,
-};
+export const CORE_BINARY_SIZE_LIMIT = 512 * 1024 * 1024;
+
+/** Require a nonempty regular executable within the size limit. */
+export function assertCoreBinaryFile(file: string): void {
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.size === 0 || stat.size > CORE_BINARY_SIZE_LIMIT)
+    throw new Error(`Core binary must be a nonempty regular file within 512MB: ${file}`);
+}
+
+export interface InstallRecord {
+  coreVersion: string;
+}
+
+export function validateCoreReleaseTag(tag: string): string {
+  const normalized = tag.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(normalized)) {
+    throw new Error(`Invalid Core release tag: ${tag}`);
+  }
+  return normalized;
+}
+
+function toInstallRecord(value: unknown): InstallRecord {
+  const source = value as Record<string, unknown>;
+  return { coreVersion: validateCoreReleaseTag(String(source?.coreVersion ?? "")) };
+}
+
+/** Lenient read used for private journals and for the committed installation record. */
+export function parseInstallRecord(value: unknown): InstallRecord | undefined {
+  const source = value as Record<string, unknown> | null;
+  if (typeof source?.coreVersion !== "string") return undefined;
+  try {
+    return toInstallRecord(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Best-effort read; an unreadable record means "no Core installed". */
+export function readInstallRecord(layout: SashLayout = sashLayout()): InstallRecord | undefined {
+  try {
+    return parseInstallRecord(JSON.parse(fs.readFileSync(layout.installFile, "utf8")) as unknown);
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeInstallRecord(record: InstallRecord, layout: SashLayout = sashLayout()): void {
+  const normalized = toInstallRecord(record);
+  atomicWriteFileSync(layout.installFile, `${JSON.stringify(normalized, null, 2)}\n`);
+}
+
+/** Best-effort current Core version, read from the committed install record. */
+export function currentCoreVersion(layout: SashLayout = sashLayout()): string {
+  return readInstallRecord(layout)?.coreVersion ?? "";
+}
+
+function extractionLimiter(): Transform {
+  let bytes = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      bytes += chunk.length;
+      if (bytes > CORE_BINARY_SIZE_LIMIT) {
+        callback(new Error("Extracted binary exceeds 512MB safety limit"));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+}
+
+/** Read archive entries only; Sash exclusively creates and owns the output file. */
+export async function extractCoreArchive(
+  archivePath: string,
+  assetName: string,
+  destExe: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const extracted = `${destExe}.extracted`;
+  let created = false;
+  let zip: ZipFile | undefined;
+  let closed: Promise<void> | undefined;
+  let input: Readable | undefined;
+  const transforms: Transform[] = [];
+  try {
+    signal?.throwIfAborted();
+    if (!assetName.endsWith(".zip") && !assetName.endsWith(".gz"))
+      throw new Error(`Unsupported archive type: ${assetName}`);
+    if (assetName.endsWith(".zip")) {
+      zip = await openPromise(archivePath, {
+        autoClose: false,
+        strictFileNames: true,
+        validateEntrySizes: true,
+      });
+      closed = new Promise<void>((resolve) => zip?.once("close", resolve));
+      let executable: Entry | undefined;
+      // Scan every name before creating output, including entries after the executable.
+      for await (const entry of zip.eachEntry()) {
+        signal?.throwIfAborted();
+        if (
+          entry.fileName.split(/[\\/]/).includes("..") ||
+          /^(?:[\\/]|[A-Za-z]:)/.test(entry.fileName) ||
+          entry.fileName.includes("\0")
+        )
+          throw new Error("Core archive contains an unsafe path");
+        if (
+          !executable &&
+          !entry.fileName.endsWith("/") &&
+          /^mihomo.*\.exe$/i.test(path.posix.basename(entry.fileName))
+        )
+          executable = entry;
+      }
+      if (!executable) throw new Error(`No mihomo*.exe found inside ${assetName}`);
+      input = await zip.openReadStreamPromise(executable);
+    } else {
+      input = fs.createReadStream(archivePath);
+      transforms.push(zlib.createGunzip());
+    }
+    signal?.throwIfAborted();
+    const fd = fs.openSync(extracted, "wx", 0o755);
+    created = true;
+    let output: fs.WriteStream;
+    try {
+      output = fs.createWriteStream(extracted, { fd, autoClose: true });
+    } catch (error) {
+      fs.closeSync(fd);
+      throw error;
+    }
+    await pipeline([input, ...transforms, extractionLimiter(), output], { signal });
+    signal?.throwIfAborted();
+    fs.renameSync(extracted, destExe);
+  } catch (error) {
+    if (created) fs.rmSync(extracted, { force: true });
+    throw error;
+  } finally {
+    input?.destroy();
+    if (zip) {
+      zip.close();
+      await closed;
+    }
+  }
+}
 
 export interface CoreInstallOptions {
   signal?: AbortSignal;

@@ -8,7 +8,7 @@ import {
   inspectInstallation,
   npmPackageRoot,
   npmPrefixForPackage,
-} from "./installation.js";
+} from "./sash-installation.js";
 
 it("recognizes a direct npm prefix and refuses local and mismatched layouts", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-installation-test-"));

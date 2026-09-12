@@ -12,7 +12,6 @@ import {
   isProxyConnectionRefused,
   readErrorSummary,
 } from "./http.js";
-import { type Installation, inspectInstallation, type NpmInstallation } from "./installation.js";
 import {
   exactSashVersion,
   parseSashPackageInfo,
@@ -29,6 +28,11 @@ import {
   resolveRuntimeOwner,
   stopRuntime,
 } from "./runtime-owner.js";
+import {
+  type Installation,
+  inspectInstallation,
+  type NpmInstallation,
+} from "./sash-installation.js";
 
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const NPM_INSTALL_TIMEOUT_MS = 15 * 60_000;

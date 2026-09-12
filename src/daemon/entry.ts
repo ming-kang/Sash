@@ -1,8 +1,10 @@
+#!/usr/bin/env node
+import "../node-version-guard.js";
 import { errorMessage } from "../error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
-import { canonicalPath } from "../installation.js";
 import { currentPackageRoot } from "../package-info.js";
 import { type SashLayout, sashLayout } from "../paths.js";
+import { canonicalPath } from "../sash-installation.js";
 import { acquireStateLock } from "../state-lock.js";
 import type { DaemonInstance } from "./server.js";
 
@@ -13,7 +15,7 @@ export interface DaemonPidRecord {
 }
 
 /** The sole application writer. The data-directory lease admits one daemon at a time. */
-export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
+async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
   const layout = opts.layout ?? sashLayout();
   const packageRoot = canonicalPath(currentPackageRoot());
   const lease = await acquireStateLock(layout.daemonLeaseFile, {
@@ -83,3 +85,14 @@ export async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<voi
     }
   }
 }
+
+async function main(): Promise<void> {
+  try {
+    await runDaemon();
+  } catch (err) {
+    console.error(`[sashd] fatal: ${(err as Error).message}`);
+    process.exit(1);
+  }
+}
+
+await main();

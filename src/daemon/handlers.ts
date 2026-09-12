@@ -1,18 +1,18 @@
-import { MihomoApi } from "../api.js";
 import { parseAutostartEnabled } from "../autostart-contract.js";
-import type {
-  DaemonStatus,
-  HealthInfo,
-  SettingsPatch,
-  SystemProxyStatusResponse,
-  WebBootstrapInfo,
-  WebSessionInfo,
+import {
+  type DaemonStatus,
+  type HealthInfo,
+  isRoutingMode,
+  type SettingsPatch,
+  type SystemProxyStatusResponse,
+  type WebBootstrapInfo,
+  type WebSessionInfo,
 } from "../contracts.js";
-import { currentCoreVersion } from "../core.js";
+import { currentCoreVersion, validateCoreReleaseTag } from "../core.js";
 import { validateDelayTarget } from "../core-delay.js";
-import { validateCoreReleaseTag } from "../core-install-record.js";
 import { errorMessage } from "../error-utils.js";
 import { isPlainObject } from "../json-shape.js";
+import { MihomoApi } from "../mihomo-api.js";
 import { ProfileInputError } from "../profile-service.js";
 import { publicSettings } from "../settings.js";
 import type { SystemProxyState } from "../sysproxy.js";
@@ -76,10 +76,7 @@ export async function updateCore(ctx: DaemonContext, req: RouteRequest): Promise
 export async function setCoreMode(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
   const body = await req.readJson(1024);
   const mode = body.mode;
-  if (
-    Object.keys(body).some((key) => key !== "mode") ||
-    (mode !== "rule" && mode !== "global" && mode !== "direct")
-  )
+  if (Object.keys(body).some((key) => key !== "mode") || !isRoutingMode(mode))
     throw new HttpError(400, "Invalid routing mode");
   await ctx.gate.runLiveMutation(async () => {
     const owner = ctx.supervisor.ownedCoreSnapshot();

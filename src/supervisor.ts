@@ -2,9 +2,9 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { MihomoApi } from "./api.js";
-import { assertCoreBinaryFile } from "./core-binary.js";
+import { assertCoreBinaryFile } from "./core.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
+import { MihomoApi } from "./mihomo-api.js";
 import type { SashLayout } from "./paths.js";
 import type { ProcessIdentity } from "./process.js";
 import {
@@ -263,11 +263,6 @@ export class CoreSupervisor {
       this.childStartedAt = undefined;
       this.clearOwnedPidRecord(child);
     }
-  }
-
-  async restart(): Promise<{ pid: number; version?: string }> {
-    await this.stop();
-    return this.start();
   }
 
   /** Capture the currently live child so callers can detect replacement across awaits. */

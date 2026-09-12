@@ -13,6 +13,8 @@ import {
   type ProfilesUpdateAllResponse,
   type ProfileUpdateResponse,
   parseApiErrorBody,
+  type RoutingMode,
+  SashApiError,
   type SettingsPatch,
   type SettingsWriteResult,
   type SystemProxyStatusResponse,
@@ -20,12 +22,11 @@ import {
   type WebSessionInfo,
 } from "./contracts.js";
 import { CORE_DELAY_REQUEST_MS, type CoreDelayResult } from "./core-delay.js";
-import type { CoreUpdateProgress } from "./core-update-progress.js";
-import { SashApiError } from "./sash-api-error.js";
+import type { CoreUpdateProgress } from "./core-update.js";
 import { type DaemonEvent, decodeDaemonEvents } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
 
-export { SashApiError } from "./sash-api-error.js";
+export { SashApiError } from "./contracts.js";
 
 /**
  * Browser-safe client for the daemon-owned /sash/* HTTP API. Response bodies are
@@ -270,7 +271,7 @@ export class SashClient {
 
   /* ---- system proxy ---- */
 
-  async setMode(mode: "rule" | "global" | "direct"): Promise<void> {
+  async setMode(mode: RoutingMode): Promise<void> {
     await this.request("/sash/core/mode", { method: "PUT", body: { mode } });
   }
 

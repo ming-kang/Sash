@@ -4,9 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { it } from "node:test";
 import { MockAgent } from "undici";
-import { mihomoAssetCandidates } from "./core.js";
-import { writeInstallRecord } from "./core-install-record.js";
-import { checkCoreUpdate } from "./core-update-check.js";
+import { mihomoAssetCandidates, writeInstallRecord } from "./core.js";
+import { checkCoreUpdate } from "./core-update.js";
 import { proxyAwareDispatcher } from "./http.js";
 import { sashLayout } from "./paths.js";
 

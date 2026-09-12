@@ -4,12 +4,8 @@ import net from "node:net";
 import { describe, it } from "node:test";
 import YAML from "yaml";
 import { readState } from "./app-state.js";
-import {
-  type DaemonStatus,
-  type ProfileActionResponse,
-  type ProfileContentResponse,
-  parseProfilesIndex,
-} from "./contracts.js";
+import type { DaemonStatus, ProfileActionResponse, ProfileContentResponse } from "./contracts.js";
+import { parseProfilesIndex } from "./profiles.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred } from "./testing/state.js";
 

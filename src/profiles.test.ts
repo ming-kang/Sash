@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "./paths.js";
-import { parseProfilesIndex } from "./profile-model.js";
 import {
+  parseProfilesIndex,
   parseProfileText,
   profileDueForUpdate,
   profileFilePath,

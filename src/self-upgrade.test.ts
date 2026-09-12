@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, it, type TestContext } from "node:test";
 import { MockAgent } from "undici";
 import { directDispatcherForLoopback, proxyAwareDispatcher } from "./http.js";
-import { inspectInstallation, type NpmInstallation, npmPackageRoot } from "./installation.js";
+import { inspectInstallation, type NpmInstallation, npmPackageRoot } from "./sash-installation.js";
 import {
   executeSashUpgrade,
   inspectSashUpgrade,

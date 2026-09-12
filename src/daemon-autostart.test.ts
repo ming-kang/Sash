@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { describe, it } from "node:test";
 import { AutostartUnavailableError } from "./autostart.js";
 import type { AutostartStatus } from "./autostart-contract.js";
-import { createDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("autostart HTTP API", () => {

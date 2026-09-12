@@ -1,6 +1,6 @@
 import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, type CoreDelayResult } from "./core-delay.js";
-import { createDaemonClient } from "./daemon-client.js";
 import { errorDetail } from "./error-utils.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import type { CliRuntimeStatus, StatusObservationContext } from "./status.js";
 
 export type StatusDelayObservation =

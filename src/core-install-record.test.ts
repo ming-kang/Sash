@@ -8,7 +8,7 @@ import {
   parseInstallRecord,
   readInstallRecord,
   writeInstallRecord,
-} from "./core-install-record.js";
+} from "./core.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 
 describe("Core install record codec", () => {

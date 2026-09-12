@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { createDaemonClient } from "./daemon-client.js";
 import { readDaemonPidRecord } from "./daemon-lifecycle.js";
 import { SashApiError } from "./sash-client.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import type { DaemonEvent } from "./sash-events.js";
 import {
   type CliRuntimeStatus,

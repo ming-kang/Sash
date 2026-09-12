@@ -3,7 +3,7 @@ import { errorMessage } from "./error-utils.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { isPlainObject } from "./json-shape.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { type ProfilesIndex, parseProfilesIndex } from "./profile-model.js";
+import { type ProfilesIndex, parseProfilesIndex } from "./profiles.js";
 import {
   DEFAULT_SETTINGS,
   initialSettings,
@@ -84,6 +84,10 @@ export function readState(layout: SashLayout = sashLayout()): SashState | undefi
 
 export function loadSettings(layout: SashLayout = sashLayout()): SashSettings {
   return readState(layout)?.settings ?? { ...DEFAULT_SETTINGS };
+}
+
+export function loadProfiles(layout: SashLayout = sashLayout()): ProfilesIndex {
+  return readState(layout)?.profiles ?? { activeId: null, profiles: [] };
 }
 
 /** One canonical publication point, used only by the daemon owning the instance lease. */

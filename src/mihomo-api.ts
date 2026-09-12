@@ -1,3 +1,4 @@
+import type { RoutingMode } from "./contracts.js";
 import {
   CORE_DELAY_REQUEST_MS,
   CORE_DELAY_TIMEOUT_MS,
@@ -85,7 +86,7 @@ export class MihomoApi {
     if (typeof data.version === "string" && data.version.trim()) return data.version.trim();
     throw new Error("Mihomo /version response is missing a non-empty version");
   }
-  async setMode(mode: "rule" | "global" | "direct"): Promise<void> {
+  async setMode(mode: RoutingMode): Promise<void> {
     const response = await this.request("/configs", {
       method: "PATCH",
       body: JSON.stringify({ mode }),

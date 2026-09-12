@@ -5,7 +5,6 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadSettings } from "./app-state.js";
 import type { DaemonPidRecord } from "./daemon/entry.js";
-import { createDaemonClient } from "./daemon-client.js";
 import { isPlainObject } from "./json-shape.js";
 import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-follow.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -16,6 +15,7 @@ import {
   killProcessGracefully,
   withPrivateAppendLogFds,
 } from "./process.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import type { SashSettings } from "./settings.js";
 import { readStateLockRecord, withStateLock } from "./state-lock.js";
 
@@ -112,8 +112,8 @@ function resolveDaemonEntryPath(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidate = path.join(here, "daemon-entry.js");
   if (fs.existsSync(candidate)) return candidate;
-  // During tests / tsx execution, fallback to daemon-entry.ts
-  const tsCandidate = path.join(here, "daemon-entry.ts");
+  // During tests / tsx execution, fallback to daemon/entry.ts
+  const tsCandidate = path.join(here, "daemon", "entry.ts");
   if (fs.existsSync(tsCandidate)) return tsCandidate;
   return candidate;
 }

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { it } from "node:test";
-import { assertCoreBinaryFile } from "./core-binary.js";
+import { assertCoreBinaryFile } from "./core.js";
 
 it("requires a nonempty regular Core file", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-core-file-"));

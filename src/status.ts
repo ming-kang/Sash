@@ -1,8 +1,8 @@
+import { loadProfiles } from "./app-state.js";
 import { AutostartService } from "./autostart.js";
 import type { AutostartStatus } from "./autostart-contract.js";
 import type { DaemonStatus } from "./contracts.js";
 import { currentCoreVersion } from "./core.js";
-import { createDaemonClient } from "./daemon-client.js";
 import {
   type DaemonHealthyInfo,
   type DaemonRunningInfo,
@@ -10,7 +10,8 @@ import {
 } from "./daemon-lifecycle.js";
 import { errorDetail } from "./error-utils.js";
 import type { SashLayout } from "./paths.js";
-import { getActiveProfile, loadProfiles } from "./profiles.js";
+import { getActiveProfile } from "./profiles.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import type { SashSettings } from "./settings.js";
 import type { StatusDelayObservation } from "./status-delay.js";
 import type { SystemProxyState } from "./sysproxy.js";

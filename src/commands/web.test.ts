@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { createDaemonClient } from "../daemon-client.js";
 import { sashLayout } from "../paths.js";
 import type { HealthyRuntimeOwner } from "../runtime-owner.js";
+import { createDaemonClient } from "../sash-client-node.js";
 import { testSettings } from "../testing/state.js";
 import { runWeb, type WebCommandDeps } from "./web.js";
 

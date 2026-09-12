@@ -2,13 +2,12 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { readState, type SashState } from "./app-state.js";
-import { CORE_BINARY_SIZE_LIMIT } from "./core-binary.js";
-import { readInstallRecord } from "./core-install-record.js";
+import { CORE_BINARY_SIZE_LIMIT, readInstallRecord } from "./core.js";
 import { errorMessage } from "./error-utils.js";
 import { pathEntryExists } from "./fs-atomic.js";
-import { inspectInstallation } from "./installation.js";
 import { currentPackageRoot, readSashPackageInfo, supportsNode } from "./package-info.js";
 import { type SashLayout, sashLayout } from "./paths.js";
+import { inspectInstallation } from "./sash-installation.js";
 import { DEFAULT_SETTINGS, parseControllerAddress } from "./settings.js";
 import {
   type CliRuntimeStatus,

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { loadSettings } from "./app-state.js";
-import { createDaemonClient, type SashDaemonClient } from "./daemon-client.js";
+import type { RoutingMode } from "./contracts.js";
 import {
   type DaemonHealthyInfo,
   type DaemonStoppedInfo,
@@ -11,6 +11,7 @@ import {
 } from "./daemon-lifecycle.js";
 import { errorMessage } from "./error-utils.js";
 import type { SashLayout } from "./paths.js";
+import { createDaemonClient, type SashDaemonClient } from "./sash-client-node.js";
 import type { SashSettings } from "./settings.js";
 
 export interface RuntimeContext {
@@ -100,10 +101,7 @@ export async function stopCoreRuntime(
   return { managementRunning: true };
 }
 
-export async function setRuntimeMode(
-  ctx: RuntimeContext,
-  mode: "rule" | "global" | "direct",
-): Promise<void> {
+export async function setRuntimeMode(ctx: RuntimeContext, mode: RoutingMode): Promise<void> {
   const owner = await resolveRuntimeOwner(ctx);
   if (owner.kind !== "daemon")
     throw new Error(

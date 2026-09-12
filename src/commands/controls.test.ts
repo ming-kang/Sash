@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "../paths.js";
 import { isProcessAlive, runSanitizedCommandAsync } from "../process.js";
-import type { ProfilesIndex } from "../profile-model.js";
+import type { ProfilesIndex } from "../profiles.js";
 import { publicSettings } from "../settings.js";
 import { acquireStateLock } from "../state-lock.js";
 import { createTestState, testProfile, testSettings } from "../testing/state.js";

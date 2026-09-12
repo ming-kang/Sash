@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
-import { readInstallRecord, writeInstallRecord } from "./core-install-record.js";
+import { readInstallRecord, writeInstallRecord } from "./core.js";
 import {
   type CoreUpdateRuntime,
   type CoreUpdateTransaction,

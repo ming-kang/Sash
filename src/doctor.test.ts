@@ -4,10 +4,10 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { it } from "node:test";
-import { writeInstallRecord } from "./core-install-record.js";
+import { writeInstallRecord } from "./core.js";
 import { diagnoseSash, inspectListenerPort } from "./doctor.js";
-import { npmPackageRoot } from "./installation.js";
 import { sashLayout } from "./paths.js";
+import { npmPackageRoot } from "./sash-installation.js";
 import type { StatusObservationDependencies } from "./status.js";
 import { createTestState, testStatus } from "./testing/state.js";
 

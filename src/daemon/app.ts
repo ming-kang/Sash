@@ -11,8 +11,12 @@ import {
   stageCore,
 } from "../core.js";
 import { isGeodataDownloadFailure, validateCoreConfig } from "../core-config-validation.js";
-import { type CoreUpdateResult, readCoreUpdateTransaction } from "../core-update.js";
-import type { CoreUpdateProgress, CoreUpdateStage } from "../core-update-progress.js";
+import {
+  type CoreUpdateProgress,
+  type CoreUpdateResult,
+  type CoreUpdateStage,
+  readCoreUpdateTransaction,
+} from "../core-update.js";
 import { errorMessage } from "../error-utils.js";
 import {
   type GeneratedConfig,

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { describe, it } from "node:test";
-import { MihomoApi } from "./api.js";
 import { ERROR_BODY_LIMIT } from "./http.js";
+import { MihomoApi } from "./mihomo-api.js";
 import { fetchSubscriptionProfile } from "./mihomo-config.js";
 
 describe("MihomoApi", () => {

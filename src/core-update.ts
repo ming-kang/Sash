@@ -1,12 +1,16 @@
 import fs from "node:fs";
-import type { StagedCore } from "./core.js";
-import { assertCoreBinaryFile } from "./core-binary.js";
+import { setTimeout as delay } from "node:timers/promises";
+import type { CoreUpdateResponse } from "./contracts.js";
 import {
+  assertCoreBinaryFile,
+  currentCoreVersion,
   type InstallRecord,
   parseInstallRecord,
   readInstallRecord,
+  resolveCoreRelease,
+  type StagedCore,
   writeInstallRecord,
-} from "./core-install-record.js";
+} from "./core.js";
 import { errorMessage } from "./error-utils.js";
 import {
   atomicWriteFileSync,
@@ -14,9 +18,29 @@ import {
   durableRenameSync,
   pathEntryExists,
 } from "./fs-atomic.js";
+import { parseSha256Digest, RELEASE_ASSET_SIZE_LIMIT, selectReleaseAsset } from "./github.js";
 import { isPlainObject } from "./json-shape.js";
 import type { SashLayout } from "./paths.js";
 import { waitForBinaryUnlocked } from "./process.js";
+import type { SashDaemonClient } from "./sash-client-node.js";
+
+export type CoreUpdateStage =
+  | "checking"
+  | "resolving"
+  | "downloading"
+  | "extracting"
+  | "verifying"
+  | "validating"
+  | "waiting"
+  | "installing";
+export interface CoreUpdateProgress {
+  stage: CoreUpdateStage;
+  startedAt: string;
+  target: string | null;
+  downloading: boolean;
+  downloaded: number;
+  total: number | null;
+}
 
 /** The only upgrade journal: executable and install metadata, never profiles or settings. */
 export interface CoreUpdateTransaction {
@@ -41,6 +65,13 @@ export interface CoreUpdateOptions {
 
 export interface CoreUpdateResult {
   version: string;
+}
+
+export interface CoreUpdateCheck {
+  current: string | null;
+  target: string;
+  available: boolean;
+  asset: string;
 }
 
 /**
@@ -186,5 +217,79 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
       });
     }
     throw error;
+  }
+}
+
+/** Read release metadata only; checking never starts management or downloads an archive. */
+export async function checkCoreUpdate(
+  layout: SashLayout,
+  version?: string,
+  signal?: AbortSignal,
+): Promise<CoreUpdateCheck> {
+  const current = currentCoreVersion(layout) || null;
+  const { tag, assets, candidates } = await resolveCoreRelease({
+    ...(version !== undefined ? { tag: version } : {}),
+    ...(signal !== undefined ? { signal } : {}),
+  });
+  const asset = selectReleaseAsset(assets, candidates);
+  if (!asset)
+    throw new Error(
+      `No compatible Core artifact is available for ${process.platform}/${process.arch} at ${tag}`,
+    );
+  if (asset.size > RELEASE_ASSET_SIZE_LIMIT)
+    throw new Error("Core release exceeds the download size limit");
+  parseSha256Digest(asset.digest);
+  return { current, target: tag, available: current !== tag, asset: asset.name };
+}
+
+const STAGE_TEXT: Record<CoreUpdateStage, string> = {
+  checking: "Checking Core installation",
+  resolving: "Checking the Core release",
+  downloading: "Downloading Core",
+  extracting: "Extracting Core",
+  verifying: "Verifying the Core executable",
+  validating: "Validating the runtime configuration",
+  waiting: "Waiting for pending operations",
+  installing: "Installing and verifying Core; restoring runtime state",
+};
+
+export function coreUpdateProgressText(progress: CoreUpdateProgress): string {
+  const target = progress.target ? ` (${progress.target})` : "";
+  const bytes = progress.downloading
+    ? `: ${(progress.downloaded / 1048576).toFixed(1)}${progress.total ? ` / ${(progress.total / 1048576).toFixed(1)}` : ""} MiB`
+    : "";
+  return `${STAGE_TEXT[progress.stage]}${target}${bytes}`;
+}
+
+/** Supplemental progress reads never retry or determine the outcome of the mutation. */
+export async function updateCoreWithProgress(
+  client: Pick<SashDaemonClient, "updateCore" | "coreUpdateProgress">,
+  version?: string,
+  onProgress?: (progress: CoreUpdateProgress) => void,
+): Promise<CoreUpdateResponse> {
+  if (!onProgress) return client.updateCore(version);
+  const controller = new AbortController();
+  const updating = client.updateCore(version);
+  const watching = (async () => {
+    while (!controller.signal.aborted) {
+      try {
+        await delay(500, undefined, { signal: controller.signal });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        throw error;
+      }
+      try {
+        const progress = await client.coreUpdateProgress();
+        if (!controller.signal.aborted && progress) onProgress(progress);
+      } catch {
+        // Progress errors do not affect the update request.
+      }
+    }
+  })();
+  try {
+    return await updating;
+  } finally {
+    controller.abort();
+    await watching;
   }
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { describe, it } from "node:test";
-import { createDaemonClient } from "./daemon-client.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import { testProfile } from "./testing/state.js";
 
 describe("daemon client mutation requests", () => {

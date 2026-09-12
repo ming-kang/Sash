@@ -1,7 +1,6 @@
 import { commandOutput } from "../cli-output.js";
-import { validateCoreReleaseTag } from "../core-install-record.js";
-import { checkCoreUpdate } from "../core-update-check.js";
-import { coreUpdateProgressText, updateCoreWithProgress } from "../core-update-client.js";
+import { validateCoreReleaseTag } from "../core.js";
+import { checkCoreUpdate, coreUpdateProgressText, updateCoreWithProgress } from "../core-update.js";
 import { log } from "../log.js";
 import { sashLayout } from "../paths.js";
 import { ensureManagement } from "../runtime-owner.js";

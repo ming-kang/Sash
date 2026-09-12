@@ -3,10 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { createDaemonClient } from "./daemon-client.js";
 import { sashLayout } from "./paths.js";
 import type { RuntimeContext } from "./runtime-owner.js";
 import { resolveRuntimeOwner } from "./runtime-owner.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import { createTestState, testSettings } from "./testing/state.js";
 
 describe("resolveRuntimeOwner", () => {

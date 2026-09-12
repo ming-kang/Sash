@@ -1,5 +1,5 @@
-import type { ProfileMeta, ProfilesIndex } from "./profile-model.js";
-import { getActiveProfile, loadProfiles } from "./profiles.js";
+import { loadProfiles } from "./app-state.js";
+import { getActiveProfile, type ProfileMeta, type ProfilesIndex } from "./profiles.js";
 import { ensureManagement, type RuntimeContext, resolveRuntimeOwner } from "./runtime-owner.js";
 
 /** IDs are unambiguous; display names must match exactly and uniquely. */

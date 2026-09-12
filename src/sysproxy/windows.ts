@@ -1,8 +1,9 @@
 import { findExecutableOnPath, windowsSystemExecutable } from "../process.js";
 import { formatHostPort, normalizeEnableOptions, parseProxyString, runCmd } from "./common.js";
-import { windowsSnapshot } from "./snapshot.js";
+import { snapshotsCompatible, snapshotsEquivalent, windowsSnapshot } from "./snapshot.js";
 import type {
   EnableOptions,
+  SystemProxyBackend,
   SystemProxySnapshot,
   SystemProxyState,
   WindowsRegistryProxyValues,
@@ -296,4 +297,40 @@ export function windowsState(value: unknown): SystemProxyState {
     };
   }
   return { supported: true, enabled: false };
+}
+
+/**
+ * The system-proxy backend for this platform. Windows is the only supported
+ * desktop integration; other platforms get an unsupported null object so the
+ * rest of Sash keeps working without system-proxy control.
+ */
+export function createSystemProxyBackend(
+  platform: NodeJS.Platform = process.platform,
+): SystemProxyBackend {
+  if (platform === "win32")
+    return {
+      supported: true,
+      capture: captureWindowsSnapshot,
+      createTarget: createWindowsTarget,
+      apply: applyWindowsSnapshot,
+      equivalent: snapshotsEquivalent,
+      compatible: snapshotsCompatible,
+      state: windowsState,
+    };
+  const unavailable = (): never => {
+    throw new Error("System proxy integration is available on Windows only");
+  };
+  return {
+    supported: false,
+    capture: async () => unavailable(),
+    createTarget: unavailable,
+    apply: async () => unavailable(),
+    equivalent: snapshotsEquivalent,
+    compatible: snapshotsCompatible,
+    state: () => ({
+      supported: false,
+      enabled: false,
+      details: "System proxy integration is available on Windows only",
+    }),
+  };
 }

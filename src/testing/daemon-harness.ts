@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
 import type { AutostartController } from "../autostart.js";
-import { writeInstallRecord } from "../core-install-record.js";
+import { writeInstallRecord } from "../core.js";
 import type { DaemonDeps } from "../daemon/app.js";
 import type { DaemonScheduler } from "../daemon/scheduler.js";
 import { createDaemonServer, type DaemonInstance } from "../daemon/server.js";

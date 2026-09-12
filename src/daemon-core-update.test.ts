@@ -3,9 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { DaemonStatus } from "./contracts.js";
-import { readInstallRecord } from "./core-install-record.js";
-import { readCoreUpdateTransaction } from "./core-update.js";
-import type { CoreUpdateProgress } from "./core-update-progress.js";
+import { readInstallRecord } from "./core.js";
+import { type CoreUpdateProgress, readCoreUpdateTransaction } from "./core-update.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
