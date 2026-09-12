@@ -16,6 +16,10 @@ export class HttpError extends Error {
 
 export type JsonObject = Record<string, unknown>;
 
+export function routePath(pathname: string): URLPattern {
+  return new URLPattern({ pathname });
+}
+
 export function requiredParam(
   req: { params: Record<string, string | undefined> },
   name: string,

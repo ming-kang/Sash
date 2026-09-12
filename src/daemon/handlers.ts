@@ -15,9 +15,180 @@ import { MihomoApi } from "../mihomo-api.js";
 import { ProfileInputError } from "../profile-service.js";
 import { publicSettings } from "../settings.js";
 import type { DaemonContext } from "./context.js";
-import { HttpError, requiredParam } from "./http.js";
-import type { RouteRequest, RouteResponse } from "./router.js";
+import { HttpError, requiredParam, routePath } from "./http.js";
+import type { RouteDef, RouteRequest, RouteResponse } from "./router.js";
 import { readDaemonStatus } from "./status.js";
+
+/* Route table: one declarative row per endpoint; the dispatch engine lives in router.ts. */
+export function sashApiRoutes(): readonly RouteDef[] {
+  return [
+    {
+      methods: ["GET"],
+      pattern: routePath("/sash/daemon/health"),
+      auth: "public",
+      handler: health,
+    },
+    {
+      methods: ["GET"],
+      pattern: routePath("/sash/daemon/status"),
+      auth: "public",
+      handler: daemonStatus,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/daemon/shutdown"),
+      auth: "control",
+      handler: shutdownDaemon,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/web/bootstrap"),
+      auth: "control",
+      handler: createWebBootstrap,
+    },
+    // The bootstrap exchange itself is public: the one-time token in the
+    // request body is the credential being redeemed.
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/web/session"),
+      auth: "public",
+      handler: redeemWebBootstrap,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/core/start"),
+      auth: "control",
+      handler: startCore,
+    },
+    {
+      methods: ["PUT"],
+      pattern: routePath("/sash/core/mode"),
+      auth: "control",
+      handler: setCoreMode,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/core/delay"),
+      auth: "control",
+      handler: testCoreDelay,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/core/stop"),
+      auth: "control",
+      handler: stopCore,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/core/restart"),
+      auth: "control",
+      handler: restartCore,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/core/update"),
+      auth: "control",
+      handler: updateCore,
+    },
+    {
+      methods: ["GET"],
+      pattern: routePath("/sash/core/update"),
+      auth: "control",
+      handler: coreUpdateProgress,
+    },
+    { methods: ["GET"], pattern: routePath("/sash/proxy"), auth: "public", handler: proxyStatus },
+    {
+      methods: ["GET"],
+      pattern: routePath("/sash/autostart"),
+      auth: "control",
+      handler: readAutostart,
+    },
+    {
+      methods: ["PUT"],
+      pattern: routePath("/sash/autostart"),
+      auth: "control",
+      handler: writeAutostart,
+    },
+    {
+      methods: ["GET"],
+      pattern: routePath("/sash/settings"),
+      auth: "control",
+      handler: readSettings,
+    },
+    {
+      methods: ["PATCH"],
+      pattern: routePath("/sash/settings"),
+      auth: "control",
+      handler: patchSettings,
+    },
+    {
+      methods: ["GET"],
+      pattern: routePath("/sash/profiles"),
+      auth: "control",
+      handler: listProfiles,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/profiles"),
+      auth: "control",
+      handler: addProfile,
+    },
+    {
+      methods: ["PUT"],
+      pattern: routePath("/sash/profiles/order"),
+      auth: "control",
+      handler: reorderProfiles,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/profiles/import"),
+      auth: "control",
+      handler: importProfile,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/profiles/update-all"),
+      auth: "control",
+      handler: updateAllProfiles,
+    },
+    {
+      methods: ["PUT"],
+      pattern: routePath("/sash/profiles/active"),
+      auth: "control",
+      handler: activateProfile,
+    },
+    {
+      methods: ["POST"],
+      pattern: routePath("/sash/profiles/:id([0-9]+)/update"),
+      auth: "control",
+      handler: updateProfile,
+    },
+    {
+      methods: ["GET"],
+      pattern: routePath("/sash/profiles/:id([0-9]+)/content"),
+      auth: "control",
+      handler: readProfileContent,
+    },
+    {
+      methods: ["PUT"],
+      pattern: routePath("/sash/profiles/:id([0-9]+)/content"),
+      auth: "control",
+      handler: writeProfileContent,
+    },
+    {
+      methods: ["PATCH"],
+      pattern: routePath("/sash/profiles/:id([0-9]+)"),
+      auth: "control",
+      handler: renameProfile,
+    },
+    {
+      methods: ["DELETE"],
+      pattern: routePath("/sash/profiles/:id([0-9]+)"),
+      auth: "control",
+      handler: removeProfile,
+    },
+  ];
+}
 
 /* ── autostart ── */
 

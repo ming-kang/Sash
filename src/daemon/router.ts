@@ -9,37 +9,8 @@ import {
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
 import { streamDaemonEvents } from "./events.js";
-import {
-  activateProfile,
-  addProfile,
-  coreUpdateProgress,
-  createWebBootstrap,
-  daemonStatus,
-  health,
-  importProfile,
-  listProfiles,
-  patchSettings,
-  proxyStatus,
-  readAutostart,
-  readProfileContent,
-  readSettings,
-  redeemWebBootstrap,
-  removeProfile,
-  renameProfile,
-  reorderProfiles,
-  restartCore,
-  setCoreMode,
-  shutdownDaemon,
-  startCore,
-  stopCore,
-  testCoreDelay,
-  updateAllProfiles,
-  updateCore,
-  updateProfile,
-  writeAutostart,
-  writeProfileContent,
-} from "./handlers.js";
-import { type JsonObject, parseJsonObjectBody, sendError, sendJson } from "./http.js";
+import { sashApiRoutes } from "./handlers.js";
+import { type JsonObject, parseJsonObjectBody, routePath, sendError, sendJson } from "./http.js";
 import { forwardHttpToCore } from "./proxy.js";
 import { serveStaticUi } from "./static.js";
 
@@ -136,149 +107,36 @@ export interface RouteDef {
   readonly raw?: RawRouteHandler;
 }
 
-function path(pathname: string): URLPattern {
-  return new URLPattern({ pathname });
-}
-
 const CORE_API_PREFIX = "/core/api";
 
 /** The whole daemon HTTP surface, in matching order. */
 export function buildRoutes(): readonly RouteDef[] {
   return [
-    { methods: ["GET"], pattern: path("/sash/daemon/health"), auth: "public", handler: health },
-    { methods: ["GET"], pattern: path("/sash/events"), auth: "control", raw: streamDaemonEvents },
+    ...sashApiRoutes(),
     {
       methods: ["GET"],
-      pattern: path("/sash/daemon/status"),
-      auth: "public",
-      handler: daemonStatus,
-    },
-    {
-      methods: ["POST"],
-      pattern: path("/sash/daemon/shutdown"),
+      pattern: routePath("/sash/events"),
       auth: "control",
-      handler: shutdownDaemon,
-    },
-    {
-      methods: ["POST"],
-      pattern: path("/sash/web/bootstrap"),
-      auth: "control",
-      handler: createWebBootstrap,
-    },
-    // The bootstrap exchange itself is public: the one-time token in the
-    // request body is the credential being redeemed.
-    {
-      methods: ["POST"],
-      pattern: path("/sash/web/session"),
-      auth: "public",
-      handler: redeemWebBootstrap,
-    },
-    { methods: ["POST"], pattern: path("/sash/core/start"), auth: "control", handler: startCore },
-    { methods: ["PUT"], pattern: path("/sash/core/mode"), auth: "control", handler: setCoreMode },
-    {
-      methods: ["POST"],
-      pattern: path("/sash/core/delay"),
-      auth: "control",
-      handler: testCoreDelay,
-    },
-    { methods: ["POST"], pattern: path("/sash/core/stop"), auth: "control", handler: stopCore },
-    {
-      methods: ["POST"],
-      pattern: path("/sash/core/restart"),
-      auth: "control",
-      handler: restartCore,
-    },
-    {
-      methods: ["POST"],
-      pattern: path("/sash/core/update"),
-      auth: "control",
-      handler: updateCore,
-    },
-    {
-      methods: ["GET"],
-      pattern: path("/sash/core/update"),
-      auth: "control",
-      handler: coreUpdateProgress,
-    },
-    { methods: ["GET"], pattern: path("/sash/proxy"), auth: "public", handler: proxyStatus },
-    { methods: ["GET"], pattern: path("/sash/autostart"), auth: "control", handler: readAutostart },
-    {
-      methods: ["PUT"],
-      pattern: path("/sash/autostart"),
-      auth: "control",
-      handler: writeAutostart,
-    },
-    { methods: ["GET"], pattern: path("/sash/settings"), auth: "control", handler: readSettings },
-    {
-      methods: ["PATCH"],
-      pattern: path("/sash/settings"),
-      auth: "control",
-      handler: patchSettings,
-    },
-    { methods: ["GET"], pattern: path("/sash/profiles"), auth: "control", handler: listProfiles },
-    { methods: ["POST"], pattern: path("/sash/profiles"), auth: "control", handler: addProfile },
-    {
-      methods: ["PUT"],
-      pattern: path("/sash/profiles/order"),
-      auth: "control",
-      handler: reorderProfiles,
-    },
-    {
-      methods: ["POST"],
-      pattern: path("/sash/profiles/import"),
-      auth: "control",
-      handler: importProfile,
-    },
-    {
-      methods: ["POST"],
-      pattern: path("/sash/profiles/update-all"),
-      auth: "control",
-      handler: updateAllProfiles,
-    },
-    {
-      methods: ["PUT"],
-      pattern: path("/sash/profiles/active"),
-      auth: "control",
-      handler: activateProfile,
-    },
-    {
-      methods: ["POST"],
-      pattern: path("/sash/profiles/:id([0-9]+)/update"),
-      auth: "control",
-      handler: updateProfile,
-    },
-    {
-      methods: ["GET", "PUT"],
-      pattern: path("/sash/profiles/:id([0-9]+)/content"),
-      auth: "control",
-      handler: (ctx, req) =>
-        req.method === "PUT" ? writeProfileContent(ctx, req) : readProfileContent(ctx, req),
-    },
-    {
-      methods: ["PATCH", "DELETE"],
-      pattern: path("/sash/profiles/:id([0-9]+)"),
-      auth: "control",
-      handler: (ctx, req) =>
-        req.method === "DELETE" ? removeProfile(ctx, req) : renameProfile(ctx, req),
+      raw: streamDaemonEvents,
     },
     // The Core gateway proxies everything under /core/api/* straight to the
     // external controller. Two patterns: URLPattern wildcards do not match the
     // bare prefix itself.
     {
       methods: "*",
-      pattern: path(CORE_API_PREFIX),
+      pattern: routePath(CORE_API_PREFIX),
       auth: "gateway",
       raw: forwardToCore,
     },
     {
       methods: "*",
-      pattern: path(`${CORE_API_PREFIX}/*`),
+      pattern: routePath(`${CORE_API_PREFIX}/*`),
       auth: "gateway",
       raw: forwardToCore,
     },
     {
       methods: ["GET", "HEAD"],
-      pattern: path("/"),
+      pattern: routePath("/"),
       auth: "public",
       handler: (_ctx, req) => ({ status: 302, location: `/ui/${req.search}` }),
     },
@@ -287,19 +145,18 @@ export function buildRoutes(): readonly RouteDef[] {
     // trailing slashes and could not tell the two apart).
     {
       methods: ["GET", "HEAD"],
-      pattern: path("/ui"),
+      pattern: routePath("/ui"),
       auth: "public",
       raw: serveUiIndexOrRedirect,
     },
     {
       methods: ["GET", "HEAD"],
-      pattern: path("/ui/*"),
+      pattern: routePath("/ui/*"),
       auth: "public",
       raw: serveUiAsset,
     },
   ];
 }
-
 async function forwardToCore(
   ctx: DaemonContext,
   req: IncomingMessage,
