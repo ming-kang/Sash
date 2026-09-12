@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The dashboard's Stop Core now asks for confirmation like Apply does; a single misclick no longer drops every proxied connection.
+- A dedicated toast reports renames, and profile loading shows a spinner with a retry on failure instead of flashing the empty state.
+
+### Changed
+
+- Dashboard notifications: identical messages fold into one toast with a repeat counter, the stack caps at five, non-error kinds auto-dismiss along a visible timer that pauses on hover or focus, and partial latency-sweep or update-all failures report as auto-dismissing warnings instead of permanent errors. Closing one connection no longer toasts; the row vanishing is the feedback.
+- Mode and node switches show an in-flight spinner on the clicked control instead of only disabling the group.
+- Copy pass across CLI and both dashboard locales: prose says "Sash" and "Core" (never daemon/sashd/management), next steps follow " — ", PIDs stay in --json, `sash update`/`sash upgrade` say "up to date", and single sentences dropped trailing periods.
+- Empty states distinguish "Core is not running", loading and no filter matches on the proxy, connections and rules pages; the logs page says when the Core is stopped instead of listening forever.
+
+### Fixed
+
+- `sash profile list` printed every profile on one line; each profile gets its own line again.
+- Error toasts no longer hide behind the rename dialog; the toast layer is topmost.
+- An invalid proxy port shows an inline hint instead of silently refusing to save, and the profiles download field rejects non-http(s) input up front.
+
 ## [0.2.6] - 2026-09-12
 
 ### Added
