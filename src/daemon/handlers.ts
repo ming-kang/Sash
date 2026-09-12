@@ -1,4 +1,4 @@
-import { parseAutostartEnabled } from "../autostart-contract.js";
+import { parseAutostartEnabled } from "../autostart/contract.js";
 import {
   type DaemonStatus,
   type HealthInfo,

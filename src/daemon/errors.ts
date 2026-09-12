@@ -1,4 +1,4 @@
-import { AutostartUnavailableError } from "../autostart.js";
+import { AutostartUnavailableError } from "../autostart/service.js";
 import type { ApiErrorCode } from "../contracts.js";
 import { errorMessage } from "../error-utils.js";
 import {

@@ -1,4 +1,4 @@
-import { hasExactOwnKeys, isPlainObject } from "./json-shape.js";
+import { hasExactOwnKeys, isPlainObject } from "../json-shape.js";
 
 export type AutostartState = "on" | "off" | "stale" | "disabled" | "unknown" | "unsupported";
 export type RegisteredAutostartState = Exclude<AutostartState, "unknown" | "unsupported">;

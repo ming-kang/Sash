@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { effectScope, nextTick, ref } from "vue";
-import type { AutostartStatus } from "../../../src/autostart-contract.js";
+import type { AutostartStatus } from "../../../src/autostart/contract.js";
 import { api } from "../api/index.js";
 import { useAutostart } from "./autostart.js";
 

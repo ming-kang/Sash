@@ -1,6 +1,6 @@
-import "./node-version-guard.js";
-import { startAtLogin } from "./autostart/start.js";
-import { errorMessage } from "./error-utils.js";
+import "../node-version-guard.js";
+import { errorMessage } from "../error-utils.js";
+import { startAtLogin } from "./start.js";
 
 try {
   await startAtLogin();

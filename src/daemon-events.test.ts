@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { request } from "undici";
-import type { AutostartStatus } from "./autostart-contract.js";
+import type { AutostartStatus } from "./autostart/contract.js";
 import { DaemonEvents } from "./daemon/events.js";
 import { directDispatcherForLoopback } from "./http.js";
 import { createDaemonClient } from "./sash-client-node.js";

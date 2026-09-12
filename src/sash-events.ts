@@ -1,4 +1,4 @@
-import type { AutostartStatus } from "./autostart-contract.js";
+import type { AutostartStatus } from "./autostart/contract.js";
 import type { DaemonStatus } from "./contracts.js";
 
 export interface DaemonEvent {

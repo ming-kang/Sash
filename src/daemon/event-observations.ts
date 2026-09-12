@@ -1,4 +1,4 @@
-import type { AutostartStatus } from "../autostart-contract.js";
+import type { AutostartStatus } from "../autostart/contract.js";
 import { errorMessage } from "../error-utils.js";
 import type { DaemonContext } from "./context.js";
 import { readDaemonStatus } from "./handlers.js";

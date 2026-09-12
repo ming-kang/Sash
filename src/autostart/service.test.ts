@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { AutostartService } from "./autostart.js";
-import type { RegisteredAutostartState } from "./autostart-contract.js";
-import { testAutostartContext } from "./testing/autostart-context.js";
+import { testAutostartContext } from "../testing/autostart-context.js";
 import {
   type FakeWindowsRegistration,
   fakeWindowsRegistryRun,
-} from "./testing/windows-registry.js";
+} from "../testing/windows-registry.js";
+import type { RegisteredAutostartState } from "./contract.js";
+import { AutostartService } from "./service.js";
 
 describe("AutostartService", () => {
   it("reports a stale login startup when the Node path changed", async (t) => {

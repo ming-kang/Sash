@@ -1,17 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
+import { errorMessage } from "../error-utils.js";
+import { assertAbsolutePath, inspectInstallation } from "../sash-installation.js";
+import { StateMutationQueue } from "../state-lock.js";
 import {
   type AutostartBackend,
   type AutostartContext,
   type AutostartOptions,
   assertLauncherValue,
   autostartContext,
-} from "./autostart/context.js";
-import { windowsAutostart } from "./autostart/windows.js";
-import type { AutostartStatus } from "./autostart-contract.js";
-import { errorMessage } from "./error-utils.js";
-import { assertAbsolutePath, inspectInstallation } from "./sash-installation.js";
-import { StateMutationQueue } from "./state-lock.js";
+} from "./context.js";
+import type { AutostartStatus } from "./contract.js";
+import { windowsAutostart } from "./windows.js";
 
 const INSTALL_HINT = "needs a global installation — run npm install -g @astralyn/sash to enable it";
 

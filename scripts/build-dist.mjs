@@ -15,7 +15,7 @@ const REQUIRE_BANNER =
 const entries = [
   { source: "src/cli.ts", output: "cli.js" },
   { source: "src/daemon/entry.ts", output: "daemon-entry.js" },
-  { source: "src/autostart-entry.ts", output: "autostart-entry.js" },
+  { source: "src/autostart/entry.ts", output: "autostart-entry.js" },
   { source: "src/webui.ts", output: "webui.js" },
   { source: "src/sash-installation.ts", output: "sash-installation.js" },
 ];

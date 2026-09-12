@@ -2,10 +2,10 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { RegisteredAutostartState } from "../autostart-contract.js";
 import { currentPackageRoot } from "../package-info.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import { buildSanitizedEnv } from "../process.js";
+import type { RegisteredAutostartState } from "./contract.js";
 
 export interface CommandResult {
   code: number;

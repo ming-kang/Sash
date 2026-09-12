@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
-import type { AutostartController } from "../autostart.js";
+import type { AutostartController } from "../autostart/service.js";
 import { writeInstallRecord } from "../core.js";
 import type { DaemonDeps } from "../daemon/app.js";
 import type { DaemonScheduler } from "../daemon/scheduler.js";

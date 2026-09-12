@@ -1,5 +1,5 @@
 import type { SashStateStore } from "../app-state.js";
-import type { AutostartController } from "../autostart.js";
+import type { AutostartController } from "../autostart/service.js";
 import type { CoreStartResult } from "../contracts.js";
 import type { CoreUpdateProgress, CoreUpdateResult } from "../core-update.js";
 import type { SashLayout } from "../paths.js";

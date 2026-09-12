@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { SashStateStore, StateConflictError } from "../app-state.js";
-import { type AutostartController, AutostartService } from "../autostart.js";
+import { type AutostartController, AutostartService } from "../autostart/service.js";
 import {
   assertCoreInstallationConsistent,
   coreInstalled,

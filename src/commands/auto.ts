@@ -1,5 +1,5 @@
-import { AutostartService } from "../autostart.js";
-import type { AutostartStatus } from "../autostart-contract.js";
+import type { AutostartStatus } from "../autostart/contract.js";
+import { AutostartService } from "../autostart/service.js";
 import { commandOutput } from "../cli-output.js";
 import { log } from "../log.js";
 import { setRuntimeAutostart } from "../runtime-owner.js";

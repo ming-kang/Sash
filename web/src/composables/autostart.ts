@@ -1,5 +1,5 @@
 import { computed, onScopeDispose, type Ref, ref, watch } from "vue";
-import type { AutostartStatus } from "../../../src/autostart-contract.js";
+import type { AutostartStatus } from "../../../src/autostart/contract.js";
 import { api } from "../api/index.js";
 import { errorText } from "../stores/index.js";
 

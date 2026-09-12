@@ -1,6 +1,6 @@
 import { loadProfiles } from "./app-state.js";
-import { AutostartService } from "./autostart.js";
-import type { AutostartStatus } from "./autostart-contract.js";
+import type { AutostartStatus } from "./autostart/contract.js";
+import { AutostartService } from "./autostart/service.js";
 import type { DaemonStatus } from "./contracts.js";
 import { currentCoreVersion } from "./core.js";
 import {
