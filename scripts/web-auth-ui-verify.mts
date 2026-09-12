@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { Page } from "playwright";
 import { runWeb } from "../src/commands/web.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
-import { createDaemonClient } from "../src/daemon-client.js";
+import { createDaemonClient } from "../src/sash-client-node.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { writeBootstrapFile } from "../src/web-bootstrap.js";
 import { launchUiBrowser, startMockCore, uiArtifactDirectory, UI_ENGINES } from "./ui-harness.mjs";

@@ -8,7 +8,7 @@ import { chromium, type Page } from "playwright";
 import YAML from "yaml";
 import type { WebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
-import { loadProfiles } from "../src/profiles.js";
+import { loadProfiles } from "../src/app-state.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
 import type { ProxyItem } from "../web/src/types/index.js";
 import { launchUiBrowser, startMockCore, uiArtifactDirectory, UI_ENGINES } from "./ui-harness.mjs";
