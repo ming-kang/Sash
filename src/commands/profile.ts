@@ -9,7 +9,8 @@ import { runtimeContext } from "./shared.js";
 export function resolveProfileReference(index: ProfilesIndex, reference?: string): ProfileMeta {
   if (reference === undefined) {
     const active = getActiveProfile(index);
-    if (!active) throw new Error("No saved profile is selected; specify a profile or use --all");
+    if (!active)
+      throw new Error("No profile is selected — name one from sash profile list or pass --all");
     return active;
   }
   const id = index.profiles.find((profile) => profile.id === reference);
@@ -17,10 +18,10 @@ export function resolveProfileReference(index: ProfilesIndex, reference?: string
   const matches = index.profiles.filter((profile) => profile.name === reference);
   if (matches.length > 1)
     throw new Error(
-      `Profile name ${JSON.stringify(reference)} is ambiguous; use its ID from sash profile list`,
+      `Profile name ${JSON.stringify(reference)} is ambiguous — use its ID from sash profile list`,
     );
   if (!matches[0])
-    throw new Error(`Profile ${JSON.stringify(reference)} was not found; run sash profile list`);
+    throw new Error(`Profile ${JSON.stringify(reference)} was not found — run sash profile list`);
   return matches[0];
 }
 
@@ -31,7 +32,7 @@ export class CliProfiles {
   async list(): Promise<ProfilesIndex> {
     const owner = await resolveRuntimeOwner(this.context);
     if (owner.kind === "unhealthy")
-      throw new Error("Cannot verify the management daemon; inspect sash status");
+      throw new Error("Cannot verify the running Sash — run sash doctor to diagnose");
     return owner.kind === "daemon"
       ? owner.client.listProfiles()
       : loadProfiles(this.context.layout);
@@ -81,12 +82,12 @@ export async function runProfileList(options: OutputOptions = {}): Promise<void>
     options.json,
     () => profiles().list(),
     (index) => {
-      if (!index.profiles.length) log.info("No profiles saved; using the built-in configuration");
+      if (!index.profiles.length) log.info("No profiles saved — using the built-in configuration");
       for (const profile of index.profiles)
         process.stdout.write(
-          `${profile.id === index.activeId ? "*" : " "}  ${profile.id}  ${JSON.stringify(profile.name)}  ${profile.url ? "subscription" : "local file"}${profile.lastError ? `  last error: ${JSON.stringify(profile.lastError)}` : ""}`,
+          `${profile.id === index.activeId ? "*" : " "}  ${profile.id}  ${JSON.stringify(profile.name)}  ${profile.url ? "subscription" : "local file"}${profile.lastError ? `  last error: ${JSON.stringify(profile.lastError)}` : ""}\n`,
         );
-      if (index.profiles.length) log.info("* selected profile · run sash restart to apply it");
+      if (index.profiles.length) log.info("* selected — run sash restart to apply");
     },
   );
 }
@@ -100,7 +101,7 @@ export async function runProfileUse(
     () => profiles().use(reference, options.default),
     (result) => {
       log.info(
-        `Selected ${result.name === null ? "the built-in configuration" : JSON.stringify(result.name)} · run sash restart to apply it`,
+        `Selected ${result.name === null ? "the built-in configuration" : JSON.stringify(result.name)} — run sash restart to apply`,
       );
     },
   );
@@ -115,7 +116,7 @@ export async function runProfileAdd(
     () => profiles().add(url, options),
     (result) => {
       log.info(
-        `Saved ${JSON.stringify(result.profile.name)}${result.activated ? " and selected it · run sash restart to apply" : ""}`,
+        `Saved ${JSON.stringify(result.profile.name)}${result.activated ? " and selected it — run sash restart to apply" : ""}`,
       );
     },
   );
@@ -134,10 +135,10 @@ export async function runProfileUpdate(
     },
     (result) => {
       if ("profile" in result)
-        log.info(`Saved ${JSON.stringify(result.profile.name)} · run sash restart to apply it`);
+        log.info(`Saved ${JSON.stringify(result.profile.name)} — run sash restart to apply`);
       else {
         log.info(
-          `Updated ${result.updated} profile(s), ${result.failed.length} failed · run sash restart to apply`,
+          `Updated ${result.updated} ${result.updated === 1 ? "profile" : "profiles"}, ${result.failed.length} failed — run sash restart to apply`,
         );
         for (const failure of result.failed)
           log.warn(`${JSON.stringify(failure.name)}: ${failure.error}`);

@@ -20,7 +20,10 @@ it("resolves exact profile IDs and unique names, and refuses ambiguous or missin
   assert.equal(resolveProfileReference(index).id, "2");
   assert.throws(() => resolveProfileReference(index, "shared"), /ambiguous/);
   assert.throws(() => resolveProfileReference(index, "missing"), /not found/);
-  assert.throws(() => resolveProfileReference({ ...index, activeId: null }), /No saved profile/);
+  assert.throws(
+    () => resolveProfileReference({ ...index, activeId: null }),
+    /No profile is selected/,
+  );
 });
 
 it("reads an empty stopped profile library without initializing data", async () => {

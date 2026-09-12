@@ -309,10 +309,10 @@ export async function collectRuntimeStatus(
       }
     } catch (err) {
       daemon = daemonObservation(daemonState, "unhealthy");
-      addError(errors, `Sash API request failed: ${errorText(err)}`);
+      addError(errors, `local API request failed: ${errorText(err)}`);
     }
   } else if (daemonState.running) {
-    addError(errors, "Sash API is unreachable");
+    addError(errors, "the local API is unreachable");
   }
 
   const proxyObservation = await observeSystemProxy(
@@ -382,20 +382,18 @@ export type StatusHeadline = { level: "info" | "ok" | "warn"; text: string };
 export function runtimeStatusHeadline(status: CliRuntimeStatus): StatusHeadline {
   if (status.daemon.state === "stopped") return { level: "info", text: "Sash is not running" };
   if (status.daemon.state === "unhealthy" || status.core.running === null) {
-    const owner = status.daemon.pid === null ? "" : ` (PID ${status.daemon.pid})`;
     return {
       level: "warn",
-      text: `Sash is not responding${owner} — run sash logs --daemon`,
+      text: "Sash is not responding — run sash logs --daemon",
     };
   }
   if (status.core.running) {
-    const pid = status.core.pid === null ? "unknown" : String(status.core.pid);
     const version = status.core.version ? ` (${status.core.version})` : "";
     return status.core.healthy
       ? { level: "ok", text: `Sash is running · Core running${version}` }
       : {
           level: "warn",
-          text: `Sash is running · Core unhealthy (PID ${pid})`,
+          text: "Sash is running · Core unhealthy — run sash logs --errors",
         };
   }
   return {

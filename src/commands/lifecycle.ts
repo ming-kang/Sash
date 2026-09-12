@@ -8,8 +8,8 @@ export async function runStart(): Promise<void> {
   const { owner, result } = await ensureRunning(ctx, {
     onCoreUpdateProgress: coreUpdateProgressPrinter(),
   });
-  const version = result.version ? `${result.version}, ` : "";
-  const core = `Core ${result.alreadyRunning === true ? "already running" : "running"} (${version}PID ${result.pid})`;
+  const version = result.version ? ` (${result.version})` : "";
+  const core = `Core ${result.alreadyRunning === true ? "already running" : "running"}${version}`;
   log.ok(
     result.alreadyRunning === true ? `Sash already running · ${core}` : `Sash started · ${core}`,
   );
@@ -38,7 +38,7 @@ export async function runStop(options: { core?: boolean } = {}): Promise<void> {
 export async function runRestart(): Promise<void> {
   const ctx = runtimeContext();
   const { owner, result } = await restartRuntime(ctx);
-  log.ok(`Configuration applied · Core restarted (PID ${result.pid})`);
+  log.ok("Configuration applied · Core restarted");
   printEndpoints(ctx, owner.daemon.port, result.mixedPort);
 }
 function printEndpoints(

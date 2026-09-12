@@ -288,7 +288,7 @@ export async function diagnoseSash(
           runningVersion === installedVersion ? "ok" : "warning",
           runningVersion === installedVersion
             ? `Sash ${runningVersion} is installed and running`
-            : `Sash ${installedVersion} is installed; the daemon still runs ${runningVersion}`,
+            : `Sash ${installedVersion} is installed; the running Sash is still ${runningVersion}`,
           runningVersion === installedVersion
             ? undefined
             : "Run sash stop && sash start to load the installed version",
@@ -298,7 +298,7 @@ export async function diagnoseSash(
         add(
           "runtime-manifest",
           "error",
-          "A running daemon has no readable saved manifest",
+          "A running Sash has no readable saved manifest",
           "Restore the missing state and credentials from a backup before making management changes",
         );
       const proxy = runtime.systemProxy;
@@ -339,7 +339,7 @@ export async function diagnoseSash(
         }
       }
     } catch (error) {
-      add("runtime", "warning", errorMessage(error), "Inspect sash status and the daemon logs");
+      add("runtime", "warning", errorMessage(error), "Inspect sash status and sash logs --daemon");
     }
 
     if (state || !runtime?.daemon.running) {

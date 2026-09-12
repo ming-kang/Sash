@@ -33,8 +33,8 @@ export async function runUpdate(
       if ("available" in result)
         log.info(
           result.available
-            ? `Core ${result.current ?? "unknown"} → ${result.target} is available; run sash update${opts.version ? ` ${result.target}` : ""}`
-            : `Core ${result.current} is current`,
+            ? `Core ${result.current ?? "unknown"} → ${result.target} is available — run sash update${opts.version ? ` ${result.target}` : ""}`
+            : `Core ${result.current} is up to date`,
         );
       else log.ok(`core updated to ${result.version}`);
     },

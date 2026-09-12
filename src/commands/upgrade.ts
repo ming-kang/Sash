@@ -26,14 +26,14 @@ export async function runUpgrade(
         );
       } else if (!report.supported || !report.compatible) {
         process.stdout.write(
-          `${report.reason ?? "This Sash installation cannot be upgraded automatically."}\n`,
+          `${report.reason ?? "This Sash installation cannot be upgraded automatically"}\n`,
         );
       } else if (report.available) {
         process.stdout.write(
-          `Sash ${report.current} → ${report.target} is available. Run sash upgrade to install it.\n`,
+          `Sash ${report.current} → ${report.target} is available — run sash upgrade to install it\n`,
         );
       } else {
-        process.stdout.write(`Sash ${report.current} is already current.\n`);
+        process.stdout.write(`Sash ${report.current} is up to date\n`);
       }
       if (!options.check && (!report.supported || !report.compatible)) process.exitCode = 1;
       return;
@@ -71,7 +71,7 @@ export async function runUpgrade(
         })}\n`,
       );
     } else if (outcome.restarted) {
-      log.ok(`Sash ${outcome.version} installed · the daemon restarted on it`);
+      log.ok(`Sash ${outcome.version} installed · restarted on the new version`);
       if (outcome.autostartRepaired === true) log.info("start at login: repaired");
     } else {
       log.info(

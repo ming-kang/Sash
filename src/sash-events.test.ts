@@ -63,7 +63,10 @@ it("uses private stream headers, cancels on return and rejects regressing sequen
   assert.equal((await iterator.next()).value?.sequence, 1);
   await iterator.return(undefined);
   assert.equal(signal?.aborted, true);
-  await assert.rejects(collect(client.events(new AbortController().signal)), /sequence/);
+  await assert.rejects(
+    collect(client.events(new AbortController().signal)),
+    /restarted mid-stream/,
+  );
 });
 
 it("preserves a known 401 when its error body fails and identifies the rejected credential", async () => {

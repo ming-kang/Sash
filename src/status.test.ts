@@ -343,7 +343,7 @@ describe("CLI runtime status observations", () => {
 
     assert.equal(status.complete, false);
     assert.equal(status.healthy, null);
-    assert.match(status.queryError ?? "", /Sash API is unreachable/);
+    assert.match(status.queryError ?? "", /the local API is unreachable/);
     assert.equal(status.daemon.state, "unhealthy");
     assert.equal(status.core.running, null);
     assert.equal(status.core.healthy, null);

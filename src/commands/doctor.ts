@@ -12,7 +12,7 @@ const CHECK_LABELS: Record<string, string> = {
   "runtime-manifest": "Runtime settings",
   proxy: "System proxy",
   autostart: "Start at login",
-  "daemon-port": "Sash API port",
+  "daemon-port": "Local API port",
   "controller-port": "Core controller port",
   "mixed-port": "Proxy port",
   "proxy-connections": "Windows connections",

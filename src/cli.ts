@@ -34,7 +34,7 @@ process.stdout.on("error", (error: NodeJS.ErrnoException) => {
 program
   .name("sash")
   .description(
-    "A lightweight command-line companion for a rule-based network core and its web dashboard.",
+    "A network toolbox for developers, learning and research, with a command-line companion and built-in web dashboard",
   )
   .version(packageVersion(), "-v, --version", "print the Sash version")
   .enablePositionalOptions()
@@ -51,7 +51,7 @@ Examples:
   $ sash profile list          list saved profiles and the selected one
   $ sash proxy on              enable the system proxy for a running Core
 
-Data directory: %LOCALAPPDATA%\\Sash (Windows), ~/Library/Application Support/Sash (macOS),
+Data folder: %LOCALAPPDATA%\\Sash (Windows), ~/Library/Application Support/Sash (macOS),
 $XDG_DATA_HOME/sash (Linux). Override with the SASH_HOME environment variable.
 
 Bare sash prints status. Exit codes: 0 success, 1 command failure, 2 incomplete observation.
@@ -195,7 +195,7 @@ program
   );
 program
   .command("mode")
-  .description("change the running Core routing mode")
+  .description("change the running Core outbound mode")
   .addArgument(new Argument("<mode>", "runtime routing mode").choices(["rule", "global", "direct"]))
   .option("--json", "output machine-readable JSON")
   .action(
@@ -210,7 +210,7 @@ program
   .option("-n, --lines <n>", "number of lines to print", parseLines)
   .option("-f, --follow", "follow the log output")
   .option("--errors", "read the stderr log instead of stdout")
-  .option("--daemon", "read sashd daemon logs instead of core logs")
+  .option("--daemon", "read Sash's own logs instead of Core logs")
   .option("--startup", "read login startup diagnostics")
   .action(
     withCliErrors(
@@ -246,7 +246,7 @@ program
   .command("upgrade [version]")
   .description("install the latest Sash with npm and restart it on the new version")
   .option("--check", "check Sash version and compatibility without changing anything")
-  .option("--no-restart", "install without restarting the running daemon")
+  .option("--no-restart", "install without restarting the running Sash")
   .option("--json", "output machine-readable JSON")
   .action(
     withCliErrors(

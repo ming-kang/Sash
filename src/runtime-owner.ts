@@ -54,7 +54,9 @@ export async function ensureManagement(
   await ensureDaemon({ layout: ctx.layout, settings: ctx.settings, timeoutMs: opts.timeoutMs });
   ctx.settings = loadSettings(ctx.layout);
   const owner = await resolveRuntimeOwner(ctx);
-  if (owner.kind !== "daemon") throw new Error("sashd did not become healthy");
+  if (owner.kind !== "daemon") {
+    throw new Error("Sash did not become healthy — run sash doctor to diagnose");
+  }
   return owner;
 }
 
@@ -83,14 +85,14 @@ export async function stopRuntime(ctx: RuntimeContext): Promise<{ wasRunning: bo
   const initial = await resolveRuntimeOwner(ctx);
   if (initial.kind === "unhealthy")
     throw new Error(
-      "sashd is unresponsive or its ownership is unknown; refusing an unverified stop",
+      "Sash is unresponsive or its ownership is unknown; refusing an unverified stop",
     );
   if (initial.kind === "offline") {
     if (!hasRuntimeLeftovers(ctx.layout)) return { wasRunning: false };
     await ensureManagement(ctx);
   }
   if (!(await stopDaemonFromCli({ layout: ctx.layout, settings: ctx.settings })))
-    throw new Error("sashd shutdown could not be verified");
+    throw new Error("Sash shutdown could not be verified — run sash doctor to diagnose");
   return { wasRunning: initial.kind === "daemon" };
 }
 
@@ -104,7 +106,7 @@ export async function stopCoreRuntime(
 ): Promise<{ managementRunning: boolean }> {
   const owner = await resolveRuntimeOwner(ctx);
   if (owner.kind === "unhealthy")
-    throw new Error("Cannot verify the management daemon; refusing an unverified Core stop");
+    throw new Error("Cannot verify the running Sash; refusing an unverified Core stop");
   if (owner.kind === "offline") {
     if (!hasRuntimeLeftovers(ctx.layout)) return { managementRunning: false };
     await (await ensureManagement(ctx)).client.stopCore();
@@ -134,7 +136,7 @@ export async function setRuntimeAutostart(
     return { ...(await owner.client.setAutostart(enabled)), managementStarted };
   } catch (error) {
     if (managementStarted)
-      throw new Error(`${errorMessage(error)}. Management was started for this command`, {
+      throw new Error(`${errorMessage(error)}. Sash was started for this command`, {
         cause: error,
       });
     throw error;

@@ -12,7 +12,7 @@ export interface DaemonEvent {
 /** Events come from this installation's own daemon; only the protocol version is checked. */
 export function parseDaemonEvent(value: unknown): DaemonEvent {
   const event = value as DaemonEvent;
-  if (event?.schemaVersion !== 1) throw new TypeError("Invalid daemon event");
+  if (event?.schemaVersion !== 1) throw new TypeError("Invalid Sash event");
   return event;
 }
 

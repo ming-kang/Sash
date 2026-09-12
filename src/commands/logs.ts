@@ -30,7 +30,7 @@ export async function runLogs(
 
   const { text, cursor } = readLogTail(file, opts.lines ?? 50);
   if (cursor.identity === null) {
-    log.info(`${opts.follow ? "waiting for" : "no"} log file at ${file}`);
+    log.info(opts.follow ? `Waiting for a log file at ${file}` : `No log file at ${file}`);
     if (!opts.follow) return;
   } else {
     if (text) process.stdout.write(`${text}\n`);

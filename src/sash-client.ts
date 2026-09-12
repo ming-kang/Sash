@@ -461,7 +461,7 @@ export async function* readSashEvents(options: {
       throw new SashApiError(response.status, code, message || `HTTP ${response.status}`);
     }
     if (response.contentType.split(";")[0]?.trim().toLowerCase() !== "text/event-stream")
-      throw new Error("Daemon did not return an event stream");
+      throw new Error("Sash did not return an event stream");
     async function* chunks(): AsyncGenerator<Uint8Array> {
       for await (const chunk of response.body) {
         touch();
@@ -475,7 +475,7 @@ export async function* readSashEvents(options: {
         (event.status.daemon.bootId !== previous.status.daemon.bootId ||
           event.sequence <= previous.sequence)
       )
-        throw new Error("Daemon event identity or sequence changed within a stream");
+        throw new Error("Sash event stream restarted mid-stream");
       previous = event;
       yield event;
     }

@@ -11,6 +11,6 @@ export async function runMode(mode: RoutingMode, options: { json?: boolean } = {
       await setRuntimeMode(runtimeContext(), mode);
       return { mode };
     },
-    () => log.info(`Routing mode is now ${mode} — it lasts until you apply configuration`),
+    () => log.info(`Outbound mode is now ${mode} — it lasts until you apply configuration`),
   );
 }
