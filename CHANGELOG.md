@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-09-12
+
 ### Added
 
 - Retry remote fetches and Core downloads without the proxy when a loopback proxy (often Sash itself, not yet running) refuses the connection, printing `proxy <host>:<port> refused connection — retrying without proxy`. Profile subscription fetches stay strict and never fall back. The Core update progress carries this note to `sash start`, `sash update` and the dashboard.
