@@ -3,8 +3,8 @@ import net from "node:net";
 import path from "node:path";
 import { readState, type SashState } from "./app-state.js";
 import { readLoginStartRecord } from "./autostart/login-record.js";
-import { GEODATA_FILE_NAMES } from "./core-config-validation.js";
 import { CORE_BINARY_SIZE_LIMIT, readInstallRecord } from "./core.js";
+import { GEODATA_FILE_NAMES } from "./core-config-validation.js";
 import { errorMessage } from "./error-utils.js";
 import { pathEntryExists } from "./fs-atomic.js";
 import { fetchWithRetry } from "./http.js";
@@ -238,9 +238,7 @@ export async function diagnoseSash(
       NETWORK_PROBES.map(async ({ name, url }) => ({ name, reachable: await probe(url) })),
     );
     const reachable = results.filter((result) => result.reachable).map((result) => result.name);
-    const unreachable = results
-      .filter((result) => !result.reachable)
-      .map((result) => result.name);
+    const unreachable = results.filter((result) => !result.reachable).map((result) => result.name);
     const releaseApiReachable = results.find(
       (result) => result.name === "api.github.com",
     )?.reachable;

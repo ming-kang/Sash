@@ -56,8 +56,7 @@ export async function startAtLogin(
     const { result } = await ensureRunning({ layout, settings: loadSettings(layout) });
     return result;
   },
-  sleep: (ms: number) => Promise<void> = (ms) =>
-    new Promise((resolve) => setTimeout(resolve, ms)),
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 ): Promise<CoreStartResult> {
   recordStart(layout, "login start requested");
   let attempts = 0;

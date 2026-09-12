@@ -75,7 +75,10 @@ it("diagnoses an uninitialized installation without creating application data", 
     assert.equal(result.complete, true);
     assert.equal(result.checks.find((check) => check.id === "manifest")?.status, "info");
     assert.equal(result.checks.find((check) => check.id === "core")?.status, "info");
-    assert.equal(result.checks.some((check) => check.id === "login-start"), false);
+    assert.equal(
+      result.checks.some((check) => check.id === "login-start"),
+      false,
+    );
     assert.equal(ports.length, 3);
     assert.equal(fs.existsSync(f.layout.root), false);
   } finally {
@@ -99,7 +102,12 @@ it("reports the last login start when start at login is on", async () => {
     fs.mkdirSync(f.layout.stateDir, { recursive: true });
     fs.writeFileSync(
       f.layout.loginStartFile,
-      JSON.stringify({ at: "2026-09-15T00:00:00.000Z", ok: false, attempts: 4, error: "network is not ready" }),
+      JSON.stringify({
+        at: "2026-09-15T00:00:00.000Z",
+        ok: false,
+        attempts: 4,
+        error: "network is not ready",
+      }),
     );
     const failed = await diagnoseSash({ ...f, status: autostartOn });
     const failedCheck = failed.checks.find((check) => check.id === "login-start");
@@ -127,10 +135,7 @@ it("reports geodata files and download-source reachability", async () => {
     assert.equal(first.checks.find((check) => check.id === "geodata")?.status, "info");
     const network = first.checks.find((check) => check.id === "network");
     assert.equal(network?.status, "ok");
-    assert.match(
-      network?.message ?? "",
-      /reachable: github.com, api.github.com, ghfast.top/,
-    );
+    assert.match(network?.message ?? "", /reachable: github.com, api.github.com, ghfast.top/);
 
     fs.mkdirSync(f.layout.root, { recursive: true });
     fs.writeFileSync(path.join(f.layout.root, "geosite.dat"), "db");

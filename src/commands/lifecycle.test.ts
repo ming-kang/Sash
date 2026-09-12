@@ -92,14 +92,10 @@ describe("lifecycle commands", () => {
 
   it("prints Core download progress while the daemon installs", async (t) => {
     const lines: string[] = [];
-    t.mock.method(
-      process.stderr,
-      "write",
-      ((chunk: unknown) => {
-        lines.push(String(chunk));
-        return true;
-      }) as typeof process.stderr.write,
-    );
+    t.mock.method(process.stderr, "write", ((chunk: unknown) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
     let releaseStart!: () => void;
     startGate = new Promise<void>((resolve) => {
       releaseStart = resolve;
