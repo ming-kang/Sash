@@ -13,11 +13,10 @@ export function createEventObserver(context: () => DaemonContext) {
     canEnable: false,
     reason: "Autostart observation is pending",
   };
-  let expiresAt = 0;
   let pending = false;
   return async () => {
     const ctx = context();
-    if (!pending && Date.now() >= expiresAt) {
+    if (!pending) {
       pending = true;
       void Promise.resolve()
         .then(() => ctx.autostart.inspect())
@@ -30,7 +29,6 @@ export function createEventObserver(context: () => DaemonContext) {
         )
         .then((next) => {
           pending = false;
-          expiresAt = Date.now() + 4000;
           if (JSON.stringify(next) !== JSON.stringify(autostart)) {
             autostart = next;
             ctx.events.notify();

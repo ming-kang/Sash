@@ -51,6 +51,9 @@ export interface SystemProxyJournal {
 
 const MAX_JOURNAL_BYTES = 256 * 1024;
 
+/** Cache TTL for non-fresh inspection reads; must exceed the DaemonEvents sample interval (5000ms). */
+const SYSTEM_PROXY_INSPECTION_TTL_MS = 30_000;
+
 function journalError(message: string): Error {
   return new Error(`Invalid system proxy journal: ${message}`);
 }
@@ -177,7 +180,10 @@ export class SystemProxyManager implements SystemProxyController {
         { purpose: "inspect system proxy", timeoutMs: 30_000 },
         () => this.inspectUnlocked(),
       );
-      this.inspectionCache = { expiresAt: Date.now() + 3000, inspection };
+      this.inspectionCache = {
+        expiresAt: Date.now() + SYSTEM_PROXY_INSPECTION_TTL_MS,
+        inspection,
+      };
       return inspection;
     });
   }

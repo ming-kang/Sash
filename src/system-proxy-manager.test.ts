@@ -393,6 +393,8 @@ describe("SystemProxyManager", () => {
     assert.equal(backend.captureCalls, 1, "non-fresh reads reuse the settled cache");
     await manager.inspect(true);
     assert.equal(backend.captureCalls, 2, "fresh reads bypass the cache");
+    await manager.inspect();
+    assert.equal(backend.captureCalls, 2, "subsequent non-fresh reads reuse the updated cache");
   });
 
   it("serializes concurrent inspections behind one capture", async () => {

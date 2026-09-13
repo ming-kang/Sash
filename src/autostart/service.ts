@@ -14,6 +14,7 @@ import type { AutostartStatus } from "./contract.js";
 import { windowsAutostart } from "./windows.js";
 
 const INSTALL_HINT = "needs a global installation — run npm install -g @astralyn/sash to enable it";
+const AUTOSTART_CACHE_TTL_MS = 30_000;
 
 /** Verify the package layout and its npm bin shim without invoking npm or changing it. */
 export function installationIssue(ctx: AutostartContext): string | null {
@@ -51,6 +52,11 @@ export class AutostartService implements AutostartController {
   private readonly backend: AutostartBackend | undefined;
   private readonly queue: StateMutationQueue;
   private readonly checkInstallation: (context: AutostartContext) => string | null;
+  private inspectionCache: { expiresAt: number; status: AutostartStatus } | undefined;
+  private inFlightInspection: Promise<AutostartStatus> | undefined;
+  // Bumped by set(): an inspection that started before a mutation must not
+  // cache its pre-mutation result once it settles.
+  private inspectionGeneration = 0;
 
   constructor(options: AutostartServiceOptions = {}) {
     this.context = autostartContext(options);
@@ -62,27 +68,49 @@ export class AutostartService implements AutostartController {
   }
 
   async inspect(): Promise<AutostartStatus> {
-    if (!this.backend) {
+    const backend = this.backend;
+    if (!backend) {
       return {
         state: "unsupported",
         canEnable: false,
         reason: `not supported on ${this.context.platform}`,
       };
     }
-    const issue = this.checkInstallation(this.context);
-    try {
-      return {
-        state: await this.backend.inspect(),
-        canEnable: issue === null,
-        reason: issue,
-      };
-    } catch (error) {
-      return {
-        state: "unknown",
-        canEnable: issue === null,
-        reason: errorMessage(error),
-      };
+    if (this.inspectionCache && this.inspectionCache.expiresAt > Date.now()) {
+      return this.inspectionCache.status;
     }
+    if (this.inFlightInspection) {
+      return this.inFlightInspection;
+    }
+    const generation = this.inspectionGeneration;
+    const inspectBackend = async (): Promise<AutostartStatus> => {
+      const issue = this.checkInstallation(this.context);
+      let status: AutostartStatus;
+      try {
+        status = {
+          state: await backend.inspect(),
+          canEnable: issue === null,
+          reason: issue,
+        };
+      } catch (error) {
+        status = {
+          state: "unknown",
+          canEnable: issue === null,
+          reason: errorMessage(error),
+        };
+      }
+      if (this.inspectionGeneration === generation) {
+        this.inspectionCache = { expiresAt: Date.now() + AUTOSTART_CACHE_TTL_MS, status };
+      }
+      return status;
+    };
+    const promise = inspectBackend().finally(() => {
+      if (this.inFlightInspection === promise) {
+        this.inFlightInspection = undefined;
+      }
+    });
+    this.inFlightInspection = promise;
+    return promise;
   }
 
   async set(enabled: boolean): Promise<AutostartStatus> {
@@ -95,10 +123,15 @@ export class AutostartService implements AutostartController {
         const issue = this.checkInstallation(this.context);
         if (issue) throw new AutostartUnavailableError(issue);
       }
+      this.inspectionGeneration += 1;
+      this.inspectionCache = undefined;
+      this.inFlightInspection = undefined;
       await backend.set(enabled);
       if (!enabled) {
         const issue = this.checkInstallation(this.context);
-        return { state: "off", canEnable: issue === null, reason: issue };
+        const status: AutostartStatus = { state: "off", canEnable: issue === null, reason: issue };
+        this.inspectionCache = { expiresAt: Date.now() + AUTOSTART_CACHE_TTL_MS, status };
+        return status;
       }
       const status = await this.inspect();
       if (status.state !== "on") {
