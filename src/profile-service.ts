@@ -399,15 +399,15 @@ export class ProfileService {
     );
   }
 
-  cleanup(nowMs = Date.now()): Promise<number> {
-    return this.options.commit(() => {
-      const state = this.options.state.snapshot();
-      this.options.state.assertCurrent(state.revision);
-      return pruneProfileFiles(this.options.layout, state.profiles, {
-        nowMs,
-        cleanTemp: this.options.canCleanTemp?.() ?? true,
-      });
+  async cleanup(nowMs = Date.now()): Promise<number> {
+    this.options.assertMutable?.();
+    const state = this.options.state.snapshot();
+    const removed = pruneProfileFiles(this.options.layout, state.profiles, {
+      nowMs,
+      cleanTemp: this.options.canCleanTemp?.() ?? true,
     });
+    if (removed === 0) return 0;
+    return this.options.commit(() => removed);
   }
 
   async remove(id: string): Promise<{ wasActive: boolean }> {

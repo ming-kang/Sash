@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
-import type { ProfileService } from "../profile-service.js";
-import { deferred } from "../testing/state.js";
+import { sashLayout } from "../paths.js";
+import { ProfileService } from "../profile-service.js";
+import { createTestState, deferred } from "../testing/state.js";
+import { DaemonGate } from "./context.js";
 import { type DaemonScheduler, startProfileUpdateScheduler } from "./scheduler.js";
 
 const INTERVAL_MS = 60_000;
@@ -256,5 +261,99 @@ describe("startProfileUpdateScheduler", () => {
 
     timers.intervals[0]?.callback();
     assert.equal(profiles.calls.updateDue, 1, "stopped schedulers never re-enter");
+  });
+
+  it("does not trigger mutation notifications on idle ticks with nothing to prune", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-scheduler-idle-test-"));
+    try {
+      const layout = sashLayout(root);
+      fs.mkdirSync(layout.profilesDir, { recursive: true });
+      fs.mkdirSync(layout.tempDir, { recursive: true });
+      const state = createTestState(layout);
+      let notifications = 0;
+      const gate = new DaemonGate(
+        async () => {},
+        () => {},
+        {
+          onChange: () => {
+            notifications += 1;
+          },
+        },
+      );
+      const profileService = new ProfileService({
+        layout,
+        state,
+        commit: (action) => gate.mutate(action),
+        assertMutable: () => gate.assertMutable(),
+      });
+      const timers = fakeTimers();
+      const handle = startProfileUpdateScheduler(profileService, timers.scheduler, () => true);
+      try {
+        // Kickoff idle tick
+        timers.timeouts[0]?.callback();
+        await flush();
+        assert.equal(notifications, 0, "kickoff idle tick must not emit mutation notification");
+
+        // Interval idle tick
+        timers.intervals[0]?.callback();
+        await flush();
+        assert.equal(notifications, 0, "interval idle tick must not emit mutation notification");
+      } finally {
+        handle.stop();
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("triggers mutation notification when a stale file is pruned", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-scheduler-stale-test-"));
+    try {
+      const layout = sashLayout(root);
+      const profileDir = path.join(layout.profilesDir, "1");
+      fs.mkdirSync(profileDir, { recursive: true });
+      fs.mkdirSync(layout.tempDir, { recursive: true });
+      const state = createTestState(layout);
+
+      // Create a stale profile file (> 24 hours old, not active revision)
+      const staleFile = path.join(profileDir, "99.yaml");
+      fs.writeFileSync(staleFile, "rules: [MATCH,DIRECT]\n");
+      const staleTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      fs.utimesSync(staleFile, staleTime, staleTime);
+
+      let notifications = 0;
+      const gate = new DaemonGate(
+        async () => {},
+        () => {},
+        {
+          onChange: () => {
+            notifications += 1;
+          },
+        },
+      );
+      const profileService = new ProfileService({
+        layout,
+        state,
+        commit: (action) => gate.mutate(action),
+        assertMutable: () => gate.assertMutable(),
+      });
+      const timers = fakeTimers();
+      const handle = startProfileUpdateScheduler(profileService, timers.scheduler, () => true);
+      try {
+        timers.timeouts[0]?.callback();
+        await flush();
+        assert.equal(fs.existsSync(staleFile), false, "stale file was pruned");
+        assert.equal(notifications, 1, "commit and notify triggered when stale file was pruned");
+
+        // Subsequent idle tick has nothing left to prune -> no new notification
+        timers.intervals[0]?.callback();
+        await flush();
+        assert.equal(notifications, 1, "subsequent idle tick did not emit additional notification");
+      } finally {
+        handle.stop();
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
