@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertCoreBinaryFile } from "./core.js";
+import { errnoCode, errorMessage } from "./error-utils.js";
+import { durableRenameSync } from "./fs-atomic.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
 import { MihomoApi } from "./mihomo-api.js";
 import type { SashLayout } from "./paths.js";
@@ -43,6 +45,35 @@ export interface CoreSupervisorOptions {
   killFn?: typeof killProcessGracefully;
   classifyIdentityFn?: typeof classifyProcessIdentity;
   onExit?: (code: number | null, signal: NodeJS.Signals | null) => Promise<void> | void;
+}
+
+export const CORE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Rotate Core stdout and stderr logs if they exceed CORE_LOG_ROTATE_BYTES.
+ * Rotates one generation (e.g. mihomo.log -> mihomo.log.1), overwriting any previous .1 file.
+ * Non-regular files (such as symlinks) are skipped without following.
+ * Rotation failure is best-effort and must not throw or block Core startup.
+ */
+export function rotateCoreLogs(layout: SashLayout): void {
+  const targets = [layout.coreLogFile, layout.coreErrLogFile];
+  for (const target of targets) {
+    try {
+      let stat: fs.Stats | undefined;
+      try {
+        stat = fs.lstatSync(target);
+      } catch (error) {
+        if (errnoCode(error) !== "ENOENT") throw error;
+        continue;
+      }
+      if (!stat.isFile()) continue;
+      if (stat.size >= CORE_LOG_ROTATE_BYTES) {
+        durableRenameSync(target, `${target}.1`);
+      }
+    } catch (error) {
+      console.error(`[sashd] Could not rotate Core log ${target}: ${errorMessage(error)}`);
+    }
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -98,6 +129,7 @@ export class CoreSupervisor {
     assertCoreBinaryFile(layout.coreExe);
     fs.mkdirSync(layout.logsDir, { recursive: true });
     fs.mkdirSync(layout.stateDir, { recursive: true });
+    rotateCoreLogs(layout);
 
     return withPrivateAppendLogFds(
       layout.coreLogFile,

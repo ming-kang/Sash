@@ -10,7 +10,7 @@ import test, { mock } from "node:test";
 import { sashLayout } from "./paths.js";
 import { readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
-import { CoreSupervisor } from "./supervisor.js";
+import { CORE_LOG_ROTATE_BYTES, CoreSupervisor, rotateCoreLogs } from "./supervisor.js";
 
 /**
  * Regression test for the restart race: when the production restart path
@@ -466,6 +466,194 @@ test("health timeout aborts the child and clears its owned PID record", async ()
     assert.equal(supervisor.isRunning(), false);
     assert.equal(readPidRecord(layout.pidFile), undefined);
   } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rotateCoreLogs: file above threshold is rotated to .1 and replaces existing .1", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-rotate-threshold-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(layout.logsDir, { recursive: true });
+
+  // Prepare coreLogFile above threshold with distinct header content
+  const logFd = fs.openSync(layout.coreLogFile, "w");
+  fs.writeSync(logFd, "active-core-log-data");
+  fs.ftruncateSync(logFd, CORE_LOG_ROTATE_BYTES);
+  fs.closeSync(logFd);
+  fs.writeFileSync(`${layout.coreLogFile}.1`, "stale-core-log-generation");
+
+  // Prepare coreErrLogFile above threshold with distinct header content
+  const errFd = fs.openSync(layout.coreErrLogFile, "w");
+  fs.writeSync(errFd, "active-core-err-data");
+  fs.ftruncateSync(errFd, CORE_LOG_ROTATE_BYTES + 4096);
+  fs.closeSync(errFd);
+  fs.writeFileSync(`${layout.coreErrLogFile}.1`, "stale-core-err-generation");
+
+  try {
+    rotateCoreLogs(layout);
+
+    // Active files should have been rotated away
+    assert.equal(fs.existsSync(layout.coreLogFile), false);
+    assert.equal(fs.existsSync(layout.coreErrLogFile), false);
+
+    // .1 files should exist with the rotated content and size
+    assert.equal(fs.existsSync(`${layout.coreLogFile}.1`), true);
+    assert.equal(fs.statSync(`${layout.coreLogFile}.1`).size, CORE_LOG_ROTATE_BYTES);
+    const logHeader = Buffer.alloc(20);
+    const logFdRead = fs.openSync(`${layout.coreLogFile}.1`, "r");
+    fs.readSync(logFdRead, logHeader, 0, 20, 0);
+    fs.closeSync(logFdRead);
+    assert.equal(logHeader.toString("utf8"), "active-core-log-data");
+
+    assert.equal(fs.existsSync(`${layout.coreErrLogFile}.1`), true);
+    assert.equal(fs.statSync(`${layout.coreErrLogFile}.1`).size, CORE_LOG_ROTATE_BYTES + 4096);
+    const errHeader = Buffer.alloc(20);
+    const errFdRead = fs.openSync(`${layout.coreErrLogFile}.1`, "r");
+    fs.readSync(errFdRead, errHeader, 0, 20, 0);
+    fs.closeSync(errFdRead);
+    assert.equal(errHeader.toString("utf8"), "active-core-err-data");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rotateCoreLogs: file below threshold is untouched", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-rotate-below-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(layout.logsDir, { recursive: true });
+
+  fs.writeFileSync(layout.coreLogFile, "small core log");
+  fs.writeFileSync(layout.coreErrLogFile, "small err log");
+
+  try {
+    rotateCoreLogs(layout);
+
+    assert.equal(fs.existsSync(layout.coreLogFile), true);
+    assert.equal(fs.readFileSync(layout.coreLogFile, "utf8"), "small core log");
+    assert.equal(fs.existsSync(`${layout.coreLogFile}.1`), false);
+
+    assert.equal(fs.existsSync(layout.coreErrLogFile), true);
+    assert.equal(fs.readFileSync(layout.coreErrLogFile, "utf8"), "small err log");
+    assert.equal(fs.existsSync(`${layout.coreErrLogFile}.1`), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rotateCoreLogs: symlink at the log path is not followed or rotated", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-rotate-symlink-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(layout.logsDir, { recursive: true });
+
+  const targetLog = path.join(root, "symlink-target.log");
+  const fd = fs.openSync(targetLog, "w");
+  fs.writeSync(fd, "target-payload");
+  fs.ftruncateSync(fd, CORE_LOG_ROTATE_BYTES + 1024);
+  fs.closeSync(fd);
+
+  try {
+    fs.symlinkSync(targetLog, layout.coreLogFile);
+  } catch {
+    // Windows non-elevated: junctions are directory reparse points with isSymbolicLink() === true
+    const targetDir = path.join(root, "symlink-target-dir");
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.symlinkSync(targetDir, layout.coreLogFile, "junction");
+  }
+
+  try {
+    rotateCoreLogs(layout);
+
+    // Symlink / junction must remain intact and must not be rotated to .1
+    const stat = fs.lstatSync(layout.coreLogFile);
+    assert.equal(stat.isSymbolicLink(), true);
+    assert.equal(stat.isFile(), false);
+    assert.equal(fs.existsSync(`${layout.coreLogFile}.1`), false);
+    if (fs.existsSync(targetLog)) {
+      assert.equal(fs.statSync(targetLog).size, CORE_LOG_ROTATE_BYTES + 1024);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rotateCoreLogs: rotation failure does not throw and logs a sashd warning", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-rotate-fail-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(layout.logsDir, { recursive: true });
+
+  const fd = fs.openSync(layout.coreLogFile, "w");
+  fs.ftruncateSync(fd, CORE_LOG_ROTATE_BYTES);
+  fs.closeSync(fd);
+
+  mock.method(fs, "renameSync", () => {
+    const err = new Error("EBUSY: resource busy or locked, rename");
+    (err as NodeJS.ErrnoException).code = "EBUSY";
+    throw err;
+  });
+
+  const loggedErrors: string[] = [];
+  mock.method(console, "error", (msg: unknown) => {
+    loggedErrors.push(String(msg));
+  });
+
+  try {
+    assert.doesNotThrow(() => {
+      rotateCoreLogs(layout);
+    });
+    assert.equal(loggedErrors.length, 1);
+    assert.match(loggedErrors[0] ?? "", /\[sashd\] Could not rotate Core log.*EBUSY/);
+    assert.equal(fs.existsSync(layout.coreLogFile), true);
+  } finally {
+    mock.restoreAll();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rotateCoreLogs: absent log files are safely ignored", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-rotate-absent-test-"));
+  const layout = sashLayout(root);
+
+  const loggedErrors: string[] = [];
+  mock.method(console, "error", (msg: unknown) => {
+    loggedErrors.push(String(msg));
+  });
+
+  try {
+    assert.doesNotThrow(() => {
+      rotateCoreLogs(layout);
+    });
+    assert.equal(loggedErrors.length, 0);
+  } finally {
+    mock.restoreAll();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("defaultSpawn rotates oversized log files before opening append fds", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-spawn-rotate-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.copyFileSync(process.execPath, layout.coreExe);
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+  fs.mkdirSync(layout.logsDir, { recursive: true });
+
+  const fd = fs.openSync(layout.coreLogFile, "w");
+  fs.ftruncateSync(fd, CORE_LOG_ROTATE_BYTES);
+  fs.closeSync(fd);
+
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS, controller: "127.0.0.1:1" }),
+    waitHealthyMs: 50,
+  });
+
+  try {
+    await supervisor.start().catch(() => {});
+    assert.equal(fs.existsSync(`${layout.coreLogFile}.1`), true);
+    assert.equal(fs.statSync(`${layout.coreLogFile}.1`).size, CORE_LOG_ROTATE_BYTES);
+  } finally {
+    await supervisor.stop().catch(() => {});
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
