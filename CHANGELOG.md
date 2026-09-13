@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-09-13
+
 ### Fixed
 
 - Dashboard notifications no longer cover the "Apply configuration" button: the notification stack now opens just below the pending configuration bar instead of overlapping it.
