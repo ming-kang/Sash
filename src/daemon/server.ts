@@ -16,6 +16,8 @@ import {
 } from "./router.js";
 import { type ProfileUpdateScheduler, startProfileUpdateScheduler } from "./scheduler.js";
 
+const MAX_UPGRADED_SOCKETS = 64;
+
 export interface DaemonInstance {
   server: Server;
   supervisor: CoreSupervisor;
@@ -87,6 +89,15 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   };
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (upgradedSockets.size >= MAX_UPGRADED_SOCKETS) {
+      sendSocketError(
+        socket,
+        503,
+        "shutting_down",
+        "WebSocket streams are unavailable; reconnect shortly",
+      );
+      return;
+    }
     upgradedSockets.add(socket);
     socket.once("close", () => upgradedSockets.delete(socket));
     try {
