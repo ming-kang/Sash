@@ -234,7 +234,7 @@ program
 program
   .command("update [tag]")
   .description("update the Core binary")
-  .option("--check", "check the Core release without installing or starting management")
+  .option("--check", "check the Core release without installing or starting Sash")
   .option("--json", "output machine-readable JSON")
   .action(
     withCliErrors(async (tag: string | undefined, opts: { check?: boolean; json?: boolean }) =>

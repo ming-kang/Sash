@@ -152,7 +152,7 @@ export function streamDaemonEvents(
   res: ServerResponse,
 ): void {
   if (ctx.gate.isClosing || ctx.events.size >= 64) {
-    sendError(res, 503, "shutting_down", "Daemon event stream is unavailable; reconnect shortly");
+    sendError(res, 503, "shutting_down", "Sash event stream is unavailable; reconnect shortly");
     return;
   }
   res.writeHead(200, {

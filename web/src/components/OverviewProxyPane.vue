@@ -121,7 +121,7 @@
         <span class="direct-indicator" />
         <div class="direct-copy">
           <strong>DIRECT</strong>
-          <span>Direct</span>
+          <span>{{ t('overview.modeDirect') }}</span>
         </div>
         <span class="direct-current">{{ t('proxies.currentTag') }}</span>
       </article>

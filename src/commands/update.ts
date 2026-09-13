@@ -36,7 +36,7 @@ export async function runUpdate(
             ? `Core ${result.current ?? "unknown"} → ${result.target} is available — run sash update${opts.version ? ` ${result.target}` : ""}`
             : `Core ${result.current} is up to date`,
         );
-      else log.ok(`core updated to ${result.version}`);
+      else log.ok(`Core updated to ${result.version}`);
     },
   );
 }

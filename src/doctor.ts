@@ -299,7 +299,7 @@ export async function diagnoseSash(
           "runtime-manifest",
           "error",
           "A running Sash has no readable saved manifest",
-          "Restore the missing state and credentials from a backup before making management changes",
+          "Restore the missing state and credentials from a backup before modifying Sash settings",
         );
       const proxy = runtime.systemProxy;
       add(
@@ -391,7 +391,7 @@ export async function diagnoseSash(
               ...(!observed.available
                 ? {
                     advice:
-                      "Inspect the owning application or choose a different port before starting/applying Sash",
+                      "Inspect the owning application or choose a different port before starting Sash or applying configuration",
                   }
                 : {}),
             };

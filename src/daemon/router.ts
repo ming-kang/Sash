@@ -336,7 +336,7 @@ export async function dispatch(
   }
 
   if (ctx.gate.isClosing && isControlMutation(method)) {
-    sendError(res, 503, "shutting_down", "sashd is shutting down");
+    sendError(res, 503, "shutting_down", "Sash is shutting down");
     return;
   }
 

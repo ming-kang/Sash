@@ -38,7 +38,7 @@ function initialObservation(status: CliRuntimeStatus, name: string): StatusDelay
       ? null
       : status.daemon.state === "stopped" || status.core.running === false
         ? "Start Core with sash start before testing delay"
-        : "A healthy daemon and Core are required to test delay",
+        : "Sash and Core must be running and healthy to test delay",
   };
 }
 

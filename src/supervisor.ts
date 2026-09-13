@@ -266,7 +266,7 @@ export class CoreSupervisor {
       ? ""
       : " The process could not be confirmed stopped; PID state was preserved.";
     throw new Error(
-      `Core started (PID=${pid}) but external-controller did not become healthy within ${this.waitHealthyMs}ms.${cleanup}${
+      `Core started but external-controller did not become healthy within ${this.waitHealthyMs}ms.${cleanup}${
         details ? `\nRecent errors:\n${details}` : ""
       }`,
     );
@@ -288,7 +288,7 @@ export class CoreSupervisor {
       verify: () => this.ownedChildIdentity(child),
     });
     if (!terminated) {
-      throw new Error(`Core process is still running after termination attempt (PID=${pid})`);
+      throw new Error("Core process is still running after termination attempt");
     }
     if (this.child === child) {
       this.child = null;

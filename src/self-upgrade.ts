@@ -448,7 +448,7 @@ async function explainUpgradeStartFailure(
 ): Promise<Error> {
   const reason = errorMessage(error);
   if (!previousVersion) {
-    return new Error(`the new Sash daemon did not become healthy: ${reason}`, { cause: error });
+    return new Error(`the new Sash did not become healthy: ${reason}`, { cause: error });
   }
   try {
     await (deps.install ?? runNpmInstall)(installation, previousVersion, options);

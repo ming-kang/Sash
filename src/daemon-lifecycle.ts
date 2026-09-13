@@ -157,9 +157,8 @@ async function spawnDaemonUnlocked(
       if (current.kind === "healthy") return { pid: current.pid };
       if (current.kind === "stopped") break;
     }
-    const owner = state.pid ? ` (PID=${state.pid})` : "";
     throw new Error(
-      `sashd is already starting or unresponsive${owner}; refusing to start a competing daemon`,
+      "Sash is already starting or unresponsive; refusing to start a competing process",
     );
   }
   fs.mkdirSync(layout.logsDir, { recursive: true });
@@ -197,7 +196,7 @@ async function spawnDaemonUnlocked(
 
   const pid = child.pid;
   if (!pid) {
-    throw new Error("Failed to start sashd process (no PID returned)");
+    throw new Error("Failed to start Sash (no PID returned)");
   }
 
   const client = createDaemonClient(settings.daemonPort, settings.daemonSecret);
@@ -206,13 +205,13 @@ async function spawnDaemonUnlocked(
   while (Date.now() < deadline) {
     if (spawnError) {
       throw new Error(
-        `Failed to start sashd: ${spawnError.message}${daemonStartupDiagnostics(layout, errLogCursor)}`,
+        `Failed to start Sash: ${spawnError.message}${daemonStartupDiagnostics(layout, errLogCursor)}`,
       );
     }
 
     if (!isProcessAlive(pid)) {
       throw new Error(
-        `sashd (PID=${pid}) exited unexpectedly during startup.${daemonStartupDiagnostics(layout, errLogCursor)}`,
+        `Sash exited unexpectedly during startup.${daemonStartupDiagnostics(layout, errLogCursor)}`,
       );
     }
 
@@ -244,9 +243,9 @@ async function spawnDaemonUnlocked(
   });
   const cleanup = terminated
     ? ""
-    : " The daemon could not be confirmed stopped; ownership state was preserved.";
+    : " Sash could not be confirmed stopped; ownership state was preserved.";
   throw new Error(
-    `sashd started (PID=${pid}) but control API did not respond within ${timeoutMs}ms.${cleanup}${daemonStartupDiagnostics(layout, errLogCursor)}`,
+    `Sash started but local API did not respond within ${timeoutMs}ms.${cleanup}${daemonStartupDiagnostics(layout, errLogCursor)}`,
   );
 }
 

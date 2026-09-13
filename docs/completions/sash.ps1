@@ -4,10 +4,10 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $commands = [ordered]@{
-        start = 'Start management and Core'
+        start = 'Start Sash and Core'
         stop = 'Stop Sash and restore the prior proxy'
         restart = 'Apply saved configuration and restart Core'
-        auto = 'Inspect or set login startup'
+        auto = 'Inspect or set start at login'
         status = 'Observe runtime state'
         doctor = 'Check installation and runtime diagnostics'
         profile = 'Manage saved profiles'
@@ -15,7 +15,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         mode = 'Change the running routing mode'
         logs = 'Read runtime logs'
         update = 'Update Core'
-        upgrade = 'Upgrade Sash through npm and restart the daemon'
+        upgrade = 'Upgrade Sash through npm and restart it'
         web = 'Open the dashboard'
         version = 'Print the Sash version'
         help = 'Show command help'
@@ -51,7 +51,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
     $descriptions = @{
         '--version' = 'Print the Sash version'
         '--help' = 'Show command help'
-        '--core' = 'Stop Core and keep management available'
+        '--core' = 'Stop Core and keep Sash available'
         '--json' = 'Output machine-readable JSON'
         '--watch' = 'Watch status changes; JSON uses one snapshot per line'
         '--delay' = 'Test an exact node or group name; watch samples every 30 seconds'
@@ -62,9 +62,9 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         '--lines' = 'Number of log lines to print'
         '--follow' = 'Follow appended log output'
         '--errors' = 'Read stderr logs'
-        '--daemon' = 'Read daemon logs'
+        '--daemon' = 'Read Sash logs'
         '--startup' = 'Read login startup diagnostics'
-        '--check' = 'Check the release without installing or starting management'
+        '--check' = 'Check the release without installing or starting Sash'
         '--no-open' = 'Print the dashboard address without opening a browser'
     }
     $aliases = @{ '-v' = '--version'; '-h' = '--help'; '-n' = '--lines'; '-f' = '--follow' }

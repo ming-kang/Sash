@@ -74,17 +74,19 @@ export class MihomoApi {
     });
     if (res.statusCode < 200 || res.statusCode >= 300) {
       const summary = await readErrorSummary(res);
-      throw new Error(`Mihomo API returned HTTP ${res.statusCode}: ${summary}`);
+      throw new Error(`Core controller returned HTTP ${res.statusCode}: ${summary}`);
     }
     const text = await res.text(1024 * 1024);
     let data: { version?: unknown; meta?: unknown };
     try {
       data = JSON.parse(text) as { version?: unknown; meta?: unknown };
     } catch {
-      throw new Error(`Invalid JSON response from Mihomo /version: ${text.slice(0, 200).trim()}`);
+      throw new Error(
+        `Invalid JSON response from Core controller /version: ${text.slice(0, 200).trim()}`,
+      );
     }
     if (typeof data.version === "string" && data.version.trim()) return data.version.trim();
-    throw new Error("Mihomo /version response is missing a non-empty version");
+    throw new Error("Core controller /version response is missing a non-empty version");
   }
   async setMode(mode: RoutingMode): Promise<void> {
     const response = await this.request("/configs", {

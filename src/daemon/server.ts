@@ -80,7 +80,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
     if (context.gate.isClosing) {
-      sendSocketError(socket, 503, "shutting_down", "sashd is shutting down");
+      sendSocketError(socket, 503, "shutting_down", "Sash is shutting down");
       return;
     }
 

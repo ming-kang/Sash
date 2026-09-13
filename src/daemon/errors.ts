@@ -11,7 +11,7 @@ import { HttpError } from "./http.js";
 
 /** Rejects state mutations once the daemon shutdown gate has closed. */
 export class ShuttingDownError extends Error {
-  constructor(message = "sashd is shutting down") {
+  constructor(message = "Sash is shutting down") {
     super(message);
     this.name = "ShuttingDownError";
   }
