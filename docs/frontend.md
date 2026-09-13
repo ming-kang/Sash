@@ -8,7 +8,7 @@ The Vue 3 / Vite dashboard lives in `web/src/`, builds to `dist/ui/` and is serv
 
 ## State and actions
 
-[stores/state.ts](../web/src/stores/state.ts) holds shared shallow-reactive state. Large collections are replaced by reference. [stores/index.ts](../web/src/stores/index.ts) exposes actions and selectors to views.
+[stores/state.ts](../web/src/stores/state.ts) holds shared shallow-reactive state; large collections are replaced by reference. [stores/index.ts](../web/src/stores/index.ts) exposes actions and selectors to views.
 
 | Module | Responsibility |
 | --- | --- |
@@ -19,19 +19,13 @@ The Vue 3 / Vite dashboard lives in `web/src/`, builds to `dist/ui/` and is serv
 | [telemetry.ts](../web/src/stores/telemetry.ts) | Keep traffic history and bounded log batches |
 | [api/](../web/src/api/) | Authorize the tab and transport requests and streams |
 
-Refreshes follow three values from Sash:
-
-| Value | When it changes |
-| --- | --- |
-| `daemon.bootId` | Reconnect to the new Sash process and reset saved-state comparisons |
-| `revisions.state` | Refresh profile metadata |
-| `daemon.bootId` + `revisions.runtime` | Clear the replaced Core's resources, traffic and manual latency results |
+Refreshes follow three values from Sash: `daemon.bootId` reconnects to the new Sash process and resets saved-state comparisons; `revisions.state` refreshes profile metadata; `daemon.bootId` + `revisions.runtime` clears the replaced Core's resources, traffic and manual latency results.
 
 Each Core resource has its own loading state and error. A failed query preserves that resource's previous data and marks it stale; other resources remain usable. Stopping or replacing Core clears its data.
 
 ## Refresh and streams
 
-Sash status arrives through authenticated SSE at `/sash/events`. A connection starts with a full snapshot. Core tables use a separate, non-overlapping two-second refresh schedule for the current page.
+Sash status arrives through authenticated SSE at `/sash/events`; a connection starts with a full snapshot. Core tables use a separate, non-overlapping two-second refresh schedule for the current page.
 
 | Page | Background work |
 | --- | --- |
@@ -41,7 +35,7 @@ Sash status arrives through authenticated SSE at `/sash/events`. A connection st
 | Profiles / Settings | Saved metadata; no periodic Core table reads |
 | Logs | Log stream while visible |
 
-Page entry loads the relevant resources immediately. Saving a profile refreshes metadata; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket for visible consumers. Traffic and log streams pause when hidden or when the session/Core is unavailable.
+Page entry loads the relevant resources immediately. Saving a profile refreshes metadata; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket for visible consumers; traffic and log streams pause when hidden or when the session/Core is unavailable.
 
 Unchanged proxy data retains its references. Lists use memoization, pagination or content visibility where useful. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand.
 
@@ -74,10 +68,8 @@ node scripts/dev.mjs stop     # stop before loading backend changes
 node scripts/dev.mjs web
 ```
 
-The launcher uses a separate `-dev` data folder and initial ports `18890`, `18990` and `28990`. Set an absolute `SASH_DEV_HOME` to choose another folder. `web` starts Sash; `restart` applies the saved configuration and starts Core.
+The launcher uses a separate `-dev` data folder and initial ports `18890`, `18990` and `28990`; set an absolute `SASH_DEV_HOME` to choose another folder. `web` starts Sash; `restart` applies the saved configuration and starts Core.
 
-Run `npm run typecheck`, `npm run lint` and affected tests after code changes. After building, use `npm run smoke:ui` and the relevant browser check: `verify:ui`, `verify:ui:profiles`, `verify:ui:auth` or `verify:ui:autostart`.
-
-Browser checks share [ui-harness.mts](../scripts/ui-harness.mts), with temporary data, non-default ports and Core/OS fixtures. Check both Chromium and Firefox. [ui-shot.mjs](../scripts/ui-shot.mjs) captures routes for visual inspection.
+After code changes, run `npm run typecheck`, `npm run lint` and affected tests; after building, run `npm run smoke:ui` plus the relevant browser check (`verify:ui`, `verify:ui:profiles`, `verify:ui:auth` or `verify:ui:autostart`). Browser checks share [ui-harness.mts](../scripts/ui-harness.mts) with temporary data, non-default ports and Core/OS fixtures; check both Chromium and Firefox. [ui-shot.mjs](../scripts/ui-shot.mjs) captures routes for visual inspection.
 
 Font build setup lives in [build-ui.mjs](../scripts/build-ui.mjs). Bundled licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) and [remix-icon-license.txt](./remix-icon-license.txt).

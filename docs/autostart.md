@@ -14,18 +14,9 @@ This affects future logins. Use `sash start` and `sash stop` for the current ses
 
 ## Installation and data folder
 
-Enabling requires a direct global npm installation:
+Enabling requires a direct global npm installation (`npm install -g @astralyn/sash`). Source checkouts, `npm link`, local dependencies and temporary `npx` installations can inspect or remove an entry, but cannot enable it.
 
-```sh
-npm install -g @astralyn/sash
-sash auto on
-```
-
-Source checkouts, `npm link`, local dependencies and temporary `npx` installations can inspect or remove an entry, but cannot enable it.
-
-The launcher records the absolute Node executable, Sash entry point and data folder, including an absolute `SASH_HOME`. There is one entry per Windows user; enabling it with another data folder replaces the target.
-
-After moving Node or changing the npm prefix, run `sash auto on` to repair the entry. Upgrading Sash in the same prefix preserves it.
+The launcher records the absolute Node executable, Sash entry point and data folder, including an absolute `SASH_HOME`. There is one entry per Windows user; enabling it with another data folder replaces the target. After moving Node or changing the npm prefix, run `sash auto on` to repair the entry. Upgrading Sash in the same prefix preserves it.
 
 ## Login behavior
 
@@ -37,7 +28,7 @@ Sash performs registration changes. If stopped, `sash auto on/off` starts Sash's
 
 ## Status and diagnostics
 
-`sash auto status --json` returns `state`, `canEnable` and `reason`. `sash status --json` includes the same fields under `autostart`:
+`sash auto status --json` returns `state`, `canEnable` and `reason`; `sash status --json` includes the same fields under `autostart`:
 
 | JSON state | Meaning |
 | --- | --- |
@@ -50,7 +41,7 @@ Sash performs registration changes. If stopped, `sash auto on/off` starts Sash's
 
 `canEnable` says whether this installation can register a launcher. Failed observation returns exit code `2`; `sash auto off` remains available to remove an entry.
 
-The last login attempt's outcome is recorded in `state/login-start.json`. `sash status` appends a failure note to the start at login line, and `sash doctor` reports a failed last attempt as the `login-start` check. Every attempt also appends to `<SASH_HOME>/logs/sash.log`, rotating at 1 MiB with one previous file:
+The last login attempt's outcome is recorded in `state/login-start.json`. `sash status` appends a failure note to the start at login line, and `sash doctor` reports a failed attempt as the `login-start` check. Every attempt also appends to `<SASH_HOME>/logs/sash.log`, rotating at 1 MiB with one previous file:
 
 ```sh
 sash logs --startup

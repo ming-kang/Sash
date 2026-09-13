@@ -5,8 +5,8 @@
 - Keep each responsibility in one place and reuse existing state. Add machinery only for a concrete need; inline helpers with a single call site. Ask before removing deliberate functionality.
 - `src/daemon/` is the sole application writer; CLI and dashboard use its API. `src/commands/` wires commands only.
 - Settings are validated once in `settings.ts`; typed daemon responses are trusted, not re-validated. Local records are read leniently: unknown fields pass, unreadable records count as absent or stale.
-- Strict TypeScript ESM, Node >= 24, no `any`. `dist/` is generated; never edit it. `src/cli.ts` lazy-loads commands with `await import(...)` to keep startup fast; keep imports elsewhere static.
-- Check `node_modules` for an external API's types instead of guessing; do not downgrade code to satisfy an outdated dependency's types — upgrade the dependency.
+- Strict TypeScript ESM, Node >= 24, no `any`. `dist/` is generated; never edit it. `src/cli.ts` lazy-loads commands with `await import(...)`; keep imports elsewhere static.
+- Check `node_modules` for an external API's types instead of guessing; upgrade an outdated dependency rather than downgrading code to satisfy its types.
 
 ## Safety
 
@@ -36,29 +36,20 @@ Use the same vocabulary in CLI output, help, errors and both dashboard locales:
 | Saved configuration | profile |
 | Login startup | start at login |
 
-- CLI keys: lower case, complete words, at most two words. Dashboard headings: Title Case. Booleans: `on`/`off`. Known absence: `not installed`, `off` or `none`; `unknown` means observation failed and must include the reason.
-- Single sentences have no trailing period. Join facts with ` · `; introduce consequences or next commands with ` — `. Errors explain what happened and what to do. Unreachable invariants start with `internal error:` and ask for a report.
-- Describe states the user can act on; internal bookkeeping and PIDs stay out of prose (PIDs belong in `--json`).
+- Booleans read `on`/`off`; known absence reads `not installed`, `off` or `none`; `unknown` means observation failed and includes the reason. Errors explain what happened and what to do. PIDs stay out of prose (they belong in `--json`).
 - JSON fields and values, `doctor --json` check ids and exit meanings (0 success, 1 failure, 2 incomplete observation) are frozen APIs; copy changes must preserve them.
-
-## Style
-
-- Be short and direct; no filler or emojis in commits, issues, PR comments or code. Define unavoidable jargon before using it.
-- Answer questions before commands or edits; state agreement or disagreement before responding to feedback.
-- Explain non-trivial designs and problems as: problem, concrete example, then solution. State why the solution is necessary and distinguish it from optional complexity.
+- Be short and direct; no filler or emojis. Answer questions before commands or edits; state agreement or disagreement before responding to feedback.
 
 ## Workflow
 
-- Read whole files before editing code you have not inspected or making broad changes; do not rely on search snippets.
-- Run commands with Git Bash or PowerShell 7 (`pwsh`), not PowerShell 5. For ad-hoc scripts, write a temp file, run it and remove it when done; do not embed multi-line scripts in shell commands.
-- After code changes: `npm run typecheck`, `npm run lint`, then affected tests once; a test you created or modified must pass before moving on. Do not repeat passing checks without a new reason.
-- Tests live beside modules as `*.test.ts` (`npm test -- doctor.test.ts` filters); they use an absolute temporary `SASH_HOME`, non-default ports and no TUN — never the user's instance. Regression tests for a GitHub issue carry a comment with the issue number.
-- Build/packaging changes require `npm run smoke:package` once. UI changes require Chromium and Firefox checks with `scripts/ui-shot.mjs`; if Firefox cannot be automated, ask the user to inspect it.
-- Understand a dependency before adding it and review lockfile diffs — runtime dependencies are bundled into `dist`. Read `undici`'s changelog before upgrading it. Install with scripts disabled (`--ignore-scripts`) like CI; run lifecycle scripts only when asked.
+- Read whole files before editing code you have not inspected; do not rely on search snippets.
+- After code changes: `npm run typecheck`, `npm run lint`, then affected tests once (`npm test -- doctor.test.ts` filters); a test you created or modified must pass before moving on. Build/packaging changes also run `npm run smoke:package`; UI changes also run Chromium and Firefox checks with `scripts/ui-shot.mjs` (if Firefox cannot be automated, ask the user to inspect it).
+- Tests live beside modules as `*.test.ts` and use an absolute temporary `SASH_HOME`, non-default ports and no TUN — never the user's instance. Regression tests for a GitHub issue carry a comment with the issue number.
+- Understand a dependency before adding it and review lockfile diffs — runtime dependencies are bundled into `dist`. Install with `--ignore-scripts`; run lifecycle scripts only when asked. Read `undici`'s changelog before upgrading it.
 
 ## Git
 
-More than one agent session may work in this tree at the same time. Operations that touch files outside your changes destroy their work.
+Other agent sessions may work in this tree at the same time; never touch files outside your own changes.
 
 - Do not commit unless asked. Run `git status` first and stage only explicit paths you changed in this session.
 - Message format: `{feat,fix,docs,chore}: <imperative summary>`, one concern per commit.
@@ -67,7 +58,7 @@ More than one agent session may work in this tree at the same time. Operations t
 
 ## Changelog and Releasing
 
-- Put notable changes in the newest `CHANGELOG.md` section. Read the full section first and append to existing subsections; never duplicate them. Released sections are immutable.
+- Put notable changes in the newest `CHANGELOG.md` section. Append to existing subsections; released sections are immutable.
 - Follow `RELEASING.md`: version bumps and workflow dispatches need maintainer approval. Publish through `.github/workflows/publish.yml` with OIDC; no npm publishing secrets or bypassing `prepublishOnly`.
 
 ## Upstream

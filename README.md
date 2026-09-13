@@ -6,15 +6,12 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 
 ## Features
 
-- **Supervisor daemon (`sashd`)** — background supervisor on port `19090` managing the core lifecycle, recovery, and reverse proxying
-- **Zero-download web dashboard** — built-in modern Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
-- **Windows system proxy** — snapshots and conditionally restores the current user's prior proxy/PAC settings
-- **CLI controls** — `sash start`, `stop --core`, `restart`, `profile`, `proxy`, `mode`, `status`, `logs`
-- **Windows login startup** — configure it through `sash auto on/off` or the dashboard settings
+- **Background supervisor** — one Sash process per data folder on port `19090`, managing the Core lifecycle, recovery and reverse proxying
+- **Zero-download web dashboard** — built-in Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
 - **Explicit save and apply** — import, edit and update profiles, then apply saved changes with one Core restart
-- **Core updates** — automatic build selection, download integrity and rollback if the new Core fails to start (`sash update`)
-- **Sash self-upgrade** — `sash upgrade` installs a new version through npm and restarts the daemon
-- **Diagnostics** — `sash doctor [--json]` checks installation, saved state, Core files, ports and Windows desktop integration, with repair advice for each finding
+- **Windows desktop integration** — system proxy with snapshot and conditional restore, plus start at login (`sash auto`)
+- **Verified updates** — integrity-checked Core downloads with rollback (`sash update`); `sash upgrade` installs a new Sash through npm and restarts it
+- **Diagnostics** — `sash doctor [--json]` checks installation, state, ports and Windows integration, with repair advice
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers
 
 ## Requirements
@@ -22,7 +19,7 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 - Node.js **24 or newer**
 - Windows 10+ — x64 and arm64
 
-Basic Core lifecycle and local endpoints remain portable to macOS and Linux. Desktop system-proxy and login-startup integration are Windows-only.
+Core lifecycle and local endpoints are portable to macOS and Linux; system-proxy and login-startup integration are Windows-only.
 
 ## Install
 
@@ -45,33 +42,21 @@ sash --help
 ## Quick Start
 
 ```sh
-sash start                 # downloads core if needed, launches sashd and core
-sash web                   # open the web dashboard (profiles, nodes, system proxy, settings)
+sash start                 # downloads Core if needed, launches Sash and Core
+sash web                   # open and authorize the web dashboard
 sash status                # runtime state, endpoints, and proxy status
-sash stop                  # restores prior proxy state, stops core and sashd
+sash stop                  # restores prior proxy state, stops Core and Sash
 ```
 
-Use `sash web` to authorize and open the dashboard. Opening its address directly shows connection instructions. Refreshing an authorized tab preserves access, and management restarts (`sash stop` + `sash start`, `sash restart`, `sash upgrade`) keep existing tabs authorized.
-
-`sash web` also works while Core is stopped or missing. Profile selection, content edits and network settings are saved first; **Apply configuration** (or `sash restart`) restarts Core with those changes. Core updates and restarts keep the dashboard session alive.
-
-Use `sash upgrade --check` to inspect Sash releases. `sash upgrade` installs the target version through npm while Sash keeps running, then restarts Sash to load it; run `sash start` afterwards to resume Core. `sash update` updates Core. See [Updates](./docs/usage.md#updates) for options and JSON output.
-
-Use `sash auto on` to start Sash at login, `sash auto status` to inspect the
-registration and `sash auto off` to remove it. This requires a direct global npm
-installation and preserves the current data directory. See [Automatic Startup](./docs/autostart.md)
-for platform behavior, diagnostics and removal before uninstalling.
+The dashboard also works while Core is stopped: edits are saved first, then **Apply configuration** (or `sash restart`) restarts Core with them. See the [User & Operations Guide](./docs/usage.md) for all commands, updates and troubleshooting, and [Automatic Startup](./docs/autostart.md) for `sash auto on`.
 
 ## Documentation
 
-Comprehensive documentation is available in the [`docs/`](./docs) directory:
-
-- [**User & Operations Guide**](./docs/usage.md) — complete CLI command reference, configuration parameters and troubleshooting.
-- [**PowerShell Completion**](./docs/usage.md#powershell-completion) — bundled command, option and fixed-value completion for PowerShell 7.
-- [**Automatic Startup**](./docs/autostart.md) — login startup, OS registration state and failure diagnostics.
-- [**Backend Architecture**](./docs/backend.md) — supervisor daemon model (`sashd`), API endpoints, lifecycle management, system proxy adapters, and safety invariants.
-- [**Frontend Architecture**](./docs/frontend.md) — built-in Vue 3 + Vite dashboard, shared API contracts, reactive runtime state, and WebSocket streaming.
-- [**Third-Party Notices**](./THIRD_PARTY_NOTICES.md) — licenses and attribution for code/assets embedded in the dashboard and the runtime-downloaded Core.
+- [**User & Operations Guide**](./docs/usage.md) — CLI command reference, configuration, updates and troubleshooting.
+- [**Automatic Startup**](./docs/autostart.md) — login startup, registration state and diagnostics.
+- [**Backend Architecture**](./docs/backend.md) — background process, local API, lifecycle and safety invariants.
+- [**Frontend Architecture**](./docs/frontend.md) — Vue 3 dashboard, shared state, API contracts and streaming.
+- [**Third-Party Notices**](./THIRD_PARTY_NOTICES.md) — licenses for bundled dashboard assets and the runtime-downloaded Core.
 
 ## Disclaimer
 
@@ -79,8 +64,6 @@ Sash is a network tool created for **learning, research, and development debuggi
 
 ## Upstream Components
 
-Sash is MIT-licensed open source and an independent project. It does not bundle the upstream Core in this repository or npm package; at runtime it downloads an unmodified release artifact from [`MetaCubeX/mihomo`](https://github.com/MetaCubeX/mihomo).
+Sash is MIT-licensed open source and an independent project. It does not bundle the upstream Core in this repository or npm package; at runtime it downloads an unmodified release artifact from [`MetaCubeX/mihomo`](https://github.com/MetaCubeX/mihomo). The upstream working source branch is [`Meta`](https://github.com/MetaCubeX/mihomo/tree/Meta); licensing is determined by the selected release and its accompanying notices. Sash's currently tested Core contract is `v1.19.30`, whose source tag carries the [GNU General Public License v3.0](https://github.com/MetaCubeX/mihomo/blob/v1.19.30/LICENSE).
 
-The upstream project's working source branch is [`Meta`](https://github.com/MetaCubeX/mihomo/tree/Meta), and release artifacts are published on its [releases page](https://github.com/MetaCubeX/mihomo/releases). Licensing is determined by the selected upstream release and its accompanying notices. Sash's currently tested Core contract is `v1.19.30`, whose source tag carries the [GNU General Public License v3.0](https://github.com/MetaCubeX/mihomo/blob/v1.19.30/LICENSE).
-
-The downloaded component remains the work of its respective authors; all credit belongs upstream. See [Third-Party Notices](./THIRD_PARTY_NOTICES.md) for the bundled dashboard notices and release-specific Core attribution.
+The downloaded component remains the work of its respective authors; all credit belongs upstream. See [Third-Party Notices](./THIRD_PARTY_NOTICES.md) for bundled dashboard notices and release-specific Core attribution.
