@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Reduce idle resource use while the dashboard is open: Sash caches start at login and Windows system proxy observations for 30 seconds instead of spawning registry probes on every 5-second status sample, and `sash status` reads the start at login state from the running Sash instead of probing the registry itself.
+- The dashboard pauses Core resource polling while its browser tab is hidden and refreshes immediately when it becomes visible again, matching the existing WebSocket behavior.
+- Enable the V8 compile cache for the CLI, Sash background process and start at login entries through thin launchers, trimming startup time on repeated runs.
+- Sash caches the Core install record instead of re-reading it on every status sample, and the profile scheduler no longer broadcasts a state change when a 15-minute cleanup removed nothing.
+
+### Fixed
+
+- Rotate Core logs one generation at Core startup once they exceed 10 MiB; `mihomo.log` no longer grows without bound. Rotation is best-effort and never blocks Core startup.
+- Cap concurrent WebSocket streams through the local API at 64, matching the existing event stream limit; excess upgrades are rejected before reaching Core.
+
 ## [0.2.7] - 2026-09-13
 
 ### Added
