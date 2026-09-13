@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-09-13
+
 ### Changed
 
 - Reduce idle resource use while the dashboard is open: Sash caches start at login and Windows system proxy observations for 30 seconds instead of spawning registry probes on every 5-second status sample, and `sash status` reads the start at login state from the running Sash instead of probing the registry itself.
