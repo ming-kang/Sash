@@ -149,6 +149,29 @@ export function isGeodataDownloadFailure(error: unknown): boolean {
   return error instanceof CoreGeodataUnavailableError || looksLikeGeodataDownloadFailure(error);
 }
 
+/** The database each failure class fetches when the output names no file. */
+const GEODATA_CLASS_FILES: Record<string, string> = {
+  mmdb: "country.mmdb",
+  geoip: "geoip.dat",
+  geosite: "geosite.dat",
+  asn: "GeoLite2-ASN.mmdb",
+};
+
+/**
+ * The database a geodata failure was fetching: a mentioned known file name
+ * wins over the failure class, so non-default geox-url layouts still map.
+ */
+export function geodataFileForFailure(error: unknown): string | undefined {
+  if (!isGeodataDownloadFailure(error)) return undefined;
+  const output = errorOutput(error);
+  const lower = output.toLowerCase();
+  for (const name of GEODATA_FILE_NAMES) {
+    if (lower.includes(name.toLowerCase())) return name;
+  }
+  const kind = GEODATA_DOWNLOAD.exec(output)?.[1] ?? GEODATA_ATTEMPT.exec(output)?.[1];
+  return kind ? GEODATA_CLASS_FILES[kind.toLowerCase()] : undefined;
+}
+
 function errorOutput(error: unknown): string {
   if (typeof error !== "object" || error === null) return String(error);
   const record = error as { message?: unknown; stderr?: unknown; stdout?: unknown };

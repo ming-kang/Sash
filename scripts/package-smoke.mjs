@@ -139,6 +139,19 @@ function assertPackedFiles(files) {
   assert.ok(uiAssets.some((entry) => entry.path.endsWith(".js") && entry.size > 0));
   assert.ok(uiAssets.some((entry) => entry.path.endsWith(".css") && entry.size > 0));
 
+  // The bootstrap manifest is generated in CI after the build; local packs
+  // may omit it, but CI must pack one (content is checked after install).
+  const manifestEntry = byPath.get("dist/bootstrap-manifest.json");
+  if (process.env.SASH_PACKAGE_SMOKE_REQUIRE_BOOTSTRAP === "1") {
+    assert.ok(
+      manifestEntry,
+      "tarball is missing dist/bootstrap-manifest.json (built by scripts/build-bootstrap-manifest.mjs)",
+    );
+  }
+  if (manifestEntry) {
+    assert.ok(manifestEntry.size > 0, "tarball contains empty dist/bootstrap-manifest.json");
+  }
+
   const allowedTopLevel = new Set([
     "package.json",
     "LICENSE",
@@ -207,6 +220,18 @@ try {
   );
   assert.equal(fs.statSync(installedRoot).isDirectory(), true);
   assertNonEmptyFile(path.join(installedRoot, "dist", "ui", "index.html"));
+  const installedManifest = path.join(installedRoot, "dist", "bootstrap-manifest.json");
+  if (fs.existsSync(installedManifest)) {
+    const manifest = JSON.parse(fs.readFileSync(installedManifest, "utf8"));
+    assert.equal(typeof manifest.core?.tag, "string", "manifest is missing the Core tag");
+    assert.equal(typeof manifest.geodata?.tag, "string", "manifest is missing the geodata tag");
+    assert.ok(manifest.core.assets.length > 0, "manifest pins no Core assets");
+    assert.ok(manifest.geodata.assets.length > 0, "manifest pins no geodata files");
+    for (const asset of [...manifest.core.assets, ...manifest.geodata.assets]) {
+      assert.match(asset.sha256, /^[0-9a-f]{64}$/, `manifest asset ${asset.name} has no digest`);
+      assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0);
+    }
+  }
   const { inspectInstallation } = await import(
     pathToFileURL(path.join(installedRoot, "dist", "sash-installation.js")).href
   );

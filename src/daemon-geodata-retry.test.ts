@@ -94,4 +94,84 @@ describe("daemon geodata mirror retry", () => {
     assert.notEqual(response.statusCode, 200);
     assert.equal(validated.length, 2);
   });
+
+  it("seeds the missing database itself when every mirror fails, then applies the original configuration", async () => {
+    const validated: GeneratedConfig[] = [];
+    const seeded: string[] = [];
+    await h.startServer({
+      validateConfig: (generated) => {
+        validated.push(generated);
+        if (validated.length <= 3) {
+          throw Object.assign(new Error("command failed"), {
+            stderr: Buffer.from(GEODATA_FAILURE),
+          });
+        }
+      },
+      seedGeodata: async (file) => {
+        seeded.push(file);
+        fs.writeFileSync(path.join(h.layout.root, file), "seeded database");
+        return { file, source: "live" };
+      },
+    });
+
+    const response = await h.apiRequest("/sash/core/start", { method: "POST" });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(seeded, ["country.mmdb"]);
+    // Direct, two mirrors, then the post-seed revalidation.
+    assert.equal(validated.length, 4);
+    const finalDoc = YAML.parse(validated[3]?.yaml ?? "") as Record<string, unknown>;
+    assert.equal("geox-url" in finalDoc, false);
+    assert.equal(h.instance?.lifecycle.configuration()?.generated, validated[3]);
+  });
+
+  it("seeds each missing database in turn", async () => {
+    const geositeFailure =
+      'can\'t download GeoSite: Get "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat": dial tcp: connectex: A connection attempt failed';
+    const seeded: string[] = [];
+    let validations = 0;
+    await h.startServer({
+      validateConfig: () => {
+        validations += 1;
+        if (validations <= 3) {
+          throw Object.assign(new Error("command failed"), {
+            stderr: Buffer.from(GEODATA_FAILURE),
+          });
+        }
+        if (validations === 4) {
+          throw Object.assign(new Error("command failed"), {
+            stderr: Buffer.from(geositeFailure),
+          });
+        }
+      },
+      seedGeodata: async (file) => {
+        seeded.push(file);
+        fs.writeFileSync(path.join(h.layout.root, file), "seeded database");
+        return { file, source: "pinned" };
+      },
+    });
+
+    const response = await h.apiRequest("/sash/core/start", { method: "POST" });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(seeded, ["country.mmdb", "geosite.dat"]);
+    assert.equal(validations, 5);
+  });
+
+  it("surfaces the geodata failure when verified seeding fails too", async () => {
+    const seeded: string[] = [];
+    await h.startServer({
+      validateConfig: () => {
+        throw Object.assign(new Error("command failed"), {
+          stderr: Buffer.from(GEODATA_FAILURE),
+        });
+      },
+      seedGeodata: async (file) => {
+        seeded.push(file);
+        throw new Error("getaddrinfo ENOTFOUND github.com");
+      },
+    });
+
+    const response = await h.apiRequest("/sash/core/start", { method: "POST" });
+    assert.notEqual(response.statusCode, 200);
+    assert.deepEqual(seeded, ["country.mmdb"]);
+  });
 });

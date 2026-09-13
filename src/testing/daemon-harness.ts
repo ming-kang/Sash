@@ -23,6 +23,7 @@ export interface DaemonServerOverrides {
   packageRoot?: string;
   installCore?: boolean;
   stageCore?: DaemonDeps["stageCoreFn"];
+  seedGeodata?: DaemonDeps["seedGeodataFn"];
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
   autostart?: AutostartController;
@@ -152,6 +153,11 @@ export class DaemonTestHarness {
         overrides.stageCore ??
         (async () => {
           throw new Error("A Core download adapter is required in tests");
+        }),
+      seedGeodataFn:
+        overrides.seedGeodata ??
+        (async () => {
+          throw new Error("A geodata download adapter is required in tests");
         }),
       scheduler: overrides.scheduler,
     });

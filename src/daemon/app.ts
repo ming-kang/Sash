@@ -12,6 +12,7 @@ import {
 } from "../core.js";
 import {
   CONFIG_TEST_GEODATA_TIMEOUT_MS,
+  geodataFileForFailure,
   isGeodataDownloadFailure,
   validateCoreConfig,
 } from "../core-config-validation.js";
@@ -22,6 +23,7 @@ import {
   readCoreUpdateTransaction,
 } from "../core-update.js";
 import { errorMessage } from "../error-utils.js";
+import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
 import { formatProxyFallbackWarning } from "../http.js";
 import {
   GEOX_MIRROR_SETS,
@@ -59,6 +61,7 @@ export interface DaemonDeps {
     signal: AbortSignal,
   ) => Promise<void> | void;
   stageCoreFn?: typeof stageCore;
+  seedGeodataFn?: (file: string, options: { signal: AbortSignal }) => Promise<GeodataSeedResult>;
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
   onShutdown?: () => void;
   scheduler?: DaemonScheduler;
@@ -157,6 +160,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     executable: string,
     signal: AbortSignal,
   ): Promise<RuntimeConfiguration> => {
+    const seedGeodata =
+      deps.seedGeodataFn ??
+      ((file: string, options: { signal: AbortSignal }) => seedGeodataFile(file, layout, options));
     try {
       await validate(configuration.generated, executable, signal);
       return configuration;
@@ -180,6 +186,33 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
         } catch (mirrorError) {
           if (!isGeodataDownloadFailure(mirrorError)) throw mirrorError;
           lastError = mirrorError;
+        }
+      }
+      // Every mirror failed: fetch the missing databases through the verified
+      // pipeline (release-API digest, or the packaged bootstrap manifest when
+      // the API is unreachable), then revalidate the original configuration —
+      // the Core skips downloads for files already in the data folder.
+      const seeded = new Set<string>();
+      for (;;) {
+        const file = geodataFileForFailure(lastError);
+        if (!file || seeded.has(file)) break;
+        seeded.add(file);
+        try {
+          const result = await seedGeodata(file, { signal });
+          console.warn(
+            `[sashd] installed verified geodata file ${result.file}${result.source === "pinned" ? " from the packaged bootstrap manifest" : ""}`,
+          );
+        } catch (seedError) {
+          signal.throwIfAborted();
+          console.warn(`[sashd] verified geodata download failed: ${errorMessage(seedError)}`);
+          break;
+        }
+        try {
+          await validate(configuration.generated, executable, signal);
+          return configuration;
+        } catch (retryError) {
+          if (!isGeodataDownloadFailure(retryError)) throw retryError;
+          lastError = retryError;
         }
       }
       throw lastError;
@@ -261,6 +294,12 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       });
       signal.throwIfAborted();
       setStage("validating", staged.version);
+      if (staged.source === "pinned") {
+        const note = `pinned offline Core ${staged.version} — run sash update when GitHub is reachable`;
+        progress.note = note;
+        events.notify();
+        console.warn(`[sashd] ${note}`);
+      }
       const validated = await validateConfiguration(configuration, staged.exe, signal);
       const candidate = staged;
       setStage("waiting");

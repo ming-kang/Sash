@@ -16,6 +16,18 @@ import { downloadToFile } from "./http-download.js";
 
 export const MIHOMO_REPO = "MetaCubeX/mihomo";
 
+/** Geodata databases the Core fetches from this repository's releases. */
+export const GEODATA_REPO = "MetaCubeX/meta-rules-dat";
+
+/** Release tags become URL path segments; keep them single, printable words. */
+export function validateCoreReleaseTag(tag: string): string {
+  const normalized = tag.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(normalized)) {
+    throw new Error(`Invalid Core release tag: ${tag}`);
+  }
+  return normalized;
+}
+
 /** Mirrors that proxy github.com URLs. Direct first. */
 export const GITHUB_MIRRORS = [
   "", // direct

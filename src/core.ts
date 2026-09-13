@@ -5,6 +5,7 @@ import { type Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import { type Entry, openPromise, type ZipFile } from "yauzl";
+import { manifestReleaseAssets, readBootstrapManifest } from "./bootstrap-manifest.js";
 import { atomicWriteFileSync, pathEntryExists } from "./fs-atomic.js";
 import {
   downloadReleaseAsset,
@@ -12,6 +13,7 @@ import {
   MIHOMO_REPO,
   type ReleaseAsset,
   resolveLatestTag,
+  validateCoreReleaseTag,
 } from "./github.js";
 import type { ProxyFallbackListener } from "./http.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -67,16 +69,10 @@ export function assertCoreBinaryFile(file: string): void {
     throw new Error(`Core binary must be a nonempty regular file within 512MB: ${file}`);
 }
 
+export { validateCoreReleaseTag } from "./github.js";
+
 export interface InstallRecord {
   coreVersion: string;
-}
-
-export function validateCoreReleaseTag(tag: string): string {
-  const normalized = tag.trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(normalized)) {
-    throw new Error(`Invalid Core release tag: ${tag}`);
-  }
-  return normalized;
 }
 
 function toInstallRecord(value: unknown): InstallRecord {
@@ -239,6 +235,8 @@ export interface StagedCore {
   version: string;
   exe: string;
   assetName?: string;
+  /** "pinned" when staging used the packaged bootstrap manifest offline. */
+  source?: "live" | "pinned";
 }
 
 export interface CoreReleaseResolution {
@@ -247,21 +245,35 @@ export interface CoreReleaseResolution {
   candidates: string[];
 }
 
+export interface CoreReleaseResolution {
+  tag: string;
+  assets: ReleaseAsset[];
+  candidates: string[];
+  /** "pinned" when the metadata came from the packaged bootstrap manifest, not the live API. */
+  source: "live" | "pinned";
+}
+
 /**
  * Resolve one release to its assets and the compatible asset names for this
  * machine. Both the staging path and the metadata-only check use this so the
  * size/digest and CPU-feature policy cannot drift apart. SASH_CORE_VERSION
  * pins the tag and skips the latest-release lookup; the asset metadata (and
  * its SHA-256 trust anchor) still comes from the release API.
+ *
+ * When the live release API is unreachable, the packaged bootstrap manifest
+ * supplies the same metadata for the one release it records — mirrors stay
+ * byte transports, only the digest source changes. An explicit pin for any
+ * other release still requires the live API.
  */
 export async function resolveCoreRelease(
   options: { tag?: string; signal?: AbortSignal; onProxyFallback?: ProxyFallbackListener } = {},
 ): Promise<CoreReleaseResolution> {
+  const pinned = options.tag ?? process.env.SASH_CORE_VERSION;
+  // An invalid explicit pin is a usage error, never a network problem.
+  if (pinned !== undefined) validateCoreReleaseTag(pinned);
   try {
     const tag = validateCoreReleaseTag(
-      options.tag ??
-        process.env.SASH_CORE_VERSION ??
-        (await resolveLatestTag(MIHOMO_REPO, options.signal, options.onProxyFallback)),
+      pinned ?? (await resolveLatestTag(MIHOMO_REPO, options.signal, options.onProxyFallback)),
     );
     const assets = await listReleaseAssets(
       MIHOMO_REPO,
@@ -273,8 +285,19 @@ export async function resolveCoreRelease(
       tag,
       assets,
       candidates: mihomoAssetCandidates(tag, process.platform, process.arch),
+      source: "live",
     };
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    const manifest = readBootstrapManifest();
+    if (manifest && (pinned === undefined || pinned === manifest.core.tag)) {
+      return {
+        tag: manifest.core.tag,
+        assets: manifestReleaseAssets(MIHOMO_REPO, manifest.core),
+        candidates: mihomoAssetCandidates(manifest.core.tag, process.platform, process.arch),
+        source: "pinned",
+      };
+    }
     throw explainCoreReleaseFailure(error);
   }
 }
@@ -337,7 +360,7 @@ export async function coreBinaryRuns(exe: string): Promise<boolean> {
 export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCore> {
   const layout = opts.layout ?? sashLayout();
   opts.onStage?.("resolving");
-  const { tag, assets, candidates } = await resolveCoreRelease({
+  const { tag, assets, candidates, source } = await resolveCoreRelease({
     ...(opts.tag !== undefined ? { tag: opts.tag } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
     ...(opts.onProxyFallback !== undefined ? { onProxyFallback: opts.onProxyFallback } : {}),
@@ -371,7 +394,8 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
       opts.onStage?.("extracting", tag);
       await extractCoreArchive(archivePath, assetName, stagedExe, opts.signal);
       opts.signal?.throwIfAborted();
-      if (await coreBinaryRuns(stagedExe)) return { version: tag, exe: stagedExe, assetName };
+      if (await coreBinaryRuns(stagedExe))
+        return { version: tag, exe: stagedExe, assetName, source };
       fs.rmSync(stagedExe, { force: true });
     }
     throw new Error(

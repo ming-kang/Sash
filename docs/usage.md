@@ -138,16 +138,18 @@ Sash selects an official build that runs on the processor, verifies its download
 
 The dashboard stays available. Updates preserve whether Core was running; an update while stopped starts Core briefly for verification, then stops it. `--check` reads installation and release metadata without starting Sash or Core. `--json` prints one result instead of progress text.
 
-`SASH_CORE_VERSION` pins the release tag (for example `v1.19.30`) and skips the latest-release lookup. Asset metadata and its SHA-256 digest still come from the release API, so verification is unchanged.
+`SASH_CORE_VERSION` pins the release tag (for example `v1.19.30`) and skips the latest-release lookup. Asset metadata and its SHA-256 digest still come from the release API, so verification is unchanged. When the release API is unreachable, Sash falls back to the bootstrap manifest packaged with this release: the pinned tag's metadata and digests were recorded at publish time, and mirror downloads are verified against them. A pin for any other tag still needs the release API.
 
 ### Install Core offline
+
+Most networks that cannot reach GitHub can still reach the mirrors (`ghfast.top`, `gh-proxy.com`); combined with the packaged bootstrap manifest, Core installation and geodata downloads then work without any manual steps and stay digest-verified. Manual placement below remains the path for a machine cut off from all of these.
 
 When this machine cannot reach GitHub at all, even before any proxy exists, bring the files from another machine:
 
 1. Download the Core archive for this platform from the upstream Core repository (`MetaCubeX/mihomo` releases) anywhere you can, and the geodata files from `MetaCubeX/meta-rules-dat` if your profiles use GeoIP or GeoSite rules.
 2. Stop Sash, then place the executable at `bin/mihomo.exe` (Windows) or `bin/mihomo` (macOS, Linux) inside the data folder. On POSIX make it executable.
 3. Record the installation so Sash accepts the binary: write `state/install.json` with the exact release tag, for example `{ "coreVersion": "v1.19.30" }`. Without this file Sash reports the installation as incomplete; with a tag that does not match the binary, health checks fail honestly.
-4. Place geodata files (`geoip.dat` or `geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) directly in the data folder root. The Core also downloads them itself when they are missing.
+4. Place geodata files (`geoip.dat` or `geoip.metadb`, `geosite.dat`, `country.mmdb`, `GeoLite2-ASN.mmdb`) directly in the data folder root. The Core downloads them itself when they are missing; when that fails, Sash retries through mirrors and finally fetches the missing database itself, verified against the release API digest or the packaged manifest.
 5. Run `sash start`, then `sash doctor`.
 
 A proxy environment variable left over from another tool breaks these downloads: when `HTTP_PROXY` points at a loopback port with nothing listening, Sash warns and retries without the proxy instead of failing. Point it at a running proxy if the network needs one.

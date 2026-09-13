@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Packages now carry a bootstrap manifest: the Core and geodata releases current at publish time (tags, sizes and publisher SHA-256 digests). When the GitHub release API is unreachable, Core installs and updates verify mirror downloads against this manifest instead of failing, and the result notes the pinned version until `sash update` can run online. An explicit `SASH_CORE_VERSION` pin for another release still requires the release API.
+- When the Core cannot download its geodata databases through any mirror, Sash downloads the missing database itself through the same verified pipeline and places it in the data folder, so profiles with GeoIP or GeoSite rules can start on networks where only the mirrors are reachable.
+
 ## [0.2.8] - 2026-09-13
 
 ### Changed
