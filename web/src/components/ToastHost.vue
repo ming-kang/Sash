@@ -1,44 +1,42 @@
 <template>
-  <Teleport to="body">
-    <div class="toast-host" aria-live="polite" aria-atomic="false" aria-relevant="additions text">
-      <TransitionGroup name="toast">
-        <div
-          v-for="item in store.toasts"
-          :key="item.id"
-          class="toast"
-          :class="`toast-${item.kind}`"
-          :role="item.kind === 'error' ? 'alert' : 'status'"
-          @pointerenter="setToastPaused(item.id, 'pointer', true)"
-          @pointerleave="setToastPaused(item.id, 'pointer', false)"
-          @focusin="setToastPaused(item.id, 'focus', true)"
-          @focusout="setToastPaused(item.id, 'focus', false)"
+  <div class="toast-host" aria-live="polite" aria-atomic="false" aria-relevant="additions text">
+    <TransitionGroup name="toast">
+      <div
+        v-for="item in store.toasts"
+        :key="item.id"
+        class="toast"
+        :class="`toast-${item.kind}`"
+        :role="item.kind === 'error' ? 'alert' : 'status'"
+        @pointerenter="setToastPaused(item.id, 'pointer', true)"
+        @pointerleave="setToastPaused(item.id, 'pointer', false)"
+        @focusin="setToastPaused(item.id, 'focus', true)"
+        @focusout="setToastPaused(item.id, 'focus', false)"
+      >
+        <span class="toast-icon">
+          <Icon :name="iconFor(item.kind)" :size="14" />
+        </span>
+        <span class="toast-text">{{ item.text }}</span>
+        <span v-if="item.count > 1" class="toast-count" :aria-label="t('toast.repeated', { n: item.count })">
+          ×{{ item.count }}
+        </span>
+        <button
+          type="button"
+          class="toast-close"
+          :aria-label="t('common.close')"
+          @click="dismissToast(item.id)"
         >
-          <span class="toast-icon">
-            <Icon :name="iconFor(item.kind)" :size="14" />
-          </span>
-          <span class="toast-text">{{ item.text }}</span>
-          <span v-if="item.count > 1" class="toast-count" :aria-label="t('toast.repeated', { n: item.count })">
-            ×{{ item.count }}
-          </span>
-          <button
-            type="button"
-            class="toast-close"
-            :aria-label="t('common.close')"
-            @click="dismissToast(item.id)"
-          >
-            <Icon name="x" :size="12" />
-          </button>
-          <span
-            v-if="item.duration > 0"
-            :key="item.count"
-            class="toast-progress"
-            :style="{ animationDuration: `${item.duration}ms` }"
-            aria-hidden="true"
-          />
-        </div>
-      </TransitionGroup>
-    </div>
-  </Teleport>
+          <Icon name="x" :size="12" />
+        </button>
+        <span
+          v-if="item.duration > 0"
+          :key="item.count"
+          class="toast-progress"
+          :style="{ animationDuration: `${item.duration}ms` }"
+          aria-hidden="true"
+        />
+      </div>
+    </TransitionGroup>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -56,15 +54,19 @@ function iconFor(kind: ToastItem["kind"]): string {
 </script>
 
 <style scoped>
+/* The host sits inside App.vue's .app-chrome: absolute top:100% drops the stack just
+   below the pending bar so toasts never cover its apply button; with an empty chrome
+   it lands at the usual top offset. */
 .toast-host {
-  position: fixed;
-  top: max(16px, env(safe-area-inset-top, 0px));
+  position: absolute;
+  top: 100%;
   right: max(16px, env(safe-area-inset-right, 0px));
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;
   width: min(360px, calc(100vw - 32px));
+  margin-top: max(16px, env(safe-area-inset-top, 0px));
   pointer-events: none;
 }
 .toast {
@@ -178,11 +180,13 @@ function iconFor(kind: ToastItem["kind"]): string {
 
 @media (max-width: 899px) {
   .toast-host {
+    position: fixed;
     top: auto;
     right: max(12px, env(safe-area-inset-right, 0px));
     bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     left: max(12px, env(safe-area-inset-left, 0px));
     width: auto;
+    margin-top: 0;
   }
 }
 

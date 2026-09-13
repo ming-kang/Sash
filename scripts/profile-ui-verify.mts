@@ -298,6 +298,19 @@ try {
       await held.locator(".profile-card-main").click();
       await idle(page);
       assert.equal(loadProfiles(h.layout).activeId, initialIds[2]);
+      // Regression: toasts must never cover the pending bar (its apply button sits top-right).
+      const toastOverlap = await page.evaluate(() => {
+        const bar = document.querySelector(".pending-config")?.getBoundingClientRect();
+        const toasts = Array.from(document.querySelectorAll(".toast"), (el) =>
+          el.getBoundingClientRect(),
+        );
+        if (!bar || toasts.length === 0) return "missing pending bar or toast";
+        return toasts.some((box) => box.bottom > bar.top && box.top < bar.bottom)
+          ? "toast overlaps pending bar"
+          : null;
+      });
+      assert.equal(toastOverlap, null);
+      await capture(page, `${tag}-profiles-pending-toast`);
       results.push(`${tag}: holding without moving does not activate; next click works`);
 
       await page.mouse.move(heldBox.x + 35, heldBox.y + heldBox.height - 12);

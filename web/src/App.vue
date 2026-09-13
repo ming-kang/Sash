@@ -20,13 +20,18 @@
           </div>
         </Transition>
 
-        <div
-          v-if="sessionReady && store.status?.configuration.pending"
-          class="pending-config"
-          role="status"
-        >
-          <span>{{ t('settings.pendingApply') }}</span>
-          <CoreControls apply-only />
+        <div class="app-chrome">
+          <div
+            v-if="sessionReady && store.status?.configuration.pending"
+            class="pending-config"
+            role="status"
+          >
+            <span>{{ t('settings.pendingApply') }}</span>
+            <CoreControls apply-only />
+          </div>
+
+          <!-- Anchored to the chrome's bottom edge so toasts never cover the apply button. -->
+          <ToastHost />
         </div>
 
         <div
@@ -43,7 +48,6 @@
         </div>
       </main>
 
-      <ToastHost />
       <ConfirmDialog />
     </div>
   </div>
@@ -182,6 +186,12 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.app-chrome {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+}
 .pending-config {
   display: flex;
   flex-shrink: 0;
