@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-09-13
+
+### Changed
+
+- Vocabulary and copy alignment across CLI, WebUI, and diagnostics: strictly standardize on "Sash" for the background process and "Core" for the network engine, removing deprecated references to "daemon", "sashd", and "management".
+- PIDs stay strictly in `--json` output; prose in startup and lifecycle diagnostics no longer prints process IDs.
+- In Chinese locale, standardize on "应用配置" (Apply configuration) to align with English, Profile concepts, and CLI output; change "本地接口端口" to "本地 API 端口"; update "控制台主题 / 显示语言" to "面板主题 / 显示语言".
+- Clarify connection list pause/resume action in Chinese as "暂停 / 恢复", and broaden proxy group empty hints to cover local profile imports.
+- Update PowerShell completion descriptions in `docs/completions/sash.ps1` to eliminate legacy terminology.
+
+### Fixed
+
+- Localize the direct node card subtitle in the dashboard's Overview page, replacing hardcoded English "Direct" with the active locale's string.
+
 ## [0.2.9] - 2026-09-13
 
 ### Added
