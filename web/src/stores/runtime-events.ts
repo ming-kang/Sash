@@ -19,6 +19,24 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
   let pendingForce = false;
   let cycle = 0;
 
+  const isHidden = (): boolean => typeof document !== "undefined" && Boolean(document.hidden);
+
+  const stopResourceTimer = (): void => {
+    if (resourceTimer !== null) {
+      window.clearTimeout(resourceTimer);
+      resourceTimer = null;
+    }
+  };
+
+  const scheduleResourceTick = (): void => {
+    if (stopped || isHidden()) return;
+    stopResourceTimer();
+    resourceTimer = window.setTimeout(() => {
+      resourceTimer = null;
+      void resourceTick();
+    }, intervalMs);
+  };
+
   const refreshResources = async (force = false): Promise<void> => {
     if (stopped || !api.hasSession()) return;
     if (runningResources) {
@@ -38,12 +56,23 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
       if (pendingForce && !stopped) void refreshResources();
     }
   };
-  const resourceTick = async (): Promise<void> => {
-    await refreshResources();
-    if (!stopped)
-      resourceTimer = window.setTimeout(() => {
-        void resourceTick();
-      }, intervalMs);
+  const resourceTick = async (force = false): Promise<void> => {
+    if (stopped || isHidden()) return;
+    try {
+      await refreshResources(force);
+    } finally {
+      if (!stopped && !isHidden()) scheduleResourceTick();
+    }
+  };
+
+  const onVisibilityChange = (): void => {
+    if (stopped) return;
+    if (isHidden()) {
+      stopResourceTimer();
+    } else {
+      stopResourceTimer();
+      void resourceTick(true);
+    }
   };
 
   const scheduleReconnect = (delay = RECONNECT_MS): void => {
@@ -99,6 +128,9 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
     void refreshResources(true);
   });
   window.addEventListener("hashchange", onHashChange);
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  }
   void connect();
   void resourceTick();
   return () => {
@@ -106,8 +138,11 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
     stream?.abort();
     stream = null;
     if (retryTimer !== null) window.clearTimeout(retryTimer);
-    if (resourceTimer !== null) window.clearTimeout(resourceTimer);
+    stopResourceTimer();
     stopRouteWatch();
     window.removeEventListener("hashchange", onHashChange);
+    if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    }
   };
 }
