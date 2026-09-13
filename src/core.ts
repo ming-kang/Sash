@@ -95,11 +95,36 @@ export function parseInstallRecord(value: unknown): InstallRecord | undefined {
   }
 }
 
+interface CachedInstallRecord {
+  mtimeMs: number;
+  size: number;
+  record: InstallRecord;
+}
+
+const installRecordCache = new Map<string, CachedInstallRecord>();
+
 /** Best-effort read; an unreadable record means "no Core installed". */
 export function readInstallRecord(layout: SashLayout = sashLayout()): InstallRecord | undefined {
+  const filePath = path.resolve(layout.installFile);
   try {
-    return parseInstallRecord(JSON.parse(fs.readFileSync(layout.installFile, "utf8")) as unknown);
+    const stat = fs.statSync(filePath);
+    const cached = installRecordCache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.record;
+    }
+    const parsed = parseInstallRecord(JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown);
+    if (parsed) {
+      installRecordCache.set(filePath, {
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+        record: parsed,
+      });
+    } else {
+      installRecordCache.delete(filePath);
+    }
+    return parsed;
   } catch {
+    installRecordCache.delete(filePath);
     return undefined;
   }
 }
