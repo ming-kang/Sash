@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import type { AutostartStatus } from "./autostart/contract.js";
 import { withCliErrors } from "./cli-errors.js";
 import { runStatus } from "./commands/status.js";
 import type { DaemonStatus } from "./contracts.js";
 import { readSashPackageInfo } from "./package-info.js";
 import { sashLayout } from "./paths.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import {
   collectRuntimeStatus,
   markIncompleteObservation,
@@ -15,6 +17,7 @@ import {
   type StatusObservationContext,
   type StatusObservationDependencies,
 } from "./status.js";
+import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { testSettings, testStatus } from "./testing/state.js";
 
 const context: StatusObservationContext = {
@@ -458,5 +461,161 @@ describe("CLI runtime status observations", () => {
       output.errors.some((line) => line.includes("settings are corrupt")),
       true,
     );
+  });
+
+  it("uses daemon-provided autostart when daemon is reachable and avoids local probe", async () => {
+    let localProbeCalled = false;
+    let daemonQueried = false;
+    const daemonAutostart: AutostartStatus = { state: "on", canEnable: true, reason: null };
+    const status = await collectRuntimeStatus(
+      context,
+      dependencies({
+        queryDaemonAutostart: async () => {
+          daemonQueried = true;
+          return daemonAutostart;
+        },
+        inspectAutostart: async () => {
+          localProbeCalled = true;
+          throw new Error("local autostart probe must not be called when daemon is reachable");
+        },
+      }),
+    );
+
+    assert.equal(daemonQueried, true);
+    assert.equal(localProbeCalled, false);
+    assert.deepEqual(status.autostart, daemonAutostart);
+  });
+
+  it("falls back to local autostart probe when daemon is stopped without attempting daemon HTTP call", async () => {
+    let localProbeCalled = false;
+    let daemonQueried = false;
+    const fallbackAutostart: AutostartStatus = { state: "on", canEnable: true, reason: null };
+    const status = await collectRuntimeStatus(
+      context,
+      dependencies({
+        evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
+        queryDaemonAutostart: async () => {
+          daemonQueried = true;
+          throw new Error("must not query daemon when stopped");
+        },
+        inspectAutostart: async () => {
+          localProbeCalled = true;
+          return fallbackAutostart;
+        },
+      }),
+    );
+
+    assert.equal(daemonQueried, false);
+    assert.equal(localProbeCalled, true);
+    assert.deepEqual(status.autostart, fallbackAutostart);
+  });
+
+  it("falls back to local autostart probe when daemon autostart query fails", async () => {
+    let localProbeCalled = false;
+    let daemonQueried = false;
+    const fallbackAutostart: AutostartStatus = { state: "off", canEnable: true, reason: null };
+    const status = await collectRuntimeStatus(
+      context,
+      dependencies({
+        queryDaemonAutostart: async () => {
+          daemonQueried = true;
+          throw new Error("daemon autostart endpoint failed");
+        },
+        inspectAutostart: async () => {
+          localProbeCalled = true;
+          return fallbackAutostart;
+        },
+      }),
+    );
+
+    assert.equal(daemonQueried, true);
+    assert.equal(localProbeCalled, true);
+    assert.deepEqual(status.autostart, fallbackAutostart);
+  });
+});
+
+describe("CLI runtime status autostart observation with live daemon harness", () => {
+  const h = useDaemonTestHarness();
+
+  it("client.autostartStatus() queries /sash/autostart on the running daemon", async () => {
+    const expectedAutostart: AutostartStatus = {
+      state: "on",
+      canEnable: true,
+      reason: null,
+    };
+    await h.startServer({
+      autostart: {
+        inspect: async () => expectedAutostart,
+        set: async () => expectedAutostart,
+      },
+    });
+
+    const client = createDaemonClient(h.boundPort, h.settings.daemonSecret);
+    const result = await client.autostartStatus();
+    assert.deepEqual(result, expectedAutostart);
+  });
+
+  it("fetches autostart from the running daemon without spawning local autostart inspection", async () => {
+    let daemonAutostartInspected = 0;
+    const expectedAutostart: AutostartStatus = {
+      state: "on",
+      canEnable: true,
+      reason: null,
+    };
+    await h.startServer({
+      autostart: {
+        inspect: async () => {
+          daemonAutostartInspected += 1;
+          return expectedAutostart;
+        },
+        set: async () => expectedAutostart,
+      },
+    });
+
+    let localProbeCalled = false;
+    const status = await collectRuntimeStatus(
+      { layout: h.layout, settings: h.settings },
+      {
+        evaluateDaemon: async () => ({
+          kind: "healthy",
+          running: true,
+          healthy: true,
+          pid: process.pid,
+          port: h.boundPort,
+        }),
+        inspectAutostart: async () => {
+          localProbeCalled = true;
+          throw new Error("local autostart inspection must not be called when daemon is online");
+        },
+      },
+    );
+
+    assert.equal(daemonAutostartInspected, 1);
+    assert.equal(localProbeCalled, false);
+    assert.deepEqual(status.autostart, expectedAutostart);
+    assert.equal(status.core.running, false);
+    assert.equal(status.complete, true);
+  });
+
+  it("falls back to local autostart probe when live daemon is stopped", async () => {
+    let localProbeCalled = false;
+    const fallbackAutostart: AutostartStatus = {
+      state: "off",
+      canEnable: true,
+      reason: null,
+    };
+    const status = await collectRuntimeStatus(
+      { layout: h.layout, settings: h.settings },
+      {
+        inspectAutostart: async () => {
+          localProbeCalled = true;
+          return fallbackAutostart;
+        },
+      },
+    );
+
+    assert.equal(localProbeCalled, true);
+    assert.deepEqual(status.autostart, fallbackAutostart);
+    assert.equal(status.daemon.state, "stopped");
   });
 });

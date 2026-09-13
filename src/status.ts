@@ -90,6 +90,10 @@ export interface StatusObservationDependencies {
     context: StatusObservationContext,
     daemon: DaemonHealthyInfo,
   ) => Promise<DaemonStatus>;
+  queryDaemonAutostart?: (
+    context: StatusObservationContext,
+    daemon: DaemonHealthyInfo,
+  ) => Promise<AutostartStatus>;
   inspectSystemProxy?: (context: StatusObservationContext) => Promise<SystemProxyInspection>;
   inspectAutostart?: (context: StatusObservationContext) => Promise<AutostartStatus>;
   installedCoreVersion?: (context: StatusObservationContext) => string;
@@ -226,6 +230,49 @@ async function queryStatus(
   return createDaemonClient(daemon.port, context.settings.daemonSecret).status();
 }
 
+async function queryAutostart(
+  context: StatusObservationContext,
+  dependencies: StatusObservationDependencies,
+  daemon: DaemonHealthyInfo,
+): Promise<AutostartStatus> {
+  if (dependencies.queryDaemonAutostart) {
+    return dependencies.queryDaemonAutostart(context, daemon);
+  }
+  if (dependencies.queryDaemonStatus && dependencies.inspectAutostart) {
+    return dependencies.inspectAutostart(context);
+  }
+  return createDaemonClient(daemon.port, context.settings.daemonSecret).autostartStatus();
+}
+
+async function inspectLocalAutostart(
+  context: StatusObservationContext,
+  dependencies: StatusObservationDependencies,
+): Promise<AutostartStatus> {
+  return dependencies.inspectAutostart
+    ? dependencies.inspectAutostart(context)
+    : new AutostartService({ layout: context.layout }).inspect();
+}
+
+async function observeAutostart(
+  context: StatusObservationContext,
+  dependencies: StatusObservationDependencies,
+  daemonState: DaemonRunningInfo,
+  daemonOnline: boolean,
+): Promise<AutostartStatus> {
+  if (daemonOnline && daemonState.kind === "healthy") {
+    try {
+      return await queryAutostart(context, dependencies, daemonState);
+    } catch {
+      // Fall back to local probe
+    }
+  }
+  try {
+    return await inspectLocalAutostart(context, dependencies);
+  } catch (err) {
+    return { state: "unknown", canEnable: false, reason: errorText(err) };
+  }
+}
+
 function addObservationErrors(errors: string[], observation: ResolvedSystemProxyObservation): void {
   for (const error of observation.errors) addError(errors, error);
 }
@@ -235,17 +282,6 @@ export async function collectRuntimeStatus(
   dependencies: StatusObservationDependencies = {},
 ): Promise<CliRuntimeStatus> {
   const errors: string[] = [];
-  // Autostart exists only at the OS level, so that probe starts now. The OS
-  // proxy probe stays lazy: a healthy daemon already reports it, and probing
-  // anyway would spend a PowerShell/registry round-trip on a discarded result
-  // (observeSystemProxy probes on demand when the daemon did not report one).
-  const autostartProbe = Promise.allSettled([
-    Promise.resolve().then(() =>
-      dependencies.inspectAutostart
-        ? dependencies.inspectAutostart(context)
-        : new AutostartService({ layout: context.layout }).inspect(),
-    ),
-  ]);
   const daemonState = await evaluate(context, dependencies);
   let daemon = daemonObservation(daemonState);
   const installedVersion = dependencies.installedCoreVersion
@@ -315,12 +351,10 @@ export async function collectRuntimeStatus(
     addError(errors, "the local API is unreachable");
   }
 
-  const proxyObservation = await observeSystemProxy(
-    context,
-    dependencies,
-    proxySource,
-    daemonState.running ? null : false,
-  );
+  const [proxyObservation, autostart] = await Promise.all([
+    observeSystemProxy(context, dependencies, proxySource, daemonState.running ? null : false),
+    observeAutostart(context, dependencies, daemonState, queriedDaemon),
+  ]);
   addObservationErrors(errors, proxyObservation);
 
   const healthy = !daemonState.running
@@ -332,11 +366,6 @@ export async function collectRuntimeStatus(
       : null;
   const activeProfile = profile ? { id: profile.id, name: profile.name, url: profile.url } : null;
   const daemonPort = daemon.port || context.settings.daemonPort;
-  const [autostartProbeResult] = await autostartProbe;
-  const autostart: AutostartStatus =
-    autostartProbeResult.status === "fulfilled"
-      ? autostartProbeResult.value
-      : { state: "unknown", canEnable: false, reason: errorText(autostartProbeResult.reason) };
   if (autostart.state === "unknown") {
     addError(errors, `start at login: ${autostart.reason ?? "could not read the state"}`);
   }
