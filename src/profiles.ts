@@ -1,14 +1,9 @@
-import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import type { SashState } from "./app-state.js";
 import { isPlainObject } from "./json-shape.js";
 import {
   asCoreConfigDocument,
-  buildDefaultConfig,
-  type GeneratedConfig,
   PROFILE_DOWNLOAD_SIZE_LIMIT,
-  renderConfig,
   type SubscriptionUserinfo,
 } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
@@ -146,51 +141,10 @@ export function parseProfileText(text: string): Record<string, unknown> {
   return asCoreConfigDocument(YAML.parse(text));
 }
 
-export function readProfileText(
-  layout: SashLayout,
-  profile: Pick<ProfileMeta, "id" | "revision">,
-): string {
-  const file = profileFilePath(layout, profile.id, profile.revision);
-  const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.size > PROFILE_DOWNLOAD_SIZE_LIMIT)
-    throw new Error("Profile must be a bounded regular file");
-  return fs.readFileSync(file, "utf8");
-}
-
 export function getActiveProfile(index: ProfilesIndex): ProfileMeta | null {
   return index.profiles.find((profile) => profile.id === index.activeId) ?? null;
 }
 
-export function renderActiveConfig(state: SashState, layout: SashLayout): GeneratedConfig {
-  const active = getActiveProfile(state.profiles);
-  return renderConfig(
-    active ? parseProfileText(readProfileText(layout, active)) : buildDefaultConfig(),
-    state.settings,
-    active ? "subscription" : "default",
-  );
-}
-
-export function allocateProfileId(index: ProfilesIndex, layout: SashLayout): string {
-  let id = BigInt(Date.now());
-  while (
-    index.profiles.some((profile) => profile.id === String(id)) ||
-    fs.existsSync(path.join(layout.profilesDir, String(id)))
-  )
-    id += 1n;
-  return String(id);
-}
-
 export function profileNameFromUrl(url: string): string {
   return new URL(url).hostname || "profile";
-}
-
-export function profileDueForUpdate(profile: ProfileMeta, nowMs = Date.now()): boolean {
-  if (!profile.url || profile.intervalHours <= 0) return false;
-  let dueAt = Date.parse(profile.updatedAt) + profile.intervalHours * 3_600_000;
-  const failures = profile.failureCount ?? 0;
-  if (failures > 0 && profile.lastAttemptAt) {
-    const backoff = Math.min(24 * 3_600_000, 15 * 60_000 * 2 ** Math.min(failures - 1, 7));
-    dueAt = Math.max(dueAt, Date.parse(profile.lastAttemptAt) + backoff);
-  }
-  return nowMs >= dueAt;
 }

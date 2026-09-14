@@ -7,8 +7,8 @@ import { readState, type SashStateStore } from "./app-state.js";
 import { DaemonGate } from "./daemon/context.js";
 import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
-import { ProfileService } from "./profile-service.js";
-import { parseProfileText, profileFilePath } from "./profiles.js";
+import { ProfileService, profileDueForUpdate, readProfileText } from "./profile-service.js";
+import { type ProfileMeta, parseProfileText, profileFilePath } from "./profiles.js";
 import { createTestState, deferred } from "./testing/state.js";
 
 const yamlA = "proxies:\n  - name: node-a\n    type: direct\nrules: ['MATCH,DIRECT']\n";
@@ -301,5 +301,63 @@ describe("saved profiles", () => {
     profiles.cancelDownloads();
     await rejected;
     assert.equal(profiles.list().profiles.length, 0);
+  });
+});
+
+describe("profile sources and update scheduling", () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-profile-source-test-"));
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const meta: ProfileMeta = {
+    id: "123",
+    revision: 1,
+    name: "test",
+    url: "https://example.test/profile",
+    intervalHours: 6,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("reads bounded regular sources and rejects oversized ones", () => {
+    const layout = sashLayout(root);
+    const file = profileFilePath(layout, meta.id, meta.revision);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, "rules: [MATCH,DIRECT]\n");
+    assert.equal(readProfileText(layout, meta), "rules: [MATCH,DIRECT]\n");
+    fs.truncateSync(file, 8 * 1024 * 1024 + 1);
+    assert.throws(() => readProfileText(layout, meta), /bounded/);
+  });
+
+  it("updates only remote profiles whose interval elapsed", () => {
+    const now = Date.parse(meta.updatedAt) + 6 * 3_600_000;
+    assert.equal(profileDueForUpdate(meta, now), true);
+    assert.equal(profileDueForUpdate(meta, now - 1), false);
+    assert.equal(profileDueForUpdate({ ...meta, url: "" }, now), false);
+    assert.equal(profileDueForUpdate({ ...meta, intervalHours: 0 }, now), false);
+  });
+
+  it("doubles retry delays from fifteen minutes up to one day", () => {
+    const attempted = Date.parse(meta.updatedAt) + 6 * 3_600_000;
+    for (const [failureCount, minutes] of [
+      [1, 15],
+      [2, 30],
+      [3, 60],
+      [8, 1440],
+      [31, 1440],
+    ] as const) {
+      const failed = {
+        ...meta,
+        failureCount,
+        lastError: "offline",
+        lastAttemptAt: new Date(attempted).toISOString(),
+      };
+      assert.equal(profileDueForUpdate(failed, attempted + minutes * 60_000 - 1), false);
+      assert.equal(profileDueForUpdate(failed, attempted + minutes * 60_000), true);
+    }
   });
 });

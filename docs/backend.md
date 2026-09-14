@@ -12,7 +12,7 @@ Sash runs one background process per data folder. The CLI and dashboard use its 
 
 | Area | Main source | Responsibility |
 | --- | --- | --- |
-| Local API | [router.ts](../src/daemon/router.ts), [handlers.ts](../src/daemon/handlers.ts) | Authenticate, parse requests and call services |
+| Local API | [routes.ts](../src/daemon/routes.ts), [router.ts](../src/daemon/router.ts), [handlers.ts](../src/daemon/handlers.ts) | Authenticate, parse requests and call services |
 | Saved state | [app-state.ts](../src/app-state.ts) | Commit settings, profile metadata and selection atomically |
 | Settings and profiles | [settings-service.ts](../src/settings-service.ts), [profile-service.ts](../src/profile-service.ts) | Validate input and save changes |
 | Core lifecycle | [runtime-lifecycle.ts](../src/runtime-lifecycle.ts), [supervisor.ts](../src/supervisor.ts) | Apply configuration, start/stop Core and check readiness |
@@ -72,7 +72,7 @@ Sash package upgrades use [self-upgrade.ts](../src/self-upgrade.ts). npm install
 
 ## Local API
 
-The listener binds to `127.0.0.1`. [router.ts](../src/daemon/router.ts) lists every route and method; [contracts.ts](../src/contracts.ts) and [SashClient](../src/sash-client.ts) define request and response types.
+The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) lists every route and method; [contracts.ts](../src/contracts.ts) and [SashClient](../src/sash-client.ts) define request and response types.
 
 | Path | Purpose |
 | --- | --- |

@@ -4,7 +4,8 @@ import path from "node:path";
 import type { ApiErrorCode } from "../contracts.js";
 import type { SashLayout } from "../paths.js";
 import { resolveUiDir } from "../webui.js";
-import { sendError } from "./http.js";
+import type { DaemonContext } from "./context.js";
+import { type ParsedDaemonRequestTarget, sendError } from "./http.js";
 
 const UI_SECURITY_HEADERS = {
   "Content-Security-Policy": "frame-ancestors 'none'",
@@ -45,6 +46,36 @@ function sendUiError(
 ): void {
   for (const [name, value] of Object.entries(UI_SECURITY_HEADERS)) res.setHeader(name, value);
   sendError(res, statusCode, code, message);
+}
+
+/* ── route handlers for the dashboard surface ── */
+
+/** /ui redirects to /ui/; /ui/ itself serves index.html. */
+export function serveUiIndexOrRedirect(
+  ctx: DaemonContext,
+  req: IncomingMessage,
+  res: ServerResponse,
+  target: ParsedDaemonRequestTarget,
+): void {
+  // Route matching strips trailing slashes, so the redirect decision uses the
+  // unnormalized pathname to tell /ui and /ui/ apart.
+  if (target.pathname === "/ui") {
+    res.writeHead(302, { Location: `/ui/${target.search}` });
+    res.end();
+    return;
+  }
+  serveUiAsset(ctx, req, res, target);
+}
+
+export function serveUiAsset(
+  ctx: DaemonContext,
+  req: IncomingMessage,
+  res: ServerResponse,
+  target: ParsedDaemonRequestTarget,
+): void {
+  if (!serveStaticUi(req, res, target.pathname, ctx.layout)) {
+    sendError(res, 404, "not_found", `Not found: ${req.method} ${target.routePathname}`);
+  }
 }
 
 /**

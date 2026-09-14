@@ -214,17 +214,17 @@ export async function writeAutostart(
 /* ── core ── */
 
 export async function startCore(ctx: DaemonContext): Promise<RouteResponse> {
-  return { status: 200, json: await ctx.startCore() };
+  return { status: 200, json: await ctx.core.start() };
 }
 export async function stopCore(ctx: DaemonContext): Promise<RouteResponse> {
-  await ctx.stopCore();
+  await ctx.core.stop();
   return { status: 204 };
 }
 export async function restartCore(ctx: DaemonContext): Promise<RouteResponse> {
-  return { status: 200, json: await ctx.restartCore() };
+  return { status: 200, json: await ctx.core.apply() };
 }
 export function coreUpdateProgress(ctx: DaemonContext): RouteResponse {
-  return { status: 200, json: ctx.coreUpdate };
+  return { status: 200, json: ctx.core.progress };
 }
 export async function updateCore(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
   const body = await req.readJson(1024);
@@ -240,7 +240,7 @@ export async function updateCore(ctx: DaemonContext, req: RouteRequest): Promise
   } catch (error) {
     throw new HttpError(400, errorMessage(error));
   }
-  return { status: 200, json: await ctx.updateCore(version) };
+  return { status: 200, json: await ctx.core.update(version) };
 }
 
 export async function setCoreMode(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {

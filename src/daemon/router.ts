@@ -8,60 +8,18 @@ import {
 } from "./auth.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
-import { streamDaemonEvents } from "./events.js";
-import { sashApiRoutes } from "./handlers.js";
-import { type JsonObject, parseJsonObjectBody, routePath, sendError, sendJson } from "./http.js";
-import { forwardHttpToCore } from "./proxy.js";
-import { serveStaticUi } from "./static.js";
+import {
+  type JsonObject,
+  type ParsedDaemonRequestTarget,
+  parseJsonObjectBody,
+  parseRequestTarget,
+  sendError,
+  sendJson,
+} from "./http.js";
+import { coreApiTarget } from "./proxy.js";
 
 /* ====================================================================== */
-/* Request target parsing                                                  */
-/* ====================================================================== */
-
-export interface ParsedDaemonRequestTarget {
-  /** WHATWG-canonical pathname; percent-encoded slash remains encoded. */
-  pathname: string;
-  /** Pathname used for route matching, with trailing slashes removed. */
-  routePathname: string;
-  search: string;
-  searchParams: URLSearchParams;
-}
-
-/**
- * Parse only HTTP origin-form request targets. Absolute-, authority-,
- * asterisk-, network-path and cross-authority backslash forms are rejected so
- * authentication and forwarding always consume one canonical pathname.
- */
-export function parseDaemonRequestTarget(
-  rawTarget: string,
-  hostHeader: string,
-): ParsedDaemonRequestTarget {
-  if (!rawTarget.startsWith("/") || rawTarget.startsWith("//")) {
-    throw new Error("Unsupported HTTP request-target form");
-  }
-  const base = new URL(`http://${hostHeader}`);
-  const url = new URL(rawTarget, base);
-  if (url.origin !== base.origin || url.hash) {
-    throw new Error("Invalid HTTP origin-form request target");
-  }
-  return {
-    pathname: url.pathname,
-    routePathname: url.pathname.replace(/\/+$/, "") || "/",
-    search: url.search,
-    searchParams: url.searchParams,
-  };
-}
-
-/** Map a /core/api/* request target to the upstream Core path plus query. */
-export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
-  const prefix = "/core/api";
-  const suffix = target.pathname.slice(prefix.length);
-  const upstreamPath = suffix ? `/${suffix.replace(/^\/+/, "")}` : "/";
-  return `${upstreamPath}${target.search}`;
-}
-
-/* ====================================================================== */
-/* Route table                                                             */
+/* Route types                                                             */
 /* ====================================================================== */
 
 /** public: no credential. control: CLI bearer or WebUI session token. gateway: same, then proxied to Core. */
@@ -105,103 +63,6 @@ export interface RouteDef {
   readonly auth: RouteAuth;
   readonly handler?: JsonRouteHandler;
   readonly raw?: RawRouteHandler;
-}
-
-const CORE_API_PREFIX = "/core/api";
-
-/** The whole daemon HTTP surface, in matching order. */
-export function buildRoutes(): readonly RouteDef[] {
-  return [
-    ...sashApiRoutes(),
-    {
-      methods: ["GET"],
-      pattern: routePath("/sash/events"),
-      auth: "control",
-      raw: streamDaemonEvents,
-    },
-    // The Core gateway proxies everything under /core/api/* straight to the
-    // external controller. Two patterns: URLPattern wildcards do not match the
-    // bare prefix itself.
-    {
-      methods: "*",
-      pattern: routePath(CORE_API_PREFIX),
-      auth: "gateway",
-      raw: forwardToCore,
-    },
-    {
-      methods: "*",
-      pattern: routePath(`${CORE_API_PREFIX}/*`),
-      auth: "gateway",
-      raw: forwardToCore,
-    },
-    {
-      methods: ["GET", "HEAD"],
-      pattern: routePath("/"),
-      auth: "public",
-      handler: (_ctx, req) => ({ status: 302, location: `/ui/${req.search}` }),
-    },
-    // /ui redirects to /ui/; /ui/ itself must serve index.html, so the
-    // redirect decision uses the unnormalized pathname (route matching strips
-    // trailing slashes and could not tell the two apart).
-    {
-      methods: ["GET", "HEAD"],
-      pattern: routePath("/ui"),
-      auth: "public",
-      raw: serveUiIndexOrRedirect,
-    },
-    {
-      methods: ["GET", "HEAD"],
-      pattern: routePath("/ui/*"),
-      auth: "public",
-      raw: serveUiAsset,
-    },
-  ];
-}
-async function forwardToCore(
-  ctx: DaemonContext,
-  req: IncomingMessage,
-  res: ServerResponse,
-  target: ParsedDaemonRequestTarget,
-): Promise<void> {
-  const method = req.method?.toUpperCase() ?? "GET";
-  const pathname = coreApiTarget(target).split("?")[0] ?? "/";
-  const allowedMutation =
-    (method === "PUT" && /^\/proxies\/[^/]+$/.test(pathname)) ||
-    (method === "DELETE" && /^\/connections(?:\/[^/]+)?$/.test(pathname));
-  if (isControlMutation(method) && !allowedMutation) {
-    sendError(res, 403, "conflict", "Use Sash controls to change managed Core configuration");
-    return;
-  }
-  const runtime = ctx.settings.runtime();
-  const forward = () =>
-    forwardHttpToCore(req, res, coreApiTarget(target), runtime.controller, runtime.secret);
-  if (isControlMutation(method)) await ctx.gate.runLiveMutation(forward);
-  else await forward();
-}
-
-function serveUiIndexOrRedirect(
-  ctx: DaemonContext,
-  req: IncomingMessage,
-  res: ServerResponse,
-  target: ParsedDaemonRequestTarget,
-): void {
-  if (target.pathname === "/ui") {
-    res.writeHead(302, { Location: `/ui/${target.search}` });
-    res.end();
-    return;
-  }
-  serveUiAsset(ctx, req, res, target);
-}
-
-function serveUiAsset(
-  ctx: DaemonContext,
-  req: IncomingMessage,
-  res: ServerResponse,
-  target: ParsedDaemonRequestTarget,
-): void {
-  if (!serveStaticUi(req, res, target.pathname, ctx.layout)) {
-    sendError(res, 404, "not_found", `Not found: ${req.method} ${target.routePathname}`);
-  }
 }
 
 /* ====================================================================== */
@@ -279,22 +140,6 @@ export function checkLoopbackBoundary(req: IncomingMessage): RequestBoundaryFail
   if (!isLoopbackOriginHeader(req.headers.origin))
     return { status: 403, code: "unauthorized", message: "Invalid Origin header" };
   return undefined;
-}
-
-export type RequestTargetResult =
-  | { ok: true; target: ParsedDaemonRequestTarget }
-  | { ok: false; message: string };
-
-/** Parse the origin-form request target, reporting a message instead of throwing. */
-export function parseRequestTarget(req: IncomingMessage): RequestTargetResult {
-  try {
-    return {
-      ok: true,
-      target: parseDaemonRequestTarget(req.url ?? "/", req.headers.host ?? ""),
-    };
-  } catch {
-    return { ok: false, message: "Invalid request target" };
-  }
 }
 
 /** Match, authorize, and execute one HTTP request against the route table. */

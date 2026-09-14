@@ -1,7 +1,5 @@
 import type { SashStateStore } from "../app-state.js";
 import type { AutostartController } from "../autostart/service.js";
-import type { CoreStartResult } from "../contracts.js";
-import type { CoreUpdateProgress, CoreUpdateResult } from "../core-update.js";
 import type { SashLayout } from "../paths.js";
 import type { ProfileService } from "../profile-service.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
@@ -10,6 +8,7 @@ import type { SettingsService } from "../settings-service.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../sysproxy/manager.js";
 import type { WebAuthManager } from "./auth.js";
+import type { CoreControlService } from "./core-service.js";
 import { ShuttingDownError } from "./errors.js";
 import type { DaemonEvents } from "./events.js";
 
@@ -121,7 +120,6 @@ export interface DaemonContext {
   readonly settingsService: SettingsService;
   readonly lifecycle: RuntimeLifecycle;
   readonly supervisor: CoreSupervisor;
-  readonly coreUpdate: CoreUpdateProgress | null;
   readonly systemProxy: SystemProxyController;
   readonly autostart: AutostartController;
   readonly gate: DaemonGate;
@@ -130,10 +128,8 @@ export interface DaemonContext {
   mutate<T>(action: () => T | Promise<T>): Promise<T>;
   stateRevision(): number;
   pendingApply(): boolean;
-  startCore(): Promise<CoreStartResult>;
-  restartCore(): Promise<CoreStartResult>;
-  stopCore(): Promise<void>;
-  updateCore(version?: string): Promise<CoreUpdateResult>;
+  /** Core preparation, validation, update and lifecycle control. */
+  readonly core: CoreControlService;
   shutdown(): Promise<void>;
   closeListener(): Promise<void>;
   readonly onShutdown?: () => void;

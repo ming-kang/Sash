@@ -2,9 +2,14 @@ import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { parseControllerAddress } from "../settings.js";
-import { coreWebSocketProtocols, webSocketAuthResponseProtocol } from "./auth.js";
+import {
+  coreWebSocketProtocols,
+  isControlMutation,
+  webSocketAuthResponseProtocol,
+} from "./auth.js";
+import type { DaemonContext } from "./context.js";
 import { defaultCodeForStatus } from "./errors.js";
-import { sendError, sendSocketError } from "./http.js";
+import { type ParsedDaemonRequestTarget, sendError, sendSocketError } from "./http.js";
 
 function parseHostPort(address: string): { host: string; port: number } {
   const parsed = parseControllerAddress(address);
@@ -34,6 +39,42 @@ function endToEndHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
   ])
     delete result[name];
   return result;
+}
+
+/** Map a /core/api/* request target to the upstream Core path plus query. */
+export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
+  const prefix = "/core/api";
+  const suffix = target.pathname.slice(prefix.length);
+  const upstreamPath = suffix ? `/${suffix.replace(/^\/+/, "")}` : "/";
+  return `${upstreamPath}${target.search}`;
+}
+
+/**
+ * Gateway handler for /core/api/*. The Core external controller is proxied
+ * read-mostly: node selection and connection deletion pass through, while
+ * configuration mutations stay with Sash's own control endpoints so the
+ * generated configuration remains the single source of truth.
+ */
+export async function forwardToCore(
+  ctx: DaemonContext,
+  req: IncomingMessage,
+  res: ServerResponse,
+  target: ParsedDaemonRequestTarget,
+): Promise<void> {
+  const method = req.method?.toUpperCase() ?? "GET";
+  const pathname = coreApiTarget(target).split("?")[0] ?? "/";
+  const allowedMutation =
+    (method === "PUT" && /^\/proxies\/[^/]+$/.test(pathname)) ||
+    (method === "DELETE" && /^\/connections(?:\/[^/]+)?$/.test(pathname));
+  if (isControlMutation(method) && !allowedMutation) {
+    sendError(res, 403, "conflict", "Use Sash controls to change managed Core configuration");
+    return;
+  }
+  const runtime = ctx.settings.runtime();
+  const forward = () =>
+    forwardHttpToCore(req, res, coreApiTarget(target), runtime.controller, runtime.secret);
+  if (isControlMutation(method)) await ctx.gate.runLiveMutation(forward);
+  else await forward();
 }
 
 /**

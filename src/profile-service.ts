@@ -1,21 +1,26 @@
 import fs from "node:fs";
-import { type SashStateStore, StateConflictError } from "./app-state.js";
+import path from "node:path";
+import { type SashState, type SashStateStore, StateConflictError } from "./app-state.js";
 import { errorDetail, errorMessage } from "./error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
-import { fetchSubscriptionProfile, type SubscriptionFetch } from "./mihomo-config.js";
+import {
+  buildDefaultConfig,
+  fetchSubscriptionProfile,
+  type GeneratedConfig,
+  PROFILE_DOWNLOAD_SIZE_LIMIT,
+  renderConfig,
+  type SubscriptionFetch,
+} from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import { pruneProfileFiles } from "./profile-cleanup.js";
 import {
-  allocateProfileId,
   getActiveProfile,
   MAX_PROFILE_INTERVAL_HOURS,
   type ProfileMeta,
   type ProfilesIndex,
   parseProfileText,
-  profileDueForUpdate,
   profileFilePath,
   profileNameFromUrl,
-  readProfileText,
 } from "./profiles.js";
 
 export class ProfileInputError extends Error {
@@ -61,6 +66,51 @@ function profileInput(content: string): Record<string, unknown> {
   } catch (error) {
     throw new ProfileInputError(errorMessage(error));
   }
+}
+
+/** Bounded read of a saved profile source from disk. */
+export function readProfileText(
+  layout: SashLayout,
+  profile: Pick<ProfileMeta, "id" | "revision">,
+): string {
+  const file = profileFilePath(layout, profile.id, profile.revision);
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.size > PROFILE_DOWNLOAD_SIZE_LIMIT)
+    throw new Error("Profile must be a bounded regular file");
+  return fs.readFileSync(file, "utf8");
+}
+
+/** Allocate a numeric id unused by both the index and the profiles directory. */
+export function allocateProfileId(index: ProfilesIndex, layout: SashLayout): string {
+  let id = BigInt(Date.now());
+  while (
+    index.profiles.some((profile) => profile.id === String(id)) ||
+    fs.existsSync(path.join(layout.profilesDir, String(id)))
+  )
+    id += 1n;
+  return String(id);
+}
+
+/** Scheduled-update policy: the interval elapsed, with exponential backoff after failures. */
+export function profileDueForUpdate(profile: ProfileMeta, nowMs = Date.now()): boolean {
+  if (!profile.url || profile.intervalHours <= 0) return false;
+  let dueAt = Date.parse(profile.updatedAt) + profile.intervalHours * 3_600_000;
+  const failures = profile.failureCount ?? 0;
+  if (failures > 0 && profile.lastAttemptAt) {
+    const backoff = Math.min(24 * 3_600_000, 15 * 60_000 * 2 ** Math.min(failures - 1, 7));
+    dueAt = Math.max(dueAt, Date.parse(profile.lastAttemptAt) + backoff);
+  }
+  return nowMs >= dueAt;
+}
+
+/** Render the selected profile (or the DIRECT-only default) into a generated core config. */
+export function renderActiveConfig(state: SashState, layout: SashLayout): GeneratedConfig {
+  const active = getActiveProfile(state.profiles);
+  return renderConfig(
+    active ? parseProfileText(readProfileText(layout, active)) : buildDefaultConfig(),
+    state.settings,
+    active ? "subscription" : "default",
+  );
 }
 
 function validName(name: string): string {

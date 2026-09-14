@@ -5,15 +5,10 @@ import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
 import { isWebSocketRequestAuthorized } from "./auth.js";
-import { sendSocketError } from "./http.js";
+import { parseRequestTarget, sendSocketError } from "./http.js";
 import { forwardWsToCore } from "./proxy.js";
-import {
-  buildRoutes,
-  checkLoopbackBoundary,
-  dispatch,
-  matchWebSocketUpgrade,
-  parseRequestTarget,
-} from "./router.js";
+import { checkLoopbackBoundary, dispatch, matchWebSocketUpgrade } from "./router.js";
+import { buildRoutes } from "./routes.js";
 import { type ProfileUpdateScheduler, startProfileUpdateScheduler } from "./scheduler.js";
 
 const MAX_UPGRADED_SOCKETS = 64;

@@ -39,7 +39,7 @@ export async function readDaemonStatus(
     core = { running: false };
   const applied = ctx.lifecycle.configuration();
   const status: DaemonStatus = {
-    coreUpdate: ctx.coreUpdate,
+    coreUpdate: ctx.core.progress,
     daemon: {
       pid: process.pid,
       bootId: ctx.token,

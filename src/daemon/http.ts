@@ -16,6 +16,59 @@ export class HttpError extends Error {
 
 export type JsonObject = Record<string, unknown>;
 
+/* Request-target parsing: one canonical pathname for authentication, routing
+ * and upstream forwarding. */
+
+export interface ParsedDaemonRequestTarget {
+  /** WHATWG-canonical pathname; percent-encoded slash remains encoded. */
+  pathname: string;
+  /** Pathname used for route matching, with trailing slashes removed. */
+  routePathname: string;
+  search: string;
+  searchParams: URLSearchParams;
+}
+
+/**
+ * Parse only HTTP origin-form request targets. Absolute-, authority-,
+ * asterisk-, network-path and cross-authority backslash forms are rejected so
+ * authentication and forwarding always consume one canonical pathname.
+ */
+export function parseDaemonRequestTarget(
+  rawTarget: string,
+  hostHeader: string,
+): ParsedDaemonRequestTarget {
+  if (!rawTarget.startsWith("/") || rawTarget.startsWith("//")) {
+    throw new Error("Unsupported HTTP request-target form");
+  }
+  const base = new URL(`http://${hostHeader}`);
+  const url = new URL(rawTarget, base);
+  if (url.origin !== base.origin || url.hash) {
+    throw new Error("Invalid HTTP origin-form request target");
+  }
+  return {
+    pathname: url.pathname,
+    routePathname: url.pathname.replace(/\/+$/, "") || "/",
+    search: url.search,
+    searchParams: url.searchParams,
+  };
+}
+
+export type RequestTargetResult =
+  | { ok: true; target: ParsedDaemonRequestTarget }
+  | { ok: false; message: string };
+
+/** Parse the origin-form request target, reporting a message instead of throwing. */
+export function parseRequestTarget(req: IncomingMessage): RequestTargetResult {
+  try {
+    return {
+      ok: true,
+      target: parseDaemonRequestTarget(req.url ?? "/", req.headers.host ?? ""),
+    };
+  } catch {
+    return { ok: false, message: "Invalid request target" };
+  }
+}
+
 export function routePath(pathname: string): URLPattern {
   return new URLPattern({ pathname });
 }

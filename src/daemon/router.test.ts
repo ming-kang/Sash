@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  buildRoutes,
-  coreApiTarget,
-  matchRoute,
-  matchWebSocketUpgrade,
-  parseDaemonRequestTarget,
-} from "./router.js";
+import { parseDaemonRequestTarget } from "./http.js";
+import { coreApiTarget } from "./proxy.js";
+import { matchRoute, matchWebSocketUpgrade } from "./router.js";
+import { buildRoutes } from "./routes.js";
 
 const HOST = "127.0.0.1:19090";
 

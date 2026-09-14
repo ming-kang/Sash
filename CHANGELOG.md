@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Realign profile boundaries: move disk I/O, ID allocation, update-scheduling policies, and configuration rendering from `profiles.ts` into `profile-service.ts`, keeping `profiles.ts` pure and eliminating type-level import cycles.
+- Unify daemon route registration: assemble the full route table in `src/daemon/routes.ts`, move Core gateway filtering to `proxy.ts` and dashboard routing to `static.ts`, leaving `router.ts` as a focused dispatch engine.
+- Extract `CoreControlService` from `src/daemon/app.ts` into `src/daemon/core-service.ts`, scoping Core lifecycle orchestration and update state while narrowing `DaemonContext`.
 - Consolidate the loopback proxy-refusal fallback into one shared policy used by both HTTP pipelines; behavior is unchanged.
 - The API client now requires an explicit transport: Node callers inject the loopback direct dispatcher while the dashboard passes its browser transport, so local API traffic can never fall back to ambient `fetch`.
 - Reorganize internals without behavior change: the system proxy manager lives beside its Windows backend under `src/sysproxy/`, and the CLI's background-process connector is renamed to `daemon-session.ts`.
