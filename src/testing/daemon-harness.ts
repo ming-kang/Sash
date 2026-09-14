@@ -15,8 +15,8 @@ import type { SubscriptionFetch } from "../mihomo-config.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import type { SashSettings } from "../settings.js";
 import type { CoreSupervisor } from "../supervisor.js";
-import type { SystemProxyState } from "../sysproxy.js";
-import type { SystemProxyController } from "../system-proxy-manager.js";
+import type { SystemProxyController } from "../sysproxy/manager.js";
+import type { SystemProxyState } from "../sysproxy/types.js";
 import { FakeCoreSupervisor, testSettings } from "./state.js";
 
 export interface DaemonServerOverrides {

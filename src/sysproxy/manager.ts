@@ -1,18 +1,18 @@
 import fs from "node:fs";
-import { errnoCode, errorMessage } from "./error-utils.js";
-import { atomicWriteFileSync } from "./fs-atomic.js";
-import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "./json-shape.js";
-import { sashLayout } from "./paths.js";
-import { withStateLock } from "./state-lock.js";
-import {
-  createSystemProxyBackend,
-  type EnableOptions,
-  isSystemProxySupported,
-  parseSystemProxySnapshot,
-  type SystemProxyBackend,
-  type SystemProxySnapshot,
-  type SystemProxyState,
-} from "./sysproxy.js";
+import { errnoCode, errorMessage } from "../error-utils.js";
+import { atomicWriteFileSync } from "../fs-atomic.js";
+import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "../json-shape.js";
+import { sashLayout } from "../paths.js";
+import { withStateLock } from "../state-lock.js";
+import { isSystemProxySupported } from "./common.js";
+import { parseSystemProxySnapshot } from "./snapshot.js";
+import type {
+  EnableOptions,
+  SystemProxyBackend,
+  SystemProxySnapshot,
+  SystemProxyState,
+} from "./types.js";
+import { createSystemProxyBackend } from "./windows.js";
 
 export interface SystemProxyInspection {
   applied: boolean;

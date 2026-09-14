@@ -1,10 +1,10 @@
 import { commandOutput, coreUpdateProgressPrinter } from "../cli-output.js";
 import { validateCoreReleaseTag } from "../core.js";
 import { checkCoreUpdate, updateCoreWithProgress } from "../core-update.js";
+import { ensureDaemonSession } from "../daemon-session.js";
 import { formatProxyFallbackWarning } from "../http.js";
 import { log } from "../log.js";
 import { sashLayout } from "../paths.js";
-import { ensureManagement } from "../runtime-owner.js";
 import { runtimeContext } from "./shared.js";
 
 export async function runUpdate(
@@ -18,7 +18,7 @@ export async function runUpdate(
         return checkCoreUpdate(sashLayout(), version, undefined, (info) => {
           process.stderr.write(`[sash] ${formatProxyFallbackWarning(info)}\n`);
         });
-      const owner = await ensureManagement(runtimeContext());
+      const owner = await ensureDaemonSession(runtimeContext());
       if (!opts.json)
         process.stderr.write(
           "[sash] Updating Core; the proxy pauses briefly while the Core binary is replaced\n",

@@ -8,7 +8,7 @@ import { DaemonGate } from "./daemon/context.js";
 import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { SettingsService } from "./settings-service.js";
-import type { SystemProxyController } from "./system-proxy-manager.js";
+import type { SystemProxyController } from "./sysproxy/manager.js";
 import { createTestState, FakeCoreSupervisor, testSettings } from "./testing/state.js";
 
 describe("saved settings", () => {

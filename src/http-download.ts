@@ -6,14 +6,10 @@ import { pipeline } from "node:stream/promises";
 import { type Dispatcher, request } from "undici";
 import {
   directDispatcherForLoopback,
-  extractConnectRefusedEndpoint,
-  formatProxyFallbackFailure,
-  formatProxyRefusedError,
-  isLoopbackHost,
-  isProxyConnectionRefused,
   type ProxyFallbackListener,
   positiveTimeout,
   proxyAwareDispatcher,
+  retryDirectOnLoopbackRefusal,
   USER_AGENT,
 } from "./http.js";
 
@@ -175,20 +171,11 @@ export async function downloadToFile(
   try {
     return await attempt(proxyAwareDispatcher());
   } catch (err) {
-    if (isProxyConnectionRefused(err, url)) {
-      const endpoint = extractConnectRefusedEndpoint(err);
-      if (opts.onProxyFallback && endpoint && isLoopbackHost(endpoint.address)) {
-        opts.onProxyFallback({ proxy: endpoint, url });
-        try {
-          return await attempt(directDispatcherForLoopback());
-        } catch (directError) {
-          signal.throwIfAborted();
-          throw formatProxyFallbackFailure(endpoint, directError);
-        }
-      }
-      throw formatProxyRefusedError(err);
-    }
-    throw err;
+    return retryDirectOnLoopbackRefusal(
+      err,
+      { url, signal, ...(opts.onProxyFallback ? { onProxyFallback: opts.onProxyFallback } : {}) },
+      () => attempt(directDispatcherForLoopback()),
+    );
   } finally {
     clearTimeout(deadlineTimer);
   }

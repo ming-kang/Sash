@@ -60,7 +60,13 @@ export interface SashClientOptions {
   token?: () => string;
   /** Header carrying the credential; defaults to the CLI bearer. */
   tokenHeader?: "authorization" | "x-sash-token";
-  fetchFn?: SashClientFetch;
+  /**
+   * Required transport. Browser callers pass {@link browserFetch}; Node callers
+   * must inject the direct-dispatcher adapter from sash-client-node.ts so
+   * loopback API traffic never depends on ambient fetch behavior.
+   */
+  fetchFn: SashClientFetch;
+  /** SSE transport; required before calling {@link SashClient.events}. */
   eventFetchFn?: SashEventFetch;
   /** Default per-request deadline. */
   timeoutMs?: number;
@@ -79,7 +85,8 @@ export interface SashRequestOptions {
   signal?: AbortSignal;
 }
 
-const defaultFetch: SashClientFetch = async (url, init) => {
+/** Same-origin browser transport for the WebUI; see SashClientOptions.fetchFn. */
+export const browserFetch: SashClientFetch = async (url, init) => {
   const deadline = AbortSignal.timeout(init.timeoutMs ?? 5000);
   const response = await fetch(url, {
     method: init.method,
@@ -105,7 +112,7 @@ export class SashClient {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     if (options.token) this.token = options.token;
     this.tokenHeader = options.tokenHeader ?? "authorization";
-    this.fetchFn = options.fetchFn ?? defaultFetch;
+    this.fetchFn = options.fetchFn;
     this.eventFetchFn = options.eventFetchFn;
     this.timeoutMs = options.timeoutMs ?? 5_000;
     if (options.onUnauthorized) this.onUnauthorized = options.onUnauthorized;
@@ -197,6 +204,7 @@ export class SashClient {
   }
 
   events(signal: AbortSignal): AsyncGenerator<DaemonEvent> {
+    if (!this.eventFetchFn) throw new Error("SashClient.events requires an eventFetchFn transport");
     return readSashEvents({
       url: `${this.baseUrl}/sash/events`,
       token: this.token?.() ?? "",
@@ -384,7 +392,8 @@ export type SashEventFetch = (
   body: AsyncIterable<Uint8Array>;
 }>;
 
-const browserEventFetch: SashEventFetch = async (url, init) => {
+/** Browser SSE transport for the WebUI; Node uses sash-client-node.ts instead. */
+export const browserEventFetch: SashEventFetch = async (url, init) => {
   const response = await fetch(url, { ...init, redirect: "error" });
   return {
     status: response.status,
@@ -414,7 +423,7 @@ export async function* readSashEvents(options: {
   token: string;
   tokenHeader: "authorization" | "x-sash-token";
   signal: AbortSignal;
-  fetchFn?: SashEventFetch;
+  fetchFn: SashEventFetch;
   onUnauthorized?: (token: string) => void;
 }): AsyncGenerator<DaemonEvent> {
   const controller = new AbortController();
@@ -425,7 +434,7 @@ export async function* readSashEvents(options: {
     headers[options.tokenHeader] =
       options.tokenHeader === "authorization" ? `Bearer ${options.token}` : options.token;
   try {
-    const response = await (options.fetchFn ?? browserEventFetch)(options.url, { headers, signal });
+    const response = await options.fetchFn(options.url, { headers, signal });
     clearTimeout(timer);
     const touch = (): void => {
       clearTimeout(timer);

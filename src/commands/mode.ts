@@ -1,7 +1,7 @@
 import { commandOutput } from "../cli-output.js";
 import type { RoutingMode } from "../contracts.js";
+import { setRuntimeMode } from "../daemon-session.js";
 import { log } from "../log.js";
-import { setRuntimeMode } from "../runtime-owner.js";
 import { runtimeContext } from "./shared.js";
 
 export async function runMode(mode: RoutingMode, options: { json?: boolean } = {}): Promise<void> {

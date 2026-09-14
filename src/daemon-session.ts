@@ -19,20 +19,20 @@ export interface RuntimeContext {
   layout: SashLayout;
   settings: SashSettings;
 }
-export type CommandRuntimeOwner =
+export type DaemonSession =
   | { kind: "daemon"; daemon: DaemonHealthyInfo; client: SashDaemonClient }
   | { kind: "offline"; daemon: DaemonStoppedInfo }
   | { kind: "unhealthy"; daemon: DaemonUnhealthyInfo };
-export type HealthyRuntimeOwner = Extract<CommandRuntimeOwner, { kind: "daemon" }>;
-export interface RuntimeOwnerDependencies {
+export type HealthyDaemonSession = Extract<DaemonSession, { kind: "daemon" }>;
+export interface DaemonSessionDependencies {
   evaluateDaemon?: typeof evaluateDaemon;
   clientFactory?: (port: number, secret: string) => SashDaemonClient;
 }
 
-export async function resolveRuntimeOwner(
+export async function resolveDaemonSession(
   ctx: RuntimeContext,
-  deps: RuntimeOwnerDependencies = {},
-): Promise<CommandRuntimeOwner> {
+  deps: DaemonSessionDependencies = {},
+): Promise<DaemonSession> {
   const daemon = await (deps.evaluateDaemon ?? evaluateDaemon)(ctx.layout, ctx.settings);
   if (daemon.kind === "healthy")
     return {
@@ -46,14 +46,14 @@ export async function resolveRuntimeOwner(
   return daemon.kind === "stopped" ? { kind: "offline", daemon } : { kind: "unhealthy", daemon };
 }
 
-/** Boot the management process only; it owns all initialization and recovery. */
-export async function ensureManagement(
+/** Boot the background process only; it owns all initialization and recovery. */
+export async function ensureDaemonSession(
   ctx: RuntimeContext,
   opts: { timeoutMs?: number } = {},
-): Promise<HealthyRuntimeOwner> {
+): Promise<HealthyDaemonSession> {
   await ensureDaemon({ layout: ctx.layout, settings: ctx.settings, timeoutMs: opts.timeoutMs });
   ctx.settings = loadSettings(ctx.layout);
-  const owner = await resolveRuntimeOwner(ctx);
+  const owner = await resolveDaemonSession(ctx);
   if (owner.kind !== "daemon") {
     throw new Error("Sash did not become healthy — run sash doctor to diagnose");
   }
@@ -64,7 +64,7 @@ export async function ensureRunning(
   ctx: RuntimeContext,
   opts: { onCoreUpdateProgress?: (progress: CoreUpdateProgress) => void } = {},
 ) {
-  const owner = await ensureManagement(ctx);
+  const owner = await ensureDaemonSession(ctx);
   const result = opts.onCoreUpdateProgress
     ? await withCoreUpdateProgress(
         owner.client,
@@ -82,14 +82,14 @@ function hasRuntimeLeftovers(layout: SashLayout): boolean {
 }
 
 export async function stopRuntime(ctx: RuntimeContext): Promise<{ wasRunning: boolean }> {
-  const initial = await resolveRuntimeOwner(ctx);
+  const initial = await resolveDaemonSession(ctx);
   if (initial.kind === "unhealthy")
     throw new Error(
       "Sash is unresponsive or its ownership is unknown; refusing an unverified stop",
     );
   if (initial.kind === "offline") {
     if (!hasRuntimeLeftovers(ctx.layout)) return { wasRunning: false };
-    await ensureManagement(ctx);
+    await ensureDaemonSession(ctx);
   }
   if (!(await stopDaemonFromCli({ layout: ctx.layout, settings: ctx.settings })))
     throw new Error("Sash shutdown could not be verified — run sash doctor to diagnose");
@@ -97,25 +97,23 @@ export async function stopRuntime(ctx: RuntimeContext): Promise<{ wasRunning: bo
 }
 
 export async function restartRuntime(ctx: RuntimeContext) {
-  const owner = await ensureManagement(ctx);
+  const owner = await ensureDaemonSession(ctx);
   return { owner, result: await owner.client.restartCore() };
 }
 
-export async function stopCoreRuntime(
-  ctx: RuntimeContext,
-): Promise<{ managementRunning: boolean }> {
-  const owner = await resolveRuntimeOwner(ctx);
+export async function stopCoreRuntime(ctx: RuntimeContext): Promise<{ daemonRunning: boolean }> {
+  const owner = await resolveDaemonSession(ctx);
   if (owner.kind === "unhealthy")
     throw new Error("Cannot verify the running Sash; refusing an unverified Core stop");
   if (owner.kind === "offline") {
-    if (!hasRuntimeLeftovers(ctx.layout)) return { managementRunning: false };
-    await (await ensureManagement(ctx)).client.stopCore();
+    if (!hasRuntimeLeftovers(ctx.layout)) return { daemonRunning: false };
+    await (await ensureDaemonSession(ctx)).client.stopCore();
   } else await owner.client.stopCore();
-  return { managementRunning: true };
+  return { daemonRunning: true };
 }
 
 export async function setRuntimeMode(ctx: RuntimeContext, mode: RoutingMode): Promise<void> {
-  const owner = await resolveRuntimeOwner(ctx);
+  const owner = await resolveDaemonSession(ctx);
   if (owner.kind !== "daemon")
     throw new Error(
       "A healthy running Core is required; inspect sash status and run sash start if stopped",
@@ -126,16 +124,16 @@ export async function setRuntimeMode(ctx: RuntimeContext, mode: RoutingMode): Pr
 export async function setRuntimeAutostart(
   ctx: RuntimeContext,
   enabled: boolean,
-  onManagementStarted?: () => void,
+  onDaemonStarted?: () => void,
 ) {
-  const previous = await resolveRuntimeOwner(ctx);
-  const owner = await ensureManagement(ctx);
-  const managementStarted = previous.kind === "offline";
-  if (managementStarted) onManagementStarted?.();
+  const previous = await resolveDaemonSession(ctx);
+  const owner = await ensureDaemonSession(ctx);
+  const daemonStarted = previous.kind === "offline";
+  if (daemonStarted) onDaemonStarted?.();
   try {
-    return { ...(await owner.client.setAutostart(enabled)), managementStarted };
+    return { ...(await owner.client.setAutostart(enabled)), daemonStarted };
   } catch (error) {
-    if (managementStarted)
+    if (daemonStarted)
       throw new Error(`${errorMessage(error)}. Sash was started for this command`, {
         cause: error,
       });

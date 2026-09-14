@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidate the loopback proxy-refusal fallback into one shared policy used by both HTTP pipelines; behavior is unchanged.
+- The API client now requires an explicit transport: Node callers inject the loopback direct dispatcher while the dashboard passes its browser transport, so local API traffic can never fall back to ambient `fetch`.
+- Reorganize internals without behavior change: the system proxy manager lives beside its Windows backend under `src/sysproxy/`, and the CLI's background-process connector is renamed to `daemon-session.ts`.
+
 ## [0.2.11] - 2026-09-13
 
 ### Fixed

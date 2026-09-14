@@ -47,6 +47,9 @@ it("uses private stream headers, cancels on return and rejects regressing sequen
     baseUrl: "http://127.0.0.1:28782",
     token: () => "secret",
     tokenHeader: "x-sash-token",
+    fetchFn: async () => {
+      throw new Error("events() must not use the request transport");
+    },
     eventFetchFn: async (url, init) => {
       assert.equal(url, "http://127.0.0.1:28782/sash/events");
       assert.equal(init.headers["x-sash-token"], "secret");

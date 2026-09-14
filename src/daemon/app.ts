@@ -39,7 +39,7 @@ import { type RuntimeConfiguration, RuntimeLifecycle } from "../runtime-lifecycl
 import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
-import { type SystemProxyController, SystemProxyManager } from "../system-proxy-manager.js";
+import { type SystemProxyController, SystemProxyManager } from "../sysproxy/manager.js";
 import { WebAuthManager } from "./auth.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
 import { createEventObserver, DaemonEvents } from "./events.js";

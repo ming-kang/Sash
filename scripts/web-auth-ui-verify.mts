@@ -82,7 +82,7 @@ async function browserHandoff(): Promise<string> {
     {},
     {
       runtimeContext: () => ({ layout: h.layout, settings: h.settings }),
-      ensureManagement: async () => ({
+      ensureDaemonSession: async () => ({
         kind: "daemon",
         daemon: { kind: "healthy", running: true, healthy: true, pid: process.pid, port },
         client: createDaemonClient(port, h.settings.daemonSecret),

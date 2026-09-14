@@ -3,19 +3,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import {
-  createSystemProxyBackend,
-  type EnableOptions,
-  type SystemProxyBackend,
-  type SystemProxySnapshot,
-  type SystemProxyState,
-} from "./sysproxy.js";
+import { deferred } from "../testing/state.js";
 import {
   type SystemProxyJournal,
   type SystemProxyJournalLayout,
   SystemProxyManager,
-} from "./system-proxy-manager.js";
-import { deferred } from "./testing/state.js";
+} from "./manager.js";
+import type {
+  EnableOptions,
+  SystemProxyBackend,
+  SystemProxySnapshot,
+  SystemProxyState,
+} from "./types.js";
+import { createSystemProxyBackend } from "./windows.js";
 
 const windows = createSystemProxyBackend("win32");
 function snapshot(name: string, port: number): SystemProxySnapshot {
@@ -68,7 +68,7 @@ describe("SystemProxyManager", () => {
   let layout: SystemProxyJournalLayout;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-system-proxy-manager-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-sysproxy-manager-test-"));
     layout = {
       systemProxyStateFile: path.join(tmpDir, "state", "system-proxy.json"),
       systemProxyLockFile: path.join(tmpDir, "proxy.lock"),

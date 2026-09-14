@@ -15,8 +15,8 @@ import { getActiveProfile } from "./profiles.js";
 import { createDaemonClient } from "./sash-client-node.js";
 import type { SashSettings } from "./settings.js";
 import type { StatusDelayObservation } from "./status-delay.js";
-import type { SystemProxyState } from "./sysproxy.js";
-import { type SystemProxyInspection, SystemProxyManager } from "./system-proxy-manager.js";
+import { type SystemProxyInspection, SystemProxyManager } from "./sysproxy/manager.js";
+import type { SystemProxyState } from "./sysproxy/types.js";
 import { uiInstalled } from "./webui.js";
 
 const CLI_STATUS_SCHEMA_VERSION = 2 as const;

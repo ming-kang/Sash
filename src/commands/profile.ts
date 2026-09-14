@@ -1,8 +1,12 @@
 import { loadProfiles } from "../app-state.js";
 import { commandOutput } from "../cli-output.js";
+import {
+  ensureDaemonSession,
+  type RuntimeContext,
+  resolveDaemonSession,
+} from "../daemon-session.js";
 import { log } from "../log.js";
 import { getActiveProfile, type ProfileMeta, type ProfilesIndex } from "../profiles.js";
-import { ensureManagement, type RuntimeContext, resolveRuntimeOwner } from "../runtime-owner.js";
 import { runtimeContext } from "./shared.js";
 
 /** IDs are unambiguous; display names must match exactly and uniquely. */
@@ -30,7 +34,7 @@ export class CliProfiles {
   constructor(private readonly context: RuntimeContext) {}
 
   async list(): Promise<ProfilesIndex> {
-    const owner = await resolveRuntimeOwner(this.context);
+    const owner = await resolveDaemonSession(this.context);
     if (owner.kind === "unhealthy")
       throw new Error("Cannot verify the running Sash — run sash doctor to diagnose");
     return owner.kind === "daemon"
@@ -41,7 +45,7 @@ export class CliProfiles {
   async use(reference?: string, useDefault = false) {
     if (useDefault ? reference !== undefined : reference === undefined)
       throw new Error("Specify one profile ID/name or --default");
-    const { client } = await ensureManagement(this.context);
+    const { client } = await ensureDaemonSession(this.context);
     const profile = useDefault
       ? null
       : resolveProfileReference(await client.listProfiles(), reference);
@@ -49,26 +53,26 @@ export class CliProfiles {
   }
 
   async add(url: string, options: { name?: string; use?: boolean }) {
-    const { client } = await ensureManagement(this.context);
+    const { client } = await ensureDaemonSession(this.context);
     return client.addProfile(url, { name: options.name, activate: options.use });
   }
 
   async update(reference?: string, all = false) {
     if (all && reference !== undefined) throw new Error("Use a profile ID/name or --all, not both");
-    const { client } = await ensureManagement(this.context);
+    const { client } = await ensureDaemonSession(this.context);
     if (all) return client.updateAllProfiles();
     const profile = resolveProfileReference(await client.listProfiles(), reference);
     return client.updateProfile(profile.id);
   }
 
   async rename(reference: string, name: string) {
-    const { client } = await ensureManagement(this.context);
+    const { client } = await ensureDaemonSession(this.context);
     const profile = resolveProfileReference(await client.listProfiles(), reference);
     return client.renameProfile(profile.id, name);
   }
 
   async remove(reference: string) {
-    const { client } = await ensureManagement(this.context);
+    const { client } = await ensureDaemonSession(this.context);
     const profile = resolveProfileReference(await client.listProfiles(), reference);
     return { ...(await client.removeProfile(profile.id)), id: profile.id, name: profile.name };
   }

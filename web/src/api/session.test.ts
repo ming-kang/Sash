@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { Window as HappyWindow } from "happy-dom";
 import type { HealthInfo } from "../../../src/contracts.js";
-import { SashClient } from "../../../src/sash-client.js";
+import { browserFetch, SashClient } from "../../../src/sash-client.js";
 import { sessionReady, webSession } from "./session.js";
 
 const originalFetch = globalThis.fetch;
@@ -16,7 +16,7 @@ const health: HealthInfo = {
   startedAt: "2026-01-01T00:00:00.000Z",
   version: "1.2.3",
 };
-const client = new SashClient({ baseUrl: "", tokenHeader: "x-sash-token" });
+const client = new SashClient({ baseUrl: "", tokenHeader: "x-sash-token", fetchFn: browserFetch });
 let window: HappyWindow;
 
 function respond(document: unknown, status = 200): Response {

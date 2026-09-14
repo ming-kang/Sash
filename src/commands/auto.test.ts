@@ -7,7 +7,7 @@ import { testAutostartContext } from "../testing/autostart-context.js";
 import { type AutoController, runAuto } from "./auto.js";
 
 describe("sash auto", () => {
-  it("reports management startup before a failing write and keeps JSON output structured", async (t) => {
+  it("reports Sash startup before a failing write and keeps JSON output structured", async (t) => {
     const logs: string[] = [];
     t.mock.method(console, "log", (...args: unknown[]) => logs.push(args.map(String).join(" ")));
     const controller: AutoController = {

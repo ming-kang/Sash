@@ -165,6 +165,38 @@ function loopbackRefusalOf(error: unknown): ConnectRefusedEndpoint | undefined {
   return endpoint && isLoopbackHost(endpoint.address) ? endpoint : undefined;
 }
 
+export interface ProxyFallbackContext {
+  url: string;
+  signal: AbortSignal;
+  onProxyFallback?: ProxyFallbackListener;
+}
+
+/**
+ * Shared loopback-refusal policy for both HTTP pipelines: when the proxied
+ * attempt failed because a loopback proxy refused the connection and the
+ * caller opted in, warn and retry once through the direct path. Everything
+ * else fails closed — user-supplied URLs (for example subscriptions) never
+ * set onProxyFallback, and a dead remote proxy surfaces with proxy context.
+ */
+export async function retryDirectOnLoopbackRefusal<T>(
+  error: unknown,
+  context: ProxyFallbackContext,
+  directRetry: () => Promise<T>,
+): Promise<T> {
+  if (!isProxyConnectionRefused(error, context.url)) {
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+  const loopback = loopbackRefusalOf(error);
+  if (!context.onProxyFallback || !loopback) throw formatProxyRefusedError(error);
+  context.onProxyFallback({ proxy: loopback, url: context.url });
+  try {
+    return await directRetry();
+  } catch (directError) {
+    context.signal.throwIfAborted();
+    throw formatProxyFallbackFailure(loopback, directError);
+  }
+}
+
 export interface FetchResponse {
   statusCode: number;
   headers: Record<string, string | string[] | undefined>;
@@ -335,19 +367,13 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
         if (signal.aborted) break;
       }
     }
-    if (!opts.direct && isProxyConnectionRefused(lastErr, url)) {
-      const loopback = loopbackRefusalOf(lastErr);
-      if (opts.onProxyFallback && loopback) {
-        opts.onProxyFallback({ proxy: loopback, url });
-        try {
-          // direct: true disables this branch in the recursive call.
-          return await fetchWithRetry(url, { ...opts, direct: true });
-        } catch (directError) {
-          signal.throwIfAborted();
-          throw formatProxyFallbackFailure(loopback, directError);
-        }
-      }
-      throw formatProxyRefusedError(lastErr);
+    if (!opts.direct) {
+      return retryDirectOnLoopbackRefusal(
+        lastErr,
+        { url, signal, ...(opts.onProxyFallback ? { onProxyFallback: opts.onProxyFallback } : {}) },
+        // direct: true disables this fallback branch in the recursive call.
+        () => fetchWithRetry(url, { ...opts, direct: true }),
+      );
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   } finally {

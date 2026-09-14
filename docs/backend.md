@@ -17,7 +17,7 @@ Sash runs one background process per data folder. The CLI and dashboard use its 
 | Settings and profiles | [settings-service.ts](../src/settings-service.ts), [profile-service.ts](../src/profile-service.ts) | Validate input and save changes |
 | Core lifecycle | [runtime-lifecycle.ts](../src/runtime-lifecycle.ts), [supervisor.ts](../src/supervisor.ts) | Apply configuration, start/stop Core and check readiness |
 | Core installation | [core.ts](../src/core.ts), [core-update.ts](../src/core-update.ts) | Download, verify, replace and recover the executable |
-| Desktop integration | [system-proxy-manager.ts](../src/system-proxy-manager.ts), [autostart/](../src/autostart/) | Windows proxy restoration and start at login |
+| Desktop integration | [sysproxy/manager.ts](../src/sysproxy/manager.ts), [autostart/](../src/autostart/) | Windows proxy restoration and start at login |
 | Observation | [events.ts](../src/daemon/events.ts), [doctor.ts](../src/doctor.ts) | Shared status events and independent diagnostic checks |
 
 CLI discovery uses the running instance's observed port. Process locks coordinate instance startup and per-user Windows operations; ordinary application writes use the in-memory queue.

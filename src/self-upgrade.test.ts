@@ -324,7 +324,7 @@ describe("Sash upgrade sequence", () => {
       install: async (_installation: NpmInstallation, version: string) => {
         calls.push(`install ${version}`);
       },
-      resolveOwner: async () =>
+      resolveSession: async () =>
         ({
           kind: running ? "daemon" : "offline",
           client: {

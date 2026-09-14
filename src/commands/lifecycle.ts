@@ -1,6 +1,6 @@
 import { coreUpdateProgressPrinter } from "../cli-output.js";
+import { ensureRunning, restartRuntime, stopCoreRuntime, stopRuntime } from "../daemon-session.js";
 import { log } from "../log.js";
-import { ensureRunning, restartRuntime, stopCoreRuntime, stopRuntime } from "../runtime-owner.js";
 import { type RuntimeContext, runtimeContext } from "./shared.js";
 
 export async function runStart(): Promise<void> {
@@ -19,7 +19,7 @@ export async function runStop(options: { core?: boolean } = {}): Promise<void> {
   if (options.core) {
     const result = await stopCoreRuntime(runtimeContext());
     log.info(
-      result.managementRunning
+      result.daemonRunning
         ? "Core stopped; the dashboard is still available"
         : "Core is already stopped",
     );

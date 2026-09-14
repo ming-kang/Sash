@@ -5,6 +5,13 @@ import semver from "semver";
 import { loadSettings } from "./app-state.js";
 import type { AutostartStatus } from "./autostart/contract.js";
 import { AutostartService } from "./autostart/service.js";
+import {
+  ensureDaemonSession,
+  type HealthyDaemonSession,
+  type RuntimeContext,
+  resolveDaemonSession,
+  stopRuntime,
+} from "./daemon-session.js";
 import { errorMessage } from "./error-utils.js";
 import {
   type FetchResponse,
@@ -22,13 +29,6 @@ import {
 } from "./package-info.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { buildSanitizedEnv } from "./process.js";
-import {
-  ensureManagement,
-  type HealthyRuntimeOwner,
-  type RuntimeContext,
-  resolveRuntimeOwner,
-  stopRuntime,
-} from "./runtime-owner.js";
 import {
   type Installation,
   inspectInstallation,
@@ -301,10 +301,10 @@ export interface SashUpgradeOutcome {
 
 /** Seams for the upgrade sequence so its order can be tested without npm or a daemon. */
 export interface SashUpgradeDeps {
-  resolveOwner?: typeof resolveRuntimeOwner;
+  resolveSession?: typeof resolveDaemonSession;
   stop?: typeof stopRuntime;
-  start?: typeof ensureManagement;
-  startCore?: (owner: HealthyRuntimeOwner) => Promise<unknown>;
+  start?: typeof ensureDaemonSession;
+  startCore?: (owner: HealthyDaemonSession) => Promise<unknown>;
   inspectAutostart?: () => Promise<AutostartStatus>;
   install?: (
     installation: NpmInstallation,
@@ -362,7 +362,7 @@ async function runSashUpgradeSequence(
   await (deps.install ?? runNpmInstall)(installation, target.version, options);
 
   const context: RuntimeContext = { layout, settings: loadSettings(layout) };
-  const owner = await (deps.resolveOwner ?? resolveRuntimeOwner)(context);
+  const owner = await (deps.resolveSession ?? resolveDaemonSession)(context);
   const shouldRestart = owner.kind === "daemon" && options.restart !== false;
   if (!shouldRestart) {
     return {
@@ -385,9 +385,9 @@ async function runSashUpgradeSequence(
 
   options.onPhase?.("restarting");
   await (deps.stop ?? stopRuntime)(context);
-  let restarted: HealthyRuntimeOwner;
+  let restarted: HealthyDaemonSession;
   try {
-    restarted = await (deps.start ?? ensureManagement)(context);
+    restarted = await (deps.start ?? ensureDaemonSession)(context);
   } catch (error) {
     throw await explainUpgradeStartFailure(
       error,
@@ -452,7 +452,7 @@ async function explainUpgradeStartFailure(
   }
   try {
     await (deps.install ?? runNpmInstall)(installation, previousVersion, options);
-    await (deps.start ?? ensureManagement)(context);
+    await (deps.start ?? ensureDaemonSession)(context);
     return new Error(
       `the upgraded Sash did not start: ${reason} — rolled back to Sash ${previousVersion}`,
       { cause: error },
@@ -471,7 +471,7 @@ async function explainUpgradeStartFailure(
  * goes through the daemon like every other autostart change.
  */
 async function repairStaleAutostart(
-  owner: HealthyRuntimeOwner,
+  owner: HealthyDaemonSession,
   layout: SashLayout,
   deps: SashUpgradeDeps,
 ): Promise<boolean> {

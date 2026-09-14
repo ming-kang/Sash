@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import type { HealthyDaemonSession } from "../daemon-session.js";
 import { sashLayout } from "../paths.js";
-import type { HealthyRuntimeOwner } from "../runtime-owner.js";
 import { createDaemonClient } from "../sash-client-node.js";
 import { testSettings } from "../testing/state.js";
 import { runWeb, type WebCommandDeps } from "./web.js";
@@ -25,7 +25,7 @@ function fixture() {
     token: TOKEN,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   });
-  const owner: HealthyRuntimeOwner = {
+  const owner: HealthyDaemonSession = {
     kind: "daemon",
     daemon: { kind: "healthy", running: true, healthy: true, pid: 12345, port: 29193 },
     client,
@@ -35,7 +35,7 @@ function fixture() {
       layout: sashLayout(path.join(os.tmpdir(), "sash-web-no-io")),
       settings: testSettings(),
     }),
-    ensureManagement: async () => {
+    ensureDaemonSession: async () => {
       events.push("management");
       return owner;
     },
@@ -83,7 +83,7 @@ test("failed authorization never opens a browser", async () => {
 
 test("management startup errors propagate without opening a browser", async () => {
   const f = fixture();
-  f.deps.ensureManagement = async () => {
+  f.deps.ensureDaemonSession = async () => {
     throw new Error("unverified owner");
   };
   await assert.rejects(runWeb({}, f.deps), /unverified owner/);

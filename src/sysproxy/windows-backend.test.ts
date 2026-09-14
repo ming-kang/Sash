@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { WindowsSystemProxySnapshot } from "./sysproxy/types.js";
-import { applyWindowsSnapshot, captureWindowsSnapshot } from "./sysproxy/windows.js";
+import type { WindowsSystemProxySnapshot } from "./types.js";
+import { applyWindowsSnapshot, captureWindowsSnapshot } from "./windows.js";
 
 interface RecordedCommand {
   command: string;

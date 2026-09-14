@@ -2,7 +2,7 @@ import type { DaemonStatus } from "../contracts.js";
 import { currentCoreVersion } from "../core.js";
 import { errorMessage } from "../error-utils.js";
 import { publicSettings } from "../settings.js";
-import type { SystemProxyState } from "../sysproxy.js";
+import type { SystemProxyState } from "../sysproxy/types.js";
 import type { DaemonContext } from "./context.js";
 
 /** Complete control snapshot shared by HTTP reads and the authenticated event observer. */

@@ -1,15 +1,19 @@
 import { commandOutput } from "../cli-output.js";
 import type { SystemProxyStatusResponse } from "../contracts.js";
+import {
+  ensureDaemonSession,
+  type RuntimeContext,
+  resolveDaemonSession,
+} from "../daemon-session.js";
 import { log } from "../log.js";
-import { ensureManagement, type RuntimeContext, resolveRuntimeOwner } from "../runtime-owner.js";
 import { formatSystemProxyLine } from "../status.js";
-import { SystemProxyManager } from "../system-proxy-manager.js";
+import { SystemProxyManager } from "../sysproxy/manager.js";
 import { runtimeContext } from "./shared.js";
 
 export type ProxyAction = "on" | "off" | "status";
 
 export async function inspectCliProxy(context: RuntimeContext): Promise<SystemProxyStatusResponse> {
-  const owner = await resolveRuntimeOwner(context);
+  const owner = await resolveDaemonSession(context);
   if (owner.kind === "daemon") return owner.client.proxyStatus();
   const result = await new SystemProxyManager({ layout: context.layout }).inspect();
   return {
@@ -26,7 +30,7 @@ export async function setCliProxy(
   context: RuntimeContext,
   enabled: boolean,
 ): Promise<SystemProxyStatusResponse> {
-  const { client } = await ensureManagement(context);
+  const { client } = await ensureDaemonSession(context);
   await client.patchSettings({ systemProxy: enabled });
   return client.proxyStatus();
 }

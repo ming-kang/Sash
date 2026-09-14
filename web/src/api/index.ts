@@ -4,7 +4,12 @@ import {
   WEB_SOCKET_AUTH_PROTOCOL,
   WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
 } from "../../../src/contracts.js";
-import { SashApiError, SashClient } from "../../../src/sash-client.js";
+import {
+  browserEventFetch,
+  browserFetch,
+  SashApiError,
+  SashClient,
+} from "../../../src/sash-client.js";
 import { t } from "../i18n/index.js";
 import type {
   ConfigsResponse,
@@ -62,6 +67,8 @@ const sash = new SashClient({
   baseUrl: "",
   token: webSession.token,
   tokenHeader: "x-sash-token",
+  fetchFn: browserFetch,
+  eventFetchFn: browserEventFetch,
   onUnauthorized: webSession.reject,
 });
 

@@ -3,18 +3,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import type { RuntimeContext } from "./daemon-session.js";
+import { resolveDaemonSession } from "./daemon-session.js";
 import { sashLayout } from "./paths.js";
-import type { RuntimeContext } from "./runtime-owner.js";
-import { resolveRuntimeOwner } from "./runtime-owner.js";
 import { createDaemonClient } from "./sash-client-node.js";
 import { createTestState, testSettings } from "./testing/state.js";
 
-describe("resolveRuntimeOwner", () => {
+describe("resolveDaemonSession", () => {
   let root: string;
   let ctx: RuntimeContext;
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-runtime-owner-test-"));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-daemon-session-test-"));
     const layout = sashLayout(root);
     const settings = testSettings();
     createTestState(layout, settings);
@@ -28,7 +28,7 @@ describe("resolveRuntimeOwner", () => {
   it("constructs a daemon client from the observed healthy port", async () => {
     let clientPort: number | undefined;
     let clientSecret: string | undefined;
-    const owner = await resolveRuntimeOwner(ctx, {
+    const owner = await resolveDaemonSession(ctx, {
       evaluateDaemon: async () => ({
         kind: "healthy",
         running: true,
@@ -55,11 +55,11 @@ describe("resolveRuntimeOwner", () => {
       clients += 1;
       return createDaemonClient(port, secret);
     };
-    const offline = await resolveRuntimeOwner(ctx, {
+    const offline = await resolveDaemonSession(ctx, {
       evaluateDaemon: async () => ({ kind: "stopped", running: false, healthy: false }),
       clientFactory,
     });
-    const unhealthy = await resolveRuntimeOwner(ctx, {
+    const unhealthy = await resolveDaemonSession(ctx, {
       evaluateDaemon: async () => ({
         kind: "unhealthy",
         running: true,

@@ -4,7 +4,7 @@ import { loadSettings } from "./app-state.js";
 import { writeInstallRecord } from "./core.js";
 import type { DaemonScheduler } from "./daemon/scheduler.js";
 import type { CoreState, CoreSupervisor } from "./supervisor.js";
-import type { SystemProxyController } from "./system-proxy-manager.js";
+import type { SystemProxyController } from "./sysproxy/manager.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon server", () => {

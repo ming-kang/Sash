@@ -3,7 +3,7 @@ import { isPlainObject } from "./json-shape.js";
 import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
-import type { SystemProxyState } from "./sysproxy.js";
+import type { SystemProxyState } from "./sysproxy/types.js";
 
 export type { ProfileMeta, ProfilesIndex };
 export const WEB_SOCKET_AUTH_PROTOCOL = "sash";

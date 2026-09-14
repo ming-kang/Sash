@@ -8,7 +8,7 @@ import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { SashSettings } from "../settings.js";
 import type { SettingsService } from "../settings-service.js";
 import type { CoreSupervisor } from "../supervisor.js";
-import type { SystemProxyController } from "../system-proxy-manager.js";
+import type { SystemProxyController } from "../sysproxy/manager.js";
 import type { WebAuthManager } from "./auth.js";
 import { ShuttingDownError } from "./errors.js";
 import type { DaemonEvents } from "./events.js";

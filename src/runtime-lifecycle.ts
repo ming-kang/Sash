@@ -13,7 +13,7 @@ import type { GeneratedConfig } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
-import type { SystemProxyController } from "./system-proxy-manager.js";
+import type { SystemProxyController } from "./sysproxy/manager.js";
 
 export interface RuntimeConfiguration {
   generated: GeneratedConfig;

@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { runCmd } from "./sysproxy/common.js";
+import { isSystemProxySupported, runCmd } from "./common.js";
+import { DEFAULT_BYPASS_LIST } from "./types.js";
 import {
   createSystemProxyBackend,
-  DEFAULT_BYPASS_LIST,
   formatWindowsBypass,
-  isSystemProxySupported,
   parseWindowsRegistryProxyValues,
-} from "./sysproxy.js";
+} from "./windows.js";
 
 describe("sysproxy", () => {
   describe("helper child environment", () => {

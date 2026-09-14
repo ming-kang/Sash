@@ -1,15 +1,15 @@
 import type { AutostartStatus } from "../autostart/contract.js";
 import { AutostartService } from "../autostart/service.js";
 import { commandOutput } from "../cli-output.js";
+import { setRuntimeAutostart } from "../daemon-session.js";
 import { log } from "../log.js";
-import { setRuntimeAutostart } from "../runtime-owner.js";
 import { formatAutostart } from "../status.js";
 import { runtimeContext } from "./shared.js";
 
 export type AutoMode = "on" | "off" | "status";
 export interface AutoController {
   inspect(): Promise<AutostartStatus>;
-  set(enabled: boolean, onManagementStarted?: () => void): Promise<AutostartStatus>;
+  set(enabled: boolean, onDaemonStarted?: () => void): Promise<AutostartStatus>;
 }
 
 export async function runAuto(
