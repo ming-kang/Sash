@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-09-14
+
 ### Changed
 
 - Unify runtime status mapping: replace the event-to-CLI mock adaptation in `src/status-watch.ts` with a direct, deterministic mapper (`cliStatusFromDaemonStatus` in `src/status.ts`), keeping CLI `--json` contract output identical while sharing one code path between query and event observations.
