@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Unify runtime status mapping: replace the event-to-CLI mock adaptation in `src/status-watch.ts` with a direct, deterministic mapper (`cliStatusFromDaemonStatus` in `src/status.ts`), keeping CLI `--json` contract output identical while sharing one code path between query and event observations.
+- Consolidate dashboard HTTP transport and Core types: expose `SashClient.rawRequest` and harmonize Core error parsing so the WebUI uses `SashClient` across all endpoints; centralize upstream Core API DTOs in `src/mihomo-api.ts` and re-export them in `web/src/types/`.
+- Decompose giant dashboard components: extract `ProfileCard.vue` from `ProfilesView.vue`, `ModeControl.vue` from `OverviewGeneralPane.vue`, and `ConnectionRow.vue` from `ConnectionsView.vue`.
 - Realign profile boundaries: move disk I/O, ID allocation, update-scheduling policies, and configuration rendering from `profiles.ts` into `profile-service.ts`, keeping `profiles.ts` pure and eliminating type-level import cycles.
 - Unify daemon route registration: assemble the full route table in `src/daemon/routes.ts`, move Core gateway filtering to `proxy.ts` and dashboard routing to `static.ts`, leaving `router.ts` as a focused dispatch engine.
 - Extract `CoreControlService` from `src/daemon/app.ts` into `src/daemon/core-service.ts`, scoping Core lifecycle orchestration and update state while narrowing `DaemonContext`.

@@ -59,47 +59,13 @@
     </div>
 
     <div class="connection-list">
-      <article
+      <ConnectionRow
         v-for="connection in pagedConnections"
         :key="connection.id"
         v-memo="[connection.upload, connection.download, JSON.stringify(connection.metadata), connection.chains.join('\0'), connection.rule, connection.rulePayload, formatAgo(connection.start), locale]"
-        class="connection-row"
-      >
-        <div class="connection-main">
-          <div class="connection-host mono" :title="hostOf(connection)">
-            {{ hostOf(connection) }}
-          </div>
-          <div class="connection-tags">
-            <span class="connection-tag tag-network">{{ connection.metadata.network.toUpperCase() }}</span>
-            <span v-if="processName(connection) !== '-'" class="connection-tag tag-process" :title="connection.metadata.processPath">
-              {{ processName(connection) }}
-            </span>
-            <span
-              v-for="chain in connection.chains"
-              :key="chain"
-              class="connection-tag tag-chain"
-            >
-              {{ chain }}
-            </span>
-            <span class="connection-tag tag-rule" :title="connection.rulePayload">
-              {{ connection.rule || '-' }}<template v-if="connection.rulePayload">,{{ connection.rulePayload }}</template>
-            </span>
-            <span class="connection-tag tag-time">{{ formatAgo(connection.start) }}</span>
-            <span class="connection-tag tag-traffic mono">
-              ↑{{ formatBytes(connection.upload) }} ↓{{ formatBytes(connection.download) }}
-            </span>
-          </div>
-        </div>
-        <button
-          type="button"
-          class="connection-close"
-          :aria-label="t('connections.closeTitle')"
-          :title="t('connections.closeTitle')"
-          @click="closeOne(connection.id)"
-        >
-          <Icon name="x" :size="18" />
-        </button>
-      </article>
+        :connection="connection"
+        @close="closeOne"
+      />
 
       <EmptyState
         v-if="!isCoreRunning"
@@ -126,6 +92,7 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from "vue";
 import { confirmDialog } from "../components/confirm.js";
+import ConnectionRow from "../components/ConnectionRow.vue";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
@@ -240,11 +207,6 @@ watch(
 function hostOf(connection: ConnectionItem): string {
   if (connection.metadata.host) return connection.metadata.host;
   return `${connection.metadata.destinationIP}:${connection.metadata.destinationPort}`;
-}
-
-function processName(connection: ConnectionItem): string {
-  const path = connection.metadata.processPath;
-  return path ? (path.split(/[\\/]/).pop() ?? path) : "-";
 }
 
 async function closeOne(id: string): Promise<void> {
@@ -368,88 +330,6 @@ async function closeAll(): Promise<void> {
 .connection-list {
   min-height: 180px;
 }
-.connection-row {
-  position: relative;
-  display: flex;
-  min-height: 49px;
-  align-items: center;
-  padding: 5px 46px 5px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.connection-row:hover {
-  background: var(--general-row-hover);
-}
-.connection-main {
-  min-width: 0;
-  flex: 1;
-}
-.connection-host {
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.connection-tags {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 3px;
-}
-.connection-tag {
-  display: inline-flex;
-  max-width: 320px;
-  min-height: 18px;
-  align-items: center;
-  padding: 1px 5px;
-  overflow: hidden;
-  border-radius: 3px;
-  color: var(--text-inverse);
-  font-size: 12px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tag-network {
-  background: var(--tag-network);
-}
-.tag-process {
-  background: var(--tag-process);
-}
-.tag-chain {
-  background: var(--tag-chain);
-}
-.tag-rule {
-  background: var(--tag-rule);
-}
-.tag-time {
-  background: var(--tag-time);
-}
-.tag-traffic {
-  background: var(--tag-traffic);
-}
-.connection-close {
-  position: absolute;
-  top: 50%;
-  right: 20px;
-  display: flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  transform: translateY(-50%);
-}
-.connection-close:hover {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
 
 @media (max-width: 760px) {
   .connections-control {
@@ -460,19 +340,6 @@ async function closeAll(): Promise<void> {
   }
   .control-actions {
     justify-content: flex-end;
-  }
-  .connection-row {
-    padding-right: 40px;
-    padding-left: 8px;
-  }
-  .connection-close {
-    right: 8px;
-  }
-}
-
-@media (max-width: 480px) {
-  .connection-tag {
-    max-width: 220px;
   }
 }
 </style>

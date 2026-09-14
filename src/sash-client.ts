@@ -23,6 +23,7 @@ import {
 } from "./contracts.js";
 import { CORE_DELAY_REQUEST_MS, type CoreDelayResult } from "./core-delay.js";
 import type { CoreUpdateProgress } from "./core-update.js";
+import { isPlainObject } from "./json-shape.js";
 import { type DaemonEvent, decodeDaemonEvents } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
 
@@ -154,8 +155,12 @@ export class SashClient {
     if (response.status === 401 && token) this.onUnauthorized?.(token);
     if (response.status < 200 || response.status >= 300) {
       const parsedError = parseApiErrorBody(data);
-      const message =
-        parsedError?.message ?? (typeof data === "string" ? data.slice(0, 300).trim() : "");
+      let message = parsedError?.message;
+      if (!message && isPlainObject(data)) {
+        if (typeof data.message === "string") message = data.message;
+        else if (typeof data.error === "string") message = data.error;
+      }
+      message ??= typeof data === "string" ? data.slice(0, 300).trim() : "";
       throw new SashApiError(
         response.status,
         parsedError?.code,
@@ -163,6 +168,14 @@ export class SashClient {
       );
     }
     return data as T;
+  }
+
+  /**
+   * Execute an authenticated request against any relative endpoint, including
+   * reverse-proxied /core/api/* routes.
+   */
+  rawRequest<T>(endpoint: string, options: SashRequestOptions = {}): Promise<T> {
+    return this.request<T>(endpoint, options);
   }
 
   /* ---- daemon ---- */

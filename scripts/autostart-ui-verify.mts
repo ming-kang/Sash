@@ -112,7 +112,7 @@ try {
       await card.getByRole("button", { name: "刷新状态" }).click();
       await idle(page);
       assert.equal(await toggle.getAttribute("aria-checked"), "false");
-      assert.match(await card.innerText(), /已被操作系统禁用/);
+      assert.match(await card.innerText(), /已被 (?:操作系统|Windows) 禁用/);
       await toggle.click();
       await idle(page);
       assert.equal(await toggle.getAttribute("aria-checked"), "true");

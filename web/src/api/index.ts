@@ -84,43 +84,14 @@ async function request(
 async function request(endpoint: string, options: RequestOptions = {}): Promise<unknown> {
   const controlToken = webSession.token();
   if (!controlToken) throw new SashApiError(401, "unauthorized", t("status.unauthorized"));
-  const headers: Record<string, string> = {};
-  if (controlToken) headers["X-Sash-Token"] = controlToken;
-  let body: string | undefined;
-  if (options.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    body = JSON.stringify(options.body);
-  }
-
-  const res = await fetch(endpoint, {
-    method: options.method ?? "GET",
-    headers,
-    body,
-    signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
+  const result = await sash.rawRequest<unknown>(endpoint, {
+    method: options.method,
+    body: options.body,
+    timeoutMs: options.timeoutMs ?? 10_000,
   });
-  const text = await res.text();
-
-  if (res.status === 401) webSession.reject(controlToken);
-  if (!res.ok) {
-    let message = text.slice(0, 300).trim();
-    if (text) {
-      try {
-        const parsed = JSON.parse(text) as { error?: unknown };
-        if (parsed.error !== undefined) message = String(parsed.error);
-      } catch {
-        // Keep the plain response text.
-      }
-    }
-    throw new Error(message || `HTTP ${res.status}`);
-  }
-
   if (options.response === "void") return undefined;
-  if (!text) throw new Error(`Empty JSON response from ${endpoint}`);
-  try {
-    return JSON.parse(text) as unknown;
-  } catch (err) {
-    throw new Error(`Invalid JSON response from ${endpoint}: ${(err as Error).message}`);
-  }
+  if (result === undefined) throw new Error(`Empty JSON response from ${endpoint}`);
+  return result;
 }
 
 /** Persistent WebSocket with one reconnect timer. Returns an unsubscribe function. */

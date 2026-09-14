@@ -277,6 +277,147 @@ function addObservationErrors(errors: string[], observation: ResolvedSystemProxy
   for (const error of observation.errors) addError(errors, error);
 }
 
+export interface CliStatusFromDaemonOptions {
+  installedCoreVersion?: string | null;
+  uiInstalled?: boolean;
+  activeProfile?: { id: string; name: string; url: string } | null;
+  proxyObservation?: ResolvedSystemProxyObservation;
+  daemonPort?: number;
+  daemonPid?: number | null;
+}
+
+/**
+ * Deterministically maps a complete daemon status snapshot and autostart state
+ * to the CLI runtime status contract.
+ */
+export function cliStatusFromDaemonStatus(
+  context: StatusObservationContext,
+  status: DaemonStatus,
+  autostart: AutostartStatus,
+  options: CliStatusFromDaemonOptions = {},
+): CliRuntimeStatus {
+  const errors: string[] = [];
+  const daemonPort = options.daemonPort ?? status.daemon.port ?? context.settings.daemonPort;
+  const daemonPid =
+    options.daemonPid !== undefined
+      ? options.daemonPid
+      : typeof status.daemon.pid === "number"
+        ? status.daemon.pid
+        : null;
+  const daemon: CliDaemonObservation = {
+    state: "healthy",
+    running: true,
+    healthy: true,
+    pid: daemonPid,
+    port: daemonPort,
+    version:
+      typeof status.daemon.version === "string" && status.daemon.version.trim()
+        ? status.daemon.version
+        : null,
+  };
+
+  const desiredProxy = status.systemProxy.desired;
+  const controllerEndpoint = status.settings.controller;
+  const mixedEndpoint = status.core.running
+    ? status.configuration.appliedSettings
+      ? `127.0.0.1:${status.configuration.appliedSettings.mixedPort}`
+      : "unknown"
+    : `127.0.0.1:${status.settings.mixedPort}`;
+
+  const proxySource: SystemProxyObservationSource = {
+    applied: status.systemProxy.applied,
+    appliedKnown: status.systemProxy.appliedKnown,
+    stateKnown: status.systemProxy.stateKnown,
+    ...(status.systemProxy.actual ? { state: status.systemProxy.actual } : {}),
+    ...(status.systemProxy.queryError ? { queryError: status.systemProxy.queryError } : {}),
+  };
+
+  let coreRunning: boolean;
+  let coreHealthy: boolean | null;
+  let corePid: number | null = null;
+  let coreVersion: string | null = null;
+
+  if (typeof status.core.running !== "boolean") {
+    addError(errors, "Core: state unknown");
+    coreRunning = false;
+    coreHealthy = null;
+  } else if (!status.core.running) {
+    coreRunning = false;
+    coreHealthy = false;
+  } else {
+    coreRunning = true;
+    coreHealthy = typeof status.core.healthy === "boolean" ? status.core.healthy : null;
+    corePid = typeof status.core.pid === "number" ? status.core.pid : null;
+    coreVersion =
+      typeof status.core.version === "string" && status.core.version ? status.core.version : null;
+    if (coreHealthy === null) addError(errors, "Core: health unknown");
+    else if (!coreHealthy) addError(errors, "Core: its control API is not answering");
+    if (corePid === null) addError(errors, "Core: process id unknown");
+    if (coreVersion === null) addError(errors, "Core: version unknown");
+  }
+
+  const proxyObservation =
+    options.proxyObservation ?? resolveObservedSystemProxy(proxySource, null);
+  addObservationErrors(errors, proxyObservation);
+
+  const healthy = coreRunning === false ? false : coreHealthy;
+  const activeProfile =
+    options.activeProfile !== undefined
+      ? options.activeProfile
+      : status.activeProfile
+        ? {
+            id: status.activeProfile.id,
+            name: status.activeProfile.name,
+            url: status.activeProfile.url,
+          }
+        : null;
+
+  if (autostart.state === "unknown") {
+    addError(errors, `start at login: ${autostart.reason ?? "could not read the state"}`);
+  }
+  const loginStart = readLoginStartRecord(context.layout) ?? null;
+  const installedVersion =
+    options.installedCoreVersion !== undefined
+      ? options.installedCoreVersion
+      : currentCoreVersion(context.layout);
+  const hasUi =
+    options.uiInstalled !== undefined ? options.uiInstalled : uiInstalled(context.layout);
+
+  return {
+    schemaVersion: CLI_STATUS_SCHEMA_VERSION,
+    complete: errors.length === 0,
+    healthy,
+    queryError: errors.length > 0 ? errors.join("; ") : null,
+    autostart,
+    loginStart,
+    daemon,
+    core: {
+      running: coreRunning,
+      healthy: coreHealthy,
+      pid: corePid,
+      version: coreVersion,
+      installedVersion: installedVersion || null,
+    },
+    systemProxy: {
+      desired: desiredProxy,
+      daemonApplied: proxyObservation.daemonApplied,
+      osObserved: proxyObservation.osObserved,
+    },
+    uiInstalled: hasUi,
+    endpoints: {
+      mixedProxy: mixedEndpoint,
+      controller: controllerEndpoint,
+      daemonApi: `http://127.0.0.1:${daemonPort}`,
+      dashboard: `http://127.0.0.1:${daemonPort}/ui/`,
+    },
+    activeProfile,
+    paths: {
+      root: context.layout.root,
+      config: context.layout.configFile,
+    },
+  };
+}
+
 export async function collectRuntimeStatus(
   context: StatusObservationContext,
   dependencies: StatusObservationDependencies = {},
@@ -291,58 +432,44 @@ export async function collectRuntimeStatus(
     ? dependencies.activeProfile(context)
     : getActiveProfile(loadProfiles(context.layout));
 
-  let coreRunning: boolean | null = daemonState.running ? null : false;
-  let coreHealthy: boolean | null = daemonState.running ? null : false;
-  let corePid: number | null = null;
-  let coreVersion: string | null = null;
-  let desiredProxy = context.settings.systemProxy;
-  let mixedEndpoint = `127.0.0.1:${context.settings.mixedPort}`;
-  let controllerEndpoint = context.settings.controller;
+  const coreRunning: boolean | null = daemonState.running ? null : false;
+  const coreHealthy: boolean | null = daemonState.running ? null : false;
+  const corePid: number | null = null;
+  const coreVersion: string | null = null;
+  const desiredProxy = context.settings.systemProxy;
+  const mixedEndpoint = `127.0.0.1:${context.settings.mixedPort}`;
+  const controllerEndpoint = context.settings.controller;
   let proxySource: SystemProxyObservationSource | undefined;
-  let queriedDaemon = false;
+  const queriedDaemon = false;
 
   if (daemonState.kind === "healthy") {
     try {
       const status = await queryStatus(context, dependencies, daemonState);
-      queriedDaemon = true;
-      daemon = daemonObservation(
-        daemonState,
-        "healthy",
-        typeof status.daemon.version === "string" ? status.daemon.version : undefined,
-      );
-      desiredProxy = status.systemProxy.desired;
-      controllerEndpoint = status.settings.controller;
-      mixedEndpoint = status.core.running
-        ? status.configuration.appliedSettings
-          ? `127.0.0.1:${status.configuration.appliedSettings.mixedPort}`
-          : "unknown"
-        : `127.0.0.1:${status.settings.mixedPort}`;
-      proxySource = {
+      const proxySource: SystemProxyObservationSource = {
         applied: status.systemProxy.applied,
         appliedKnown: status.systemProxy.appliedKnown,
         stateKnown: status.systemProxy.stateKnown,
         ...(status.systemProxy.actual ? { state: status.systemProxy.actual } : {}),
         ...(status.systemProxy.queryError ? { queryError: status.systemProxy.queryError } : {}),
       };
-
-      if (typeof status.core.running !== "boolean") {
-        addError(errors, "Core: state unknown");
-      } else if (!status.core.running) {
-        coreRunning = false;
-        coreHealthy = false;
-      } else {
-        coreRunning = true;
-        coreHealthy = typeof status.core.healthy === "boolean" ? status.core.healthy : null;
-        corePid = typeof status.core.pid === "number" ? status.core.pid : null;
-        coreVersion =
-          typeof status.core.version === "string" && status.core.version
-            ? status.core.version
-            : null;
-        if (coreHealthy === null) addError(errors, "Core: health unknown");
-        else if (!coreHealthy) addError(errors, "Core: its control API is not answering");
-        if (corePid === null) addError(errors, "Core: process id unknown");
-        if (coreVersion === null) addError(errors, "Core: version unknown");
-      }
+      const [proxyObservation, autostart] = await Promise.all([
+        observeSystemProxy(context, dependencies, proxySource, null),
+        observeAutostart(context, dependencies, daemonState, true),
+      ]);
+      return cliStatusFromDaemonStatus(context, status, autostart, {
+        daemonPort: daemonState.port,
+        daemonPid: typeof daemonState.pid === "number" ? daemonState.pid : undefined,
+        installedCoreVersion: dependencies.installedCoreVersion
+          ? dependencies.installedCoreVersion(context)
+          : undefined,
+        uiInstalled: dependencies.hasUi ? dependencies.hasUi(context) : undefined,
+        activeProfile: dependencies.activeProfile
+          ? profile
+            ? { id: profile.id, name: profile.name, url: profile.url }
+            : null
+          : undefined,
+        proxyObservation,
+      });
     } catch (err) {
       daemon = daemonObservation(daemonState, "unhealthy");
       addError(errors, `local API request failed: ${errorText(err)}`);

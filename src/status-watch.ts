@@ -5,6 +5,7 @@ import { createDaemonClient } from "./sash-client-node.js";
 import type { DaemonEvent } from "./sash-events.js";
 import {
   type CliRuntimeStatus,
+  cliStatusFromDaemonStatus,
   collectRuntimeStatus,
   type StatusObservationContext,
 } from "./status.js";
@@ -13,26 +14,7 @@ export function collectEventStatus(
   context: StatusObservationContext,
   event: DaemonEvent,
 ): Promise<CliRuntimeStatus> {
-  const { status } = event;
-  return collectRuntimeStatus(context, {
-    evaluateDaemon: async () => ({
-      kind: "healthy",
-      running: true,
-      healthy: true,
-      pid: status.daemon.pid,
-      port: status.daemon.port,
-    }),
-    queryDaemonStatus: async () => status,
-    inspectAutostart: async () => event.autostart,
-    inspectSystemProxy: async () => ({
-      applied: status.systemProxy.applied,
-      appliedKnown: status.systemProxy.appliedKnown,
-      stateKnown: status.systemProxy.stateKnown && status.systemProxy.actual !== undefined,
-      state: status.systemProxy.actual ?? { supported: false, enabled: false },
-      ...(status.systemProxy.queryError ? { queryError: status.systemProxy.queryError } : {}),
-    }),
-    activeProfile: () => status.activeProfile,
-  });
+  return Promise.resolve(cliStatusFromDaemonStatus(context, event.status, event.autostart));
 }
 
 async function* openEvents(

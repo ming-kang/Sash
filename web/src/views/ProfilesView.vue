@@ -95,106 +95,22 @@
       @click.capture="onClick"
       @contextmenu="chosenId && $event.preventDefault()"
     >
-      <article
+      <ProfileCard
         v-for="p in profiles"
         :key="p.id"
-        :data-id="p.id"
-        class="profile-card"
-        :class="{
-          active: p.id === store.activeProfileId,
-          busy: profileBusy,
-          'profile-chosen': chosenId === p.id,
-        }"
-      >
-        <div
-          class="profile-card-main"
-          role="button"
-          tabindex="0"
-          :aria-current="p.id === store.activeProfileId ? 'true' : undefined"
-          :aria-disabled="profileBusy || p.id === store.activeProfileId"
-          :aria-describedby="profiles.length > 1 ? 'profile-order-hint' : undefined"
-          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-          :title="p.id === store.activeProfileId ? undefined : t('profiles.clickToUse')"
-          @click="selectProfile(p)"
-          @keydown.enter.prevent="selectProfile(p)"
-          @keydown.space.prevent="selectProfile(p)"
-          @keydown="moveWithKeyboard($event, p.id)"
-        >
-          <div class="profile-name-row">
-            <span class="profile-name" :title="p.name">{{ p.name }}</span>
-          </div>
-          <div class="profile-source" :title="`${sourceLabel(p)} · ${updatedLabel(p)}`">
-            {{ sourceLabel(p) }} · {{ updatedLabel(p) }}
-          </div>
-          <div v-if="p.subInfo" class="profile-usage">
-            <div class="usage-nums">
-              <span class="mono">{{ formatBytes(usedBytes(p)) }} / {{ formatBytes(p.subInfo.total) }}</span>
-              <span v-if="p.subInfo.expire" class="mono usage-expire">{{ formatDate(p.subInfo.expire) }}</span>
-            </div>
-            <div
-              class="usage-bar"
-              role="progressbar"
-              :aria-label="t('profiles.usageLabel')"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              :aria-valuenow="usagePct(p)"
-            >
-              <div
-                class="usage-fill"
-                :class="{ 'usage-fill-hot': usagePct(p) >= 90 }"
-                :style="{ width: `${usagePct(p)}%` }"
-              ></div>
-            </div>
-          </div>
-          <div v-if="p.lastError" class="profile-error" :title="p.lastError" role="status">
-            <Icon name="alert" :size="13" />
-            <span class="profile-error-text">{{ p.lastError }}</span>
-          </div>
-        </div>
-        <div class="profile-actions">
-          <button
-            type="button"
-            class="icon-btn"
-            :title="t('profiles.rename')"
-            :aria-label="`${t('profiles.rename')}: ${p.name}`"
-            :disabled="profileBusy"
-            @click.stop="renameTarget = p"
-          >
-            <Icon name="pencil" :size="14" />
-          </button>
-          <button
-            type="button"
-            class="icon-btn"
-            :title="t('profiles.edit')"
-            :aria-label="`${t('profiles.edit')}: ${p.name}`"
-            :disabled="profileBusy"
-            @click.stop="openEditor(p)"
-          >
-            <Icon name="code" :size="14" />
-          </button>
-          <button
-            v-if="p.url"
-            type="button"
-            class="icon-btn"
-            :title="t('profiles.update')"
-            :aria-label="`${t('profiles.update')}: ${p.name}`"
-            :disabled="profileBusy || updatingAll || updatingId !== ''"
-            @click.stop="updateOne(p)"
-          >
-            <Icon name="refresh" :size="14" :class="{ spin: updatingId === p.id }" />
-          </button>
-          <button
-            type="button"
-            class="icon-btn danger-hover"
-            :title="t('profiles.delete')"
-            :aria-label="`${t('profiles.delete')}: ${p.name}`"
-            :disabled="profileBusy"
-            @click.stop="removeProfile(p)"
-          >
-            <Icon name="trash" :size="14" />
-          </button>
-        </div>
-      </article>
+        :profile="p"
+        :is-active="p.id === store.activeProfileId"
+        :is-busy="profileBusy"
+        :is-chosen="chosenId === p.id"
+        :is-updating="updatingId === p.id"
+        :can-reorder="profiles.length > 1"
+        @select="selectProfile"
+        @update="updateOne"
+        @edit="openEditor"
+        @rename="renameTarget = $event"
+        @remove="removeProfile"
+        @move-with-keyboard="moveWithKeyboard"
+      />
     </div>
 
     <ProfileRenameDialog
@@ -220,6 +136,7 @@ import { confirmDialog } from "../components/confirm.js";
 import EmptyState from "../components/EmptyState.vue";
 import Icon from "../components/Icon.vue";
 import ProfileRenameDialog from "../components/ProfileRenameDialog.vue";
+import ProfileCard from "../components/ProfileCard.vue";
 import { useProfileOrder } from "../composables/profile-order.js";
 import { t } from "../i18n/index.js";
 import {
@@ -235,7 +152,6 @@ import {
   updateProfile,
 } from "../stores/index.js";
 import type { ProfileMeta } from "../types/index.js";
-import { formatAgo, formatBytes, formatDate } from "../utils/format.js";
 
 // CodeMirror rides along with the editor dialog chunk, not the profiles page.
 const ProfileEditorDialog = asyncView(
@@ -261,31 +177,6 @@ const { profiles, chosenId, busy: orderBusy, onPointerdown, onClick, moveWithKey
   );
 const hasRemote = computed(() => store.profiles.some((p) => p.url !== ""));
 const profileBusy = computed(() => store.operations.profileMutation || orderBusy.value);
-
-function sourceLabel(p: ProfileMeta): string {
-  if (!p.url) return t("profiles.localFile");
-  try {
-    return new URL(p.url).hostname || p.url;
-  } catch {
-    return p.url;
-  }
-}
-
-function updatedLabel(p: ProfileMeta): string {
-  const ms = new Date(p.updatedAt).getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return t("profiles.neverUpdated");
-  return formatAgo(p.updatedAt);
-}
-
-function usedBytes(p: ProfileMeta): number {
-  return (p.subInfo?.upload ?? 0) + (p.subInfo?.download ?? 0);
-}
-
-function usagePct(p: ProfileMeta): number {
-  const total = p.subInfo?.total ?? 0;
-  if (total <= 0) return 0;
-  return Math.min(100, Math.round((usedBytes(p) / total) * 100));
-}
 
 async function loadProfiles(): Promise<void> {
   loadFailed.value = "";
@@ -487,155 +378,6 @@ async function pasteFromClipboard(): Promise<void> {
   color: var(--text-muted);
   font-size: 12px;
 }
-.profile-card {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  min-height: 72px;
-  overflow: hidden;
-  cursor: pointer;
-  background: var(--bg-panel);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  transition:
-    background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard);
-}
-.profile-card::before {
-  position: absolute;
-  inset: 2px auto 2px 0;
-  width: 4px;
-  border-radius: 0 var(--radius-full) var(--radius-full) 0;
-  content: "";
-  background: var(--border-strong);
-  pointer-events: none;
-}
-.profile-card:hover {
-  background: var(--bg-hover);
-  border-color: var(--border);
-}
-.profile-card.active {
-  cursor: default;
-  background: var(--bg-panel);
-  border-color: transparent;
-}
-.profile-card.active::before {
-  background: var(--selection);
-}
-.profile-card.busy {
-  cursor: wait;
-}
-.profile-card-main {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 8px 10px 15px;
-  border-radius: var(--radius-sm);
-  outline: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-.profile-card-main:focus-visible {
-  box-shadow: inset 0 0 0 3px var(--accent-ring);
-}
-.profile-card.profile-chosen {
-  border-color: var(--accent);
-  cursor: grabbing;
-}
-.profile-card.profile-placeholder {
-  opacity: 0.35;
-}
-.profile-card.profile-drag-ghost {
-  box-shadow: var(--shadow-pop);
-  opacity: 0.95 !important;
-  pointer-events: none;
-  cursor: grabbing;
-}
-.profile-name-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  /* keep the name clear of the absolutely positioned action buttons */
-  margin-right: 140px;
-}
-.profile-name {
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.profile-source {
-  margin-top: 4px;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.profile-usage {
-  margin-top: 7px;
-}
-.usage-nums {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--text-secondary);
-  font-size: 14px;
-}
-.usage-expire {
-  color: var(--text-muted);
-}
-.usage-bar {
-  height: 4px;
-  margin-top: 6px;
-  overflow: hidden;
-  background: var(--border);
-  border-radius: var(--radius-full);
-}
-.usage-fill {
-  height: 100%;
-  background: var(--selection);
-  border-radius: var(--radius-full);
-  transition: width var(--motion-normal) var(--ease-standard);
-}
-.usage-fill-hot {
-  background: var(--danger);
-}
-.profile-error {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  margin-top: 10px;
-  color: var(--danger);
-  font-size: 14px;
-}
-.profile-error-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.profile-actions {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  flex-shrink: 0;
-  gap: 3px;
-}
-.profile-actions .icon-btn {
-  width: 31px;
-  height: 31px;
-}
-.danger-hover:hover:not(:disabled) {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-.spin {
-  animation: rotate 0.9s linear infinite;
-}
 
 @media (max-width: 820px) {
   .dl-panel {
@@ -668,13 +410,6 @@ async function pasteFromClipboard(): Promise<void> {
   .profiles-grid {
     grid-template-columns: 1fr;
   }
-  .profile-name-row {
-    margin-right: 172px;
-  }
-  .profile-actions .icon-btn {
-    width: 40px;
-    height: 40px;
-  }
 }
 
 @media (max-width: 480px) {
@@ -693,20 +428,6 @@ async function pasteFromClipboard(): Promise<void> {
     min-height: 44px;
   }
   .dl-paste {
-    width: 38px;
-    height: 38px;
-  }
-  .profile-card-main {
-    padding: 14px 8px 14px 15px;
-  }
-  .profile-name-row {
-    margin-right: 164px;
-  }
-  .usage-nums {
-    flex-direction: column;
-    gap: 2px;
-  }
-  .profile-actions .icon-btn {
     width: 38px;
     height: 38px;
   }
