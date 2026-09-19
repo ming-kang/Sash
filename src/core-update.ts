@@ -56,6 +56,13 @@ export interface CoreUpdateTransaction {
 export interface CoreUpdateRuntime {
   wasRunning: boolean;
   stop(): Promise<void>;
+  /**
+   * Start whatever binary now occupies the installed path and prove it healthy.
+   * `version` names the release that path is expected to hold — the target on
+   * the install attempt, the previous release on the rollback — so callers can
+   * tell the two apart. It selects nothing: the swap already decided which
+   * binary runs.
+   */
   startAndVerify(version: string): Promise<void>;
   applySystemProxy(): Promise<void>;
 }

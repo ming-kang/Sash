@@ -243,12 +243,6 @@ export interface CoreReleaseResolution {
   tag: string;
   assets: ReleaseAsset[];
   candidates: string[];
-}
-
-export interface CoreReleaseResolution {
-  tag: string;
-  assets: ReleaseAsset[];
-  candidates: string[];
   /** "pinned" when the metadata came from the packaged bootstrap manifest, not the live API. */
   source: "live" | "pinned";
 }

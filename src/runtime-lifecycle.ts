@@ -144,7 +144,10 @@ export class RuntimeLifecycle {
           await this.stop();
           await this.requireVacantController();
         },
-        startAndVerify: async () => {
+        // The installed path already holds the right binary, and the generated
+        // configuration is version-independent, so the runtime starts the same
+        // way for the install and for the rollback.
+        startAndVerify: async (_version) => {
           await this.startCore();
           this.applied = configuration;
         },

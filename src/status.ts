@@ -432,15 +432,9 @@ export async function collectRuntimeStatus(
     ? dependencies.activeProfile(context)
     : getActiveProfile(loadProfiles(context.layout));
 
-  const coreRunning: boolean | null = daemonState.running ? null : false;
-  const coreHealthy: boolean | null = daemonState.running ? null : false;
-  const corePid: number | null = null;
-  const coreVersion: string | null = null;
   const desiredProxy = context.settings.systemProxy;
   const mixedEndpoint = `127.0.0.1:${context.settings.mixedPort}`;
   const controllerEndpoint = context.settings.controller;
-  let proxySource: SystemProxyObservationSource | undefined;
-  const queriedDaemon = false;
 
   if (daemonState.kind === "healthy") {
     try {
@@ -478,19 +472,16 @@ export async function collectRuntimeStatus(
     addError(errors, "the local API is unreachable");
   }
 
+  // Reaching here means the daemon's own status was never read: either Sash is
+  // stopped, or its local API did not answer. Core facts stay unobserved, which
+  // reads as unknown while Sash runs and as a definitive "no" once it is not.
+  const observed: boolean | null = daemonState.running ? null : false;
   const [proxyObservation, autostart] = await Promise.all([
-    observeSystemProxy(context, dependencies, proxySource, daemonState.running ? null : false),
-    observeAutostart(context, dependencies, daemonState, queriedDaemon),
+    observeSystemProxy(context, dependencies, undefined, observed),
+    observeAutostart(context, dependencies, daemonState, false),
   ]);
   addObservationErrors(errors, proxyObservation);
 
-  const healthy = !daemonState.running
-    ? false
-    : queriedDaemon
-      ? coreRunning === false
-        ? false
-        : coreHealthy
-      : null;
   const activeProfile = profile ? { id: profile.id, name: profile.name, url: profile.url } : null;
   const daemonPort = daemon.port || context.settings.daemonPort;
   if (autostart.state === "unknown") {
@@ -501,16 +492,16 @@ export async function collectRuntimeStatus(
   return {
     schemaVersion: CLI_STATUS_SCHEMA_VERSION,
     complete: errors.length === 0,
-    healthy,
+    healthy: observed,
     queryError: errors.length > 0 ? errors.join("; ") : null,
     autostart,
     loginStart,
     daemon: { ...daemon, port: daemonPort },
     core: {
-      running: coreRunning,
-      healthy: coreHealthy,
-      pid: corePid,
-      version: coreVersion,
+      running: observed,
+      healthy: observed,
+      pid: null,
+      version: null,
       installedVersion: installedVersion || null,
     },
     systemProxy: {
