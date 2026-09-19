@@ -29,6 +29,37 @@ describe("canonical Sash state", () => {
       assert.equal(fs.statSync(layout.settingsFile).mode & 0o777, 0o600);
   });
 
+  it("mints replacements for blank stored credentials instead of serving with none", () => {
+    const layout = sashLayout(root);
+    const store = createTestState(layout);
+    const stored = JSON.parse(fs.readFileSync(layout.settingsFile, "utf8")) as {
+      revision: number;
+      settings: Record<string, unknown>;
+    };
+    // A blank value and an absent field both read leniently as "" before the repair.
+    stored.settings.secret = "";
+    delete stored.settings.daemonSecret;
+    fs.writeFileSync(layout.settingsFile, JSON.stringify(stored));
+    assert.equal(loadSettings(layout).secret, "");
+    assert.equal(loadSettings(layout).daemonSecret, "");
+
+    const reopened = new SashStateStore(layout);
+    const repaired = reopened.snapshot().settings;
+    assert.ok(repaired.secret, "an empty Core secret would publish an unauthenticated controller");
+    assert.ok(repaired.daemonSecret, "an empty daemon secret would reject every CLI bearer");
+    assert.notEqual(repaired.secret, repaired.daemonSecret);
+    // The repair is committed, so the next reader observes the same credentials.
+    assert.deepEqual(readState(layout)?.settings, repaired);
+    assert.equal(readState(layout)?.revision, stored.revision + 1);
+    assert.equal(loadSettings(layout).daemonSecret, repaired.daemonSecret);
+
+    // Intact credentials are left alone: reopening must not churn the revision.
+    const untouched = new SashStateStore(layout);
+    assert.deepEqual(untouched.snapshot().settings, repaired);
+    assert.equal(readState(layout)?.revision, stored.revision + 1);
+    assert.equal(store.snapshot().settings.secret, "test-core-secret");
+  });
+
   it("commits one complete manifest and rejects stale writers", () => {
     const layout = sashLayout(root);
     const state = createTestState(layout);

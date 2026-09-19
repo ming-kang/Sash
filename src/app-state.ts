@@ -6,6 +6,7 @@ import { type SashLayout, sashLayout } from "./paths.js";
 import { type ProfilesIndex, parseProfilesIndex } from "./profiles.js";
 import {
   DEFAULT_SETTINGS,
+  generateSecret,
   initialSettings,
   parseStoredSettings,
   type SashSettings,
@@ -111,7 +112,22 @@ export class SashStateStore {
       const text = `${JSON.stringify(this.state, null, 2)}\n`;
       atomicWriteFileSync(layout.settingsFile, text);
       this.publishBackup(text);
+      return;
     }
+    this.restoreMissingSecrets(stored);
+  }
+
+  /**
+   * A stored manifest is read leniently, but a blank credential is not a value
+   * the daemon can serve with: an empty `daemonSecret` rejects every CLI bearer
+   * and an empty `secret` would publish an unauthenticated Core controller.
+   * Absent means absent, so the sole writer mints a replacement once at startup.
+   */
+  private restoreMissingSecrets(stored: SashState): void {
+    const secret = stored.settings.secret || generateSecret();
+    const daemonSecret = stored.settings.daemonSecret || generateSecret();
+    if (secret === stored.settings.secret && daemonSecret === stored.settings.daemonSecret) return;
+    this.commit({ ...stored, settings: { ...stored.settings, secret, daemonSecret } });
   }
 
   /** Recovery copy of the last known-good manifest; never blocks the primary write. */

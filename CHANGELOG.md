@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Sash now mints replacements for blank credentials found in a stored manifest instead of starting with none. A `secret` or `daemonSecret` that was missing or empty on disk previously read leniently as `""`, which left Sash running but unreachable: every CLI bearer was rejected, and the generated core config published an unauthenticated Core controller.
+
 ## [0.2.12] - 2026-09-14
 
 ### Changed
