@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { request } from "undici";
+import { serveStaticUi } from "./daemon/static.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
+import { type SashLayout, sashLayout } from "./paths.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon server", () => {
@@ -116,6 +120,71 @@ describe("daemon server", () => {
           ),
         ).size;
         assert.equal(res.headers["content-length"], String(size), pathname);
+      }
+    });
+  });
+
+  /**
+   * WHATWG parsing already collapses "/ui/../x" before routing, so these
+   * pathnames cannot arrive over HTTP today. The asset root containment is
+   * asserted directly against the handler so it keeps holding if the request
+   * pipeline ever stops normalizing for us.
+   */
+  describe("dashboard asset root containment", () => {
+    function capture(pathname: string, layout: SashLayout, method = "GET") {
+      const chunks: string[] = [];
+      let statusCode = 0;
+      const res = {
+        setHeader: () => undefined,
+        writeHead: (code: number) => {
+          statusCode = code;
+          return res;
+        },
+        end: (body?: string) => {
+          if (body) chunks.push(body);
+        },
+        once: () => res,
+        off: () => res,
+        on: () => res,
+        headersSent: false,
+        destroyed: false,
+        destroy: () => undefined,
+      };
+      const handled = serveStaticUi(
+        { method } as IncomingMessage,
+        res as unknown as ServerResponse,
+        pathname,
+        layout,
+      );
+      return { handled, statusCode, body: chunks.join("") };
+    }
+
+    it("refuses to serve files resolved outside the asset root", () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-ui-root-"));
+      try {
+        const layout = sashLayout(root);
+        fs.mkdirSync(layout.uiDir, { recursive: true });
+        fs.writeFileSync(path.join(layout.uiDir, "index.html"), "<html>ui</html>");
+        fs.writeFileSync(path.join(root, "sashd.state.json"), "top secret");
+
+        const escaped = capture("/ui/../sashd.state.json", layout);
+        assert.equal(escaped.handled, true);
+        assert.equal(escaped.statusCode, 403);
+        assert.doesNotMatch(escaped.body, /top secret/);
+
+        // A doubled slash must stay a relative segment, not an absolute path:
+        // the lookup lands inside the asset root, finds nothing, and leaves the
+        // 404 to the caller rather than reading the state file.
+        const absolute = capture("/ui//sashd.state.json", layout);
+        assert.equal(absolute.handled, false);
+        assert.equal(absolute.statusCode, 0);
+        assert.doesNotMatch(absolute.body, /top secret/);
+
+        // Containment must not cost the legitimate document its 200. HEAD takes
+        // the same path without streaming a body into the response stub.
+        assert.equal(capture("/ui/", layout, "HEAD").statusCode, 200);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
       }
     });
   });

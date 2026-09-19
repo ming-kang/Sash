@@ -50,6 +50,24 @@ export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
 }
 
 /**
+ * The mutation allowlist counts path segments, and the forwarded pathname still
+ * carries percent-encoding. An encoded separator would make "/proxies/a%2Fb"
+ * read as one segment here and as two upstream, so a name that decodes to a new
+ * separator never satisfies a single-segment rule. Nothing usable is lost: the
+ * Core routes on the decoded path, where such a request matches no handler.
+ */
+function segmentsSurviveDecoding(pathname: string): boolean {
+  return pathname.split("/").every((segment) => {
+    try {
+      return !decodeURIComponent(segment).includes("/");
+    } catch {
+      // Malformed percent-encoding is not a name Sash can reason about.
+      return false;
+    }
+  });
+}
+
+/**
  * Gateway handler for /core/api/*. The Core external controller is proxied
  * read-mostly: node selection and connection deletion pass through, while
  * configuration mutations stay with Sash's own control endpoints so the
@@ -64,8 +82,9 @@ export async function forwardToCore(
   const method = req.method?.toUpperCase() ?? "GET";
   const pathname = coreApiTarget(target).split("?")[0] ?? "/";
   const allowedMutation =
-    (method === "PUT" && /^\/proxies\/[^/]+$/.test(pathname)) ||
-    (method === "DELETE" && /^\/connections(?:\/[^/]+)?$/.test(pathname));
+    segmentsSurviveDecoding(pathname) &&
+    ((method === "PUT" && /^\/proxies\/[^/]+$/.test(pathname)) ||
+      (method === "DELETE" && /^\/connections(?:\/[^/]+)?$/.test(pathname)));
   if (isControlMutation(method) && !allowedMutation) {
     sendError(res, 403, "conflict", "Use Sash controls to change managed Core configuration");
     return;

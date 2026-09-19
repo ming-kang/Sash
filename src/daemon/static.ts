@@ -106,13 +106,17 @@ export function serveStaticUi(
   let relative = pathname.startsWith("/ui/") ? pathname.slice("/ui/".length) : "";
   if (!relative || relative === "ui") relative = "index.html";
 
-  // Prevent path traversal
-  if (relative.split(/[\\/]/).includes("..")) {
+  // Serve only what resolves inside the asset root. path.join normalizes any
+  // traversal away and treats a leading slash as a relative segment, so the
+  // resolved result is compared against the root rather than pattern-matched
+  // against the request.
+  const root = path.resolve(uiRoot);
+  const candidate = path.resolve(path.join(root, relative));
+  if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) {
     sendUiError(res, 403, "unauthorized", "Forbidden");
     return true;
   }
 
-  const candidate = path.join(uiRoot, relative);
   const hasExt = Boolean(path.extname(relative));
 
   const openFile = (file: string): { fd: number; stats: fs.Stats } | null => {
@@ -131,7 +135,7 @@ export function serveStaticUi(
   let targetFile = candidate;
   let opened = openFile(targetFile);
   if (!opened && !hasExt) {
-    targetFile = path.join(uiRoot, "index.html");
+    targetFile = path.join(root, "index.html");
     opened = openFile(targetFile);
   }
 

@@ -89,6 +89,40 @@ describe("daemon server", () => {
       assert.equal(invalidPrefix.statusCode, 404);
     });
 
+    it("admits only single-segment node selection and connection deletion", async () => {
+      const upstream: string[] = [];
+      await h.startMockCore((req, res) => {
+        upstream.push(`${req.method} ${req.url ?? ""}`);
+        res.writeHead(204);
+        res.end();
+      });
+      await h.startServer();
+
+      const selected = await h.apiRequest("/core/api/proxies/PROXY", {
+        method: "PUT",
+        body: { name: "DIRECT" },
+      });
+      assert.equal(selected.statusCode, 204);
+      const closed = await h.apiRequest("/core/api/connections", { method: "DELETE" });
+      assert.equal(closed.statusCode, 204);
+      assert.deepEqual(upstream, ["PUT /proxies/PROXY", "DELETE /connections"]);
+
+      // An encoded separator reads as one segment here and two upstream, so it
+      // must not borrow the single-segment allowance.
+      const smuggled = await h.apiRequest("/core/api/proxies/a%2Fb", {
+        method: "PUT",
+        body: { name: "DIRECT" },
+      });
+      assert.equal(smuggled.statusCode, 403);
+      // Configuration changes stay with Sash's own endpoints.
+      const configs = await h.apiRequest("/core/api/configs", {
+        method: "PATCH",
+        body: { mode: "global" },
+      });
+      assert.equal(configs.statusCode, 403);
+      assert.deepEqual(upstream, ["PUT /proxies/PROXY", "DELETE /connections"]);
+    });
+
     it("forwards one canonical parsed target without duplicating its query", async () => {
       const receivedPaths: string[] = [];
       h.mockCoreServer = http.createServer((req, res) => {

@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Sash now mints replacements for blank credentials found in a stored manifest instead of starting with none. A `secret` or `daemonSecret` that was missing or empty on disk previously read leniently as `""`, which left Sash running but unreachable: every CLI bearer was rejected, and the generated core config published an unauthenticated Core controller.
 
+### Changed
+
+- The dashboard file server now admits only paths that resolve inside the asset root, replacing a `..` segment match. The Core gateway's mutation allowlist counts path segments after percent-decoding, so an encoded separator cannot read as one segment locally and two upstream. Neither boundary was reachable through the request pipeline, which normalizes both away before routing.
+
 ## [0.2.12] - 2026-09-14
 
 ### Changed
