@@ -23,8 +23,6 @@ const yaml = "proxies:\n  - name: node-a\n    type: direct\nrules: ['MATCH,DIREC
 
 async function apply(page: Page): Promise<void> {
   await page.locator(".pending-config").getByRole("button", { name: "应用配置", exact: true }).click();
-  const confirmation = page.getByRole("alertdialog");
-  await confirmation.getByRole("button", { name: "确认", exact: true }).click();
   await page.locator(".pending-config").waitFor({ state: "hidden" });
 }
 
@@ -99,11 +97,13 @@ async function verify(engine: BrowserType, name: string) {
     await page.getByRole("dialog").getByRole("button", { name: "保存", exact: true }).click();
     await page.getByText("工作配置 新", { exact: true }).waitFor();
     await page.waitForTimeout(500); assert.equal(coreReads, beforeReads, "metadata rename fetched off-screen Core tables");
+    const startsBeforeSwitch = core.starts;
     await page.locator(".profile-card").filter({ has: page.getByText("备用配置", { exact: true }) }).locator(".profile-card-main").click();
-    await page.locator(".pending-config").waitFor();
-    assert.equal(((await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus).configuration.appliedProfile?.id, first.id);
-    await apply(page);
+    await page.locator(`.profile-card[data-id="${second.id}"]`).locator(".profile-card-main[aria-current='true']").waitFor();
+    // Selecting a profile applies it to the running Core without a restart.
     assert.equal(((await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus).configuration.appliedProfile?.id, second.id);
+    assert.equal(await page.locator(".pending-config").count(), 0);
+    assert.equal(core.starts, startsBeforeSwitch);
     await page.getByRole("button", { name: "编辑: 备用配置", exact: true }).click();
     await page.locator(".cm-editor").waitFor(); await page.screenshot({ path: path.join(outDir, `${name}-profile-editor.png`) });
     await page.keyboard.press("Escape"); await page.getByRole("dialog").waitFor({ state: "hidden" });

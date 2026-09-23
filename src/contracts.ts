@@ -64,9 +64,13 @@ export interface SettingsWriteResult {
 export interface ProfileActionResponse {
   profile: ProfileMeta;
   activated: boolean;
+  /** True when this change is already live in the running Core. */
+  applied: boolean;
 }
 export interface ProfileUpdateResponse {
   profile: ProfileMeta;
+  /** True when this change is already live in the running Core. */
+  applied: boolean;
 }
 export interface ProfileRenameResponse {
   profile: ProfileMeta;
@@ -79,14 +83,20 @@ export interface ProfileContentResponse {
 export interface ProfileActivateResponse {
   activeId: string | null;
   proxyCount: number;
+  /** True when the selected profile is already live in the running Core. */
+  applied: boolean;
 }
 export interface ProfileRemoveResponse {
   wasActive: boolean;
+  /** True when the fallback configuration is already live in the running Core. */
+  applied: boolean;
 }
 export interface ProfilesResponse extends ProfilesIndex {}
 export interface ProfilesUpdateAllResponse {
   updated: number;
   failed: Array<{ id: string; name: string; error: string }>;
+  /** True when an updated profile is already live in the running Core. */
+  applied: boolean;
 }
 export interface SystemProxyStatusResponse extends SystemProxyState {
   desired: boolean;

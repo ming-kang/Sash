@@ -73,7 +73,7 @@ describe("saved profiles", () => {
     await profiles.reorder([b.id, a.id]);
     assert.equal(profiles.list().profiles[1]?.name, "renamed");
     assert.equal(profiles.list().profiles[1]?.revision, a.revision);
-    assert.deepEqual(await profiles.remove(b.id), { wasActive: true });
+    assert.deepEqual(await profiles.remove(b.id), { wasActive: true, applied: false });
     assert.equal(profiles.list().activeId, null);
     assert.equal(fs.readFileSync(layout.configFile, "utf8"), "running config");
     await assert.rejects(profiles.reorder([a.id, a.id]), /every profile/);
@@ -254,7 +254,7 @@ describe("saved profiles", () => {
     assert.equal((await profiles.updateDue()).failed.length, 1);
     assert.equal(profiles.active()?.failureCount, 1);
     assert.ok(profiles.active()?.lastAttemptAt);
-    assert.deepEqual(await profiles.updateDue(), { updated: 0, failed: [] });
+    assert.deepEqual(await profiles.updateDue(), { updated: 0, failed: [], applied: false });
     assert.equal(downloads, 2);
     await assert.rejects(profiles.update(remote.id), /provider offline/);
     assert.equal(profiles.active()?.failureCount, 2);

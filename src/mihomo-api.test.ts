@@ -125,6 +125,62 @@ describe("MihomoApi", () => {
     }
   });
 
+  it("reloads the configuration from an absolute path and drains its response", async () => {
+    let requestBody = "";
+    const server = http.createServer((req, res) => {
+      if (req.method === "PUT" && req.url === "/configs") {
+        req.setEncoding("utf8");
+        req.on("data", (chunk: string) => {
+          requestBody += chunk;
+        });
+        req.on("end", () => {
+          res.writeHead(204);
+          setTimeout(() => res.end("reload complete"), 50);
+        });
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+
+    try {
+      const api = new MihomoApi(`127.0.0.1:${port}`, "");
+      const started = Date.now();
+      await api.reloadConfig("C:\\sash\\runtime\\config.yaml");
+      assert.ok(Date.now() - started >= 40, "reload resolved before its response body was drained");
+      assert.deepEqual(JSON.parse(requestBody), { path: "C:\\sash\\runtime\\config.yaml" });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("reports a rejected configuration reload with its status and reason", async () => {
+    const server = http.createServer((req, res) => {
+      if (req.method === "PUT" && req.url === "/configs") {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ message: "unsupported rule type" }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+
+    try {
+      const api = new MihomoApi(`127.0.0.1:${port}`, "");
+      await assert.rejects(api.reloadConfig("/sash/runtime/config.yaml"), /HTTP 400.*unsupported/);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("rejects successful responses without a version string", async () => {
     const server = http.createServer((_req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" });

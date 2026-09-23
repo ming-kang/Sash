@@ -35,7 +35,7 @@ Sash status arrives through authenticated SSE at `/sash/events`; a connection st
 | Profiles / Settings | Saved metadata; no periodic Core table reads |
 | Logs | Log stream while visible |
 
-Page entry loads the relevant resources immediately. Saving a profile refreshes metadata; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket for visible consumers; traffic and log streams pause when hidden or when the session/Core is unavailable.
+Page entry loads the relevant resources immediately. Saving a profile refreshes metadata and applies it to the running Core; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket for visible consumers; traffic and log streams pause when hidden or when the session/Core is unavailable.
 
 Unchanged proxy data retains its references. Lists use memoization, pagination or content visibility where useful. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand.
 
@@ -43,7 +43,7 @@ Unchanged proxy data retains its references. Lists use memoization, pagination o
 
 [App.vue](../web/src/App.vue) owns navigation, the session gate, the pending-configuration bar and shared stream lifetime. Pages cover Overview, Profiles, Logs, Connections, Rules and Settings.
 
-[CoreControls.vue](../web/src/components/CoreControls.vue) shares start, stop and Apply behavior through [useCoreControl](../web/src/composables/core-runtime.ts). Apply asks for confirmation when it restarts a running Core.
+[CoreControls.vue](../web/src/components/CoreControls.vue) shares start, stop and Apply behavior through [useCoreControl](../web/src/composables/core-runtime.ts). Applying a profile reloads the running Core and keeps established connections, so it no longer asks for confirmation; a proxy port or LAN change still restarts Core.
 
 Profiles shows the saved selection; Overview shows the configuration Core is using. The editor saves against the content revision read on open. Settings drafts stay local until Save and survive status refreshes. The system-proxy switch acts immediately and remains available for restoration when Core is stopped.
 

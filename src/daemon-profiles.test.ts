@@ -4,7 +4,13 @@ import net from "node:net";
 import { describe, it } from "node:test";
 import YAML from "yaml";
 import { readState } from "./app-state.js";
-import type { DaemonStatus, ProfileActionResponse, ProfileContentResponse } from "./contracts.js";
+import type {
+  DaemonStatus,
+  ProfileActionResponse,
+  ProfileActivateResponse,
+  ProfileContentResponse,
+  SettingsWriteResult,
+} from "./contracts.js";
 import { parseProfilesIndex } from "./profiles.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred } from "./testing/state.js";
@@ -18,7 +24,7 @@ describe("profile management API", () => {
       body: { name, content: yaml },
     });
     assert.equal(result.statusCode, 200);
-    return (result.data as ProfileActionResponse).profile;
+    return result.data as ProfileActionResponse;
   }
   async function status() {
     return (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
@@ -26,17 +32,22 @@ describe("profile management API", () => {
 
   it("imports and selects saved profiles without starting or rendering Core", async () => {
     await h.startServer();
+    // Nothing is running, so an automatic apply must not start the Core.
+    assert.equal((await add("first")).applied, false);
     const a = await add("a");
     const b = await add("b");
     assert.equal(fs.existsSync(h.layout.configFile), false);
     assert.equal((await status()).core.running, false);
     const response = await h.apiRequest("/sash/profiles/active", {
       method: "PUT",
-      body: { id: b.id },
+      body: { id: b.profile.id },
     });
     assert.equal(response.statusCode, 200);
-    assert.equal(parseProfilesIndex((await h.apiRequest("/sash/profiles")).data).activeId, b.id);
-    assert.notEqual(a.id, b.id);
+    assert.equal(
+      parseProfilesIndex((await h.apiRequest("/sash/profiles")).data).activeId,
+      b.profile.id,
+    );
+    assert.notEqual(a.profile.id, b.profile.id);
     assert.equal(fs.existsSync(h.layout.configFile), false);
   });
   it("keeps running data and runtime epoch unchanged by rename and reorder", async () => {
@@ -46,8 +57,14 @@ describe("profile management API", () => {
     assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
     const before = await status();
     const config = fs.readFileSync(h.layout.configFile, "utf8");
-    await h.apiRequest(`/sash/profiles/${a.id}`, { method: "PATCH", body: { name: "renamed" } });
-    await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids: [b.id, a.id] } });
+    await h.apiRequest(`/sash/profiles/${a.profile.id}`, {
+      method: "PATCH",
+      body: { name: "renamed" },
+    });
+    await h.apiRequest("/sash/profiles/order", {
+      method: "PUT",
+      body: { ids: [b.profile.id, a.profile.id] },
+    });
     const after = await status();
     assert.ok(after.revisions.state > before.revisions.state);
     assert.equal(after.revisions.runtime, before.revisions.runtime);
@@ -58,7 +75,8 @@ describe("profile management API", () => {
   it("preserves source YAML but never publishes alternate controllers or tunnels", async () => {
     await h.startServer();
     const source = `${content}external-controller-unix: /tmp/unowned.sock\nexternal-controller-pipe: unowned-pipe\ntunnels: ['tcp,0.0.0.0:27894,example.com:80,DIRECT']\n`;
-    const profile = await add("managed endpoints", source);
+    const managed = await add("managed endpoints", source);
+    const profile = managed.profile;
     assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
     const published = YAML.parse(fs.readFileSync(h.layout.configFile, "utf8"));
     assert.equal(published["external-controller"], h.settings.controller);
@@ -71,23 +89,110 @@ describe("profile management API", () => {
       source,
     );
   });
-  it("keeps a saved selection pending until explicit Apply", async () => {
+  it("applies a saved selection to the running Core without restarting it", async () => {
+    const reloads: string[] = [];
+    await h.startMockCore((req, res) => {
+      if (req.url === "/configs") {
+        assert.equal(req.method, "PUT");
+        let body = "";
+        req.setEncoding("utf8");
+        req.on("data", (chunk: string) => {
+          body += chunk;
+        });
+        req.on("end", () => {
+          reloads.push(body);
+          res.writeHead(204);
+          res.end();
+        });
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
     await h.startServer();
     const a = await add("a");
     const b = await add("b", content.replace("node-a", "node-b"));
     await h.apiRequest("/sash/core/start", { method: "POST" });
-    await h.apiRequest("/sash/profiles/active", { method: "PUT", body: { id: b.id } });
-    assert.equal((await status()).configuration.appliedProfile?.id, a.id);
-    assert.equal((await status()).configuration.pending, true);
-    assert.match(fs.readFileSync(h.layout.configFile, "utf8"), /node-a/);
-    assert.equal((await h.apiRequest("/sash/core/restart", { method: "POST" })).statusCode, 200);
-    assert.equal((await status()).configuration.appliedProfile?.id, b.id);
-    assert.equal((await status()).configuration.pending, false);
+    const before = await status();
+    const response = await h.apiRequest("/sash/profiles/active", {
+      method: "PUT",
+      body: { id: b.profile.id },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal((response.data as ProfileActivateResponse).applied, true);
+    const after = await status();
+    assert.equal(after.configuration.appliedProfile?.id, b.profile.id);
+    assert.equal(after.configuration.pending, false);
+    // The reload keeps the same process, so established connections survive.
+    assert.equal(after.core.pid, before.core.pid);
+    assert.ok(after.revisions.runtime > before.revisions.runtime);
     assert.match(fs.readFileSync(h.layout.configFile, "utf8"), /node-b/);
+    assert.equal(reloads.length, 1);
+    assert.deepEqual(JSON.parse(reloads[0] ?? "{}"), { path: h.layout.configFile });
+    assert.ok(a.profile.id);
+  });
+  it("keeps a proxy port change pending because a reload cannot rebind listeners", async () => {
+    const reloads: string[] = [];
+    await h.startMockCore((req, res) => {
+      if (req.url === "/configs") {
+        reloads.push(req.method ?? "");
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await h.startServer();
+    await add("a");
+    await h.apiRequest("/sash/core/start", { method: "POST" });
+    const patched = await h.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { mixedPort: 19099 },
+    });
+    assert.equal(patched.statusCode, 200);
+    assert.equal((patched.data as SettingsWriteResult).restartRequired, true);
+    assert.equal((await status()).configuration.pending, true);
+    assert.deepEqual(reloads, []);
+    assert.equal((await h.apiRequest("/sash/core/restart", { method: "POST" })).statusCode, 200);
+    const applied = await status();
+    assert.equal(applied.configuration.pending, false);
+    assert.equal(applied.configuration.appliedSettings?.mixedPort, 19099);
+  });
+  it("keeps a selection pending when the Core refuses the reload", async () => {
+    await h.startMockCore((req, res) => {
+      if (req.url === "/configs") {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ message: "unsupported rule" }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await h.startServer();
+    const a = await add("a");
+    const b = await add("b", content.replace("node-a", "node-b"));
+    await h.apiRequest("/sash/core/start", { method: "POST" });
+    const response = await h.apiRequest("/sash/profiles/active", {
+      method: "PUT",
+      body: { id: b.profile.id },
+    });
+    // The selection saved; only the live application failed, so it stays pending.
+    assert.equal(response.statusCode, 200);
+    assert.equal((response.data as ProfileActivateResponse).applied, false);
+    const after = await status();
+    assert.equal(after.configuration.appliedProfile?.id, a.profile.id);
+    assert.equal(after.configuration.pending, true);
+    assert.match(fs.readFileSync(h.layout.configFile, "utf8"), /node-a/);
+    // An explicit Apply retries the reload and surfaces the Core's reason.
+    assert.equal((await h.apiRequest("/sash/core/restart", { method: "POST" })).statusCode, 500);
+    assert.equal((await status()).configuration.pending, true);
+    assert.equal((await status()).configuration.appliedProfile?.id, a.profile.id);
   });
   it("requires an editor revision and rejects stale writes without losing newer data", async () => {
     await h.startServer();
-    const profile = await add("a");
+    const added = await add("a");
+    const profile = added.profile;
     const endpoint = `/sash/profiles/${profile.id}/content`;
     const read = (await h.apiRequest(endpoint)).data as ProfileContentResponse;
     assert.equal(
@@ -113,7 +218,8 @@ describe("profile management API", () => {
   });
   it("rejects unauthorized and malformed profile mutations", async () => {
     await h.startServer();
-    const profile = await add("a");
+    const added = await add("a");
+    const profile = added.profile;
     assert.equal(
       (await h.apiRequest(`/sash/profiles/${profile.id}`, { method: "DELETE", token: "" }))
         .statusCode,

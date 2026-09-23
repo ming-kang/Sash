@@ -8,7 +8,7 @@ Sash is a network toolbox for developers, learning and research. Use the CLI for
 
 Typical first run: `sash web`, `sash start`, `sash status`, and finally `sash stop` (restores the prior proxy and stops Sash and Core).
 
-`sash web` works while Core is stopped. In **Profiles**, import a YAML file or remote URL, then select it. Changes are saved first; click **Apply configuration** or run `sash restart` to use them (restarting Core briefly interrupts connections). Overview shows the profile and proxy port currently in use.
+`sash web` works while Core is stopped. In **Profiles**, import a YAML file or remote URL, then select it: selecting, editing and updating the selected profile take effect immediately, and established connections keep running. Only a proxy port or LAN change needs **Apply configuration** or `sash restart`, which restarts Core and interrupts connections. Overview shows the profile and proxy port currently in use.
 
 Validation failure leaves the previous Core running. If the new configuration fails to start, saved edits remain and the dashboard stays available for correction.
 
@@ -19,7 +19,7 @@ Run `sash <command> --help` for all options. Bare `sash` reads status once.
 | Command | Action |
 | --- | --- |
 | `sash start` | Start Core with saved settings if it is stopped |
-| `sash restart` | Apply saved settings and restart Core |
+| `sash restart` | Apply saved settings; reloads the running Core, or restarts it for port or LAN changes |
 | `sash stop` | Restore the prior proxy and stop Sash and Core |
 | `sash stop --core` | Stop Core and restore the proxy; keep the dashboard open |
 | `sash web [--no-open]` | Open and authorize the dashboard; `--no-open` only prints its address |
@@ -36,7 +36,7 @@ Run `sash <command> --help` for all options. Bare `sash` reads status once.
 
 ### Profile commands
 
-All profile commands support `--json` and save changes for the next Apply. A profile argument is its full ID or a unique exact name; use the ID if names collide.
+All profile commands support `--json`. Selecting a profile, saving the selected one, and updating it apply to the running Core right away; other changes wait for the next selection. A profile argument is its full ID or a unique exact name; use the ID if names collide.
 
 | Command | Action |
 | --- | --- |
@@ -59,11 +59,11 @@ sash mode global           # change the running mode
 sash proxy on              # requires a healthy Core
 ```
 
-The Settings page saves the proxy port and LAN access for the next Apply. Mode and node selection affect the running Core; a later Apply uses the saved profile again. The system-proxy switch acts immediately; if turning it off fails, the off preference stays saved — resolve the Windows error and retry.
+The Settings page saves the proxy port and LAN access for the next Apply, because Core rebinds its listeners only on a restart. Mode and node selection affect the running Core; a later Apply uses the saved profile again. The system-proxy switch acts immediately; if turning it off fails, the off preference stays saved — resolve the Windows error and retry.
 
 Profiles must be YAML objects in Core format. The editor can open damaged YAML for repair and checks it on save. If another tab has edited the same content, reopen the current version before saving again.
 
-Remote profiles use the provider's update interval, defaulting to 24 hours. Sash checks for due updates every 15 minutes and backs off after failures. Downloads save content for the next Apply; unchanged content keeps its revision. Empty quota/expiry fields display as unknown, while zero remains zero.
+Remote profiles use the provider's update interval, defaulting to 24 hours. Sash checks for due updates every 15 minutes and backs off after failures. Updating the selected profile applies the new content to the running Core; other downloads wait for the next selection. Unchanged content keeps its revision. Empty quota/expiry fields display as unknown, while zero remains zero.
 
 ## Browser access
 
@@ -115,7 +115,7 @@ An absolute `SASH_HOME` selects another folder. Use a local filesystem that supp
 | `logs/` | Core, Sash and login-startup logs |
 | `ui/` | Optional custom dashboard |
 
-Use the profile editor for source changes; Sash generates `runtime/config.yaml` on Apply. Maintenance cleans recognized orphan files after 24 hours. POSIX private state and logs use `0600`.
+Use the profile editor for source changes; Sash generates `runtime/config.yaml` when a configuration is applied. Maintenance cleans recognized orphan files after 24 hours. POSIX private state and logs use `0600`.
 
 ## Updates
 

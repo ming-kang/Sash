@@ -29,6 +29,7 @@ import type { SashLayout } from "../paths.js";
 import { renderActiveConfig } from "../profile-service.js";
 import { getActiveProfile } from "../profiles.js";
 import type { RuntimeConfiguration, RuntimeLifecycle } from "../runtime-lifecycle.js";
+import { runtimeDelta } from "../runtime-lifecycle.js";
 import type { CoreSupervisor } from "../supervisor.js";
 
 export interface CoreControlServiceOptions {
@@ -305,8 +306,59 @@ export class CoreControlService {
       const configuration = this.savedConfiguration();
       const validated = await this.validateConfiguration(configuration, layout.coreExe, signal);
       signal.throwIfAborted();
+      // A reload keeps established connections; a listener-level difference
+      // (ports, LAN binding) still needs the restart below.
+      if (await this.canReload(validated)) return lifecycle.reload(validated);
       return lifecycle.apply(validated);
     });
+  }
+
+  /**
+   * A reload can only carry a configuration whose listeners already match the
+   * running Core. Ports and LAN binding are re-bound by a restart alone, and
+   * an unknown or unhealthy runtime cannot answer the controller at all.
+   */
+  private async canReload(configuration: RuntimeConfiguration): Promise<boolean> {
+    const applied = this.options.lifecycle.configuration();
+    if (!applied) return false;
+    const core = await this.options.supervisor.status();
+    if (!core.running || !core.healthy) return false;
+    return !runtimeDelta(applied, configuration).restartRequired;
+  }
+
+  /**
+   * Bring the running Core onto the saved configuration when that needs no
+   * restart. Never starts a stopped Core — the saved configuration applies on
+   * the next start — and leaves a restart-required difference for an explicit
+   * apply. Returns whether the runtime now matches the saved state.
+   */
+  async reconcileSaved(): Promise<boolean> {
+    this.options.assertMutable();
+    const { signal } = this.preparation;
+    if (this.downloading || signal.aborted) return false;
+    const state = this.options.state.snapshot();
+    const active = getActiveProfile(state.profiles);
+    const delta = runtimeDelta(this.options.lifecycle.configuration(), {
+      profile: active ? { id: active.id, revision: active.revision } : null,
+      settings: state.settings,
+    });
+    if (!delta.pending || delta.restartRequired) return false;
+    const core = await this.options.supervisor.status();
+    if (!core.running || !core.healthy) return false;
+    try {
+      const validated = await this.validateConfiguration(
+        this.savedConfiguration(),
+        this.options.layout.coreExe,
+        signal,
+      );
+      await this.options.lifecycle.reload(validated);
+      return true;
+    } catch (error) {
+      // The state change itself already succeeded; a configuration the Core
+      // refuses stays pending, and an explicit apply reports the reason.
+      console.warn(`[sashd] saved configuration was not applied: ${errorMessage(error)}`);
+      return false;
+    }
   }
 
   /** Start the Core unless it is already running. */

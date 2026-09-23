@@ -37,9 +37,9 @@ Remote updates share one in-flight download per profile. Scheduled failures back
 ## Save, Apply and stop
 
 | Action | Effect |
-| --- | --- |
-| Save settings, select/edit/update a profile | Save for the next Apply |
-| Apply / `sash restart` | Start Core with the saved configuration, restarting it if running |
+| Save settings | Save for the next Apply |
+| Select, edit or update the selected profile | Apply to the running Core immediately |
+| Apply / `sash restart` | Reload the running Core, or restart it when ports or LAN access changed |
 | Change mode or select a node | Change the running Core |
 | Toggle system proxy | Save the preference and reconcile Windows immediately |
 | Stop Core | Restore the prior proxy and stop Core; keep Sash available |
@@ -48,11 +48,10 @@ Remote updates share one in-flight download per profile. Scheduled failures back
 Apply runs in this order:
 
 1. Generate a candidate and run Core's configuration check.
-2. Restore the prior system proxy.
-3. Stop the verified Core and check that its controller port is free.
-4. Atomically publish the core config.
-5. Start Core and wait for its controller to report the expected version.
-6. Apply the saved system-proxy preference to the running proxy port.
+2. Reload the running Core when only the profile changed: atomically publish the core config, then ask Core to reload it through `PUT /configs`. Core swaps proxies, rules and DNS in place, so established connections keep their current outbound and only new connections wait for the reload to finish.
+3. Otherwise restart: restore the prior system proxy, stop the verified Core and check that its controller port is free, publish the core config, start Core and wait for its controller to report the expected version, then apply the saved system-proxy preference to the running proxy port.
+
+A reload the Core rejects restores the previous core config on disk, leaves the previous configuration applied, and reports the failure; the saved state stays pending for a retry.
 
 Validation or proxy-restoration failure leaves the current Core running; a later startup failure preserves saved edits and keeps the local API available for correction. Enabling the system proxy requires a healthy Core; disabling saves the off preference before restoration, so a failed restoration can be retried.
 

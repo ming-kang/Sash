@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Applying a configuration no longer has to restart Core: when only the selected profile changed, Sash publishes the generated core config and asks Core to reload it through `PUT /configs`. Core swaps proxies, rules and DNS in place, so established connections keep their current outbound and only new connections wait for the reload. Selecting a profile, saving the selected one, and updating it now apply immediately; a reload the Core rejects restores the previous core config on disk and leaves the saved state pending for a retry.
+
+### Changed
+
+- The dashboard's apply confirmation is gone, because applying a profile no longer interrupts connections. The remaining Apply path — a proxy port or LAN change, which rebinds Core's listeners on a restart — keeps its description of what a restart costs, and `sash restart` reports which of the two paths it took.
+
 ### Fixed
 
 - Sash now mints replacements for blank credentials found in a stored manifest instead of starting with none. A `secret` or `daemonSecret` that was missing or empty on disk previously read leniently as `""`, which left Sash running but unreachable: every CLI bearer was rejected, and the generated core config published an unauthenticated Core controller.

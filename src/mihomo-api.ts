@@ -176,6 +176,29 @@ export class MihomoApi {
     await response.discard();
   }
 
+  /**
+   * Reload the configuration the Core is running from an absolute path. The
+   * Core swaps proxies, rules and DNS in place, so connections established
+   * before the reload keep their current outbound; only new connections see
+   * the new configuration. Listener-level settings (ports, LAN binding) are
+   * not part of a reload and still need a restart.
+   */
+  async reloadConfig(path: string, signal?: AbortSignal): Promise<void> {
+    const response = await this.request("/configs", {
+      method: "PUT",
+      body: JSON.stringify({ path }),
+      attempts: 1,
+      signal,
+    });
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      const message = await readErrorSummary(response);
+      throw new Error(
+        `Core rejected the configuration reload: HTTP ${response.statusCode}: ${message}`,
+      );
+    }
+    await response.discard();
+  }
+
   /** One explicit outbound probe; a group uses its current outbound, never all members. */
   async delay(name: string, signal?: AbortSignal): Promise<CoreDelayResult> {
     validateDelayTarget(name);

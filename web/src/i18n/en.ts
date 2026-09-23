@@ -215,8 +215,7 @@ export const en: Messages = {
     allowLanDesc: "Accept proxy requests from other devices on the LAN",
     coreTitle: "Core Control",
     restartTitle: "Apply Saved Configuration",
-    restartDesc:
-      "Apply the selected profile and network settings; a running Core restarts and active connections drop",
+    restartDesc: "Changing the proxy port or LAN access restarts the Core; active connections drop",
     applyBtn: "Apply configuration",
     startBtn: "Start Core",
     stopBtn: "Stop Core",
@@ -224,8 +223,6 @@ export const en: Messages = {
     stopConfirmMsg:
       "Proxying stops immediately, active connections drop, and the system proxy setting is restored. Stop the Core?",
     pendingApply: "Saved configuration has not been applied",
-    restartConfirmTitle: "Apply configuration",
-    restartConfirmMsg: "Active connections will be interrupted. Continue?",
     aboutTitle: "Runtime Info",
     coreVersion: "Core Version",
   },

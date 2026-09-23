@@ -46,18 +46,26 @@ export interface ProfileServiceOptions {
   assertMutable?: () => void;
   fetchProfile?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
   canCleanTemp?: () => boolean;
+  /** Applies the just-saved configuration to the running Core when it can. */
+  reconcileRuntime?: () => Promise<boolean>;
 }
 
 export interface ProfileActionResult {
   profile: ProfileMeta;
   activated: boolean;
+  /** True when this change is already live in the running Core. */
+  applied: boolean;
 }
 export interface ProfileUpdateResult {
   profile: ProfileMeta;
+  /** True when this change is already live in the running Core. */
+  applied: boolean;
 }
 export interface ProfileUpdateAllResult {
   updated: number;
   failed: Array<{ id: string; name: string; error: string }>;
+  /** True when an updated profile is already live in the running Core. */
+  applied: boolean;
 }
 
 function profileInput(content: string): Record<string, unknown> {
@@ -175,13 +183,18 @@ export class ProfileService {
     return current;
   }
 
+  /** Applies the just-saved configuration to the running Core when it can. */
+  private async reconcileRuntime(): Promise<boolean> {
+    return (await this.options.reconcileRuntime?.()) ?? false;
+  }
+
   /** Write the source first, then publish its reference through the one state file. */
-  private publishSource(
+  private async publishSource(
     index: ProfilesIndex,
     profile: ProfileMeta,
     text: string,
     select: boolean,
-  ): ProfileMeta {
+  ): Promise<{ profile: ProfileMeta; applied: boolean }> {
     const state = this.options.state.snapshot();
     const previous = index.profiles.find((item) => item.id === profile.id);
     let unchanged = false;
@@ -215,7 +228,10 @@ export class ProfileService {
         /* A failed cleanup leaves an unreferenced source; the committed state is complete. */
       }
     }
-    return next;
+    // Saving or updating the profile the runtime already selected takes effect
+    // immediately; anything else waits for an explicit selection.
+    const applied = select || index.activeId === next.id ? await this.reconcileRuntime() : false;
+    return { profile: next, applied };
   }
 
   private fetchedMeta(
@@ -252,7 +268,7 @@ export class ProfileService {
     const known = this.list().profiles.find((profile) => profile.url === normalized);
     const attemptedAt = new Date().toISOString();
     const fetched = await this.fetch(normalized);
-    return this.options.commit(() => {
+    return this.options.commit(async () => {
       const index = this.list();
       const now = new Date().toISOString();
       const existing = known ? this.recheck(index, known) : undefined;
@@ -268,24 +284,24 @@ export class ProfileService {
         updatedAt: now,
       };
       const activated = opts.activate === true || index.activeId === null;
-      const profile = this.publishSource(
+      const { profile, applied } = await this.publishSource(
         index,
         this.fetchedMeta(base, fetched, attemptedAt),
         fetched.yamlText,
         activated,
       );
-      return { profile, activated };
+      return { profile, activated, applied };
     });
   }
 
   async importLocal(name: string, content: string): Promise<ProfileActionResult> {
     profileInput(content);
     const displayName = validName(name);
-    return this.options.commit(() => {
+    return this.options.commit(async () => {
       const index = this.list();
       const now = new Date().toISOString();
       const activated = index.activeId === null;
-      const profile = this.publishSource(
+      const { profile, applied } = await this.publishSource(
         index,
         {
           id: allocateProfileId(index, this.options.layout),
@@ -299,7 +315,7 @@ export class ProfileService {
         content,
         activated,
       );
-      return { profile, activated };
+      return { profile, activated, applied };
     });
   }
 
@@ -314,14 +330,14 @@ export class ProfileService {
 
   async writeContent(id: string, content: string, revision: number): Promise<ProfileUpdateResult> {
     profileInput(content);
-    return this.options.commit(() => {
+    return this.options.commit(async () => {
       const index = this.list();
       const before = this.requireProfile(index, id);
       if (before.revision !== revision)
         throw new StateConflictError(
           "Profile changed since the editor opened; reload before saving",
         );
-      const profile = this.publishSource(
+      const { profile, applied } = await this.publishSource(
         index,
         {
           ...before,
@@ -333,18 +349,24 @@ export class ProfileService {
         content,
         false,
       );
-      return { profile };
+      return { profile, applied };
     });
   }
 
   async activate(id: string | null): Promise<{ activeId: string | null; proxyCount: number }> {
-    return this.options.commit(() => {
+    return this.options.commit(async () => {
       const state = this.options.state.snapshot();
       const profile = id === null ? null : this.requireProfile(state.profiles, id);
       const doc = profile ? parseProfileText(readProfileText(this.options.layout, profile)) : null;
       if (state.profiles.activeId !== id)
         this.options.state.commit({ ...state, profiles: { ...state.profiles, activeId: id } });
-      return { activeId: id, proxyCount: Array.isArray(doc?.proxies) ? doc.proxies.length : 0 };
+      // Selecting a profile is the switch itself: it takes effect immediately.
+      const applied = await this.reconcileRuntime();
+      return {
+        activeId: id,
+        proxyCount: Array.isArray(doc?.proxies) ? doc.proxies.length : 0,
+        applied,
+      };
     });
   }
 
@@ -364,17 +386,16 @@ export class ProfileService {
     const attemptedAt = new Date().toISOString();
     try {
       const fetched = await this.fetch(before.url);
-      return await this.options.commit(() => {
+      return await this.options.commit(async () => {
         const index = this.list();
         const current = this.recheck(index, before);
-        return {
-          profile: this.publishSource(
-            index,
-            this.fetchedMeta(current, fetched, attemptedAt),
-            fetched.yamlText,
-            false,
-          ),
-        };
+        const { profile, applied } = await this.publishSource(
+          index,
+          this.fetchedMeta(current, fetched, attemptedAt),
+          fetched.yamlText,
+          false,
+        );
+        return { profile, applied };
       });
     } catch (error) {
       if (error instanceof StateConflictError) throw error;
@@ -408,7 +429,7 @@ export class ProfileService {
   }
 
   private async updateProfiles(profiles: ProfileMeta[]): Promise<ProfileUpdateAllResult> {
-    const result: ProfileUpdateAllResult = { updated: 0, failed: [] };
+    const result: ProfileUpdateAllResult = { updated: 0, failed: [], applied: false };
     const generation = this.downloadGeneration;
     for (let start = 0; start < profiles.length; start += 4) {
       if (generation !== this.downloadGeneration) {
@@ -424,8 +445,9 @@ export class ProfileService {
       await Promise.all(
         profiles.slice(start, start + 4).map(async (profile) => {
           try {
-            await this.update(profile.id);
+            const updated = await this.update(profile.id);
             result.updated += 1;
+            result.applied = result.applied || updated.applied;
           } catch (error) {
             result.failed.push({
               id: profile.id,
@@ -460,8 +482,8 @@ export class ProfileService {
     return this.options.commit(() => removed);
   }
 
-  async remove(id: string): Promise<{ wasActive: boolean }> {
-    return this.options.commit(() => {
+  async remove(id: string): Promise<{ wasActive: boolean; applied: boolean }> {
+    return this.options.commit(async () => {
       const state = this.options.state.snapshot();
       const profile = this.requireProfile(state.profiles, id);
       const wasActive = state.profiles.activeId === id;
@@ -477,7 +499,9 @@ export class ProfileService {
       } catch {
         /* State no longer references this file. */
       }
-      return { wasActive };
+      // Removing the selected profile falls back to the built-in configuration.
+      const applied = wasActive ? await this.reconcileRuntime() : false;
+      return { wasActive, applied };
     });
   }
 

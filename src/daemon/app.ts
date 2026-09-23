@@ -9,7 +9,7 @@ import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
 import { ProfileService } from "../profile-service.js";
 import { getActiveProfile } from "../profiles.js";
-import { RuntimeLifecycle } from "../runtime-lifecycle.js";
+import { RuntimeLifecycle, runtimeDelta } from "../runtime-lifecycle.js";
 import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
@@ -97,6 +97,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     commit: mutate,
     assertMutable: () => gate.assertMutable(),
     fetchProfile: deps.fetchProfileFn,
+    reconcileRuntime: () => coreControl.reconcileSaved(),
   });
   const settingsService = new SettingsService({ state, commit: mutate, lifecycle, supervisor });
   coreControl = new CoreControlService({
@@ -133,14 +134,10 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     pendingApply: () => {
       const saved = state.snapshot();
       const active = getActiveProfile(saved.profiles);
-      const applied = lifecycle.configuration();
-      return (
-        !applied ||
-        applied.profile?.id !== active?.id ||
-        applied.profile?.revision !== active?.revision ||
-        applied.settings.mixedPort !== saved.settings.mixedPort ||
-        applied.settings.allowLan !== saved.settings.allowLan
-      );
+      return runtimeDelta(lifecycle.configuration(), {
+        profile: active ? { id: active.id, revision: active.revision } : null,
+        settings: saved.settings,
+      }).pending;
     },
     core: coreControl,
     shutdown: () => gate.shutdown(),

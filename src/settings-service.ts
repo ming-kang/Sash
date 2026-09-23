@@ -3,6 +3,7 @@ import type { SettingsPatch } from "./contracts.js";
 import { errorMessage } from "./error-utils.js";
 import type { ProfileCommitBoundary } from "./profile-service.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
+import { listenerSettingsChanged } from "./runtime-lifecycle.js";
 import { type SashSettings, validateSettingsCandidate } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 
@@ -66,9 +67,7 @@ export class SettingsService {
       return {
         revision: saved.revision,
         settings: saved.settings,
-        restartRequired:
-          saved.settings.mixedPort !== running.mixedPort ||
-          saved.settings.allowLan !== running.allowLan,
+        restartRequired: listenerSettingsChanged(running, saved.settings),
       };
     });
   }

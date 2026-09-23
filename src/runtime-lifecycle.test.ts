@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { sashLayout } from "./paths.js";
-import { RuntimeLifecycle } from "./runtime-lifecycle.js";
+import { RuntimeLifecycle, runtimeDelta } from "./runtime-lifecycle.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import { FakeCoreSupervisor, testSettings } from "./testing/state.js";
 
@@ -143,5 +144,188 @@ describe("Core and proxy lifecycle", () => {
     await assert.rejects(lifecycle.apply(f.configuration), /unowned Core controller/);
     assert.equal(f.core.starts, 0);
     assert.equal(fs.existsSync(f.layout.configFile), false);
+  });
+});
+
+describe("configuration reload", () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-reload-test-"));
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  /** A loopback Core stand-in that records every controller request it serves. */
+  async function coreStandIn(
+    respond: (method: string, url: string) => { status: number; body?: string },
+  ) {
+    const seen: Array<{ method: string; url: string; body: string }> = [];
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        const method = req.method ?? "";
+        const url = req.url ?? "";
+        seen.push({ method, url, body });
+        const outcome = respond(method, url);
+        res.writeHead(outcome.status, { "Content-Type": "application/json" });
+        res.end(outcome.body ?? "");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("stand-in did not bind");
+    return {
+      seen,
+      port: address.port,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  function fixture(controller: string) {
+    const layout = sashLayout(root);
+    const settings = testSettings({ controller });
+    const core = new FakeCoreSupervisor(layout, settings);
+    core.running = true;
+    const events: string[] = [];
+    const proxy: SystemProxyController = {
+      apply: async ({ port }) => {
+        events.push(`proxy:${port}`);
+      },
+      release: async () => {
+        events.push("release");
+      },
+      inspect: async () => ({
+        applied: false,
+        appliedKnown: true,
+        stateKnown: true,
+        state: { supported: true, enabled: false },
+      }),
+    };
+    const lifecycle = new RuntimeLifecycle({
+      layout,
+      supervisor: core,
+      systemProxy: proxy,
+      settings: () => settings,
+      controllerProbe: async () => false,
+    });
+    const applied = {
+      generated: { yaml: "rules: ['MATCH,DIRECT']\n", proxyCount: 0, source: "default" as const },
+      settings: { ...settings },
+      profile: null,
+    };
+    return { layout, settings, core, proxy, events, lifecycle, applied };
+  }
+
+  it("reloads the running Core instead of restarting it", async () => {
+    const standIn = await coreStandIn(() => ({ status: 204 }));
+    try {
+      const f = fixture(`127.0.0.1:${standIn.port}`);
+      await f.lifecycle.apply(f.applied);
+      const next = {
+        ...f.applied,
+        generated: { ...f.applied.generated, yaml: "rules: ['MATCH,REJECT']\n" },
+      };
+      const starts = f.core.starts;
+      const stops = f.core.stops;
+      const revision = f.lifecycle.revision;
+      const result = await f.lifecycle.reload(next);
+      assert.equal(result.alreadyRunning, true);
+      assert.equal(result.pid, f.core.pid);
+      // A reload neither stops nor starts the Core; it only advances the epoch.
+      assert.equal(f.core.starts, starts);
+      assert.equal(f.core.stops, stops);
+      assert.equal(f.lifecycle.revision, revision + 1);
+      assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), next.generated.yaml);
+      assert.deepEqual(
+        standIn.seen.map((entry) => [entry.method, entry.url, JSON.parse(entry.body)]),
+        [["PUT", "/configs", { path: f.layout.configFile }]],
+      );
+    } finally {
+      await standIn.close();
+    }
+  });
+
+  it("restores the previous configuration when the Core refuses a reload", async () => {
+    const standIn = await coreStandIn(() => ({ status: 400, body: '{"message":"bad rule"}' }));
+    try {
+      const f = fixture(`127.0.0.1:${standIn.port}`);
+      await f.lifecycle.apply(f.applied);
+      const next = {
+        ...f.applied,
+        generated: { ...f.applied.generated, yaml: "rules: [\n" },
+      };
+      const revision = f.lifecycle.revision;
+      await assert.rejects(f.lifecycle.reload(next), /HTTP 400/);
+      // The Core still runs the old configuration, so the file must say so too.
+      assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), f.applied.generated.yaml);
+      assert.equal(f.lifecycle.configuration(), f.applied);
+      assert.equal(f.lifecycle.revision, revision);
+    } finally {
+      await standIn.close();
+    }
+  });
+
+  it("refuses a reload when no configuration was ever applied", async () => {
+    const standIn = await coreStandIn(() => ({ status: 204 }));
+    try {
+      const f = fixture(`127.0.0.1:${standIn.port}`);
+      await assert.rejects(f.lifecycle.reload(f.applied), /apply it with a restart/);
+      assert.deepEqual(standIn.seen, []);
+    } finally {
+      await standIn.close();
+    }
+  });
+});
+
+describe("runtime delta", () => {
+  const settings = testSettings();
+  const applied = (
+    patch: Partial<ReturnType<typeof testSettings>> = {},
+    profile: { id: string; revision: number; name: string; url: string } | null = null,
+  ) => ({
+    generated: { yaml: "rules: ['MATCH,DIRECT']\n", proxyCount: 0, source: "default" as const },
+    settings: { ...settings, ...patch },
+    profile,
+  });
+  it("reports nothing pending while the runtime matches the saved state", () => {
+    assert.deepEqual(runtimeDelta(applied(), { profile: null, settings }), {
+      pending: false,
+      restartRequired: false,
+    });
+  });
+  it("treats an unknown runtime as pending without demanding a restart", () => {
+    assert.deepEqual(runtimeDelta(undefined, { profile: null, settings }), {
+      pending: true,
+      restartRequired: false,
+    });
+  });
+  it("separates a new profile revision from a listener-level change", () => {
+    const target = { profile: { id: "7", revision: 3 }, settings };
+    assert.deepEqual(
+      runtimeDelta(applied({}, { id: "7", revision: 2, name: "p", url: "" }), target),
+      {
+        pending: true,
+        restartRequired: false,
+      },
+    );
+    assert.deepEqual(runtimeDelta(applied({ mixedPort: 19099 }), target), {
+      pending: true,
+      restartRequired: true,
+    });
+    assert.deepEqual(runtimeDelta(applied({ allowLan: true }), target), {
+      pending: true,
+      restartRequired: true,
+    });
+  });
+  it("notices a selection that was never applied", () => {
+    assert.deepEqual(runtimeDelta(applied(), { profile: { id: "7", revision: 1 }, settings }), {
+      pending: true,
+      restartRequired: false,
+    });
   });
 });

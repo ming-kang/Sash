@@ -20,12 +20,53 @@ export interface RuntimeConfiguration {
   settings: SashSettings;
   profile: { id: string; revision: number; name: string; url: string } | null;
 }
+/** What the saved state asks the runtime to become. */
+export interface RuntimeTarget {
+  profile: { id: string; revision: number } | null;
+  settings: SashSettings;
+}
+export interface RuntimeDelta {
+  /** The running Core does not match the saved state. */
+  pending: boolean;
+  /** Closing the difference needs a Core restart: listener-level settings. */
+  restartRequired: boolean;
+}
 export interface RuntimeLifecycleOptions {
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
   layout: SashLayout;
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
   settings: () => SashSettings;
+}
+
+/**
+ * True when listener-level settings differ: the Core re-binds its inbound
+ * listeners on a restart only, never on a configuration reload.
+ */
+export function listenerSettingsChanged(
+  applied: Pick<SashSettings, "mixedPort" | "allowLan">,
+  target: Pick<SashSettings, "mixedPort" | "allowLan">,
+): boolean {
+  return applied.mixedPort !== target.mixedPort || applied.allowLan !== target.allowLan;
+}
+
+/**
+ * Compare what the Core runs with what the saved state asks for. Ports and LAN
+ * binding belong to listeners the Core cannot re-bind during a reload, so they
+ * are the only difference a restart can close.
+ */
+export function runtimeDelta(
+  applied: RuntimeConfiguration | undefined,
+  target: RuntimeTarget,
+): RuntimeDelta {
+  if (!applied) return { pending: true, restartRequired: false };
+  const restartRequired = listenerSettingsChanged(applied.settings, target.settings);
+  const appliedProfile = applied.profile;
+  const targetProfile = target.profile;
+  const profilePending =
+    appliedProfile?.id !== targetProfile?.id ||
+    appliedProfile?.revision !== targetProfile?.revision;
+  return { pending: profilePending || restartRequired, restartRequired };
 }
 
 /** All calls enter the daemon's single mutation queue. This class owns Core and proxy order. */
@@ -102,6 +143,41 @@ export class RuntimeLifecycle {
     this.applied = configuration;
     await this.reconcileSystemProxy();
     return result;
+  }
+
+  /**
+   * Apply a configuration to the running Core without restarting it: the Core
+   * swaps proxies, rules and DNS in place, so connections established before
+   * the reload keep their current outbound. Listener-level settings (ports,
+   * LAN binding, the controller) are not part of a reload, so callers fall
+   * back to `apply` when those differ.
+   */
+  async reload(configuration: RuntimeConfiguration): Promise<CoreStartResult> {
+    const applied = this.applied;
+    if (!applied) throw new Error("Core configuration is unknown; apply it with a restart");
+    atomicWriteFileSync(this.options.layout.configFile, configuration.generated.yaml);
+    const api = new MihomoApi(this.runtimeSettings.controller, this.runtimeSettings.secret);
+    try {
+      await api.reloadConfig(this.options.layout.configFile);
+    } catch (error) {
+      // The Core still runs the previous configuration; keep the file telling
+      // the same story so a later restart cannot pick up a rejected one.
+      atomicWriteFileSync(this.options.layout.configFile, applied.generated.yaml);
+      throw error;
+    }
+    this.applied = configuration;
+    this.runtimeSettings = { ...configuration.settings };
+    this.runtimeRevision += 1;
+    const core = await this.options.supervisor.status();
+    if (!core.running || !core.healthy || !core.pid)
+      throw new Error("Core did not stay healthy after the configuration reload");
+    await this.reconcileSystemProxy();
+    return {
+      pid: core.pid,
+      ...(core.version ? { version: core.version } : {}),
+      alreadyRunning: true,
+      mixedPort: this.runtimeSettings.mixedPort,
+    };
   }
 
   async stop(): Promise<void> {

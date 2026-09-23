@@ -32,17 +32,6 @@ let actionGeneration = 0;
 export function useCoreControl() {
   async function restartCore(): Promise<void> {
     if (restarting.value || stopping.value || !store.status) return;
-    if (
-      store.status.core.running &&
-      !(await confirmDialog({
-        title: t("settings.restartConfirmTitle"),
-        message: t("settings.restartConfirmMsg"),
-        confirmText: t("common.confirm"),
-        cancelText: t("common.cancel"),
-        danger: true,
-      }))
-    )
-      return;
     if (restarting.value || stopping.value) return;
     restarting.value = true;
     const generation = ++actionGeneration;

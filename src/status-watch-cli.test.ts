@@ -54,8 +54,17 @@ for (const withDelay of [false, true]) {
     timeout: 15_000,
   }, async (t) => {
     let probes = 0;
+    let reloads = 0;
     if (withDelay) {
       await harness.startMockCore((req, res) => {
+        if (req.url === "/configs") {
+          // Importing the first profile applies it to the running Core live.
+          assert.equal(req.method, "PUT");
+          reloads += 1;
+          res.writeHead(204);
+          res.end();
+          return;
+        }
         assert.match(req.url ?? "", /^\/proxies\/DIRECT\/delay\?/);
         probes += 1;
         res.end('{"delay":42}');
@@ -178,6 +187,8 @@ for (const withDelay of [false, true]) {
       body: { name: "cli-watch", content: "proxies: []\nrules: [MATCH,DIRECT]\n" },
     });
     assert.equal(added.statusCode, 200);
+    assert.equal((added.data as { applied?: boolean }).applied, withDelay);
+    assert.equal(reloads, withDelay ? 1 : 0);
     const status = await changed.promise;
     assert.equal(status.core.running, withDelay);
     child.stdout.destroy();

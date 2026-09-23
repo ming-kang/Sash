@@ -298,6 +298,21 @@ try {
       await held.locator(".profile-card-main").click();
       await idle(page);
       assert.equal(loadProfiles(h.layout).activeId, initialIds[2]);
+      // Selecting a profile applies to the running Core immediately.
+      assert.equal(await page.locator(".pending-config").count(), 0);
+      // A proxy port change still waits for Apply; its bar must stay clear of toasts.
+      assert.equal(
+        (
+          await h.apiRequest("/sash/settings", {
+            method: "PATCH",
+            body: { mixedPort: 27911 },
+          })
+        ).statusCode,
+        200,
+      );
+      await page.locator(".pending-config").waitFor();
+      await page.locator(`.profile-card[data-id="${initialIds[0]}"] .profile-card-main`).click();
+      await idle(page);
       // Regression: toasts must never cover the pending bar (its apply button sits top-right).
       const toastOverlap = await page.evaluate(() => {
         const bar = document.querySelector(".pending-config")?.getBoundingClientRect();
@@ -311,6 +326,15 @@ try {
       });
       assert.equal(toastOverlap, null);
       await capture(page, `${tag}-profiles-pending-toast`);
+      assert.equal(
+        (
+          await h.apiRequest("/sash/settings", {
+            method: "PATCH",
+            body: { mixedPort: h.settings.mixedPort },
+          })
+        ).statusCode,
+        200,
+      );
       results.push(`${tag}: holding without moving does not activate; next click works`);
 
       await page.mouse.move(heldBox.x + 35, heldBox.y + heldBox.height - 12);

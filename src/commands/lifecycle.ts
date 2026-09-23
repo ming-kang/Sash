@@ -38,7 +38,11 @@ export async function runStop(options: { core?: boolean } = {}): Promise<void> {
 export async function runRestart(): Promise<void> {
   const ctx = runtimeContext();
   const { owner, result } = await restartRuntime(ctx);
-  log.ok("Configuration applied · Core restarted");
+  log.ok(
+    result.alreadyRunning === true
+      ? "Configuration applied · existing connections kept"
+      : "Configuration applied · Core restarted; active connections dropped",
+  );
   printEndpoints(ctx, owner.daemon.port, result.mixedPort);
 }
 function printEndpoints(
