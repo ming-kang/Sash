@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-09-23
+
 ### Added
 
 - Applying a configuration no longer has to restart Core: when only the selected profile changed, Sash publishes the generated core config and asks Core to reload it through `PUT /configs`. Core swaps proxies, rules and DNS in place, so established connections keep their current outbound and only new connections wait for the reload. Selecting a profile, saving the selected one, and updating it now apply immediately; a reload the Core rejects restores the previous core config on disk and leaves the saved state pending for a retry.
@@ -17,8 +19,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Sash now mints replacements for blank credentials found in a stored manifest instead of starting with none. A `secret` or `daemonSecret` that was missing or empty on disk previously read leniently as `""`, which left Sash running but unreachable: every CLI bearer was rejected, and the generated core config published an unauthenticated Core controller.
-
-### Changed
 
 - The dashboard file server now admits only paths that resolve inside the asset root, replacing a `..` segment match. The Core gateway's mutation allowlist counts path segments after percent-decoding, so an encoded separator cannot read as one segment locally and two upstream. Neither boundary was reachable through the request pipeline, which normalizes both away before routing.
 - Remove dead observation state from `collectRuntimeStatus`, collapse the duplicate `CoreReleaseResolution` declaration in `core.ts`, and document what `CoreUpdateRuntime.startAndVerify`'s version argument selects. No behavior change.
