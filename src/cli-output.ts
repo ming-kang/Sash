@@ -1,5 +1,5 @@
 import { writeCliDebug } from "./cli-errors.js";
-import { type CoreUpdateProgress, coreUpdateProgressText } from "./core-update.js";
+import { type CoreUpdateProgressPrinter, coreUpdateProgressText } from "./core-update.js";
 import { errorMessage } from "./error-utils.js";
 
 const outputClosed = new AbortController();
@@ -31,13 +31,28 @@ export async function commandOutput<T>(
   }
 }
 
-/** Print each distinct Core update progress line once, in order. */
-export function coreUpdateProgressPrinter(): (progress: CoreUpdateProgress) => void {
+/**
+ * Report Core update progress once per distinct line. A terminal redraws the
+ * line in place — a download reports progress twice a second and would
+ * otherwise flood the scrollback — while pipes and files keep one line per
+ * change so redirected output stays readable.
+ */
+export function coreUpdateProgressPrinter(): CoreUpdateProgressPrinter {
+  const interactive = process.stderr.isTTY === true;
   let previous = "";
-  return (progress) => {
-    const text = coreUpdateProgressText(progress);
-    if (text === previous) return;
-    previous = text;
-    process.stderr.write(`[sash] ${text}\n`);
+  let pending = false;
+  return {
+    onProgress(progress) {
+      const text = coreUpdateProgressText(progress);
+      if (text === previous) return;
+      previous = text;
+      pending = true;
+      process.stderr.write(interactive ? `\r\x1b[K[sash] ${text}` : `[sash] ${text}\n`);
+    },
+    settle() {
+      if (!pending) return;
+      pending = false;
+      if (interactive) process.stderr.write("\n");
+    },
   };
 }

@@ -54,8 +54,8 @@ Examples:
 Data folder: %LOCALAPPDATA%\\Sash (Windows), ~/Library/Application Support/Sash (macOS),
 $XDG_DATA_HOME/sash (Linux). Override with the SASH_HOME environment variable.
 
-Bare sash prints status. Exit codes: 0 success, 1 command failure, 2 incomplete observation.
-Set SASH_DEBUG=1 to print CLI error stacks to stderr.`,
+Bare sash prints status. Exit codes: 0 success, 1 command failure, 2 incomplete observation,
+130 interrupted (a Core download cancelled by Ctrl+C). Set SASH_DEBUG=1 to print CLI error stacks to stderr.`,
   );
 
 program
@@ -235,10 +235,14 @@ program
   .command("update [tag]")
   .description("update the Core binary")
   .option("--check", "check the Core release without installing or starting Sash")
+  .option("--cancel", "cancel the Core download in progress")
   .option("--json", "output machine-readable JSON")
   .action(
-    withCliErrors(async (tag: string | undefined, opts: { check?: boolean; json?: boolean }) =>
-      (await import("./commands/update.js")).runUpdate({ ...opts, version: tag }),
+    withCliErrors(
+      async (
+        tag: string | undefined,
+        opts: { check?: boolean; cancel?: boolean; json?: boolean },
+      ) => (await import("./commands/update.js")).runUpdate({ ...opts, version: tag }),
     ),
   );
 

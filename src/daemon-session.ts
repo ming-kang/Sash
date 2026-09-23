@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { loadSettings } from "./app-state.js";
 import type { RoutingMode } from "./contracts.js";
-import { type CoreUpdateProgress, withCoreUpdateProgress } from "./core-update.js";
+import { type CoreUpdateProgressPrinter, withCoreUpdateProgress } from "./core-update.js";
 import {
   type DaemonHealthyInfo,
   type DaemonStoppedInfo,
@@ -62,16 +62,16 @@ export async function ensureDaemonSession(
 
 export async function ensureRunning(
   ctx: RuntimeContext,
-  opts: { onCoreUpdateProgress?: (progress: CoreUpdateProgress) => void } = {},
+  opts: {
+    onCoreUpdateProgress?: CoreUpdateProgressPrinter;
+    signal?: AbortSignal;
+  } = {},
 ) {
   const owner = await ensureDaemonSession(ctx);
+  const start = owner.client.startCore({ ...(opts.signal ? { signal: opts.signal } : {}) });
   const result = opts.onCoreUpdateProgress
-    ? await withCoreUpdateProgress(
-        owner.client,
-        owner.client.startCore(),
-        opts.onCoreUpdateProgress,
-      )
-    : await owner.client.startCore();
+    ? await withCoreUpdateProgress(owner.client, start, opts.onCoreUpdateProgress.onProgress)
+    : await start;
   return { owner, result };
 }
 
@@ -96,9 +96,12 @@ export async function stopRuntime(ctx: RuntimeContext): Promise<{ wasRunning: bo
   return { wasRunning: initial.kind === "daemon" };
 }
 
-export async function restartRuntime(ctx: RuntimeContext) {
+export async function restartRuntime(ctx: RuntimeContext, opts: { signal?: AbortSignal } = {}) {
   const owner = await ensureDaemonSession(ctx);
-  return { owner, result: await owner.client.restartCore() };
+  return {
+    owner,
+    result: await owner.client.restartCore({ ...(opts.signal ? { signal: opts.signal } : {}) }),
+  };
 }
 
 export async function stopCoreRuntime(ctx: RuntimeContext): Promise<{ daemonRunning: boolean }> {

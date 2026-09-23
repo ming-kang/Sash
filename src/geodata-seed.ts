@@ -24,6 +24,8 @@ import type { SashLayout } from "./paths.js";
 
 export interface GeodataSeedOptions {
   signal?: AbortSignal;
+  /** Route GitHub traffic through this proxy instead of the environment proxy. */
+  proxyUri?: string;
   onProxyFallback?: ProxyFallbackListener;
 }
 
@@ -38,13 +40,19 @@ async function resolveGeodataRelease(
 ): Promise<{ tag: string; assets: ReleaseAsset[]; source: "live" | "pinned" }> {
   try {
     const tag = validateCoreReleaseTag(
-      await resolveLatestTag(GEODATA_REPO, options.signal, options.onProxyFallback),
+      await resolveLatestTag(
+        GEODATA_REPO,
+        options.signal,
+        options.onProxyFallback,
+        options.proxyUri,
+      ),
     );
     const assets = await listReleaseAssets(
       GEODATA_REPO,
       tag,
       options.signal,
       options.onProxyFallback,
+      options.proxyUri,
     );
     return { tag, assets, source: "live" };
   } catch (error) {
@@ -82,6 +90,7 @@ export async function seedGeodataFile(
       assets,
       candidates: [file],
       dest,
+      ...(options.proxyUri !== undefined ? { proxyUri: options.proxyUri } : {}),
       onProxyFallback: options.onProxyFallback,
     });
     // Same-volume rename: the file appears in the data folder atomically.

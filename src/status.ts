@@ -4,12 +4,14 @@ import { type LoginStartRecord, readLoginStartRecord } from "./autostart/login-r
 import { AutostartService } from "./autostart/service.js";
 import type { DaemonStatus } from "./contracts.js";
 import { currentCoreVersion } from "./core.js";
+import type { CoreUpdateProgress } from "./core-update.js";
 import {
   type DaemonHealthyInfo,
   type DaemonRunningInfo,
   evaluateDaemon,
 } from "./daemon-lifecycle.js";
 import { errorDetail } from "./error-utils.js";
+import type { DownloadTransport } from "./http.js";
 import type { SashLayout } from "./paths.js";
 import { getActiveProfile } from "./profiles.js";
 import { createDaemonClient } from "./sash-client-node.js";
@@ -20,6 +22,13 @@ import type { SystemProxyState } from "./sysproxy/types.js";
 import { uiInstalled } from "./webui.js";
 
 const CLI_STATUS_SCHEMA_VERSION = 2 as const;
+
+/** Human-readable transport for Core downloads, matching the CLI status line. */
+function describeDownloadTransport(transport: DownloadTransport): string {
+  return transport.source === "core"
+    ? `Sash's own Core proxy: ${transport.uri}`
+    : `proxy environment variable: ${transport.uri}`;
+}
 
 export type CliDaemonState = "healthy" | "stopped" | "unhealthy";
 
@@ -44,6 +53,10 @@ export interface CliRuntimeStatus {
   schemaVersion: typeof CLI_STATUS_SCHEMA_VERSION;
   /** Present only for an explicit status --delay request. */
   delay?: StatusDelayObservation;
+  /** Present only while the daemon stages or installs a Core binary. */
+  coreUpdate?: CoreUpdateProgress;
+  /** Present only when the daemon answered; describes how Core downloads leave. */
+  downloadProxy?: string;
   /** True only when every runtime field required by this contract was observed. */
   complete: boolean;
   /** Overall daemon/Core health; null when the daemon status query is unavailable. */
@@ -398,6 +411,10 @@ export function cliStatusFromDaemonStatus(
       version: coreVersion,
       installedVersion: installedVersion || null,
     },
+    ...(status.coreUpdate ? { coreUpdate: status.coreUpdate } : {}),
+    ...(status.downloadTransport
+      ? { downloadProxy: describeDownloadTransport(status.downloadTransport) }
+      : {}),
     systemProxy: {
       desired: desiredProxy,
       daemonApplied: proxyObservation.daemonApplied,

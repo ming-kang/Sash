@@ -1,15 +1,40 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import type { DaemonStatus } from "./contracts.js";
 import { readInstallRecord } from "./core.js";
 import { type CoreUpdateProgress, readCoreUpdateTransaction } from "./core-update.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
+/**
+ * The transport decision reads this process environment, and the developer
+ * machine may run with HTTP_PROXY pointed at Sash itself. Pin it empty for the
+ * whole file so only the tests that set a variable see one.
+ */
+const PROXY_ENV_KEYS = [
+  "HTTP_PROXY",
+  "http_proxy",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+];
+
 describe("daemon-owned Core updates", () => {
   const h = useDaemonTestHarness();
+  let savedProxyEnv: Array<[string, string | undefined]>;
+  before(() => {
+    savedProxyEnv = PROXY_ENV_KEYS.map((key) => [key, process.env[key]]);
+    for (const key of PROXY_ENV_KEYS) delete process.env[key];
+  });
+  after(() => {
+    for (const [key, value] of savedProxyEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
   async function stage() {
     fs.mkdirSync(h.layout.tempDir, { recursive: true });
     const exe = path.join(h.layout.tempDir, "candidate");
@@ -192,5 +217,134 @@ describe("daemon-owned Core updates", () => {
     assert.equal((await h.apiRequest("/sash/core/update", { method: "POST" })).statusCode, 409);
     assert.equal((await h.apiRequest("/sash/core/stop", { method: "POST" })).statusCode, 204);
     assert.notEqual(readCoreUpdateTransaction(h.layout), undefined);
+  });
+
+  it("cancels an in-flight download on request and admits the next update immediately", async () => {
+    const firstEntered = deferred();
+    const firstReleased = deferred();
+    const secondEntered = deferred();
+    const secondReleased = deferred();
+    let attempts = 0;
+    await h.startServer({
+      stageCore: async (options) => {
+        attempts += 1;
+        options?.onStage?.("downloading", "v2");
+        options?.onProgress?.(100, 200);
+        if (attempts === 1) {
+          firstEntered.resolve();
+          await firstReleased.promise;
+        } else {
+          secondEntered.resolve();
+          await secondReleased.promise;
+        }
+        return stage();
+      },
+    });
+    const first = h.apiRequest("/sash/core/update", { method: "POST", body: { version: "v2" } });
+    await firstEntered.promise;
+    assert.equal(
+      ((await h.apiRequest("/sash/core/update")).data as CoreUpdateProgress | null)?.downloaded,
+      100,
+    );
+    assert.equal((await h.apiRequest("/sash/core/update", { method: "DELETE" })).statusCode, 204);
+    assert.equal((await h.apiRequest("/sash/core/update")).data, null);
+    // The cancelled operation must not clear its successor's state as it unwinds.
+    const second = h.apiRequest("/sash/core/update", { method: "POST", body: { version: "v2" } });
+    await secondEntered.promise;
+    firstReleased.resolve();
+    assert.notEqual((await first).statusCode, 200);
+    try {
+      assert.equal(
+        ((await h.apiRequest("/sash/core/update")).data as CoreUpdateProgress | null)?.downloaded,
+        100,
+      );
+    } finally {
+      secondReleased.resolve();
+    }
+    assert.equal((await second).statusCode, 200);
+  });
+
+  it("reports a conflict when no Core download is in progress", async () => {
+    await h.startServer({ stageCore: stage });
+    const response = await h.apiRequest("/sash/core/update", { method: "DELETE" });
+    assert.equal(response.statusCode, 409);
+    assert.match(JSON.stringify(response.data), /No Core download is in progress/);
+  });
+
+  it("names the cancel command when a download is already running", async () => {
+    const entered = deferred();
+    const released = deferred();
+    await h.startServer({
+      stageCore: async () => {
+        entered.resolve();
+        await released.promise;
+        return stage();
+      },
+    });
+    const updating = h.apiRequest("/sash/core/update", { method: "POST" });
+    await entered.promise;
+    try {
+      const conflict = await h.apiRequest("/sash/core/update", { method: "POST" });
+      assert.equal(conflict.statusCode, 409);
+      assert.match(JSON.stringify(conflict.data), /sash update --cancel/);
+    } finally {
+      released.resolve();
+    }
+    await updating;
+  });
+
+  it("prefers a running Core as the download transport and reports it in status", async () => {
+    const core = new FakeCoreSupervisor(h.layout, h.settings);
+    await h.startServer({ supervisor: core, stageCore: stage });
+    await h.apiRequest("/sash/core/start", { method: "POST" });
+    const running = (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+    assert.deepEqual(running.downloadTransport, {
+      uri: `http://127.0.0.1:${h.settings.mixedPort}`,
+      source: "core",
+    });
+    await h.apiRequest("/sash/core/stop", { method: "POST" });
+    const stopped = (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+    assert.equal(stopped.downloadTransport, null);
+  });
+
+  it("keeps an explicit proxy environment variable as the download transport", async () => {
+    const saved = process.env.HTTP_PROXY;
+    process.env.HTTP_PROXY = "http://127.0.0.1:9999";
+    try {
+      const core = new FakeCoreSupervisor(h.layout, h.settings);
+      await h.startServer({ supervisor: core, stageCore: stage });
+      await h.apiRequest("/sash/core/start", { method: "POST" });
+      const status = (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+      assert.deepEqual(status.downloadTransport, {
+        uri: "http://127.0.0.1:9999",
+        source: "environment",
+      });
+    } finally {
+      if (saved === undefined) delete process.env.HTTP_PROXY;
+      else process.env.HTTP_PROXY = saved;
+    }
+  });
+
+  it("passes the chosen transport into staging", async () => {
+    const core = new FakeCoreSupervisor(h.layout, h.settings);
+    const seen: Array<string | undefined> = [];
+    await h.startServer({
+      installCore: false,
+      supervisor: core,
+      stageCore: async (options) => {
+        seen.push(options?.proxyUri);
+        return stage();
+      },
+    });
+    // Nothing runs yet, so the first install never routes through the Core it
+    // is about to replace.
+    assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
+    assert.deepEqual(seen, [undefined]);
+    assert.equal(
+      (await h.apiRequest("/sash/core/update", { method: "POST", body: { version: "v2" } }))
+        .statusCode,
+      200,
+    );
+    assert.deepEqual(seen, [undefined, `http://127.0.0.1:${h.settings.mixedPort}`]);
   });
 });

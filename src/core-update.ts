@@ -45,6 +45,12 @@ export interface CoreUpdateProgress {
   note?: string;
 }
 
+/** Reports progress lines and closes the last one when the operation ends. */
+export interface CoreUpdateProgressPrinter {
+  onProgress(progress: CoreUpdateProgress): void;
+  settle(): void;
+}
+
 /** The only upgrade journal: executable and install metadata, never profiles or settings. */
 export interface CoreUpdateTransaction {
   previous: InstallRecord | null;
@@ -402,12 +408,13 @@ export async function withCoreUpdateProgress<T>(
   }
 }
 
-/** Supplemental progress reads never retry or determine the outcome of the mutation. */
 export async function updateCoreWithProgress(
   client: Pick<SashDaemonClient, "updateCore" | "coreUpdateProgress">,
   version?: string,
-  onProgress?: (progress: CoreUpdateProgress) => void,
+  printer?: CoreUpdateProgressPrinter,
+  signal?: AbortSignal,
 ): Promise<CoreUpdateResponse> {
-  if (!onProgress) return client.updateCore(version);
-  return withCoreUpdateProgress(client, client.updateCore(version), onProgress);
+  const operation = client.updateCore(version, { ...(signal ? { signal } : {}) });
+  if (!printer) return operation;
+  return withCoreUpdateProgress(client, operation, printer.onProgress);
 }

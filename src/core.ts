@@ -226,6 +226,8 @@ export interface CoreInstallOptions {
   layout?: SashLayout;
   /** Specific tag to install (e.g. v1.19.30); defaults to latest. */
   tag?: string;
+  /** Route GitHub traffic through this proxy instead of the environment proxy. */
+  proxyUri?: string;
   onProgress?: (downloaded: number, total: number | undefined) => void;
   onStage?: (stage: "resolving" | "downloading" | "extracting", target?: string) => void;
   onProxyFallback?: ProxyFallbackListener;
@@ -260,20 +262,32 @@ export interface CoreReleaseResolution {
  * other release still requires the live API.
  */
 export async function resolveCoreRelease(
-  options: { tag?: string; signal?: AbortSignal; onProxyFallback?: ProxyFallbackListener } = {},
+  options: {
+    tag?: string;
+    signal?: AbortSignal;
+    proxyUri?: string;
+    onProxyFallback?: ProxyFallbackListener;
+  } = {},
 ): Promise<CoreReleaseResolution> {
   const pinned = options.tag ?? process.env.SASH_CORE_VERSION;
   // An invalid explicit pin is a usage error, never a network problem.
   if (pinned !== undefined) validateCoreReleaseTag(pinned);
   try {
     const tag = validateCoreReleaseTag(
-      pinned ?? (await resolveLatestTag(MIHOMO_REPO, options.signal, options.onProxyFallback)),
+      pinned ??
+        (await resolveLatestTag(
+          MIHOMO_REPO,
+          options.signal,
+          options.onProxyFallback,
+          options.proxyUri,
+        )),
     );
     const assets = await listReleaseAssets(
       MIHOMO_REPO,
       tag,
       options.signal,
       options.onProxyFallback,
+      options.proxyUri,
     );
     return {
       tag,
@@ -357,6 +371,7 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
   const { tag, assets, candidates, source } = await resolveCoreRelease({
     ...(opts.tag !== undefined ? { tag: opts.tag } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts.proxyUri !== undefined ? { proxyUri: opts.proxyUri } : {}),
     ...(opts.onProxyFallback !== undefined ? { onProxyFallback: opts.onProxyFallback } : {}),
   });
 
@@ -382,6 +397,7 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
         assets,
         candidates: [assetName],
         dest: archivePath,
+        ...(opts.proxyUri !== undefined ? { proxyUri: opts.proxyUri } : {}),
         onProgress: opts.onProgress,
         onProxyFallback: opts.onProxyFallback,
       });

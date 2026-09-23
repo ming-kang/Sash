@@ -26,7 +26,24 @@ export const coreUpdateText = computed(() => {
 });
 const restarting = ref(false);
 const stopping = ref(false);
+const cancellingUpdate = ref(false);
 let actionGeneration = 0;
+
+/** Abandon the daemon's in-flight Core download. */
+async function cancelCoreUpdate(): Promise<void> {
+  if (cancellingUpdate.value) return;
+  cancellingUpdate.value = true;
+  const generation = ++actionGeneration;
+  try {
+    await api.cancelCoreUpdate();
+    await refreshRuntimeState();
+    if (generation === actionGeneration) toast.success(t("toast.coreUpdateCancelled"));
+  } catch (error) {
+    if (generation === actionGeneration) toast.error(t("toast.failed", { msg: errorText(error) }));
+  } finally {
+    cancellingUpdate.value = false;
+  }
+}
 
 /** Shared busy state and actions for every Core control in the dashboard. */
 export function useCoreControl() {
@@ -72,5 +89,5 @@ export function useCoreControl() {
       stopping.value = false;
     }
   }
-  return { restarting, stopping, restartCore, stopCore };
+  return { restarting, stopping, cancellingUpdate, restartCore, stopCore, cancelCoreUpdate };
 }

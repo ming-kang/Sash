@@ -1,19 +1,31 @@
 import { coreUpdateProgressPrinter } from "../cli-output.js";
 import { ensureRunning, restartRuntime, stopCoreRuntime, stopRuntime } from "../daemon-session.js";
 import { log } from "../log.js";
-import { type RuntimeContext, runtimeContext } from "./shared.js";
+import { installCoreUpdateInterrupt, type RuntimeContext, runtimeContext } from "./shared.js";
 
 export async function runStart(): Promise<void> {
   const ctx = runtimeContext();
-  const { owner, result } = await ensureRunning(ctx, {
-    onCoreUpdateProgress: coreUpdateProgressPrinter(),
-  });
-  const version = result.version ? ` (${result.version})` : "";
-  const core = `Core ${result.alreadyRunning === true ? "already running" : "running"}${version}`;
-  log.ok(
-    result.alreadyRunning === true ? `Sash already running · ${core}` : `Sash started · ${core}`,
-  );
-  printEndpoints(ctx, owner.daemon.port, result.mixedPort);
+  const interrupt = installCoreUpdateInterrupt(ctx);
+  const printer = coreUpdateProgressPrinter();
+  try {
+    const { owner, result } = await ensureRunning(ctx, {
+      onCoreUpdateProgress: printer,
+      signal: interrupt.signal,
+    });
+    const version = result.version ? ` (${result.version})` : "";
+    const core = `Core ${result.alreadyRunning === true ? "already running" : "running"}${version}`;
+    log.ok(
+      result.alreadyRunning === true ? `Sash already running · ${core}` : `Sash started · ${core}`,
+    );
+    printEndpoints(ctx, owner.daemon.port, result.mixedPort);
+  } catch (error) {
+    if (!interrupt.triggered) throw error;
+    if (interrupt.cancelledDownload) log.info("Core download cancelled");
+  } finally {
+    interrupt.restore();
+    printer.settle();
+    if (interrupt.triggered) process.exitCode = 130;
+  }
 }
 export async function runStop(options: { core?: boolean } = {}): Promise<void> {
   if (options.core) {
@@ -37,13 +49,22 @@ export async function runStop(options: { core?: boolean } = {}): Promise<void> {
 }
 export async function runRestart(): Promise<void> {
   const ctx = runtimeContext();
-  const { owner, result } = await restartRuntime(ctx);
-  log.ok(
-    result.alreadyRunning === true
-      ? "Configuration applied · existing connections kept"
-      : "Configuration applied · Core restarted; active connections dropped",
-  );
-  printEndpoints(ctx, owner.daemon.port, result.mixedPort);
+  const interrupt = installCoreUpdateInterrupt(ctx);
+  try {
+    const { owner, result } = await restartRuntime(ctx, { signal: interrupt.signal });
+    log.ok(
+      result.alreadyRunning === true
+        ? "Configuration applied · existing connections kept"
+        : "Configuration applied · Core restarted; active connections dropped",
+    );
+    printEndpoints(ctx, owner.daemon.port, result.mixedPort);
+  } catch (error) {
+    if (!interrupt.triggered) throw error;
+    if (interrupt.cancelledDownload) log.info("Core download cancelled");
+  } finally {
+    interrupt.restore();
+    if (interrupt.triggered) process.exitCode = 130;
+  }
 }
 function printEndpoints(
   ctx: RuntimeContext,

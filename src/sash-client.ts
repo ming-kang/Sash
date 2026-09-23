@@ -99,6 +99,13 @@ export const browserFetch: SashClientFetch = async (url, init) => {
 };
 
 const CORE_OPERATION_TIMEOUT_MS = 20 * 60_000;
+/**
+ * An update downloads, verifies, validates and reinstalls the Core, so its
+ * request must outlive the daemon-side budgets: a 15 minute download shared by
+ * every mirror, plus configuration validation that may fetch geodata through
+ * several mirrors before the binary is swapped.
+ */
+const CORE_UPDATE_TIMEOUT_MS = 45 * 60_000;
 
 export class SashClient {
   private readonly baseUrl: string;
@@ -247,10 +254,11 @@ export class SashClient {
 
   /* ---- core lifecycle ---- */
 
-  async startCore(): Promise<CoreStartResult> {
+  async startCore(opts: { signal?: AbortSignal } = {}): Promise<CoreStartResult> {
     return this.request<CoreStartResult>("/sash/core/start", {
       method: "POST",
-      timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+      timeoutMs: CORE_UPDATE_TIMEOUT_MS,
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
   }
 
@@ -258,19 +266,29 @@ export class SashClient {
     await this.request("/sash/core/stop", { method: "POST", timeoutMs: 30_000 });
   }
 
-  async restartCore(): Promise<CoreStartResult> {
+  async restartCore(opts: { signal?: AbortSignal } = {}): Promise<CoreStartResult> {
     return this.request<CoreStartResult>("/sash/core/restart", {
       method: "POST",
       timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
   }
 
-  async updateCore(version?: string): Promise<CoreUpdateResponse> {
+  async updateCore(
+    version?: string,
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<CoreUpdateResponse> {
     return this.request<CoreUpdateResponse>("/sash/core/update", {
       method: "POST",
       body: version ? { version } : {},
-      timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+      timeoutMs: CORE_UPDATE_TIMEOUT_MS,
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
+  }
+
+  /** Cancel an in-flight Core download; the daemon answers 409 when none runs. */
+  async cancelCoreUpdate(): Promise<void> {
+    await this.request("/sash/core/update", { method: "DELETE", timeoutMs: 10_000, attempts: 1 });
   }
 
   async coreUpdateProgress(): Promise<CoreUpdateProgress | null> {

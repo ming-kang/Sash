@@ -44,7 +44,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         proxy = @('--json')
         mode = @('--json')
         logs = @('-n', '--lines', '-f', '--follow', '--errors', '--daemon', '--startup')
-        update = @('--check', '--json')
+        update = @('--check', '--cancel', '--json')
         upgrade = @('--check', '--json')
         web = @('--no-open')
     }
@@ -65,6 +65,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         '--daemon' = 'Read Sash logs'
         '--startup' = 'Read login startup diagnostics'
         '--check' = 'Check the release without installing or starting Sash'
+        '--cancel' = 'Cancel the Core download in progress'
         '--no-open' = 'Print the dashboard address without opening a browser'
     }
     $aliases = @{ '-v' = '--version'; '-h' = '--help'; '-n' = '--lines'; '-f' = '--follow' }

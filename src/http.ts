@@ -1,13 +1,14 @@
 import type { Dispatcher } from "undici";
-import { Agent, EnvHttpProxyAgent, request } from "undici";
+import { Agent, EnvHttpProxyAgent, ProxyAgent, request } from "undici";
 
 /**
  * HTTP helpers built on undici.
  *
- * Remote requests honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY.
- * Loopback external-controller requests use a direct Agent so proxy environment
- * variables cannot intercept them. Redirects are never followed implicitly:
- * every caller receives 3xx responses and handles each hop itself.
+ * Remote requests honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY, or
+ * one explicitly requested proxy URI. Loopback external-controller requests
+ * use a direct Agent so proxy environment variables cannot intercept them.
+ * Redirects are never followed implicitly: every caller receives 3xx
+ * responses and handles each hop itself.
  */
 
 export const USER_AGENT = "sash-cli (https://github.com/ming-kang/Sash)";
@@ -15,6 +16,7 @@ export const ERROR_BODY_LIMIT = 32 * 1024;
 
 let baseProxyDispatcher: Dispatcher | undefined;
 let baseDirectDispatcher: Dispatcher | undefined;
+const uriProxyDispatchers = new Map<string, Dispatcher>();
 
 function getBaseProxyDispatcher(): Dispatcher {
   if (!baseProxyDispatcher) {
@@ -56,8 +58,54 @@ export function directDispatcherForLoopback(): Dispatcher {
   return getBaseDirectDispatcher();
 }
 
-function pickDispatcher(opts: { direct?: boolean }): Dispatcher {
-  return opts.direct ? getBaseDirectDispatcher() : getBaseProxyDispatcher();
+/**
+ * Dispatcher for one explicit proxy URI, cached per URI. Used for verified
+ * GitHub traffic that should leave through a known proxy — currently Sash's
+ * own Core port — instead of whatever the environment happens to say.
+ */
+export function proxyDispatcherFor(uri: string): Dispatcher {
+  const cached = uriProxyDispatchers.get(uri);
+  if (cached) return cached;
+  const dispatcher = new ProxyAgent({ uri, allowH2: false });
+  uriProxyDispatchers.set(uri, dispatcher);
+  return dispatcher;
+}
+
+/**
+ * The proxy the environment asks for, in the precedence the shared dispatcher
+ * uses. Callers compare it against their own preference to decide whether the
+ * environment already decided the transport.
+ */
+export function envProxyUri(): string | undefined {
+  for (const key of [
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+  ]) {
+    const value = process.env[key]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+/**
+ * The proxy a verified GitHub request leaves through. Direct downloads and
+ * mirror fallbacks report no transport.
+ */
+export interface DownloadTransport {
+  uri: string;
+  /** "environment" for a proxy variable, "core" for Sash's own Core port. */
+  source: "environment" | "core";
+}
+
+function pickDispatcher(opts: { direct?: boolean; proxyUri?: string }): Dispatcher {
+  // Loopback traffic never leaves through a proxy, whatever else is set.
+  if (opts.direct) return getBaseDirectDispatcher();
+  if (opts.proxyUri) return proxyDispatcherFor(opts.proxyUri);
+  return getBaseProxyDispatcher();
 }
 
 export function isLoopbackHost(host: string): boolean {
@@ -226,6 +274,8 @@ export interface FetchOptions {
   headers?: Record<string, string>;
   /** Use the direct (non-proxy) dispatcher. Reserved for loopback API calls. */
   direct?: boolean;
+  /** Route through this proxy instead of the environment proxy. */
+  proxyUri?: string;
   /**
    * When set, a loopback proxy refusal warns through this listener and the
    * request retries once without the proxy. Omit it for URLs that must never

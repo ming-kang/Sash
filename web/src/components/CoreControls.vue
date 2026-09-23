@@ -20,7 +20,18 @@
       <Icon name="power" :size="13" :class="{ spin: stopping }" />
       <span>{{ t('settings.stopBtn') }}</span>
     </button>
-    <span v-if="coreUpdateText" class="core-update-progress">{{ coreUpdateText }}</span>
+    <span v-if="coreUpdateText" class="core-update-progress">
+      {{ coreUpdateText }}
+      <button
+        v-if="store.status?.coreUpdate"
+        type="button"
+        class="btn btn-danger-outline btn-sm"
+        :disabled="cancellingUpdate"
+        @click="cancelCoreUpdate"
+      >
+        {{ t("settings.cancelUpdateBtn") }}
+      </button>
+    </span>
   </div>
 </template>
 
@@ -31,7 +42,8 @@ import { store } from "../stores/index.js";
 import Icon from "./Icon.vue";
 
 defineProps<{ applyOnly?: boolean }>();
-const { restarting, stopping, restartCore, stopCore } = useCoreControl();
+const { restarting, stopping, cancellingUpdate, restartCore, stopCore, cancelCoreUpdate } =
+  useCoreControl();
 </script>
 
 <style scoped>
@@ -46,5 +58,10 @@ const { restarting, stopping, restartCore, stopCore } = useCoreControl();
   flex-basis: 100%;
   font-size: 12px;
   opacity: 0.75;
+}
+
+.core-update-progress button {
+  margin-left: 8px;
+  vertical-align: middle;
 }
 </style>

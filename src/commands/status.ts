@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { cliOutputSignal } from "../cli-output.js";
 import { validateDelayTarget } from "../core-delay.js";
+import { coreUpdateProgressText } from "../core-update.js";
 import { errorMessage } from "../error-utils.js";
 import { log } from "../log.js";
 import { readSashPackageInfo } from "../package-info.js";
@@ -94,6 +95,10 @@ export async function runStatus(
       ? `${status.activeProfile.name} (${status.activeProfile.url ? "subscription" : "local file"})`
       : "none selected — using the built-in configuration",
   );
+  // Only present while the daemon stages or installs a Core binary; the line
+  // answers "why is my update not finishing" from any terminal.
+  if (status.coreUpdate) log.kv("core download", coreUpdateProgressText(status.coreUpdate));
+  if (status.downloadProxy) log.kv("download proxy", status.downloadProxy);
   log.kv("proxy port", status.endpoints.mixedProxy);
   log.kv(
     "system proxy",

@@ -57,6 +57,7 @@ export async function resolveLatestTag(
   repo: string,
   signal?: AbortSignal,
   onProxyFallback?: ProxyFallbackListener,
+  proxyUri?: string,
 ): Promise<string> {
   // Resolve the release identity only from GitHub itself. Mirrors remain byte
   // transports and cannot choose or downgrade the version being installed.
@@ -67,6 +68,7 @@ export async function resolveLatestTag(
       attempts: 2,
       deadlineMs: 15_000,
       onProxyFallback,
+      ...(proxyUri !== undefined ? { proxyUri } : {}),
     });
     if (res.statusCode >= 300 && res.statusCode < 400) {
       const location = res.headers.location;
@@ -99,6 +101,7 @@ export async function resolveLatestTag(
     attempts: 2,
     deadlineMs: 15_000,
     onProxyFallback,
+    ...(proxyUri !== undefined ? { proxyUri } : {}),
   });
   if (res.statusCode !== 200) {
     await readErrorSummary(res);
@@ -129,6 +132,7 @@ export async function listReleaseAssets(
   tag: string,
   signal?: AbortSignal,
   onProxyFallback?: ProxyFallbackListener,
+  proxyUri?: string,
 ): Promise<ReleaseAsset[]> {
   const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`;
   const res = await fetchWithRetry(apiUrl, {
@@ -140,6 +144,7 @@ export async function listReleaseAssets(
     attempts: 2,
     deadlineMs: 15_000,
     onProxyFallback,
+    ...(proxyUri !== undefined ? { proxyUri } : {}),
   });
   if (res.statusCode !== 200) {
     await readErrorSummary(res);
@@ -194,6 +199,8 @@ export interface DownloadOptions {
   tag: string;
   /** Absolute budget shared by all mirror attempts. Default 15 minutes. */
   deadlineMs?: number;
+  /** Route through this proxy instead of the environment proxy. */
+  proxyUri?: string;
   assets: ReleaseAsset[];
   candidates: string[];
   dest: string;
@@ -246,6 +253,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
         allowedHosts: GITHUB_DOWNLOAD_HOSTS,
         maxBytes: RELEASE_ASSET_SIZE_LIMIT,
         requireHttps: true,
+        ...(opts.proxyUri !== undefined ? { proxyUri: opts.proxyUri } : {}),
         onProgress: (downloaded) => {
           reportedBytes = Math.max(reportedBytes, Math.min(downloaded, chosen.size));
           opts.onProgress?.(reportedBytes, chosen.size);

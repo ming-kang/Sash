@@ -219,6 +219,7 @@ export const en: Messages = {
     applyBtn: "Apply configuration",
     startBtn: "Start Core",
     stopBtn: "Stop Core",
+    cancelUpdateBtn: "Cancel download",
     stopConfirmTitle: "Stop Core",
     stopConfirmMsg:
       "Proxying stops immediately, active connections drop, and the system proxy setting is restored. Stop the Core?",
@@ -261,6 +262,7 @@ export const en: Messages = {
     settingSaved: "Setting saved",
     settingSavedUnverified: "Saved, but Sash could not confirm the running state yet",
     coreRestarted: "Configuration applied",
+    coreUpdateCancelled: "Core download cancelled",
     coreStopped: "Core stopped; previous system proxy state restored",
     connAllClosed: "All connections closed",
     langSwitched: "Language switched",

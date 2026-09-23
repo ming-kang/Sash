@@ -9,6 +9,7 @@ import {
   type ProxyFallbackListener,
   positiveTimeout,
   proxyAwareDispatcher,
+  proxyDispatcherFor,
   retryDirectOnLoopbackRefusal,
   USER_AGENT,
 } from "./http.js";
@@ -36,6 +37,8 @@ export interface DownloadOptions {
   onProgress?: DownloadProgress;
   headers?: Record<string, string>;
   requireHttps?: boolean;
+  /** Route through this proxy instead of the environment proxy. */
+  proxyUri?: string;
   /** Every initial and redirected download host must be in this set. */
   allowedHosts: ReadonlySet<string>;
   /** Expected SHA-256 digest of the bytes, checked as they stream. */
@@ -169,7 +172,9 @@ export async function downloadToFile(
   };
 
   try {
-    return await attempt(proxyAwareDispatcher());
+    return await attempt(
+      opts.proxyUri ? proxyDispatcherFor(opts.proxyUri) : proxyAwareDispatcher(),
+    );
   } catch (err) {
     return retryDirectOnLoopbackRefusal(
       err,

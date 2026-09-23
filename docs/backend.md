@@ -65,6 +65,10 @@ Core updates download an unmodified release artifact selected by official GitHub
 
 On x64, staging tries available builds in preference order and runs each with `-v` to find one the processor supports; ARM64 uses its native build. Configuration validation finishes before the queued binary replacement.
 
+Release metadata and asset downloads choose one transport per operation: an inherited proxy variable (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) when Sash started with one, otherwise Sash's own Core port while a Core runs, otherwise direct with the mirror list. The choice is reported in status as `downloadTransport` and applied to release lookups, the archive and geodata seeding alike. A loopback refusal warns once and retries directly; the digest still comes from the release API, so a mirror or proxy transport cannot change what is installed.
+
+An update can be cancelled while it prepares: `DELETE /sash/core/update` aborts the in-flight operation, discards the staged files and admits the next update immediately, while any other client disconnect leaves the download running. Only the operation that still owns the observable progress may clear it, so a cancelled operation cannot blank its successor's state.
+
 [core-update.ts](../src/core-update.ts) records replacement progress in `state/core-update-transaction.json` and keeps the previous executable as `.bak` through the health check. Failure restores the binary, install record and prior running state; startup recovers interrupted replacements. An update requested while Core is stopped starts it briefly for verification, then stops it again.
 
 Sash package upgrades use [self-upgrade.ts](../src/self-upgrade.ts). npm installs one exact version **while Sash keeps running**, then Sash restarts to load it. npm owns package integrity; a failed install leaves the running instance available. Commands and supported installations are covered in [Updates](./usage.md#updates).
@@ -79,7 +83,7 @@ The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) lists ev
 | `/sash/events` | Authenticated status stream (SSE) |
 | `/sash/daemon/shutdown` | Full shutdown |
 | `/sash/settings`, `/sash/profiles`, `/sash/profiles/*` | Saved settings, profile content and selection |
-| `/sash/core/*` | Start, Apply, stop, update, mode and delay tests |
+| `/sash/core/*` | Start, Apply, stop, update (POST start, GET progress, DELETE cancel), mode and delay tests |
 | `/sash/proxy`, `/sash/autostart` | Windows integration |
 | `/sash/web/*` | Browser authorization and session handoff |
 | `/core/api/*` | Authenticated Core queries, node selection, connection deletion and WebSocket streams |

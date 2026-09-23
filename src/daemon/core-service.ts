@@ -23,7 +23,7 @@ import {
 } from "../core-update.js";
 import { errorMessage } from "../error-utils.js";
 import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
-import { formatProxyFallbackWarning } from "../http.js";
+import { type DownloadTransport, envProxyUri, formatProxyFallbackWarning } from "../http.js";
 import { GEOX_MIRROR_SETS, type GeneratedConfig, withGeodataMirrors } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
 import { renderActiveConfig } from "../profile-service.js";
@@ -48,8 +48,14 @@ export interface CoreControlServiceOptions {
     signal: AbortSignal,
   ) => Promise<void> | void;
   stageCoreFn?: typeof stageCore;
-  seedGeodataFn?: (file: string, options: { signal: AbortSignal }) => Promise<GeodataSeedResult>;
+  seedGeodataFn?: (
+    file: string,
+    options: { signal: AbortSignal; proxyUri?: string },
+  ) => Promise<GeodataSeedResult>;
 }
+
+/** Progress is observable live; a quarter second is far below what a reader follows. */
+const PROGRESS_NOTIFY_INTERVAL_MS = 250;
 
 /**
  * Orchestrates Core preparation, validation, updates and lifecycle changes.
@@ -60,6 +66,10 @@ export class CoreControlService {
   private downloading = false;
   private progressValue: CoreUpdateProgress | null = null;
   private preparation = new AbortController();
+  /** Identifies the running operation so a cancelled one cannot clear its successor. */
+  private operation: { readonly id: number } | null = null;
+  private nextOperationId = 0;
+  private lastProgressNotify = 0;
 
   constructor(private readonly options: CoreControlServiceOptions) {}
 
@@ -72,9 +82,58 @@ export class CoreControlService {
     return this.downloading;
   }
 
+  /**
+   * Transport for verified GitHub traffic. An explicit proxy environment
+   * variable always wins: it is deliberate configuration. Otherwise a running
+   * Core serves as the proxy — faster than a direct GitHub connection on most
+   * networks, and independent of the environment this daemon happened to
+   * start with. Without either, downloads go direct and fall back to mirrors.
+   */
+  downloadTransport(): DownloadTransport | null {
+    const environment = envProxyUri();
+    if (environment) return { uri: environment, source: "environment" };
+    if (!this.options.supervisor.isRunning()) return null;
+    return {
+      uri: `http://127.0.0.1:${this.options.lifecycle.settings().mixedPort}`,
+      source: "core",
+    };
+  }
+
   cancelPreparation(): void {
-    this.preparation.abort(new StateConflictError("Core operation cancelled"));
+    this.preparation.abort(new StateConflictError("Core download cancelled"));
     this.preparation = new AbortController();
+  }
+
+  /**
+   * Abandon an in-flight update: the staged download is discarded, the
+   * interrupted command reports the cancellation, and a new update may start
+   * immediately. Cancelling nothing is a conflict.
+   */
+  cancel(): void {
+    if (!this.downloading) throw new StateConflictError("No Core download is in progress");
+    this.cancelPreparation();
+    this.clearOperation();
+    this.options.onProgress();
+  }
+
+  /** Drop the operation's observable state without waiting for it to unwind. */
+  private clearOperation(): void {
+    this.downloading = false;
+    this.progressValue = null;
+    this.operation = null;
+  }
+
+  /**
+   * Progress arrives once per network chunk, while observers only need a
+   * live-enough view: notifications collapse into a bounded rate instead of
+   * one full status read and broadcast per chunk. Stage and note changes are
+   * rare and always published.
+   */
+  private publishProgress(immediate = false): void {
+    const now = Date.now();
+    if (!immediate && now - this.lastProgressNotify < PROGRESS_NOTIFY_INTERVAL_MS) return;
+    this.lastProgressNotify = now;
+    this.options.onProgress();
   }
 
   private validate(
@@ -106,10 +165,11 @@ export class CoreControlService {
     configuration: RuntimeConfiguration,
     executable: string,
     signal: AbortSignal,
+    proxyUri?: string,
   ): Promise<RuntimeConfiguration> {
     const seedGeodata =
       this.options.seedGeodataFn ??
-      ((file: string, options: { signal: AbortSignal }) =>
+      ((file: string, options: { signal: AbortSignal; proxyUri?: string }) =>
         seedGeodataFile(file, this.options.layout, options));
     try {
       await this.validate(configuration.generated, executable, signal);
@@ -151,7 +211,10 @@ export class CoreControlService {
         if (!file || seeded.has(file)) break;
         seeded.add(file);
         try {
-          const result = await seedGeodata(file, { signal });
+          const result = await seedGeodata(file, {
+            signal,
+            ...(proxyUri !== undefined ? { proxyUri } : {}),
+          });
           console.warn(
             `[sashd] installed verified geodata file ${result.file}${result.source === "pinned" ? " from the packaged bootstrap manifest" : ""}`,
           );
@@ -195,10 +258,20 @@ export class CoreControlService {
   async update(version?: string, startAfterInstall = false): Promise<CoreUpdateResult> {
     const { layout, state, supervisor, lifecycle } = this.options;
     this.options.assertMutable();
-    if (this.downloading) throw new StateConflictError("A Core download is already in progress");
+    if (this.downloading)
+      throw new StateConflictError(
+        "A Core download is already in progress — wait for it to finish, or cancel it with sash update --cancel",
+      );
     this.requireRecoveredInstall();
     const { signal } = this.preparation;
+    this.nextOperationId += 1;
+    const operation = { id: this.nextOperationId };
+    this.operation = operation;
     this.downloading = true;
+    // Chosen once: the transport must not change between metadata, archive and
+    // geodata fetches inside one operation.
+    const transport = this.downloadTransport();
+    const proxyUri = transport?.uri;
     const progress: CoreUpdateProgress = {
       stage: "checking",
       startedAt: new Date().toISOString(),
@@ -213,7 +286,7 @@ export class CoreControlService {
       progress.stage = stage;
       progress.downloading = stage === "downloading";
       if (target) progress.target = target;
-      this.options.onProgress();
+      this.publishProgress(true);
     };
     let staged: StagedCore | undefined;
     try {
@@ -230,16 +303,19 @@ export class CoreControlService {
         layout,
         tag: version,
         signal,
+        ...(proxyUri !== undefined ? { proxyUri } : {}),
         onStage: setStage,
         onProgress: (downloaded, total) => {
+          // A cancelled or superseded operation never republishes its bytes.
+          if (this.progressValue !== progress) return;
           progress.downloaded = downloaded;
           progress.total = total ?? null;
-          this.options.onProgress();
+          this.publishProgress();
         },
         onProxyFallback: (info) => {
           const warning = formatProxyFallbackWarning(info);
           progress.note = warning;
-          this.options.onProgress();
+          this.publishProgress(true);
           console.warn(`[sashd] ${warning}`);
         },
       });
@@ -248,10 +324,15 @@ export class CoreControlService {
       if (staged.source === "pinned") {
         const note = `pinned offline Core ${staged.version} — run sash update when GitHub is reachable`;
         progress.note = note;
-        this.options.onProgress();
+        this.publishProgress(true);
         console.warn(`[sashd] ${note}`);
       }
-      const validated = await this.validateConfiguration(configuration, staged.exe, signal);
+      const validated = await this.validateConfiguration(
+        configuration,
+        staged.exe,
+        signal,
+        proxyUri,
+      );
       const candidate = staged;
       setStage("waiting");
       return await this.options.commit(async () => {
@@ -266,9 +347,12 @@ export class CoreControlService {
       signal.throwIfAborted();
       throw error;
     } finally {
-      this.downloading = false;
-      this.progressValue = null;
-      this.options.onProgress();
+      // Only the operation still owning the observable state may clear it; a
+      // cancelled predecessor unwinds after its successor already started.
+      if (this.operation === operation) {
+        this.clearOperation();
+        this.options.onProgress();
+      }
       if (staged) {
         fs.rmSync(staged.exe, { force: true });
         try {
@@ -288,6 +372,8 @@ export class CoreControlService {
     this.requireRecoveredInstall();
     signal.throwIfAborted();
     const installedNow = !coreInstalled(layout);
+    // Geodata seeding during validation uses the same transport as a download.
+    const proxyUri = this.downloadTransport()?.uri;
     if (installedNow) await this.update(undefined, true);
     return this.options.commit(async () => {
       signal.throwIfAborted();
@@ -304,7 +390,12 @@ export class CoreControlService {
       }
       if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
       const configuration = this.savedConfiguration();
-      const validated = await this.validateConfiguration(configuration, layout.coreExe, signal);
+      const validated = await this.validateConfiguration(
+        configuration,
+        layout.coreExe,
+        signal,
+        proxyUri,
+      );
       signal.throwIfAborted();
       // A reload keeps established connections; a listener-level difference
       // (ports, LAN binding) still needs the restart below.

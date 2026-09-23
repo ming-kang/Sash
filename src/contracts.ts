@@ -1,4 +1,5 @@
 import type { CoreUpdateProgress } from "./core-update.js";
+import type { DownloadTransport } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
 import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { PublicSashSettings } from "./settings.js";
@@ -107,6 +108,8 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
 }
 export interface DaemonStatus {
   coreUpdate?: CoreUpdateProgress | null;
+  /** How verified Core downloads leave this daemon; null means direct with mirror fallback. */
+  downloadTransport?: DownloadTransport | null;
   daemon: { pid: number; bootId: string; startedAt: string; port: number; version: string };
   revisions: { state: number; runtime: number };
   core: CoreState;

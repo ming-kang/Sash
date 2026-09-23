@@ -22,6 +22,7 @@ it("keeps a Core update alive through a progress read failure and stops polling 
   const finished = deferred();
   let calls = 0;
   let updates = 0;
+  const printer = { onProgress: () => finished.resolve(), settle: () => undefined };
   const result = await updateCoreWithProgress(
     {
       updateCore: async (version) => {
@@ -37,7 +38,7 @@ it("keeps a Core update alive through a progress read failure and stops polling 
       },
     },
     "v2.0.0",
-    () => finished.resolve(),
+    printer,
   );
   assert.deepEqual(result, { version: "v2.0.0" });
   assert.equal(updates, 1);
@@ -95,7 +96,7 @@ it("never polls when progress is not requested and preserves update failures", a
         },
       },
       undefined,
-      () => {},
+      { onProgress: () => undefined, settle: () => undefined },
     ),
     /install failed/,
   );

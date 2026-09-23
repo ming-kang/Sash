@@ -96,6 +96,12 @@ export function sashApiRoutes(): readonly RouteDef[] {
       auth: "control",
       handler: coreUpdateProgress,
     },
+    {
+      methods: ["DELETE"],
+      pattern: routePath("/sash/core/update"),
+      auth: "control",
+      handler: cancelCoreUpdate,
+    },
     { methods: ["GET"], pattern: routePath("/sash/proxy"), auth: "public", handler: proxyStatus },
     {
       methods: ["GET"],
@@ -225,6 +231,11 @@ export async function restartCore(ctx: DaemonContext): Promise<RouteResponse> {
 }
 export function coreUpdateProgress(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: ctx.core.progress };
+}
+/** Abandon an in-flight Core download; a conflict reports that none is running. */
+export async function cancelCoreUpdate(ctx: DaemonContext): Promise<RouteResponse> {
+  ctx.core.cancel();
+  return { status: 204 };
 }
 export async function updateCore(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
   const body = await req.readJson(1024);

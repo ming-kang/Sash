@@ -25,7 +25,7 @@ Run `sash <command> --help` for all options. Bare `sash` reads status once.
 | `sash web [--no-open]` | Open and authorize the dashboard; `--no-open` only prints its address |
 | `sash status [--json] [--watch] [--delay NAME]` | Inspect Sash; follow changes or test one outbound |
 | `sash doctor [--json]` | Check installation, files, ports and Windows integration |
-| `sash update [tag] [--check] [--json]` | Install or check a Core release |
+| `sash update [tag] [--check] [--cancel] [--json]` | Install, check or cancel a Core release download |
 | `sash upgrade [version] [--check] [--no-restart] [--json]` | Update the Sash package through npm |
 | `sash proxy [on\|off\|status] [--json]` | Set or inspect the Windows system proxy |
 | `sash mode rule\|global\|direct [--json]` | Change the running Core's routing mode |
@@ -125,9 +125,20 @@ Use the profile editor for source changes; Sash generates `runtime/config.yaml` 
 sash update --check         # inspect release metadata
 sash update                # install the latest Core release
 sash update v1.19.30        # install an exact release tag
+sash update --cancel        # abandon a download that is already running
 ```
 
 Sash selects an official build that runs on the processor, verifies its download and keeps the previous binary until the new Core passes a health check; failure restores the executable and install record. Updates preserve whether Core was running — an update while stopped starts Core briefly for verification, then stops it. The dashboard stays available throughout. `--check` reads metadata without starting Sash or Core; `--json` prints one result instead of progress text.
+
+The download belongs to Sash, not to the command that asked for it, so closing the terminal leaves it running and `sash status` reports its stage and size. Ctrl+C during `sash update`, `sash start` or `sash restart` cancels the download and exits with code 130; a second Ctrl+C leaves immediately. `sash update --cancel` does the same from another terminal, and the dashboard shows a cancel button beside the progress. Only one download runs at a time: a second `sash update` reports the conflict and names the cancel command.
+
+Downloads leave through the first of these that applies:
+
+1. A proxy variable Sash inherited at startup (`HTTP_PROXY`, `HTTPS_PROXY` or `ALL_PROXY`).
+2. Sash's own Core, when it is running — the usual fast path, and the reason a variable set after Sash started still takes effect.
+3. A direct connection to GitHub, then the release mirrors (`ghfast.top`, `gh-proxy.com`).
+
+Sash reads the proxy variables once, when it starts. A variable set in a later terminal reaches `sash update --check` and `sash doctor`, which run in that terminal, but not the download itself — which is why a running Core is preferred over them. Pointing a proxy variable at Sash's own proxy port works while Core runs; when Core is stopped, Sash warns that the port refused the connection and retries directly once. `sash status` prints the transport in use on the `download proxy` line.
 
 `SASH_CORE_VERSION` pins the release tag (for example `v1.19.30`) and skips the latest-release lookup; asset metadata and its SHA-256 digest still come from the release API, so verification is unchanged. When the release API is unreachable, Sash falls back to the bootstrap manifest packaged with this release, which recorded the pinned tag's metadata and digests at publish time. A pin for any other tag still needs the release API.
 
@@ -173,7 +184,7 @@ sash status --delay "Proxy Group" --watch --json
 
 Use an exact node or group name. Core requests `https://www.gstatic.com/generate_204` with a five-second timeout; a group tests its selected outbound. Watch mode repeats 30 seconds after each result. Tests keep the current node, mode and saved configuration unchanged.
 
-JSON formats: `status --json` is `schemaVersion: 2` with runtime, endpoints, profile, proxy, startup, `complete` and `healthy` (unknown observations are `null`); `--delay` adds `delay: {name, url, timeoutMs, testedAt, state, delayMs, error}`. `doctor --json` is `schemaVersion: 1` with `healthy`, `complete` and named `checks` carrying status and advice.
+JSON formats: `status --json` is `schemaVersion: 2` with runtime, endpoints, profile, proxy, startup, `complete` and `healthy` (unknown observations are `null`); `--delay` adds `delay: {name, url, timeoutMs, testedAt, state, delayMs, error}`. A Core download in progress adds `coreUpdate: {stage, startedAt, target, downloading, downloaded, total, note}`, and a reachable Sash adds `downloadProxy` describing the transport. `doctor --json` is `schemaVersion: 1` with `healthy`, `complete` and named `checks` carrying status and advice.
 
 Delay states are `pending`, `ok`, `timeout`, `failed`, `not_found` and `unavailable`. A failed or unavailable requested test sets `complete: false` and exit code `2`; `healthy` still describes Sash/Core health. Doctor check statuses are `ok`, `info`, `warning` and `error`.
 
@@ -182,6 +193,7 @@ Delay states are `pending`, `ok`, `timeout`, `failed`, `not_found` and `unavaila
 | `0` | Success or complete observation, including a known stopped state |
 | `1` | Command failure or a definite diagnostic fault |
 | `2` | Incomplete observation without a definite diagnostic fault |
+| `130` | Interrupted: a Core download was cancelled by Ctrl+C |
 
 | Problem | Next step |
 | --- | --- |
@@ -191,6 +203,7 @@ Delay states are `pending`, `ok`, `timeout`, `failed`, `not_found` and `unavaila
 | Proxy restoration blocked | Inspect Windows proxy/PAC settings and keep `state/system-proxy.json` for recovery |
 | Sash cannot confirm a process | Inspect `sash logs --daemon --errors` and run `sash doctor` |
 | Interrupted Core update | Restart Sash to run recovery; preserve backup files if recovery reports an error |
+| Core download in progress | `sash status` shows its stage; `sash update --cancel` or Ctrl+C abandons it |
 | Interrupted Sash upgrade | Finish `npm install -g @astralyn/sash@<version>` while the running instance stays available, then restart it |
 | Login startup failed | Read `sash auto status` and `sash logs --startup`; repair with `sash auto on` |
 | Shutdown failed | Resolve the reported proxy/Core problem and retry `sash stop` |
