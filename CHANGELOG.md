@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-23
+
+### Added
+
+- `sash update --cancel` abandons a Core download that is already running, and Ctrl+C during `sash update`, `sash start` or `sash restart` cancels that download instead of only killing the command. The download belongs to Sash, so it used to survive the command that started it with no way to stop it short of `sash stop`: a second `sash update` reported "A Core download is already in progress" and nothing else could intervene. Any other disconnect still detaches and leaves the download running. `sash status` now shows the live stage and size of an in-flight download, and the dashboard shows a cancel button beside it.
+
+### Changed
+
+- Core downloads and release-metadata lookups now leave through Sash's own Core when it is running, and only then fall back to a direct GitHub connection and the release mirrors. An explicit `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` still wins when Sash inherited one. Downloads run in Sash rather than in the command that asked for them, so a proxy variable set after Sash started never reached them; routing through the running Core removes that dependency and is usually the faster path. `sash status` reports which transport is in use, and a loopback refusal still warns and retries directly once.
+- The Core update request budget is now 45 minutes, comfortably above the daemon-side download, mirror and validation budgets, so the command no longer reports a deadline for work Sash is still doing.
+- Core update progress redraws one line in place on a terminal instead of printing a line per half-second sample, and the daemon no longer broadcasts a full status read per downloaded chunk (~16 per second with the dashboard open).
+
 ## [0.2.13] - 2026-09-23
 
 ### Added
