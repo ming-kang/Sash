@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-26
+
+### Fixed
+
+- A Core update no longer downloads a release that is already installed. `sash update` resolved the release and downloaded it without comparing it to the installed version, so running it on the current release stopped the proxy and replaced the binary with the same bytes, and `sash update vX` on the installed tag did the same. The daemon compares the resolved release tag with the installed version first and reports `Core vX is up to date` instead; `sash update --check` and the dashboard behave as before.
+- The dashboard's Core controls no longer jump left while a download runs. The progress row told its flex container to take the full width, so the container grew past the button row and left the buttons and the cancel button left-aligned in a block wider than either row. Every row of the controls now keeps the header's right edge, so the buttons stay where they are and the progress row and cancel button line up with them.
+
 ## [0.3.2] - 2026-09-26
 
 ### Fixed
