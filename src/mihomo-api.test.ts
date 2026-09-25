@@ -181,6 +181,42 @@ describe("MihomoApi", () => {
     }
   });
 
+  it("waits out a reload that blocks on provider loading, past the default API budget", async () => {
+    // The Core answers a reload only once every provider has loaded, which on a
+    // slow or blocked provider takes far longer than an ordinary API call.
+    const reloadMs = 8_000;
+    const server = http.createServer((req, res) => {
+      if (req.method === "PUT" && req.url === "/configs") {
+        req.resume();
+        req.on("end", () => {
+          setTimeout(() => {
+            res.writeHead(204);
+            res.end();
+          }, reloadMs);
+        });
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+
+    try {
+      const api = new MihomoApi(`127.0.0.1:${port}`, "");
+      const started = Date.now();
+      await api.reloadConfig("/sash/runtime/config.yaml");
+      assert.ok(
+        Date.now() - started >= reloadMs,
+        "the reload gave up before the Core finished applying it",
+      );
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("rejects successful responses without a version string", async () => {
     const server = http.createServer((_req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" });

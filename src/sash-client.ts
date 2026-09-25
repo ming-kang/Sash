@@ -98,14 +98,41 @@ export const browserFetch: SashClientFetch = async (url, init) => {
   return { status: response.status, text: () => response.text() };
 };
 
-const CORE_OPERATION_TIMEOUT_MS = 20 * 60_000;
 /**
  * An update downloads, verifies, validates and reinstalls the Core, so its
  * request must outlive the daemon-side budgets: a 15 minute download shared by
  * every mirror, plus configuration validation that may fetch geodata through
- * several mirrors before the binary is swapped.
+ * several mirrors before the binary is swapped. A start and a restart run the
+ * same preparation path — installing, seeding geodata and validating — so all
+ * three share this budget.
  */
 const CORE_UPDATE_TIMEOUT_MS = 45 * 60_000;
+
+/**
+ * A profile change is applied by the daemon, not by this client: the mutation
+ * queue serializes every change, and a change that alters the core config then
+ * validates it (one configuration test plus a retry per geodata mirror set) and
+ * reloads the running Core. These budgets mirror those daemon-side budgets
+ * because a shorter one reports a failure for work that still succeeds — the
+ * change is already committed and the Core is serving it by the time the user
+ * reads the error.
+ *
+ * The one path these do not cover is a machine that reaches no geodata source
+ * at all: the daemon then fetches the databases itself, each with its own
+ * download budget, before revalidating.
+ */
+/** The plain configuration test, then one 3 minute retry per mirror set. */
+const CONFIG_VALIDATION_TIMEOUT_MS = 20_000 + 2 * 180_000;
+/** The reload that follows a successful validation. */
+const CONFIG_RELOAD_TIMEOUT_MS = 180_000;
+/** One subscription fetch: a single absolute deadline, redirects included. */
+const PROFILE_FETCH_TIMEOUT_MS = 30_000;
+/** A change that commits, validates and reloads. */
+const PROFILE_APPLY_TIMEOUT_MS = CONFIG_VALIDATION_TIMEOUT_MS + CONFIG_RELOAD_TIMEOUT_MS;
+/** A change that also fetches its subscription source, inside or ahead of the queue. */
+const PROFILE_REFRESH_TIMEOUT_MS = PROFILE_APPLY_TIMEOUT_MS + PROFILE_FETCH_TIMEOUT_MS;
+/** Every profile may need its own fetch before one shared validation and reload. */
+const PROFILE_UPDATE_ALL_TIMEOUT_MS = 30 * 60_000;
 
 export class SashClient {
   private readonly baseUrl: string;
@@ -269,7 +296,7 @@ export class SashClient {
   async restartCore(opts: { signal?: AbortSignal } = {}): Promise<CoreStartResult> {
     return this.request<CoreStartResult>("/sash/core/restart", {
       method: "POST",
-      timeoutMs: CORE_OPERATION_TIMEOUT_MS,
+      timeoutMs: CORE_UPDATE_TIMEOUT_MS,
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
   }
@@ -339,7 +366,11 @@ export class SashClient {
   }
 
   async reorderProfiles(ids: readonly string[]): Promise<ProfilesIndex> {
-    return this.request<ProfilesIndex>("/sash/profiles/order", { method: "PUT", body: { ids } });
+    return this.request<ProfilesIndex>("/sash/profiles/order", {
+      method: "PUT",
+      body: { ids },
+      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
+    });
   }
 
   async addProfile(
@@ -349,7 +380,7 @@ export class SashClient {
     return this.request<ProfileActionResponse>("/sash/profiles", {
       method: "POST",
       body: { url, ...opts },
-      timeoutMs: 60_000,
+      timeoutMs: PROFILE_REFRESH_TIMEOUT_MS,
     });
   }
 
@@ -357,7 +388,7 @@ export class SashClient {
     return this.request<ProfileActionResponse>("/sash/profiles/import", {
       method: "POST",
       body: { name, content },
-      timeoutMs: 30_000,
+      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
     });
   }
 
@@ -365,21 +396,21 @@ export class SashClient {
     return this.request<ProfileActivateResponse>("/sash/profiles/active", {
       method: "PUT",
       body: { id },
-      timeoutMs: 30_000,
+      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
     });
   }
 
   async updateProfile(id: string): Promise<ProfileUpdateResponse> {
     return this.request<ProfileUpdateResponse>(`/sash/profiles/${id}/update`, {
       method: "POST",
-      timeoutMs: 60_000,
+      timeoutMs: PROFILE_REFRESH_TIMEOUT_MS,
     });
   }
 
   async updateAllProfiles(): Promise<ProfilesUpdateAllResponse> {
     return this.request<ProfilesUpdateAllResponse>("/sash/profiles/update-all", {
       method: "POST",
-      timeoutMs: 120_000,
+      timeoutMs: PROFILE_UPDATE_ALL_TIMEOUT_MS,
     });
   }
 
@@ -395,7 +426,7 @@ export class SashClient {
     return this.request<ProfileUpdateResponse>(`/sash/profiles/${id}/content`, {
       method: "PUT",
       body: { content, revision },
-      timeoutMs: 30_000,
+      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
     });
   }
 
@@ -403,13 +434,17 @@ export class SashClient {
     return this.request<ProfileRenameResponse>(`/sash/profiles/${id}`, {
       method: "PATCH",
       body: { name },
+      // A rename never touches the core config, so its own work is instant. It
+      // still waits in the mutation queue behind whatever change runs now, and
+      // that change may be a full validation and reload.
+      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
     });
   }
 
   async removeProfile(id: string): Promise<ProfileRemoveResponse> {
     return this.request<ProfileRemoveResponse>(`/sash/profiles/${id}`, {
       method: "DELETE",
-      timeoutMs: 30_000,
+      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
     });
   }
 }

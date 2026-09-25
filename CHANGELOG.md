@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- A configuration reload no longer gives up after five seconds. The Core answers a reload only once it has finished applying it — it loads every provider for the first time, and fetches any geodata database it still needs, while holding its configuration lock — so a provider that took ten seconds made Sash report a failed reload and then restore the previous core config on disk while the Core was already serving the new one. The reload now carries a three-minute budget, and a reload that runs out of budget is no longer mistaken for a refusal: the new core config stays on disk, the applied configuration stays where it was so the next change reconciles it, and the message says the outcome is unknown instead of claiming the Core refused it.
+- Profile changes no longer report a failure for work that succeeded. Selecting, renaming, reordering, importing, removing and updating profiles all wait in Sash's one mutation queue behind whatever change is already running, and a change that alters the core config is then validated and reloaded before Sash answers — several minutes when a geodata mirror has to be tried. `sash profile rename` had no budget of its own beyond a five-second default, so it printed "HTTP request deadline exceeded" while the rename was already saved, and `sash profile use` printed the same while the new profile was already live. Every profile change now carries a budget that outlives that work, with the daemon-side budgets it must cover named beside it.
+- `sash restart` now gets the same 45-minute request budget as `sash update` and `sash start`. A restart runs the same preparation path — installing the Core, seeding geodata and validating the configuration — so the previous 20-minute cap could report a deadline while the restart was still downloading.
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

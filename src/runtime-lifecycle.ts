@@ -8,6 +8,7 @@ import {
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
+import { isRequestDeadlineError } from "./http.js";
 import { MihomoApi } from "./mihomo-api.js";
 import type { GeneratedConfig } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
@@ -33,6 +34,12 @@ export interface RuntimeDelta {
 }
 export interface RuntimeLifecycleOptions {
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
+  /**
+   * Reload one configuration file into the running Core. Overridable so tests
+   * can stand in for the Core; the default targets the controller the runtime
+   * is currently serving.
+   */
+  reloadConfig?: (path: string) => Promise<void>;
   layout: SashLayout;
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
@@ -156,12 +163,28 @@ export class RuntimeLifecycle {
     const applied = this.applied;
     if (!applied) throw new Error("Core configuration is unknown; apply it with a restart");
     atomicWriteFileSync(this.options.layout.configFile, configuration.generated.yaml);
-    const api = new MihomoApi(this.runtimeSettings.controller, this.runtimeSettings.secret);
+    const { controller, secret } = this.runtimeSettings;
+    const reloadConfig =
+      this.options.reloadConfig ?? ((path) => new MihomoApi(controller, secret).reloadConfig(path));
     try {
-      await api.reloadConfig(this.options.layout.configFile);
+      await reloadConfig(this.options.layout.configFile);
     } catch (error) {
-      // The Core still runs the previous configuration; keep the file telling
-      // the same story so a later restart cannot pick up a rejected one.
+      if (isRequestDeadlineError(error)) {
+        // The Core answers a reload only once it finished applying, so a spent
+        // budget says nothing about the outcome: the new configuration may
+        // already be live. Restoring the previous file here would put the two
+        // at odds and a later restart would drop the change the user asked for.
+        // Keep the new file and leave the applied configuration as it was, so
+        // the next reconciliation reloads it — and reports the real reason if
+        // the Core refuses it after all.
+        throw new Error(
+          `The Core did not answer the configuration reload within ${error.deadlineMs}ms — it may already be running the new configuration; Sash keeps it and reconciles on the next change`,
+          { cause: error },
+        );
+      }
+      // The Core answered with a refusal, so it still runs the previous
+      // configuration; keep the file telling the same story so a later restart
+      // cannot pick up a rejected one.
       atomicWriteFileSync(this.options.layout.configFile, applied.generated.yaml);
       throw error;
     }

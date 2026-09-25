@@ -317,6 +317,24 @@ export function positiveTimeout(value: number | undefined, fallback: number, nam
   return resolved;
 }
 
+/**
+ * A request that outlived its budget. Unlike an HTTP status, this says nothing
+ * about the outcome: a Core configuration reload, for instance, only answers
+ * once it has finished applying, so the work may well have succeeded after the
+ * caller stopped waiting. Callers that must know whether a peer acted on the
+ * request have to treat this as an unknown result, never as a refusal.
+ */
+export class RequestDeadlineError extends Error {
+  constructor(readonly deadlineMs: number) {
+    super(`HTTP request deadline exceeded after ${deadlineMs}ms`);
+    this.name = "RequestDeadlineError";
+  }
+}
+
+export function isRequestDeadlineError(error: unknown): error is RequestDeadlineError {
+  return error instanceof RequestDeadlineError;
+}
+
 function defaultAttempts(method: string): number {
   return RETRYABLE_METHODS.has(method.toUpperCase()) ? 4 : 1;
 }
@@ -337,7 +355,7 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
   const deadline = new AbortController();
   const signal = opts.signal ? AbortSignal.any([deadline.signal, opts.signal]) : deadline.signal;
   const deadlineTimer = setTimeout(() => {
-    deadline.abort(new Error(`HTTP request deadline exceeded after ${deadlineMs}ms`));
+    deadline.abort(new RequestDeadlineError(deadlineMs));
   }, deadlineMs);
   let settled = false;
   let responseReturned = false;

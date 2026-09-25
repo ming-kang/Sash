@@ -4,6 +4,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { RequestDeadlineError } from "./http.js";
 import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle, runtimeDelta } from "./runtime-lifecycle.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
@@ -186,7 +187,7 @@ describe("configuration reload", () => {
     };
   }
 
-  function fixture(controller: string) {
+  function fixture(controller: string, reloadConfig?: (path: string) => Promise<void>) {
     const layout = sashLayout(root);
     const settings = testSettings({ controller });
     const core = new FakeCoreSupervisor(layout, settings);
@@ -212,6 +213,7 @@ describe("configuration reload", () => {
       systemProxy: proxy,
       settings: () => settings,
       controllerProbe: async () => false,
+      ...(reloadConfig ? { reloadConfig } : {}),
     });
     const applied = {
       generated: { yaml: "rules: ['MATCH,DIRECT']\n", proxyCount: 0, source: "default" as const },
@@ -276,6 +278,32 @@ describe("configuration reload", () => {
       const f = fixture(`127.0.0.1:${standIn.port}`);
       await assert.rejects(f.lifecycle.reload(f.applied), /apply it with a restart/);
       assert.deepEqual(standIn.seen, []);
+    } finally {
+      await standIn.close();
+    }
+  });
+
+  it("keeps the new configuration when a reload runs out of budget", async () => {
+    // The Core answers a reload only after it finished applying, so a spent
+    // budget leaves the outcome unknown: restoring the previous file here would
+    // drop a change that may already be live.
+    const standIn = await coreStandIn(() => ({ status: 204 }));
+    try {
+      const f = fixture(`127.0.0.1:${standIn.port}`, () =>
+        Promise.reject(new RequestDeadlineError(180_000)),
+      );
+      await f.lifecycle.apply(f.applied);
+      const next = {
+        ...f.applied,
+        generated: { ...f.applied.generated, yaml: "rules: ['MATCH,REJECT']\n" },
+      };
+      const revision = f.lifecycle.revision;
+      await assert.rejects(f.lifecycle.reload(next), /may already be running the new/);
+      // The new file stays; the applied configuration does not move, so the next
+      // reconciliation reloads it and reports the real reason if the Core objects.
+      assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), next.generated.yaml);
+      assert.equal(f.lifecycle.configuration(), f.applied);
+      assert.equal(f.lifecycle.revision, revision);
     } finally {
       await standIn.close();
     }

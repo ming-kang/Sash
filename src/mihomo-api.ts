@@ -89,6 +89,16 @@ export interface ConfigsResponse {
 }
 
 /**
+ * Budget for a configuration reload. The Core applies a configuration under a
+ * global lock, blocking on every provider's first load and on any geodata
+ * database it still has to fetch, so a reload answers far later than the short
+ * default API budget. It matches the budget the Core itself gets for a
+ * configuration test that may fetch geodata through a mirror set
+ * (CONFIG_TEST_GEODATA_TIMEOUT_MS), because the reload can do the same work.
+ */
+export const CORE_RELOAD_TIMEOUT_MS = 180_000;
+
+/**
  * Low-level Mihomo external-controller client used internally by the
  * daemon supervisor to check Core health and update routing mode.
  *
@@ -182,12 +192,19 @@ export class MihomoApi {
    * before the reload keep their current outbound; only new connections see
    * the new configuration. Listener-level settings (ports, LAN binding) are
    * not part of a reload and still need a restart.
+   *
+   * The Core answers only after it has finished applying: `PUT /configs` holds
+   * its configuration lock while every provider loads for the first time and
+   * any geodata database it still needs is fetched, so a reload routinely
+   * outlives an ordinary controller call. It therefore carries its own budget
+   * (see CORE_RELOAD_TIMEOUT_MS) instead of the short default one.
    */
   async reloadConfig(path: string, signal?: AbortSignal): Promise<void> {
     const response = await this.request("/configs", {
       method: "PUT",
       body: JSON.stringify({ path }),
       attempts: 1,
+      deadlineMs: CORE_RELOAD_TIMEOUT_MS,
       signal,
     });
     if (response.statusCode < 200 || response.statusCode >= 300) {
