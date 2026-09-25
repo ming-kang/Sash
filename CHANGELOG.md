@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `sash doctor` probes the Core download sources through the transport Sash would actually use, and says which one it measured. The probes used to leave the machine directly while real downloads go through the proxy environment variable, or through Sash's own Core when it is running, so the check could call every source unreachable while a download would succeed, or the reverse. The advice now names the transport to check, and a probe gets a fifteen-second budget instead of five, so a reachable mirror is no longer reported as unreachable. When Sash did not answer the status query, the check reports a direct connection, which is the path a download takes while Sash is stopped.
 
+- The dashboard's restart action drops a guard that could never be reached, because the reachable one covers it.
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

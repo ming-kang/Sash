@@ -49,7 +49,6 @@ async function cancelCoreUpdate(): Promise<void> {
 export function useCoreControl() {
   async function restartCore(): Promise<void> {
     if (restarting.value || stopping.value || !store.status) return;
-    if (restarting.value || stopping.value) return;
     restarting.value = true;
     const generation = ++actionGeneration;
     try {
