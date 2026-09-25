@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { testAutostartContext } from "../testing/autostart-context.js";
+import { deferredValue } from "../testing/state.js";
 import {
   type FakeWindowsRegistration,
   fakeWindowsRegistryRun,
@@ -31,14 +32,13 @@ describe("AutostartService", () => {
     });
     await original.set(true);
     assert.equal((await replacement.inspect()).state, "stale");
-    // Enabling again rewrites the registration for the current Node path.
     assert.equal((await replacement.set(true)).state, "on");
     assert.equal((await replacement.inspect()).state, "on");
     const reloadedOriginal = new AutostartService({ ...options, checkInstallation: () => null });
     assert.equal((await reloadedOriginal.inspect()).state, "stale");
   });
 
-  it("serves cached status within TTL without re-invoking backend and refreshes cache on set", async (t) => {
+  it("re-reads the backend on every inspection and after every mutation", async (t) => {
     const { options } = testAutostartContext(t, "win32");
     let state: RegisteredAutostartState = "off";
     let backendInspectCalls = 0;
@@ -53,37 +53,45 @@ describe("AutostartService", () => {
     };
     const service = new AutostartService({ ...options, backend, checkInstallation: () => null });
 
-    // Initial inspect calls backend
-    const first = await service.inspect();
-    assert.equal(first.state, "off");
+    assert.equal((await service.inspect()).state, "off");
     assert.equal(backendInspectCalls, 1);
 
-    // Second inspect within TTL reuses cache without calling backend
-    const second = await service.inspect();
-    assert.equal(second.state, "off");
-    assert.equal(backendInspectCalls, 1);
-
-    // set(true) refreshes cache immediately
-    const setResult = await service.set(true);
-    assert.equal(setResult.state, "on");
+    assert.equal((await service.inspect()).state, "off");
     assert.equal(backendInspectCalls, 2);
 
-    // inspect() after set(true) serves newly populated cache without re-invoking backend
-    const third = await service.inspect();
-    assert.equal(third.state, "on");
-    assert.equal(backendInspectCalls, 2);
+    assert.equal((await service.set(true)).state, "on");
+    assert.equal(backendInspectCalls, 3);
 
-    // set(false) updates cache to off
-    const unsetResult = await service.set(false);
-    assert.equal(unsetResult.state, "off");
+    assert.equal((await service.inspect()).state, "on");
+    assert.equal(backendInspectCalls, 4);
 
-    // inspect() after set(false) serves cached "off" without calling backend
-    const fourth = await service.inspect();
-    assert.equal(fourth.state, "off");
-    assert.equal(backendInspectCalls, 2);
+    assert.equal((await service.set(false)).state, "off");
+    assert.equal((await service.inspect()).state, "off");
   });
 
-  it("does not cache a pre-mutation inspection that settles after set()", async (t) => {
+  it("shares one backend read between concurrent inspections", async (t) => {
+    const { options } = testAutostartContext(t, "win32");
+    let backendInspectCalls = 0;
+    const release = deferredValue<void>();
+    const backend = {
+      inspect: async () => {
+        backendInspectCalls++;
+        await release.promise;
+        return "off" as const;
+      },
+      set: async () => {},
+    };
+    const service = new AutostartService({ ...options, backend, checkInstallation: () => null });
+
+    const first = service.inspect();
+    const second = service.inspect();
+    release.resolve();
+    assert.equal((await first).state, "off");
+    assert.equal((await second).state, "off");
+    assert.equal(backendInspectCalls, 1);
+  });
+
+  it("never publishes a stale inspection that settles after set()", async (t) => {
     const { options } = testAutostartContext(t, "win32");
     let state: RegisteredAutostartState = "off";
     let inspectCalls = 0;
@@ -106,18 +114,13 @@ describe("AutostartService", () => {
     };
     const service = new AutostartService({ ...options, backend, checkInstallation: () => null });
 
-    // An inspection begins and stays in flight while the mutation lands.
     const slowInspect = service.inspect();
     assert.equal((await service.set(true)).state, "on");
-    assert.equal(inspectCalls, 2);
+    assert.equal(service.current().state, "on");
 
-    // The pre-mutation inspection settles late: its caller keeps the honest old
-    // observation, but it must not overwrite the cache set() populated.
     releaseFirst();
     assert.equal((await slowInspect).state, "off");
-    const after = await service.inspect();
-    assert.equal(after.state, "on");
-    assert.equal(inspectCalls, 2);
+    assert.equal(service.current().state, "on", "the stale read must not republish");
   });
   it("enables and repairs registrations using the explicit target state", async (t) => {
     const { options, ctx } = testAutostartContext(t, "win32");

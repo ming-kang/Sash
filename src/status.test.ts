@@ -545,8 +545,11 @@ describe("CLI runtime status autostart observation with live daemon harness", ()
     };
     await h.startServer({
       autostart: {
-        inspect: async () => expectedAutostart,
-        set: async () => expectedAutostart,
+        backend: {
+          inspect: async () => "on",
+          set: async () => {},
+        },
+        checkInstallation: () => null,
       },
     });
 
@@ -564,11 +567,14 @@ describe("CLI runtime status autostart observation with live daemon harness", ()
     };
     await h.startServer({
       autostart: {
-        inspect: async () => {
-          daemonAutostartInspected += 1;
-          return expectedAutostart;
+        backend: {
+          inspect: async () => {
+            daemonAutostartInspected += 1;
+            return "on";
+          },
+          set: async () => {},
         },
-        set: async () => expectedAutostart,
+        checkInstallation: () => null,
       },
     });
 

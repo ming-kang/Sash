@@ -14,14 +14,16 @@ describe("autostart HTTP API", () => {
     let reads = 0;
     await h.startServer({
       autostart: {
-        inspect: async () => {
-          reads += 1;
-          return { state: "off", canEnable: true, reason: null };
+        backend: {
+          inspect: async () => {
+            reads += 1;
+            return "off";
+          },
+          set: async () => {
+            writes += 1;
+          },
         },
-        set: async () => {
-          writes += 1;
-          return { state: "on", canEnable: true, reason: null };
-        },
+        checkInstallation: () => null,
       },
     });
     for (const method of ["GET", "PUT"]) {
@@ -65,18 +67,15 @@ describe("autostart HTTP API", () => {
 
   it("changes the OS registration through CLI and browser clients", async (t) => {
     let enabled = false;
-    const state = () => ({
-      state: enabled ? ("on" as const) : ("off" as const),
-      canEnable: true,
-      reason: null,
-    });
     const instance = await h.startServer({
       autostart: {
-        inspect: async () => state(),
-        set: async (next) => {
-          enabled = next ?? !enabled;
-          return state();
+        backend: {
+          inspect: async () => (enabled ? "on" : "off"),
+          set: async (next: boolean) => {
+            enabled = next;
+          },
         },
+        checkInstallation: () => null,
       },
     });
     const starts = t.mock.method(instance.supervisor, "start");
@@ -100,14 +99,13 @@ describe("autostart HTTP API", () => {
   it("reports an unsupported installation as a conflict with no success response", async () => {
     await h.startServer({
       autostart: {
-        inspect: async () => ({
-          state: "off",
-          canEnable: false,
-          reason: "Global install required",
-        }),
-        set: async () => {
-          throw new AutostartUnavailableError("Global install required");
+        backend: {
+          inspect: async () => "off",
+          set: async () => {
+            throw new AutostartUnavailableError("Global install required");
+          },
         },
+        checkInstallation: () => "Global install required",
       },
     });
     const response = await h.apiRequest("/sash/autostart", {

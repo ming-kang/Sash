@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { SashStateStore } from "../app-state.js";
-import { type AutostartController, AutostartService } from "../autostart/service.js";
+import { AutostartService, type AutostartServiceOptions } from "../autostart/service.js";
 import type { stageCore } from "../core.js";
 import { errorMessage } from "../error-utils.js";
 import type { GeodataSeedResult } from "../geodata-seed.js";
@@ -27,7 +27,7 @@ export interface DaemonDeps {
   settings?: SashSettings;
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
-  autostart?: AutostartController;
+  autostart?: AutostartServiceOptions;
   token?: string;
   fetchProfileFn?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
   validateConfigFn?: (
@@ -125,7 +125,11 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     lifecycle,
     supervisor,
     systemProxy,
-    autostart: deps.autostart ?? new AutostartService({ layout }),
+    autostart: new AutostartService({
+      layout,
+      ...deps.autostart,
+      onChange: () => events.notify(),
+    }),
     gate,
     events,
     mutate,

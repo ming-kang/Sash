@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { request } from "undici";
-import type { AutostartStatus } from "./autostart/contract.js";
 import { DaemonEvents } from "./daemon/events.js";
 import { directDispatcherForLoopback } from "./http.js";
 import { createDaemonClient } from "./sash-client-node.js";
@@ -13,23 +12,26 @@ import { deferredValue, FakeCoreSupervisor, testStatus } from "./testing/state.j
 const harness = useDaemonTestHarness();
 
 it("keeps runtime events flowing while one desktop inspection is pending", async (t) => {
-  const pending = deferredValue<AutostartStatus>();
+  const backendInspection = deferredValue<"off" | "on">();
   let checks = 0;
   await harness.startServer({
     autostart: {
-      inspect: async () => {
-        checks++;
-        return pending.promise;
+      backend: {
+        inspect: async () => {
+          checks++;
+          return backendInspection.promise;
+        },
+        set: async () => {
+          throw new Error("unexpected write");
+        },
       },
-      set: async () => {
-        throw new Error("unexpected write");
-      },
+      checkInstallation: () => null,
     },
   });
   const controller = new AbortController();
   t.after(() => {
     controller.abort();
-    pending.resolve({ state: "off", canEnable: true, reason: null });
+    backendInspection.resolve("on");
   });
   const events = createDaemonClient(harness.boundPort, harness.settings.daemonSecret).events(
     controller.signal,
@@ -40,7 +42,7 @@ it("keeps runtime events flowing while one desktop inspection is pending", async
   while (event && event.status.revisions.state < 1) event = (await events.next()).value;
   assert.equal(event?.status.settings.allowLan, true);
   assert.equal(checks, 1);
-  pending.resolve({ state: "on", canEnable: true, reason: null });
+  backendInspection.resolve("on");
   event = (await events.next()).value;
   while (event && event.autostart.state !== "on") event = (await events.next()).value;
   assert.equal(event?.autostart.state, "on");

@@ -3,12 +3,17 @@ import { hasExactOwnKeys, isPlainObject } from "../json-shape.js";
 export type AutostartState = "on" | "off" | "stale" | "disabled" | "unknown" | "unsupported";
 export type RegisteredAutostartState = Exclude<AutostartState, "unknown" | "unsupported">;
 
-/** Current OS registration for start at login. */
 export interface AutostartStatus {
   state: AutostartState;
   canEnable: boolean;
   reason: string | null;
 }
+
+export const PENDING_AUTOSTART_STATUS: AutostartStatus = {
+  state: "unknown",
+  canEnable: false,
+  reason: "Autostart observation is pending",
+};
 
 export function parseAutostartEnabled(value: unknown): boolean {
   if (

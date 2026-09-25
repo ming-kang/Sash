@@ -1,42 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { AutostartStatus } from "../autostart/contract.js";
-import { errorMessage } from "../error-utils.js";
 import type { DaemonEvent } from "../sash-events.js";
 import type { DaemonContext } from "./context.js";
 import { sendError } from "./http.js";
 import { readDaemonStatus } from "./status.js";
 
-/** Desktop inspection can spawn a shell; it must not delay or repeat with download progress. */
 export function createEventObserver(context: () => DaemonContext) {
-  let autostart: AutostartStatus = {
-    state: "unknown",
-    canEnable: false,
-    reason: "Autostart observation is pending",
-  };
-  let pending = false;
   return async () => {
     const ctx = context();
-    if (!pending) {
-      pending = true;
-      void Promise.resolve()
-        .then(() => ctx.autostart.inspect())
-        .catch(
-          (error: unknown): AutostartStatus => ({
-            state: "unknown",
-            canEnable: false,
-            reason: errorMessage(error),
-          }),
-        )
-        .then((next) => {
-          pending = false;
-          if (JSON.stringify(next) !== JSON.stringify(autostart)) {
-            autostart = next;
-            ctx.events.notify();
-          }
-        });
-    }
-    const status = await readDaemonStatus(ctx);
-    return { status, autostart };
+    void ctx.autostart.inspect();
+    return { status: await readDaemonStatus(ctx), autostart: ctx.autostart.current() };
   };
 }
 
@@ -46,7 +18,6 @@ interface Subscriber {
   sequence: number;
 }
 
-/** One observer for all clients; mutations trigger reads and idle sampling catches OS changes. */
 export class DaemonEvents {
   private readonly subscribers = new Set<Subscriber>();
   private sampleTimer: ReturnType<typeof setInterval> | undefined;

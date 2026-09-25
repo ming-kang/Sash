@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "node:test";
 import { request } from "undici";
-import type { AutostartController } from "../autostart/service.js";
+import type { AutostartServiceOptions } from "../autostart/service.js";
 import { writeInstallRecord } from "../core.js";
 import type { DaemonDeps } from "../daemon/app.js";
 import type { DaemonScheduler } from "../daemon/scheduler.js";
@@ -26,7 +26,7 @@ export interface DaemonServerOverrides {
   seedGeodata?: DaemonDeps["seedGeodataFn"];
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
-  autostart?: AutostartController;
+  autostart?: AutostartServiceOptions;
   fetchProfile?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
   validateConfig?: DaemonDeps["validateConfigFn"];
   scheduler?: DaemonScheduler;
@@ -85,7 +85,6 @@ export class DaemonTestHarness {
     }
   }
 
-  /** Start a loopback Core stand-in and point the daemon controller at it. */
   async startMockCore(handler: http.RequestListener): Promise<number> {
     if (this.mockCoreServer) throw new Error("The mock Core server is already running");
     const server = http.createServer(handler);
@@ -141,10 +140,13 @@ export class DaemonTestHarness {
       supervisor: fakeSupervisor,
       systemProxy: overrides.systemProxy ?? this.fakeSystemProxy(),
       autostart: overrides.autostart ?? {
-        inspect: async () => ({ state: "off", canEnable: true, reason: null }),
-        set: async () => {
-          throw new Error("An autostart test adapter is required for writes");
+        backend: {
+          inspect: async () => "off",
+          set: async () => {
+            throw new Error("An autostart test adapter is required for writes");
+          },
         },
+        checkInstallation: () => null,
       },
       fetchProfileFn: overrides.fetchProfile,
       validateConfigFn: overrides.validateConfig ?? (() => undefined),
@@ -212,7 +214,6 @@ export class DaemonTestHarness {
     return { statusCode: response.statusCode, data };
   }
 
-  /** Mint a real WebUI session token through the bootstrap exchange. */
   async mintWebSession(): Promise<string> {
     const bootstrap = await this.apiRequest("/sash/web/bootstrap", { method: "POST" });
     assert.equal(bootstrap.statusCode, 200);
