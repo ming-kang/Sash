@@ -7,7 +7,7 @@ import { CORE_BINARY_SIZE_LIMIT, readInstallRecord } from "./core.js";
 import { GEODATA_FILE_NAMES } from "./core-config-validation.js";
 import { errorMessage } from "./error-utils.js";
 import { pathEntryExists } from "./fs-atomic.js";
-import { fetchWithRetry } from "./http.js";
+import { type DownloadTransport, fetchWithRetry } from "./http.js";
 import { currentPackageRoot, readSashPackageInfo, supportsNode } from "./package-info.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { inspectInstallation } from "./sash-installation.js";
@@ -76,15 +76,41 @@ const NETWORK_PROBES = [
   { name: "ghfast.top", url: "https://ghfast.top" },
 ] as const;
 
+/**
+ * A probe answers slowly enough that the old short budget reported a reachable
+ * mirror as unreachable — the same false failure a Core download would never
+ * produce, because it gets a real budget.
+ */
+const NETWORK_PROBE_TIMEOUT_MS = 15_000;
+
 /** Any HTTP response counts as reachable; only transport failures count as unreachable. */
-async function probeHttpReachability(url: string): Promise<boolean> {
+async function probeHttpReachability(url: string, proxyUri?: string): Promise<boolean> {
   try {
-    const res = await fetchWithRetry(url, { attempts: 1, deadlineMs: 5_000 });
+    const res = await fetchWithRetry(url, {
+      attempts: 1,
+      deadlineMs: NETWORK_PROBE_TIMEOUT_MS,
+      ...(proxyUri !== undefined ? { proxyUri } : {}),
+    });
     await res.discard();
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * The transport a reachability result describes. The daemon prefers a proxy
+ * environment variable and otherwise routes verified downloads through its own
+ * running Core, so probing any other path can contradict what a download does:
+ * a blocked direct route reads as unreachable while the Core would succeed, and
+ * a dead Core outbound reads as reachable while downloads would fail. Only when
+ * the daemon did not answer is its transport unknown, and the probe falls back
+ * to direct — the path a download takes while Sash is stopped.
+ */
+function describeProbeTransport(transport: DownloadTransport | undefined): string {
+  if (!transport) return "a direct connection";
+  if (transport.source === "core") return `Sash's own Core proxy: ${transport.uri}`;
+  return `the proxy environment variable: ${transport.uri}`;
 }
 
 /** Independent checks keep diagnostics useful when settings or installation files are damaged. */
@@ -95,7 +121,11 @@ export async function diagnoseSash(
     status?: StatusObservationDependencies;
     inspectPort?: typeof inspectListenerPort;
     inspectProxyConnections?: () => Promise<ProxyConnectionsObservation>;
-    probeReachability?: (url: string) => Promise<boolean>;
+    /**
+     * Reachability probe, also told which transport the daemon would use so a
+     * test can assert the check measures the path a download takes.
+     */
+    probeReachability?: (url: string, transport: DownloadTransport | undefined) => Promise<boolean>;
   } = {},
 ): Promise<DoctorReport> {
   const layout = options.layout ?? sashLayout();
@@ -232,37 +262,6 @@ export async function diagnoseSash(
     add("geodata", "info", errorMessage(error));
   }
 
-  {
-    const probe = options.probeReachability ?? probeHttpReachability;
-    const results = await Promise.all(
-      NETWORK_PROBES.map(async ({ name, url }) => ({ name, reachable: await probe(url) })),
-    );
-    const reachable = results.filter((result) => result.reachable).map((result) => result.name);
-    const unreachable = results.filter((result) => !result.reachable).map((result) => result.name);
-    const releaseApiReachable = results.find(
-      (result) => result.name === "api.github.com",
-    )?.reachable;
-    if (reachable.length === results.length) {
-      add("network", "ok", `Core download sources are reachable: ${reachable.join(", ")}`);
-    } else if (reachable.length === 0) {
-      add(
-        "network",
-        "warning",
-        "No Core download source is reachable",
-        "Check your network or set HTTP_PROXY to a running proxy; a manual offline install is described in docs/usage.md",
-      );
-    } else if (releaseApiReachable !== true) {
-      add(
-        "network",
-        "warning",
-        "The GitHub release API is unreachable; Core downloads cannot be verified",
-        "Set HTTP_PROXY to a running proxy, or retry when api.github.com is reachable",
-      );
-    } else {
-      add("network", "ok", `Some Core download mirrors are unreachable: ${unreachable.join(", ")}`);
-    }
-  }
-
   if (stateValid) {
     const context = { layout, settings: state?.settings ?? { ...DEFAULT_SETTINGS } };
     let runtime: CliRuntimeStatus | undefined;
@@ -340,6 +339,50 @@ export async function diagnoseSash(
       }
     } catch (error) {
       add("runtime", "warning", errorMessage(error), "Inspect sash status and sash logs --daemon");
+    }
+
+    // A reachability result only means something next to the path it measured.
+    const transport = runtime?.downloadTransport;
+    const via = `via ${describeProbeTransport(transport)}`;
+    const probe =
+      options.probeReachability ?? ((url: string) => probeHttpReachability(url, transport?.uri));
+    const results = await Promise.all(
+      NETWORK_PROBES.map(async ({ name, url }) => ({
+        name,
+        reachable: await probe(url, transport),
+      })),
+    );
+    const reachable = results.filter((result) => result.reachable).map((result) => result.name);
+    const unreachable = results.filter((result) => !result.reachable).map((result) => result.name);
+    const releaseApiReachable = results.find(
+      (result) => result.name === "api.github.com",
+    )?.reachable;
+    if (reachable.length === results.length) {
+      add("network", "ok", `Core download sources are reachable ${via}: ${reachable.join(", ")}`);
+    } else if (reachable.length === 0) {
+      add(
+        "network",
+        "warning",
+        `No Core download source is reachable ${via}`,
+        transport?.source === "core"
+          ? "Check the proxy group the Core is using, or set HTTP_PROXY to a running proxy; a manual offline install is described in docs/usage.md"
+          : transport?.source === "environment"
+            ? `Check whether ${transport.uri} is running, or unset HTTP_PROXY; a manual offline install is described in docs/usage.md`
+            : "Check your network or set HTTP_PROXY to a running proxy; a manual offline install is described in docs/usage.md",
+      );
+    } else if (releaseApiReachable !== true) {
+      add(
+        "network",
+        "warning",
+        `The GitHub release API is unreachable ${via}; Core downloads cannot be verified`,
+        "Set HTTP_PROXY to a running proxy, or retry when api.github.com is reachable",
+      );
+    } else {
+      add(
+        "network",
+        "ok",
+        `Some Core download mirrors are unreachable ${via}: ${unreachable.join(", ")}`,
+      );
     }
 
     if (state || !runtime?.daemon.running) {

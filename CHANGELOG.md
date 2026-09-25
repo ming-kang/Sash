@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Profile changes no longer report a failure for work that succeeded. Selecting, renaming, reordering, importing, removing and updating profiles all wait in Sash's one mutation queue behind whatever change is already running, and a change that alters the core config is then validated and reloaded before Sash answers — several minutes when a geodata mirror has to be tried. `sash profile rename` had no budget of its own beyond a five-second default, so it printed "HTTP request deadline exceeded" while the rename was already saved, and `sash profile use` printed the same while the new profile was already live. Every profile change now carries a budget that outlives that work, with the daemon-side budgets it must cover named beside it.
 - `sash restart` now gets the same 45-minute request budget as `sash update` and `sash start`. A restart runs the same preparation path — installing the Core, seeding geodata and validating the configuration — so the previous 20-minute cap could report a deadline while the restart was still downloading.
 
+### Changed
+
+- `sash doctor` probes the Core download sources through the transport Sash would actually use, and says which one it measured. The probes used to leave the machine directly while real downloads go through the proxy environment variable, or through Sash's own Core when it is running, so the check could call every source unreachable while a download would succeed, or the reverse. The advice now names the transport to check, and a probe gets a fifteen-second budget instead of five, so a reachable mirror is no longer reported as unreachable. When Sash did not answer the status query, the check reports a direct connection, which is the path a download takes while Sash is stopped.
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

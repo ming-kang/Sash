@@ -57,6 +57,11 @@ export interface CliRuntimeStatus {
   coreUpdate?: CoreUpdateProgress;
   /** Present only when the daemon answered; describes how Core downloads leave. */
   downloadProxy?: string;
+  /**
+   * Present only when the daemon answered: the transport itself, not a
+   * description. Diagnostics use it to probe the path a real download takes.
+   */
+  downloadTransport?: DownloadTransport;
   /** True only when every runtime field required by this contract was observed. */
   complete: boolean;
   /** Overall daemon/Core health; null when the daemon status query is unavailable. */
@@ -415,6 +420,7 @@ export function cliStatusFromDaemonStatus(
     ...(status.downloadTransport
       ? { downloadProxy: describeDownloadTransport(status.downloadTransport) }
       : {}),
+    ...(status.downloadTransport ? { downloadTransport: status.downloadTransport } : {}),
     systemProxy: {
       desired: desiredProxy,
       daemonApplied: proxyObservation.daemonApplied,

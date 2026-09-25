@@ -6,6 +6,7 @@ import path from "node:path";
 import { it } from "node:test";
 import { writeInstallRecord } from "./core.js";
 import { diagnoseSash, inspectListenerPort } from "./doctor.js";
+import type { DownloadTransport } from "./http.js";
 import { sashLayout } from "./paths.js";
 import { npmPackageRoot } from "./sash-installation.js";
 import type { StatusObservationDependencies } from "./status.js";
@@ -57,6 +58,41 @@ function fixture() {
       assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
       await fs.promises.rm(root, { recursive: true, force: true });
     },
+  };
+}
+
+/** A healthy daemon that reports the transport Core downloads would leave through. */
+function runningStatus(downloadTransport?: DownloadTransport): StatusObservationDependencies {
+  return {
+    evaluateDaemon: async () => ({
+      kind: "healthy",
+      running: true,
+      healthy: true,
+      pid: 7,
+      port: 19090,
+    }),
+    inspectSystemProxy: async () => ({
+      applied: false,
+      appliedKnown: true,
+      stateKnown: true,
+      state: { supported: true, enabled: false },
+    }),
+    inspectAutostart: async () => ({ state: "off", canEnable: true, reason: null }),
+    installedCoreVersion: () => "1.0.0",
+    activeProfile: () => null,
+    hasUi: () => true,
+    queryDaemonStatus: async () =>
+      ({
+        ...testStatus(),
+        daemon: {
+          pid: 7,
+          bootId: "boot",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          port: 19090,
+          version: "1.0.0",
+        },
+        ...(downloadTransport ? { downloadTransport } : {}),
+      }) as never,
   };
 }
 
@@ -135,7 +171,10 @@ it("reports geodata files and download-source reachability", async () => {
     assert.equal(first.checks.find((check) => check.id === "geodata")?.status, "info");
     const network = first.checks.find((check) => check.id === "network");
     assert.equal(network?.status, "ok");
-    assert.match(network?.message ?? "", /reachable: github.com, api.github.com, ghfast.top/);
+    assert.match(
+      network?.message ?? "",
+      /reachable via a direct connection: github\.com, api\.github\.com, ghfast\.top/,
+    );
 
     fs.mkdirSync(f.layout.root, { recursive: true });
     fs.writeFileSync(path.join(f.layout.root, "geosite.dat"), "db");
@@ -164,7 +203,10 @@ it("reports geodata files and download-source reachability", async () => {
     });
     const mirrorCheck = mirrorDown.checks.find((check) => check.id === "network");
     assert.equal(mirrorCheck?.status, "ok");
-    assert.match(mirrorCheck?.message ?? "", /mirrors are unreachable: ghfast.top/);
+    assert.match(
+      mirrorCheck?.message ?? "",
+      /mirrors are unreachable via a direct connection: ghfast\.top/,
+    );
   } finally {
     await f.cleanup();
   }
@@ -347,6 +389,95 @@ it("reports connection-specific proxy limitations without claiming active settin
       assert.equal(result.complete, false);
       assert.equal(fs.existsSync(f.layout.root), false);
     }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+it("probes download sources through the transport the daemon would use", async () => {
+  const f = fixture();
+  try {
+    createTestState(f.layout);
+    const coreTransport: DownloadTransport = {
+      uri: `http://127.0.0.1:${testStatus().configuration.appliedSettings?.mixedPort ?? 0}`,
+      source: "core",
+    };
+    // A spread, not the array itself: assert.deepEqual narrows what it is given.
+    const transports: Array<DownloadTransport | undefined> = [];
+    const viaCore = await diagnoseSash({
+      ...f,
+      status: runningStatus(coreTransport),
+      inspectPort: async () => ({ available: true }),
+      probeReachability: async (_url, transport) => {
+        transports.push(transport);
+        return true;
+      },
+    });
+    assert.equal(transports.length, 3);
+    assert.deepEqual([...transports], [coreTransport, coreTransport, coreTransport]);
+    // The result must name the path it measured, or a failure points nowhere.
+    assert.match(
+      viaCore.checks.find((check) => check.id === "network")?.message ?? "",
+      new RegExp(
+        `reachable via Sash's own Core proxy: ${coreTransport.uri}: github\\.com, api\\.github\\.com, ghfast\\.top`,
+      ),
+    );
+
+    transports.length = 0;
+    const viaEnvironment = await diagnoseSash({
+      ...f,
+      status: runningStatus({ uri: "http://127.0.0.1:1080", source: "environment" }),
+      inspectPort: async () => ({ available: true }),
+      probeReachability: async (_url, transport) => {
+        transports.push(transport);
+        return false;
+      },
+    });
+    assert.equal(transports.length, 3);
+    const unreachable = viaEnvironment.checks.find((check) => check.id === "network");
+    assert.equal(unreachable?.status, "warning");
+    assert.match(
+      unreachable?.message ?? "",
+      /No Core download source is reachable via the proxy environment variable: http:\/\/127\.0\.0\.1:1080/,
+    );
+    assert.match(unreachable?.advice ?? "", /Check whether http:\/\/127\.0\.0\.1:1080 is running/);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+it("falls back to a direct probe when the daemon did not answer", async () => {
+  const f = fixture();
+  try {
+    const seen: Array<DownloadTransport | undefined> = [];
+    const result = await diagnoseSash({
+      ...f,
+      status: {
+        ...f.status,
+        evaluateDaemon: async () => ({
+          kind: "healthy",
+          running: true,
+          healthy: true,
+          pid: 7,
+          port: 19090,
+        }),
+        queryDaemonStatus: async () => {
+          throw new Error("local API request failed");
+        },
+      },
+      inspectPort: async () => ({ available: true }),
+      probeReachability: async (_url, transport) => {
+        seen.push(transport);
+        return true;
+      },
+    });
+    assert.deepEqual(seen, [undefined, undefined, undefined]);
+    // A stopped or unanswering Sash downloads direct, so that is what was measured.
+    assert.match(
+      result.checks.find((check) => check.id === "network")?.message ?? "",
+      /reachable via a direct connection: github\.com, api\.github\.com, ghfast\.top/,
+    );
+    assert.equal(result.checks.find((check) => check.id === "runtime")?.status, "warning");
   } finally {
     await f.cleanup();
   }
