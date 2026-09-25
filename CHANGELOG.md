@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-26
+
+### Fixed
+
+- Installing or updating the Core on a processor without AVX2 no longer downloads the same build twice. Core publishes its amd64 build under five names that cover three instruction-set levels, and Sash asked for all five: the unsuffixed build is compiled at the same level as the newest one, and the `compatible` build at the same level as `v1`. A processor that rejected the newest build rejected the unsuffixed one for the identical reason, and `compatible` sat behind its twin so it could never be reached. Sash now walks the three levels once each, so a machine that needs the oldest build stops paying for a build it cannot run. Machines whose processor accepts the newest build were never affected.
+- A failed or cancelled Core staging no longer leaves its directory behind. `stageCore` extracted the build into a temporary directory and then tried to remove that directory while the executable was still inside it, so the removal could only fail and the failure had to be ignored; `core-service.ts` carried a second copy of the same workaround for an abandoned update. Each directory now belongs to whoever must remove it, so an abandoned update clears itself. A processor that rejects every published build previously left one directory holding an extracted Core in the data folder's `temp` folder per attempt.
+- A failed scheduler stop no longer leaves the daemon's event observer running. The daemon closed its event observer only after stopping its scheduler, so an error from the stop left the timer sampling for a listener that had already shut down. The two cleanups now run independently, so a daemon that failed to shut down cleanly stays retryable.
+- The Core version Sash reports is read from disk instead of remembered. The read cached its result against the file's modification time and size, and release tags of the same shape have the same length, so a record rewritten in the same millisecond as the previous one read as the version it replaced. Sash is the file's only writer, so there was nothing for the cache to reconcile.
+
+### Changed
+
+- The start-at-login status is observed instead of held for thirty seconds. Sash read the registry entry and kept the answer for a fixed period, so a change made outside Sash — another tool, or editing the entry by hand — kept reporting the previous status until the cache expired. The service now owns the status and publishes each observation, so `sash autostart status` and the dashboard reflect a change as soon as Sash notices it.
+- Comments restating the code were removed across the codebase. A comment outlives the situation that produced it and keeps steering later edits, so only what the code cannot express was kept: constraints imposed by an external system, ownership and security invariants whose removal would let a refactor delete a check, and the lenient-read contracts that let a malformed record count as absent. No behavior change.
+
 ## [0.3.1] - 2026-09-25
 
 ### Fixed
