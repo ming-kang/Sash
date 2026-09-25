@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import { type SashStateStore, StateConflictError } from "../app-state.js";
 import type { CoreStartResult } from "../contracts.js";
 import {
@@ -40,7 +39,6 @@ export interface CoreControlServiceOptions {
   /** The daemon mutation queue: state and lifecycle changes run through it. */
   commit: <T>(action: () => T | Promise<T>) => Promise<T>;
   assertMutable: () => void;
-  /** Fires whenever the observable update progress changes. */
   onProgress: () => void;
   validateConfigFn?: (
     generated: GeneratedConfig,
@@ -54,11 +52,9 @@ export interface CoreControlServiceOptions {
   ) => Promise<GeodataSeedResult>;
 }
 
-/** Progress is observable live; a quarter second is far below what a reader follows. */
 const PROGRESS_NOTIFY_INTERVAL_MS = 250;
 
 /**
- * Orchestrates Core preparation, validation, updates and lifecycle changes.
  * Downloads prepare outside the mutation queue; publication re-checks that
  * saved state and the runtime still match the operation's starting point.
  */
@@ -77,18 +73,10 @@ export class CoreControlService {
     return this.progressValue ? { ...this.progressValue } : null;
   }
 
-  /** True for the whole update operation, from staging through installation. */
   get isUpdating(): boolean {
     return this.downloading;
   }
 
-  /**
-   * Transport for verified GitHub traffic. An explicit proxy environment
-   * variable always wins: it is deliberate configuration. Otherwise a running
-   * Core serves as the proxy — faster than a direct GitHub connection on most
-   * networks, and independent of the environment this daemon happened to
-   * start with. Without either, downloads go direct and fall back to mirrors.
-   */
   downloadTransport(): DownloadTransport | null {
     const environment = envProxyUri();
     if (environment) return { uri: environment, source: "environment" };
@@ -104,11 +92,6 @@ export class CoreControlService {
     this.preparation = new AbortController();
   }
 
-  /**
-   * Abandon an in-flight update: the staged download is discarded, the
-   * interrupted command reports the cancellation, and a new update may start
-   * immediately. Cancelling nothing is a conflict.
-   */
   cancel(): void {
     if (!this.downloading) throw new StateConflictError("No Core download is in progress");
     this.cancelPreparation();
@@ -116,19 +99,12 @@ export class CoreControlService {
     this.options.onProgress();
   }
 
-  /** Drop the operation's observable state without waiting for it to unwind. */
   private clearOperation(): void {
     this.downloading = false;
     this.progressValue = null;
     this.operation = null;
   }
 
-  /**
-   * Progress arrives once per network chunk, while observers only need a
-   * live-enough view: notifications collapse into a bounded rate instead of
-   * one full status read and broadcast per chunk. Stage and note changes are
-   * rare and always published.
-   */
   private publishProgress(immediate = false): void {
     const now = Date.now();
     if (!immediate && now - this.lastProgressNotify < PROGRESS_NOTIFY_INTERVAL_MS) return;
@@ -153,13 +129,11 @@ export class CoreControlService {
   }
 
   /**
-   * Validate a configuration, and if the Core failed only because it could not
-   * download its geodata databases, retry through each mirror set. The Core
-   * fetches geodata from github.com by default and cannot use the proxy it has
-   * not started yet, which would otherwise deadlock a fresh installation on a
-   * network that cannot reach github.com directly. Mirror attempts get a
-   * longer budget: downloading tens of megabytes takes more than the plain
-   * configuration test's timeout.
+   * Retry a configuration through each geodata mirror set when the Core failed
+   * only on its geodata download: Core fetches geodata from github.com by
+   * default and cannot use the proxy it has not started yet, which would
+   * otherwise deadlock a fresh installation on such a network. Mirror attempts
+   * get the geodata budget, not the plain configuration test's timeout.
    */
   private async validateConfiguration(
     configuration: RuntimeConfiguration,
@@ -183,7 +157,6 @@ export class CoreControlService {
           ...configuration,
           generated: withGeodataMirrors(configuration.generated, index),
         };
-        // The configuration may already fetch through this mirror set.
         if (seen.has(retried.generated.yaml)) continue;
         seen.add(retried.generated.yaml);
         const host = new URL(GEOX_MIRROR_SETS[index]?.geoip ?? "").host;
@@ -306,7 +279,6 @@ export class CoreControlService {
         ...(proxyUri !== undefined ? { proxyUri } : {}),
         onStage: setStage,
         onProgress: (downloaded, total) => {
-          // A cancelled or superseded operation never republishes its bytes.
           if (this.progressValue !== progress) return;
           progress.downloaded = downloaded;
           progress.total = total ?? null;
@@ -353,18 +325,10 @@ export class CoreControlService {
         this.clearOperation();
         this.options.onProgress();
       }
-      if (staged) {
-        fs.rmSync(staged.exe, { force: true });
-        try {
-          fs.rmdirSync(path.dirname(staged.exe));
-        } catch {
-          /* Only remove an empty staging directory. */
-        }
-      }
+      if (staged) fs.rmSync(staged.dir, { recursive: true, force: true });
     }
   }
 
-  /** Apply the saved configuration, installing the Core first when missing. */
   async apply(onlyIfStopped = false): Promise<CoreStartResult> {
     const { layout, supervisor, lifecycle } = this.options;
     this.options.assertMutable();
@@ -372,7 +336,6 @@ export class CoreControlService {
     this.requireRecoveredInstall();
     signal.throwIfAborted();
     const installedNow = !coreInstalled(layout);
-    // Geodata seeding during validation uses the same transport as a download.
     const proxyUri = this.downloadTransport()?.uri;
     if (installedNow) await this.update(undefined, true);
     return this.options.commit(async () => {
@@ -397,8 +360,6 @@ export class CoreControlService {
         proxyUri,
       );
       signal.throwIfAborted();
-      // A reload keeps established connections; a listener-level difference
-      // (ports, LAN binding) still needs the restart below.
       if (await this.canReload(validated)) return lifecycle.reload(validated);
       return lifecycle.apply(validated);
     });
@@ -417,12 +378,6 @@ export class CoreControlService {
     return !runtimeDelta(applied, configuration).restartRequired;
   }
 
-  /**
-   * Bring the running Core onto the saved configuration when that needs no
-   * restart. Never starts a stopped Core — the saved configuration applies on
-   * the next start — and leaves a restart-required difference for an explicit
-   * apply. Returns whether the runtime now matches the saved state.
-   */
   async reconcileSaved(): Promise<boolean> {
     this.options.assertMutable();
     const { signal } = this.preparation;
@@ -452,7 +407,6 @@ export class CoreControlService {
     }
   }
 
-  /** Start the Core unless it is already running. */
   start(): Promise<CoreStartResult> {
     return this.apply(true);
   }

@@ -223,6 +223,8 @@ export interface CoreInstallOptions {
 export interface StagedCore {
   version: string;
   exe: string;
+  /** The private directory `exe` was staged into; the consumer removes it wholesale. */
+  dir: string;
   assetName?: string;
   /** "pinned" when staging used the packaged bootstrap manifest offline. */
   source?: "live" | "pinned";
@@ -346,9 +348,10 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
   });
 
   fs.mkdirSync(layout.tempDir, { recursive: true });
-  const directory = fs.mkdtempSync(path.join(layout.tempDir, "core-download-"));
-  const archivePath = path.join(directory, "archive.download");
-  const stagedExe = path.join(directory, path.basename(layout.coreExe));
+  const dir = fs.mkdtempSync(path.join(layout.tempDir, "core-staged-"));
+  const archivePath = path.join(dir, "archive.download");
+  const exe = path.join(dir, path.basename(layout.coreExe));
+  let staged = false;
   try {
     const available = candidates.filter((name) => assets.some((asset) => asset.name === name));
     if (available.length === 0) {
@@ -370,25 +373,19 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
         onProxyFallback: opts.onProxyFallback,
       });
       opts.onStage?.("extracting", tag);
-      await extractCoreArchive(archivePath, assetName, stagedExe, opts.signal);
+      await extractCoreArchive(archivePath, assetName, exe, opts.signal);
       opts.signal?.throwIfAborted();
-      if (await coreBinaryRuns(stagedExe))
-        return { version: tag, exe: stagedExe, assetName, source };
-      fs.rmSync(stagedExe, { force: true });
+      if (await coreBinaryRuns(exe)) {
+        staged = true;
+        return { version: tag, exe, dir, assetName, source };
+      }
+      fs.rmSync(exe, { force: true });
     }
     throw new Error(
       `No published Core build runs on this processor (tried ${available.join(", ")}).`,
     );
-  } catch (err) {
-    fs.rmSync(stagedExe, { force: true });
-    throw err;
   } finally {
-    fs.rmSync(archivePath, { force: true });
-    try {
-      fs.rmdirSync(directory);
-    } catch {
-      /* Successful staging still owns its executable. */
-    }
+    if (!staged) fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 

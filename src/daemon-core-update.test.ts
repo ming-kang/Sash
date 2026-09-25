@@ -37,9 +37,10 @@ describe("daemon-owned Core updates", () => {
   });
   async function stage() {
     fs.mkdirSync(h.layout.tempDir, { recursive: true });
-    const exe = path.join(h.layout.tempDir, "candidate");
+    const dir = fs.mkdtempSync(path.join(h.layout.tempDir, "candidate-"));
+    const exe = path.join(dir, "candidate");
     fs.writeFileSync(exe, "v2-core");
-    return { exe, version: "v2", assetName: "mihomo-windows-amd64-v3-v2.zip" };
+    return { exe, dir, version: "v2", assetName: "mihomo-windows-amd64-v3-v2.zip" };
   }
   it("publishes authenticated progress during preparation and clears it after completion", async () => {
     const entered = deferred();
@@ -336,8 +337,6 @@ describe("daemon-owned Core updates", () => {
         return stage();
       },
     });
-    // Nothing runs yet, so the first install never routes through the Core it
-    // is about to replace.
     assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
     assert.deepEqual(seen, [undefined]);
     assert.equal(

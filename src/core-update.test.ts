@@ -33,9 +33,11 @@ describe("Core binary transaction", () => {
     writeInstallRecord({ coreVersion: "v1" }, layout);
   }
   function staged() {
-    const exe = path.join(layout.binDir, "candidate");
+    fs.mkdirSync(layout.tempDir, { recursive: true });
+    const dir = fs.mkdtempSync(path.join(layout.tempDir, "candidate-"));
+    const exe = path.join(dir, "candidate");
     fs.writeFileSync(exe, "v2-core");
-    return { exe, version: "v2" };
+    return { exe, dir, version: "v2" };
   }
   function runtime(events: string[], wasRunning = true): CoreUpdateRuntime {
     return {
