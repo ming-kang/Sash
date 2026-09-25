@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { SashStateStore } from "../app-state.js";
 import { AutostartService, type AutostartServiceOptions } from "../autostart/service.js";
-import type { stageCore } from "../core.js";
+import type { resolveCoreRelease, stageCore } from "../core.js";
 import { errorMessage } from "../error-utils.js";
 import type { GeodataSeedResult } from "../geodata-seed.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
@@ -36,6 +36,7 @@ export interface DaemonDeps {
     signal: AbortSignal,
   ) => Promise<void> | void;
   stageCoreFn?: typeof stageCore;
+  resolveCoreReleaseFn?: typeof resolveCoreRelease;
   seedGeodataFn?: (file: string, options: { signal: AbortSignal }) => Promise<GeodataSeedResult>;
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
   onShutdown?: () => void;
@@ -110,6 +111,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     onProgress: () => events.notify(),
     ...(deps.validateConfigFn ? { validateConfigFn: deps.validateConfigFn } : {}),
     ...(deps.stageCoreFn ? { stageCoreFn: deps.stageCoreFn } : {}),
+    ...(deps.resolveCoreReleaseFn ? { resolveCoreReleaseFn: deps.resolveCoreReleaseFn } : {}),
     ...(deps.seedGeodataFn ? { seedGeodataFn: deps.seedGeodataFn } : {}),
   });
 

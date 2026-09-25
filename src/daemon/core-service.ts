@@ -5,6 +5,7 @@ import {
   assertCoreInstallationConsistent,
   coreInstalled,
   currentCoreVersion,
+  resolveCoreRelease,
   type StagedCore,
   stageCore,
 } from "../core.js";
@@ -46,6 +47,7 @@ export interface CoreControlServiceOptions {
     signal: AbortSignal,
   ) => Promise<void> | void;
   stageCoreFn?: typeof stageCore;
+  resolveCoreReleaseFn?: typeof resolveCoreRelease;
   seedGeodataFn?: (
     file: string,
     options: { signal: AbortSignal; proxyUri?: string },
@@ -272,9 +274,27 @@ export class CoreControlService {
         : this.savedConfiguration();
       if (!configuration) throw new Error("Running Core configuration is unknown");
       setStage("resolving");
+      const release = await (this.options.resolveCoreReleaseFn ?? resolveCoreRelease)({
+        ...(version !== undefined ? { tag: version } : {}),
+        signal,
+        ...(proxyUri !== undefined ? { proxyUri } : {}),
+        onProxyFallback: (info) => {
+          const warning = formatProxyFallbackWarning(info);
+          progress.note = warning;
+          this.publishProgress(true);
+          console.warn(`[sashd] ${warning}`);
+        },
+      });
+      signal.throwIfAborted();
+      // The release is already installed: downloading it again would replace a
+      // healthy binary with the same bytes and pause the proxy for nothing.
+      if (release.tag === currentCoreVersion(layout)) {
+        progress.target = release.tag;
+        return { version: release.tag, alreadyCurrent: true };
+      }
       staged = await (this.options.stageCoreFn ?? stageCore)({
         layout,
-        tag: version,
+        release,
         signal,
         ...(proxyUri !== undefined ? { proxyUri } : {}),
         onStage: setStage,
@@ -283,12 +303,6 @@ export class CoreControlService {
           progress.downloaded = downloaded;
           progress.total = total ?? null;
           this.publishProgress();
-        },
-        onProxyFallback: (info) => {
-          const warning = formatProxyFallbackWarning(info);
-          progress.note = warning;
-          this.publishProgress(true);
-          console.warn(`[sashd] ${warning}`);
         },
       });
       signal.throwIfAborted();

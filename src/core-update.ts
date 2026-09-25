@@ -77,6 +77,8 @@ export interface CoreUpdateOptions {
 
 export interface CoreUpdateResult {
   version: string;
+  /** True when the requested release was already installed, so nothing was downloaded. */
+  alreadyCurrent?: boolean;
 }
 
 export interface CoreUpdateCheck {

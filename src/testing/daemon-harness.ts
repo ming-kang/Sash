@@ -23,6 +23,7 @@ export interface DaemonServerOverrides {
   packageRoot?: string;
   installCore?: boolean;
   stageCore?: DaemonDeps["stageCoreFn"];
+  resolveCoreRelease?: DaemonDeps["resolveCoreReleaseFn"];
   seedGeodata?: DaemonDeps["seedGeodataFn"];
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
@@ -156,6 +157,23 @@ export class DaemonTestHarness {
         (async () => {
           throw new Error("A Core download adapter is required in tests");
         }),
+      // Matches the default staging adapter's release so version comparison
+      // tests see the same tag without reaching GitHub.
+      resolveCoreReleaseFn:
+        overrides.resolveCoreRelease ??
+        (async () => ({
+          tag: "v2",
+          assets: [
+            {
+              name: "mihomo-windows-amd64-v3-v2.zip",
+              browser_download_url: "https://example.invalid/mihomo-windows-amd64-v3-v2.zip",
+              size: 1024,
+              digest: `sha256:${"0".repeat(64)}`,
+            },
+          ],
+          candidates: ["mihomo-windows-amd64-v3-v2.zip"],
+          source: "live",
+        })),
       seedGeodataFn:
         overrides.seedGeodata ??
         (async () => {

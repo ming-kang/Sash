@@ -192,6 +192,11 @@ export interface CoreInstallOptions {
   tag?: string;
   /** Route GitHub traffic through this proxy instead of the environment proxy. */
   proxyUri?: string;
+  /**
+   * Release metadata the caller already resolved: the daemon compares versions
+   * before it downloads, and both steps must see the same release.
+   */
+  release?: CoreReleaseResolution;
   onProgress?: (downloaded: number, total: number | undefined) => void;
   onStage?: (stage: "resolving" | "downloading" | "extracting", target?: string) => void;
   onProxyFallback?: ProxyFallbackListener;
@@ -316,13 +321,17 @@ export async function coreBinaryRuns(exe: string): Promise<boolean> {
 
 export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCore> {
   const layout = opts.layout ?? sashLayout();
-  opts.onStage?.("resolving");
-  const { tag, assets, candidates, source } = await resolveCoreRelease({
-    ...(opts.tag !== undefined ? { tag: opts.tag } : {}),
-    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
-    ...(opts.proxyUri !== undefined ? { proxyUri: opts.proxyUri } : {}),
-    ...(opts.onProxyFallback !== undefined ? { onProxyFallback: opts.onProxyFallback } : {}),
-  });
+  let resolution = opts.release;
+  if (!resolution) {
+    opts.onStage?.("resolving");
+    resolution = await resolveCoreRelease({
+      ...(opts.tag !== undefined ? { tag: opts.tag } : {}),
+      ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+      ...(opts.proxyUri !== undefined ? { proxyUri: opts.proxyUri } : {}),
+      ...(opts.onProxyFallback !== undefined ? { onProxyFallback: opts.onProxyFallback } : {}),
+    });
+  }
+  const { tag, assets, candidates, source } = resolution;
 
   fs.mkdirSync(layout.tempDir, { recursive: true });
   const dir = fs.mkdtempSync(path.join(layout.tempDir, "core-staged-"));

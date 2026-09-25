@@ -120,6 +120,28 @@ describe("daemon-owned Core updates", () => {
     assert.equal((await h.apiRequest("/sash/core/update")).data, null);
   });
 
+  it("downloads nothing when the resolved release is already installed", async () => {
+    let staged = 0;
+    await h.startServer({
+      resolveCoreRelease: async () => ({
+        tag: "v1.0.0",
+        assets: [],
+        candidates: [],
+        source: "live",
+      }),
+      stageCore: async () => {
+        staged += 1;
+        return stage();
+      },
+    });
+    const result = await h.apiRequest("/sash/core/update", { method: "POST" });
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.data, { version: "v1.0.0", alreadyCurrent: true });
+    assert.equal(staged, 0);
+    assert.equal(readInstallRecord(h.layout)?.coreVersion, "v1.0.0");
+    assert.equal((await h.apiRequest("/sash/core/update")).data, null);
+  });
+
   it("installs and starts a missing Core once with one configuration check", async () => {
     const core = new FakeCoreSupervisor(h.layout, h.settings);
     let validations = 0;
@@ -332,6 +354,12 @@ describe("daemon-owned Core updates", () => {
     await h.startServer({
       installCore: false,
       supervisor: core,
+      resolveCoreRelease: async (options) => ({
+        tag: options?.tag ?? "v2",
+        assets: [],
+        candidates: [],
+        source: "live",
+      }),
       stageCore: async (options) => {
         seen.push(options?.proxyUri);
         return stage();
@@ -340,7 +368,7 @@ describe("daemon-owned Core updates", () => {
     assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
     assert.deepEqual(seen, [undefined]);
     assert.equal(
-      (await h.apiRequest("/sash/core/update", { method: "POST", body: { version: "v2" } }))
+      (await h.apiRequest("/sash/core/update", { method: "POST", body: { version: "v3" } }))
         .statusCode,
       200,
     );

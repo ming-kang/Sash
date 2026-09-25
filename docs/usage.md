@@ -130,6 +130,8 @@ sash update --cancel        # abandon a download that is already running
 
 Sash selects an official build that runs on the processor, verifies its download and keeps the previous binary until the new Core passes a health check; failure restores the executable and install record. Updates preserve whether Core was running — an update while stopped starts Core briefly for verification, then stops it. The dashboard stays available throughout. `--check` reads metadata without starting Sash or Core; `--json` prints one result instead of progress text.
 
+Sash resolves the release before it downloads anything, so an update that names the installed version downloads nothing and reports `Core vX is up to date` — including an explicit tag. The proxy never pauses and the binary is never replaced for a release that is already installed.
+
 The download belongs to Sash, not to the command that asked for it, so closing the terminal leaves it running and `sash status` reports its stage and size. Ctrl+C during `sash update`, `sash start` or `sash restart` cancels the download and exits with code 130; a second Ctrl+C leaves immediately. `sash update --cancel` does the same from another terminal, and the dashboard shows a cancel button beside the progress. Only one download runs at a time: a second `sash update` reports the conflict and names the cancel command.
 
 Downloads leave through the first of these that applies:

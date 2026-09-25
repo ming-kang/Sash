@@ -1,4 +1,4 @@
-import type { CoreUpdateProgress } from "./core-update.js";
+import type { CoreUpdateProgress, CoreUpdateResult } from "./core-update.js";
 import type { DownloadTransport } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
 import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
@@ -48,9 +48,8 @@ export type RoutingMode = "rule" | "global" | "direct";
 export function isRoutingMode(value: unknown): value is RoutingMode {
   return value === "rule" || value === "global" || value === "direct";
 }
-export interface CoreUpdateResponse {
-  version: string;
-}
+/** The Core update result as it travels over the local API. */
+export type CoreUpdateResponse = CoreUpdateResult;
 export interface SettingsPatch {
   expectedRevision?: number;
   mixedPort?: number;

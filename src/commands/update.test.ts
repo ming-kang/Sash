@@ -18,6 +18,7 @@ describe("update command cancellation", () => {
   let requests: { method: string; url: string }[];
   let updateGate: Promise<void> | undefined;
   let releaseUpdate: (() => void) | undefined;
+  let updateResponse: Record<string, unknown> = { version: "v1.19.31" };
   let progressResponse: unknown = null;
 
   beforeEach(async () => {
@@ -28,18 +29,19 @@ describe("update command cancellation", () => {
     requests = [];
     const lease = await acquireStateLock(layout.daemonLeaseFile, { purpose: "test daemon" });
     releaseLease = () => lease.release();
-    server = http.createServer((req, res) => {
+    server = http.createServer(async (req, res) => {
       requests.push({ method: req.method ?? "", url: req.url ?? "" });
       if (req.method === "DELETE" && req.url === "/sash/core/update") {
         res.writeHead(204);
         res.end();
         return;
       }
-      if (req.method === "POST" && req.url === "/sash/core/update" && updateGate)
-        return void updateGate.then(() => {
-          res.writeHead(200, { "content-type": "application/json" });
-          res.end(JSON.stringify({ version: "v1.19.31" }));
-        });
+      if (req.method === "POST" && req.url === "/sash/core/update") {
+        if (updateGate) await updateGate;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(updateResponse));
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify(
@@ -112,6 +114,15 @@ describe("update command cancellation", () => {
   it("refuses --cancel together with --check", async () => {
     await assert.rejects(runUpdate({ cancel: true, check: true }), /drop --check/);
     assert.deepEqual(requests, []);
+  });
+
+  it("reports an already installed release without claiming an update", async (t) => {
+    updateResponse = { version: "v1.19.31", alreadyCurrent: true };
+    const output: string[] = [];
+    t.mock.method(console, "log", (...args: unknown[]) => output.push(args.map(String).join(" ")));
+    await runUpdate({});
+    assert.ok(output.some((line) => line.includes("Core v1.19.31 is up to date")));
+    assert.ok(!output.some((line) => line.includes("Core updated to")));
   });
 
   it("cancels the download and exits 130 when Ctrl+C interrupts an update", async (t) => {

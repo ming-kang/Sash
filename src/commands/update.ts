@@ -30,7 +30,7 @@ export async function runUpdate(
         const owner = await ensureDaemonSession(runtimeContext());
         if (!opts.json)
           process.stderr.write(
-            "[sash] Updating Core; the proxy pauses briefly while the Core binary is replaced\n",
+            "[sash] Updating Core; the proxy pauses briefly when the Core binary is replaced\n",
           );
         return updateCoreWithProgress(owner.client, version, printer, interrupt.signal);
       },
@@ -41,6 +41,7 @@ export async function runUpdate(
               ? `Core ${result.current ?? "unknown"} → ${result.target} is available — run sash update${opts.version ? ` ${result.target}` : ""}`
               : `Core ${result.current} is up to date`,
           );
+        else if (result.alreadyCurrent) log.info(`Core ${result.version} is up to date`);
         else log.ok(`Core updated to ${result.version}`);
       },
     );
