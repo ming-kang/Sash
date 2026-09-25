@@ -19,11 +19,6 @@ import type { ProxyFallbackListener } from "./http.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { buildSanitizedEnv } from "./process.js";
 
-/**
- * Mihomo core acquisition: platform asset selection, verified download,
- * decompression, install records, and atomic install/update with rollback.
- */
-
 export function goOsArch(
   platform = process.platform,
   arch = process.arch,
@@ -40,11 +35,7 @@ export function goOsArch(
   return { os: goOs, arch: goArch };
 }
 
-/**
- * Newest ISA level first. stageCore preflights each staged build and falls
- * through to the next variant when this processor rejects it, so no CPU
- * feature detection is needed up front.
- */
+/** Newest ISA level first; stageCore preflights each build and falls through when this processor rejects it. */
 export function mihomoAssetCandidates(
   tag: string,
   platform = process.platform,
@@ -62,7 +53,6 @@ export function mihomoAssetCandidates(
 
 export const CORE_BINARY_SIZE_LIMIT = 512 * 1024 * 1024;
 
-/** Require a nonempty regular executable within the size limit. */
 export function assertCoreBinaryFile(file: string): void {
   const stat = fs.lstatSync(file);
   if (!stat.isFile() || stat.size === 0 || stat.size > CORE_BINARY_SIZE_LIMIT)
@@ -80,7 +70,7 @@ function toInstallRecord(value: unknown): InstallRecord {
   return { coreVersion: validateCoreReleaseTag(String(source?.coreVersion ?? "")) };
 }
 
-/** Lenient read used for private journals and for the committed installation record. */
+/** Lenient read: a malformed record reads as absent. */
 export function parseInstallRecord(value: unknown): InstallRecord | undefined {
   const source = value as Record<string, unknown> | null;
   if (typeof source?.coreVersion !== "string") return undefined;
@@ -130,7 +120,6 @@ export function writeInstallRecord(record: InstallRecord, layout: SashLayout = s
   atomicWriteFileSync(layout.installFile, `${JSON.stringify(normalized, null, 2)}\n`);
 }
 
-/** Best-effort current Core version, read from the committed install record. */
 export function currentCoreVersion(layout: SashLayout = sashLayout()): string {
   return readInstallRecord(layout)?.coreVersion ?? "";
 }
@@ -174,7 +163,6 @@ export async function extractCoreArchive(
       });
       closed = new Promise<void>((resolve) => zip?.once("close", resolve));
       let executable: Entry | undefined;
-      // Scan every name before creating output, including entries after the executable.
       for await (const entry of zip.eachEntry()) {
         signal?.throwIfAborted();
         if (
@@ -224,7 +212,6 @@ export async function extractCoreArchive(
 export interface CoreInstallOptions {
   signal?: AbortSignal;
   layout?: SashLayout;
-  /** Specific tag to install (e.g. v1.19.30); defaults to latest. */
   tag?: string;
   /** Route GitHub traffic through this proxy instead of the environment proxy. */
   proxyUri?: string;
@@ -251,15 +238,10 @@ export interface CoreReleaseResolution {
 
 /**
  * Resolve one release to its assets and the compatible asset names for this
- * machine. Both the staging path and the metadata-only check use this so the
- * size/digest and CPU-feature policy cannot drift apart. SASH_CORE_VERSION
- * pins the tag and skips the latest-release lookup; the asset metadata (and
- * its SHA-256 trust anchor) still comes from the release API.
- *
- * When the live release API is unreachable, the packaged bootstrap manifest
- * supplies the same metadata for the one release it records — mirrors stay
- * byte transports, only the digest source changes. An explicit pin for any
- * other release still requires the live API.
+ * machine; the staging path and the metadata-only check share it so their digest
+ * and CPU-feature policy cannot drift apart. When the live release API is
+ * unreachable, the packaged bootstrap manifest supplies the same metadata for
+ * the one release it records.
  */
 export async function resolveCoreRelease(
   options: {
@@ -310,16 +292,9 @@ export async function resolveCoreRelease(
   }
 }
 
-/** Docs anchor for the manual Core installation path. */
 export const OFFLINE_CORE_INSTALL_URL =
   "https://github.com/ming-kang/Sash/blob/main/docs/usage.md#install-core-offline";
 
-/**
- * Attach the next step to release-resolution failures. Errors that already
- * carry their remedy (proxy guidance) and data-shape errors pass through;
- * rate limiting points at GITHUB_TOKEN, and plain network failures point at
- * a proxy or the manual installation path.
- */
 function explainCoreReleaseFailure(error: unknown): unknown {
   if (!(error instanceof Error) || error.name === "AbortError") return error;
   const message = error.message;
@@ -342,11 +317,7 @@ function explainCoreReleaseFailure(error: unknown): unknown {
   );
 }
 
-/**
- * Preflight a staged build: a processor that lacks the build's instruction
- * set kills it with an illegal-instruction exit, and any other non-zero exit
- * means this variant cannot serve this machine either.
- */
+/** Preflight a staged build: a processor lacking the build's instruction set kills it with an illegal-instruction exit. */
 export async function coreBinaryRuns(exe: string): Promise<boolean> {
   try {
     const child = spawn(exe, ["-v"], {
@@ -364,7 +335,6 @@ export async function coreBinaryRuns(exe: string): Promise<boolean> {
   }
 }
 
-/** Verify the download and extract it without changing the installed runtime. */
 export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCore> {
   const layout = opts.layout ?? sashLayout();
   opts.onStage?.("resolving");
@@ -387,8 +357,6 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
       );
     }
     for (const assetName of available) {
-      // Only a failed preflight falls through to the next build; download,
-      // integrity and extraction errors abort the staging.
       opts.onStage?.("downloading", tag);
       await downloadReleaseAsset({
         signal: opts.signal,

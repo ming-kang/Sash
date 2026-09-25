@@ -43,8 +43,6 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
   )
     throw new Error(t("errors.coreProxies"));
   const text = JSON.stringify(proxies);
-  // Local selections and runtime resets replace the reference. An identical
-  // response must still be adopted after either, even if the wire data repeats.
   if (adoptedProxies?.value === store.proxies && adoptedProxies.text === text) return;
   const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
   const groups = Object.keys(proxies).filter(
@@ -132,7 +130,6 @@ export function refreshRules(): Promise<void> {
   });
 }
 
-/** Resource failures are independent; only visible consumers request data. */
 export async function refreshVisibleCoreResources(cycle = 0, force = false): Promise<void> {
   const refresh = {
     configs: refreshConfigs,

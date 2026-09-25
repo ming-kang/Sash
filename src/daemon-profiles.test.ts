@@ -32,7 +32,6 @@ describe("profile management API", () => {
 
   it("imports and selects saved profiles without starting or rendering Core", async () => {
     await h.startServer();
-    // Nothing is running, so an automatic apply must not start the Core.
     assert.equal((await add("first")).applied, false);
     const a = await add("a");
     const b = await add("b");
@@ -123,7 +122,6 @@ describe("profile management API", () => {
     const after = await status();
     assert.equal(after.configuration.appliedProfile?.id, b.profile.id);
     assert.equal(after.configuration.pending, false);
-    // The reload keeps the same process, so established connections survive.
     assert.equal(after.core.pid, before.core.pid);
     assert.ok(after.revisions.runtime > before.revisions.runtime);
     assert.match(fs.readFileSync(h.layout.configFile, "utf8"), /node-b/);
@@ -177,14 +175,12 @@ describe("profile management API", () => {
       method: "PUT",
       body: { id: b.profile.id },
     });
-    // The selection saved; only the live application failed, so it stays pending.
     assert.equal(response.statusCode, 200);
     assert.equal((response.data as ProfileActivateResponse).applied, false);
     const after = await status();
     assert.equal(after.configuration.appliedProfile?.id, a.profile.id);
     assert.equal(after.configuration.pending, true);
     assert.match(fs.readFileSync(h.layout.configFile, "utf8"), /node-a/);
-    // An explicit Apply retries the reload and surfaces the Core's reason.
     assert.equal((await h.apiRequest("/sash/core/restart", { method: "POST" })).statusCode, 500);
     assert.equal((await status()).configuration.pending, true);
     assert.equal((await status()).configuration.appliedProfile?.id, a.profile.id);

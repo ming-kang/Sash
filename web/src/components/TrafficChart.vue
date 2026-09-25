@@ -94,7 +94,6 @@ function toPoints(series: number[]): Array<[number, number]> {
   });
 }
 
-/** Catmull-Rom → cubic Bezier smoothing. */
 function smooth(points: Array<[number, number]>): string {
   if (points.length === 0) return "";
   const first = points[0];

@@ -1,4 +1,3 @@
-// Run after npm run build. Uses a temporary daemon and a fake OS startup controller.
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

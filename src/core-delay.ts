@@ -20,7 +20,6 @@ export function delayFailureState(statusCode: number): "not_found" | "timeout" |
   return "failed";
 }
 
-/** Validated once at the CLI and HTTP input boundaries before the name reaches the Core API. */
 export function validateDelayTarget(value: unknown): string {
   if (
     typeof value !== "string" ||

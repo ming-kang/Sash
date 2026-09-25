@@ -12,9 +12,7 @@ function readTheme(): Theme {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved === "system" || saved === "light" || saved === "dark") return saved;
-  } catch {
-    // Storage can be unavailable in private or restricted browsing contexts.
-  }
+  } catch {}
   return "system";
 }
 
@@ -38,9 +36,7 @@ export function setTheme(next: Theme): void {
   theme.value = next;
   try {
     window.localStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    // Keep the in-memory preference when persistence is unavailable.
-  }
+  } catch {}
   applyTheme();
 }
 

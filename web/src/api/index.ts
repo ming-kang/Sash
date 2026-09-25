@@ -72,7 +72,6 @@ const sash = new SashClient({
   onUnauthorized: webSession.reject,
 });
 
-/** Reverse-proxied Core API calls; daemon-owned /sash/* lives on the shared client. */
 async function request<T>(
   endpoint: string,
   options?: RequestOptions & { response?: "json" },
@@ -94,7 +93,6 @@ async function request(endpoint: string, options: RequestOptions = {}): Promise<
   return result;
 }
 
-/** Persistent WebSocket with one reconnect timer. Returns an unsubscribe function. */
 function connectStream(
   path: string,
   onData: (msg: unknown) => void,

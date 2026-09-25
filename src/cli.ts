@@ -288,7 +288,6 @@ function parseLines(value: string): number {
 
 async function main(): Promise<void> {
   try {
-    // Bare `sash` is `sash status`.
     if (process.argv.length <= 2) {
       await withCliErrors(async () => (await import("./commands/status.js")).runStatus())();
       return;

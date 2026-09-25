@@ -19,7 +19,7 @@ function parseHostPort(address: string): { host: string; port: number } {
   return { host: parsed.host, port: parsed.port };
 }
 
-/** Connection-nominated fields are hop-by-hop too (RFC 9110, section 7.6.1). */
+/** Hop-by-hop fields (RFC 9110, section 7.6.1). */
 function endToEndHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
   const result = { ...headers };
   const connection = headers.connection ?? "";
@@ -41,7 +41,6 @@ function endToEndHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
   return result;
 }
 
-/** Map a /core/api/* request target to the upstream Core path plus query. */
 export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
   const prefix = "/core/api";
   const suffix = target.pathname.slice(prefix.length);
@@ -49,30 +48,16 @@ export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
   return `${upstreamPath}${target.search}`;
 }
 
-/**
- * The mutation allowlist counts path segments, and the forwarded pathname still
- * carries percent-encoding. An encoded separator would make "/proxies/a%2Fb"
- * read as one segment here and as two upstream, so a name that decodes to a new
- * separator never satisfies a single-segment rule. Nothing usable is lost: the
- * Core routes on the decoded path, where such a request matches no handler.
- */
 function segmentsSurviveDecoding(pathname: string): boolean {
   return pathname.split("/").every((segment) => {
     try {
       return !decodeURIComponent(segment).includes("/");
     } catch {
-      // Malformed percent-encoding is not a name Sash can reason about.
       return false;
     }
   });
 }
 
-/**
- * Gateway handler for /core/api/*. The Core external controller is proxied
- * read-mostly: node selection and connection deletion pass through, while
- * configuration mutations stay with Sash's own control endpoints so the
- * generated configuration remains the single source of truth.
- */
 export async function forwardToCore(
   ctx: DaemonContext,
   req: IncomingMessage,
@@ -96,10 +81,6 @@ export async function forwardToCore(
   else await forward();
 }
 
-/**
- * Forward HTTP requests to the Mihomo external controller, automatically
- * injecting the controller secret Authorization Bearer header.
- */
 export function forwardHttpToCore(
   req: IncomingMessage,
   res: ServerResponse,
@@ -155,7 +136,6 @@ export function forwardHttpToCore(
       } else if (!res.destroyed) res.destroy();
     });
 
-    // If client disconnects early, abort upstream request
     res.on("close", () => {
       if (!completed) {
         proxyReq.destroy();
@@ -166,10 +146,6 @@ export function forwardHttpToCore(
   });
 }
 
-/**
- * Proxy WebSocket connection upgrades to the Mihomo controller stream endpoints
- * (e.g. /core/api/traffic, /core/api/logs).
- */
 export function forwardWsToCore(
   req: IncomingMessage,
   socket: Duplex,
@@ -218,15 +194,10 @@ export function forwardWsToCore(
     if (cleaned) transportSocket.destroy();
   });
 
-  // Register downstream ownership before waiting for the upstream handshake.
-  // A browser can disappear while the Core is still deciding whether to send 101.
   socket.once("error", () => cleanup(true));
   socket.once("end", () => cleanup(true));
   socket.once("close", () => cleanup(false));
 
-  // Node leaves an upgraded socket paused. Read it while awaiting the Core so
-  // a peer FIN is observable, retaining the small amount of data a client may
-  // have optimistically sent after its HTTP upgrade request.
   const pendingClientChunks: Buffer[] = [];
   let pendingClientBytes = 0;
   const readPendingClientData = (): void => {
@@ -278,7 +249,6 @@ export function forwardWsToCore(
     }
   });
 
-  // Upstream rejected upgrade (e.g. HTTP 401/404/500).
   proxyReq.on("response", (proxyRes) => {
     proxyRes.once("error", () => cleanup(true));
     if (cleaned || socket.destroyed || !socket.writable) {

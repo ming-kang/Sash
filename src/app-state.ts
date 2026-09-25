@@ -130,7 +130,6 @@ export class SashStateStore {
     this.commit({ ...stored, settings: { ...stored.settings, secret, daemonSecret } });
   }
 
-  /** Recovery copy of the last known-good manifest; never blocks the primary write. */
   private publishBackup(text: string): void {
     try {
       atomicWriteFileSync(this.layout.settingsBackupFile, text);

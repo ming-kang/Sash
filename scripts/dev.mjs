@@ -17,8 +17,6 @@ async function main() {
   }
 
   const { sashRoot } = await import("../src/paths.js");
-  // Only this child process receives the development home. Ignore a parent
-  // shell's SASH_HOME so ordinary sash commands keep their own runtime.
   delete process.env.SASH_HOME;
   const regularHome = sashRoot();
   const devHome = process.env.SASH_DEV_HOME?.trim() || `${regularHome}-dev`;

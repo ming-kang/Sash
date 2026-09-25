@@ -56,7 +56,6 @@ function focusableElements(root: HTMLElement): HTMLElement[] {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  // Another handler (e.g. a CodeMirror keymap) already consumed this key.
   if (event.defaultPrevented) return;
   const top = stack[stack.length - 1];
   const root = top?.container();

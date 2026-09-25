@@ -2,10 +2,7 @@ import fs from "node:fs";
 import { atomicWriteFileSync } from "../fs-atomic.js";
 import type { SashLayout } from "../paths.js";
 
-/**
- * The last login-start outcome. The hidden launcher cannot show anything, so
- * this record is how `sash status` and `sash doctor` learn what happened.
- */
+/** The last login-start outcome; the hidden launcher cannot report anything itself. */
 export interface LoginStartRecord {
   at: string;
   ok: boolean;

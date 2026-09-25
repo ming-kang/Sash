@@ -1,10 +1,3 @@
-/**
- * Shared scaffolding for the manual Playwright verification scripts.
- *
- * Each script still owns its assertions and fixtures; this module owns the
- * parts they repeated: artifact directories, the mock Core HTTP/WebSocket
- * listener, browser launch and failure captures.
- */
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -19,14 +12,12 @@ export const UI_ENGINES: ReadonlyArray<{ engine: BrowserType; name: string }> = 
   { engine: firefox, name: "firefox" },
 ];
 
-/** Artifact directory: first argument when given, otherwise a fresh temp directory. */
 export function uiArtifactDirectory(prefix: string): string {
   const output = path.resolve(process.argv[2] ?? fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   fs.mkdirSync(output, { recursive: true });
   return output;
 }
 
-/** RFC 6455 text frame for mock Core stream messages. */
 export function webSocketTextFrame(value: unknown): Buffer {
   const body = Buffer.from(JSON.stringify(value));
   const prefix = Buffer.alloc(body.length < 126 ? 2 : 4);
@@ -54,11 +45,9 @@ export interface MockCore {
 
 export interface MockCoreOptions {
   handle(req: http.IncomingMessage, res: http.ServerResponse): void;
-  /** Called for each accepted WebSocket upgrade; `send` writes one text frame. */
   stream?(req: http.IncomingMessage, socket: Duplex, send: (value: unknown) => void): void;
 }
 
-/** Loopback Core stand-in: the caller owns HTTP routing, the harness owns the listener. */
 export async function startMockCore(options: MockCoreOptions): Promise<MockCore> {
   const sockets = new Set<Duplex>();
   const server = http.createServer(options.handle);
@@ -90,7 +79,6 @@ export function launchUiBrowser(engine: BrowserType, headless = true): Promise<B
   return engine.launch({ headless, env: buildSanitizedEnv() });
 }
 
-/** Capture every open page of a browser that failed verification. */
 export async function captureFailurePages(
   browser: Browser,
   output: string,

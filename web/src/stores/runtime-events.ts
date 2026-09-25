@@ -9,7 +9,6 @@ import { isCoreHealthy, resetCoreState, store } from "./state.js";
 
 const RECONNECT_MS = 2000;
 
-/** Status is pushed; Core telemetry snapshots follow one visible-page poll. */
 export function startRuntimeEvents(intervalMs = 2000): () => void {
   let stopped = false;
   let stream: AbortController | null = null;

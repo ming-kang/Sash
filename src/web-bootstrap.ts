@@ -31,8 +31,7 @@ function createPrivateDirectory(directory: string): void {
     fs.mkdirSync(directory, { mode: 0o700 });
     return;
   }
-  // Create the directory with its DACL already in place. No credential is
-  // written under inherited Windows permissions, including custom SASH_HOME.
+  // Create the directory with its DACL in place: no credential is written under inherited Windows permissions.
   const executable = windowsSystemExecutable("WindowsPowerShell/v1.0/powershell.exe");
   if (!path.isAbsolute(executable)) throw new Error("Windows PowerShell is unavailable");
   const encoded = Buffer.from(directory, "utf8").toString("base64");
@@ -49,19 +48,13 @@ function createPrivateDirectory(directory: string): void {
     "$actual = [IO.Directory]::GetAccessControl($directory)",
     "if (!$actual.AreAccessRulesProtected -or $actual.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Bootstrap directory is not private' }",
   ].join("; ");
-  // Powershell cold start plus the .NET ACL types take seconds on a loaded
-  // machine; the 5s default fails the handoff before the directory exists.
+  // PowerShell cold start plus the .NET ACL types take seconds on a loaded machine.
   runSanitizedCommand(executable, ["-NoProfile", "-NonInteractive", "-Command", script], {
     timeoutMs: 30_000,
   });
 }
 
-/**
- * Write a one-time handoff in a new owner-only directory. Only the file URL
- * reaches the launcher; the credential enters the URL fragment inside the
- * browser, never process arguments or CLI output. Keep the file until expiry
- * so a cold browser or a concurrent `sash web` invocation can still load it.
- */
+/** Only the file URL reaches the launcher; the credential enters the URL fragment inside the browser, never process arguments or CLI output. */
 export function writeBootstrapFile(
   layout: SashLayout,
   opts: WebBootstrapInfo & { dashboardUrl: string },
@@ -136,7 +129,5 @@ export function removeBootstrapFile(filePath: string): void {
     if (!entry.isDirectory() || entry.isSymbolicLink()) return;
     fs.rmSync(filePath, { force: true });
     fs.rmdirSync(directory);
-  } catch {
-    // Retry on the next invocation if a browser still holds the file open.
-  }
+  } catch {}
 }

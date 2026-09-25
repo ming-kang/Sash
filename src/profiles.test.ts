@@ -20,11 +20,9 @@ describe("profile input boundaries", () => {
     for (const revision of [0, -1, 0.5, Infinity])
       assert.throws(() => profileFilePath(layout, "123", revision));
 
-    // A dangling selection reads as "no active profile"; duplicate ids keep the first entry.
     assert.equal(parseProfilesIndex({ activeId: "missing", profiles: [meta] }).activeId, null);
     assert.equal(parseProfilesIndex({ activeId: null, profiles: [meta, meta] }).profiles.length, 1);
 
-    // Damaged fields degrade instead of discarding the entry; unknown fields are ignored.
     const damaged = parseProfilesIndex({
       activeId: null,
       profiles: [
@@ -48,7 +46,6 @@ describe("profile input boundaries", () => {
     assert.equal(damaged.lastAttemptAt, "today");
     assert.equal(damaged.failureCount, undefined);
 
-    // An entry without a usable source reference is skipped, not fatal.
     assert.equal(
       parseProfilesIndex({ activeId: null, profiles: [{ ...meta, revision: 0 }, meta] }).profiles
         .length,

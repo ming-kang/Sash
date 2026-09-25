@@ -15,9 +15,6 @@ defineProps<{ title: string; desc?: string }>();
 </script>
 
 <style scoped>
-/* Canonical top bar for every page. Height matches the sidebar traffic panel
- * (80px) so the two border-bottoms line up; the negative margin breaks out of
- * .page-container's horizontal padding so the rule spans the full width. */
 .page-head {
   display: flex;
   min-height: 80px;

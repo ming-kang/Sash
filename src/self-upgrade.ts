@@ -39,7 +39,6 @@ import { StateMutationQueue } from "./state-lock.js";
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const NPM_INSTALL_TIMEOUT_MS = 15 * 60_000;
 
-/** One http(s) registry origin, without a trailing slash; anything else is rejected. */
 function parseNpmRegistry(value: string): string | undefined {
   try {
     const url = new URL(value.trim());
@@ -50,12 +49,7 @@ function parseNpmRegistry(value: string): string | undefined {
   }
 }
 
-/**
- * The registry npm itself would use, so `sash upgrade` honors user mirrors
- * (.npmrc, npm_config_registry) instead of only the default registry. The
- * probe asks npm for the effective value with a scrubbed environment; any
- * failure falls back to the default registry.
- */
+/** `npm config get registry` reports the effective registry, honoring user mirrors (.npmrc, npm_config_registry). */
 export async function resolveNpmRegistry(
   nodePath = process.execPath,
   probe: (nodePath: string) => Promise<string | undefined> = probeNpmRegistry,
@@ -125,7 +119,6 @@ export interface SashUpgradeInspection {
   target?: SashPackageInfo;
 }
 
-/** Published Sash manifest for one exact version, or for the `latest` tag. */
 export async function resolveSashUpgradeTarget(
   version?: string,
   signal?: AbortSignal,
@@ -160,7 +153,6 @@ export async function resolveSashUpgradeTarget(
   return target;
 }
 
-/** Inspect the installation and target release for `sash upgrade --check`. */
 export async function inspectSashUpgrade(
   version?: string,
   options: { packageRoot?: string; nodeVersion?: string; registry?: string } = {},
@@ -287,19 +279,13 @@ function runNpmInstall(
 
 export interface SashUpgradeOutcome {
   version: string;
-  /** True when the daemon was restarted onto the new code as part of this run. */
   restarted: boolean;
-  /** True when Sash was running when the install finished; drives the load hint. */
   wasRunning: boolean;
-  /** True when Core ran before the upgrade and runs again on the new daemon. */
   coreRestarted: boolean;
-  /** Why Core did not come back even though the package and daemon upgraded. */
   coreRestartError?: string;
-  /** Present and true when a stale start-at-login entry was re-registered. */
   autostartRepaired?: boolean;
 }
 
-/** Seams for the upgrade sequence so its order can be tested without npm or a daemon. */
 export interface SashUpgradeDeps {
   resolveSession?: typeof resolveDaemonSession;
   stop?: typeof stopRuntime;
@@ -313,14 +299,9 @@ export interface SashUpgradeDeps {
   ) => Promise<void>;
 }
 
-/** Long, otherwise silent stretches of the restart worth announcing. */
 export type SashUpgradePhase = "restarting" | "starting-core";
 
-/**
- * Install the resolved target while Sash keeps serving, then restart the
- * running instance when requested. One upgrade at a time per data folder;
- * a concurrent attempt fails fast instead of colliding inside npm.
- */
+/** One upgrade at a time per data folder; a concurrent attempt fails fast instead of colliding inside npm. */
 export async function executeSashUpgrade(
   installation: NpmInstallation,
   target: SashPackageInfo,
@@ -407,8 +388,6 @@ async function runSashUpgradeSequence(
       await (deps.startCore ? deps.startCore(restarted) : restarted.client?.startCore());
       coreRestarted = true;
     } catch (error) {
-      // The package and daemon upgrade already succeeded; hiding a Core
-      // failure would leave the user believing the proxy works when it does not.
       coreRestartError = errorMessage(error);
     }
   }
@@ -433,11 +412,7 @@ function readPreviousVersion(installation: NpmInstallation): string | undefined 
   }
 }
 
-/**
- * The old daemon is stopped and the new one failed its health check: put the
- * previous package back the same way it was replaced (npm owns integrity),
- * then start it. The error reports both outcomes either way.
- */
+/** Reinstall the previous version through npm, which owns package integrity. */
 async function explainUpgradeStartFailure(
   error: unknown,
   previousVersion: string | undefined,
@@ -465,11 +440,6 @@ async function explainUpgradeStartFailure(
   }
 }
 
-/**
- * Re-register start at login when the upgrade moved the paths its entry
- * points at. Inspection happens at the OS level; the registration itself
- * goes through the daemon like every other autostart change.
- */
 async function repairStaleAutostart(
   owner: HealthyDaemonSession,
   layout: SashLayout,
@@ -483,7 +453,6 @@ async function repairStaleAutostart(
     await owner.client.setAutostart(true);
     return true;
   } catch {
-    // Repair is best-effort; a still-stale entry stays discoverable via sash status.
     return false;
   }
 }

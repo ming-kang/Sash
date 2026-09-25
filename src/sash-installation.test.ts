@@ -28,16 +28,13 @@ it("recognizes a direct npm prefix and refuses local and mismatched layouts", (t
     assert.equal(result.packageRoot, fs.realpathSync.native(packageRoot));
     assert.equal(result.nodePath, fs.realpathSync.native(process.execPath));
   }
-  // Detection is read-only: it never creates upgrade or installation state.
   assert.equal(fs.readdirSync(prefix).sort().join(","), "node_modules");
   assert.equal(fs.existsSync(path.join(prefix, ".sash-upgrade")), false);
 
-  // A package outside the @astralyn/sash npm layout is a checkout or another package.
   const checkout = inspectInstallation({ ...options, packageRoot: path.join(root, "sash") });
   assert.equal(checkout.kind, "source");
   if (checkout.kind === "source") assert.match(checkout.reason, /local installation/);
 
-  // The npm layout for one platform never matches another platform's derived prefix.
   const mismatched = inspectInstallation({ ...options, platform: "linux" });
   assert.equal(mismatched.kind, "source");
   if (mismatched.kind === "source")
@@ -64,7 +61,6 @@ it("derives platform-specific npm layouts and rejects incomplete or non-absolute
   }
   assert.equal(npmPrefixForPackage(path.join(prefix, "elsewhere", "sash"), "linux"), undefined);
 
-  // A matching layout without the CLI entry cannot be verified.
   const packageRoot = npmPackageRoot(prefix, process.platform);
   fs.mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
   assert.equal(inspectInstallation({ packageRoot }).kind, "unknown");

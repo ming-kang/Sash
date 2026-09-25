@@ -42,7 +42,6 @@ export interface PortObservation {
   unknown?: boolean;
 }
 
-/** Bind briefly to a stopped listener's address; no application traffic is sent. */
 export function inspectListenerPort(host: string, port: number): Promise<PortObservation> {
   return new Promise((resolve) => {
     const server = net.createServer((socket) => socket.destroy());
@@ -76,14 +75,9 @@ const NETWORK_PROBES = [
   { name: "ghfast.top", url: "https://ghfast.top" },
 ] as const;
 
-/**
- * A probe answers slowly enough that the old short budget reported a reachable
- * mirror as unreachable — the same false failure a Core download would never
- * produce, because it gets a real budget.
- */
+/** A reachability probe needs a real time budget or a reachable mirror reads as unreachable. */
 const NETWORK_PROBE_TIMEOUT_MS = 15_000;
 
-/** Any HTTP response counts as reachable; only transport failures count as unreachable. */
 async function probeHttpReachability(url: string, proxyUri?: string): Promise<boolean> {
   try {
     const res = await fetchWithRetry(url, {
@@ -98,22 +92,12 @@ async function probeHttpReachability(url: string, proxyUri?: string): Promise<bo
   }
 }
 
-/**
- * The transport a reachability result describes. The daemon prefers a proxy
- * environment variable and otherwise routes verified downloads through its own
- * running Core, so probing any other path can contradict what a download does:
- * a blocked direct route reads as unreachable while the Core would succeed, and
- * a dead Core outbound reads as reachable while downloads would fail. Only when
- * the daemon did not answer is its transport unknown, and the probe falls back
- * to direct — the path a download takes while Sash is stopped.
- */
 function describeProbeTransport(transport: DownloadTransport | undefined): string {
   if (!transport) return "a direct connection";
   if (transport.source === "core") return `Sash's own Core proxy: ${transport.uri}`;
   return `the proxy environment variable: ${transport.uri}`;
 }
 
-/** Independent checks keep diagnostics useful when settings or installation files are damaged. */
 export async function diagnoseSash(
   options: {
     layout?: SashLayout;
@@ -121,10 +105,6 @@ export async function diagnoseSash(
     status?: StatusObservationDependencies;
     inspectPort?: typeof inspectListenerPort;
     inspectProxyConnections?: () => Promise<ProxyConnectionsObservation>;
-    /**
-     * Reachability probe, also told which transport the daemon would use so a
-     * test can assert the check measures the path a download takes.
-     */
     probeReachability?: (url: string, transport: DownloadTransport | undefined) => Promise<boolean>;
   } = {},
 ): Promise<DoctorReport> {

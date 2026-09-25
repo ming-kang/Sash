@@ -2,17 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/**
- * Records the current upstream Core and geodata releases as the package's
- * bootstrap manifest (dist/bootstrap-manifest.json). The manifest is the
- * offline trust anchor: when a user's network cannot reach the GitHub release
- * API, Sash still verifies mirror downloads against these publisher digests.
- *
- * Runs in CI between `npm run build` and `npm pack`; it needs network access
- * to api.github.com and honors GITHUB_TOKEN for the rate limit. Pin the Core
- * release with SASH_BOOTSTRAP_CORE_TAG when a specific one is wanted.
- */
-
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const outFile = path.join(root, "dist", "bootstrap-manifest.json");
 
@@ -91,7 +80,6 @@ if (typeof coreRelease.tag_name !== "string" || !coreRelease.tag_name) {
   throw new Error(`Release response for ${MIHOMO_REPO} is missing tag_name`);
 }
 const coreAssets = pickAssets(coreRelease, coreCandidates(coreRelease.tag_name), MIHOMO_REPO);
-// Every supported platform needs at least one runnable candidate in the manifest.
 for (const os of ["windows", "linux", "darwin"]) {
   for (const arch of ["amd64", "arm64"]) {
     if (!coreAssets.some((asset) => asset.name.startsWith(`mihomo-${os}-${arch}`))) {

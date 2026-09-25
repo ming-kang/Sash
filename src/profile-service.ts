@@ -46,7 +46,6 @@ export interface ProfileServiceOptions {
   assertMutable?: () => void;
   fetchProfile?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
   canCleanTemp?: () => boolean;
-  /** Applies the just-saved configuration to the running Core when it can. */
   reconcileRuntime?: () => Promise<boolean>;
 }
 
@@ -76,7 +75,6 @@ function profileInput(content: string): Record<string, unknown> {
   }
 }
 
-/** Bounded read of a saved profile source from disk. */
 export function readProfileText(
   layout: SashLayout,
   profile: Pick<ProfileMeta, "id" | "revision">,
@@ -88,7 +86,6 @@ export function readProfileText(
   return fs.readFileSync(file, "utf8");
 }
 
-/** Allocate a numeric id unused by both the index and the profiles directory. */
 export function allocateProfileId(index: ProfilesIndex, layout: SashLayout): string {
   let id = BigInt(Date.now());
   while (
@@ -99,7 +96,6 @@ export function allocateProfileId(index: ProfilesIndex, layout: SashLayout): str
   return String(id);
 }
 
-/** Scheduled-update policy: the interval elapsed, with exponential backoff after failures. */
 export function profileDueForUpdate(profile: ProfileMeta, nowMs = Date.now()): boolean {
   if (!profile.url || profile.intervalHours <= 0) return false;
   let dueAt = Date.parse(profile.updatedAt) + profile.intervalHours * 3_600_000;
@@ -111,7 +107,6 @@ export function profileDueForUpdate(profile: ProfileMeta, nowMs = Date.now()): b
   return nowMs >= dueAt;
 }
 
-/** Render the selected profile (or the DIRECT-only default) into a generated core config. */
 export function renderActiveConfig(state: SashState, layout: SashLayout): GeneratedConfig {
   const active = getActiveProfile(state.profiles);
   return renderConfig(
@@ -183,12 +178,10 @@ export class ProfileService {
     return current;
   }
 
-  /** Applies the just-saved configuration to the running Core when it can. */
   private async reconcileRuntime(): Promise<boolean> {
     return (await this.options.reconcileRuntime?.()) ?? false;
   }
 
-  /** Write the source first, then publish its reference through the one state file. */
   private async publishSource(
     index: ProfilesIndex,
     profile: ProfileMeta,
@@ -201,9 +194,7 @@ export class ProfileService {
     if (previous) {
       try {
         unchanged = readProfileText(this.options.layout, previous) === text;
-      } catch {
-        /* A valid update can replace a missing or damaged source. */
-      }
+      } catch {}
     }
     let revision = profile.revision;
     if (unchanged && previous) revision = previous.revision;
@@ -228,8 +219,6 @@ export class ProfileService {
         /* A failed cleanup leaves an unreferenced source; the committed state is complete. */
       }
     }
-    // Saving or updating the profile the runtime already selected takes effect
-    // immediately; anything else waits for an explicit selection.
     const applied = select || index.activeId === next.id ? await this.reconcileRuntime() : false;
     return { profile: next, applied };
   }
@@ -360,7 +349,6 @@ export class ProfileService {
       const doc = profile ? parseProfileText(readProfileText(this.options.layout, profile)) : null;
       if (state.profiles.activeId !== id)
         this.options.state.commit({ ...state, profiles: { ...state.profiles, activeId: id } });
-      // Selecting a profile is the switch itself: it takes effect immediately.
       const applied = await this.reconcileRuntime();
       return {
         activeId: id,
@@ -499,7 +487,6 @@ export class ProfileService {
       } catch {
         /* State no longer references this file. */
       }
-      // Removing the selected profile falls back to the built-in configuration.
       const applied = wasActive ? await this.reconcileRuntime() : false;
       return { wasActive, applied };
     });

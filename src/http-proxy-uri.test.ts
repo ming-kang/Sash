@@ -43,7 +43,6 @@ describe("explicit proxy URI downloads", () => {
     const originPort = typeof originAddress === "object" && originAddress ? originAddress.port : 0;
     originUrl = `http://127.0.0.1:${originPort}/payload`;
 
-    // A plain forward proxy: absolute-URI requests are answered directly.
     proxiedRequests = [];
     proxy = http.createServer((req, res) => {
       proxiedRequests.push(req.url ?? "");

@@ -7,11 +7,6 @@ import { after, before, describe, it } from "node:test";
 import { proxyAwareDispatcher, USER_AGENT } from "./http.js";
 import { downloadToFile } from "./http-download.js";
 
-/**
- * Redirect allowlist enforcement in downloadToFile. Uses a loopback node:http
- * server; no external network access.
- */
-
 describe("downloadToFile redirect allowlist", () => {
   let server: http.Server;
   let baseUrl: string;
@@ -186,7 +181,6 @@ describe("proxy dispatcher environment purity", () => {
       assert.equal(process.env.HTTPS_PROXY, undefined);
       assert.equal(process.env.https_proxy, undefined);
     } finally {
-      // Restore the original proxy environment for other tests.
       delete process.env.ALL_PROXY;
       if (before.HTTP_PROXY) process.env.HTTP_PROXY = before.HTTP_PROXY;
       if (before.HTTPS_PROXY) process.env.HTTPS_PROXY = before.HTTPS_PROXY;

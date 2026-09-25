@@ -7,7 +7,6 @@ describe("daemon server", () => {
 
   describe("request target and method boundary", () => {
     it("rejects an unsupported request-target form and keeps serving", async () => {
-      // Every rejected form is covered by the router unit test.
       await h.startServer();
       assert.match(await h.rawHttpRequest("http://"), /^HTTP\/1\.1 400 /);
 

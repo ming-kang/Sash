@@ -166,8 +166,6 @@ const filteredConnections = computed(() => {
   const list = query
     ? activeConnections.value.filter((connection) => matchesConnection(connection, query))
     : [...activeConnections.value];
-  // Decorate-sort-undecorate: keys are computed once per row instead of
-  // O(n log n) hostOf()/localeCompare calls inside the comparator.
   const keyOf = (connection: ConnectionItem): number | string => {
     if (sortKey.value === "upload") return connection.upload;
     if (sortKey.value === "download") return connection.download;
@@ -215,7 +213,6 @@ async function closeOne(id: string): Promise<void> {
     if (paused.value) {
       pausedSnapshot.value = pausedSnapshot.value.filter((connection) => connection.id !== id);
     }
-    // The row vanishing is the feedback; a toast per row would flood the stack.
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   }
@@ -245,8 +242,6 @@ async function closeAll(): Promise<void> {
 .connections-view {
   min-height: 100%;
 }
-/* The sort/control row is a secondary toolbar: it should hug the header's
- * bottom rule instead of floating below PageHeader's content margin. */
 .connections-view > .page-head {
   margin-bottom: 0;
 }

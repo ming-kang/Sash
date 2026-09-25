@@ -16,11 +16,9 @@ function readStoredSession(): WebSessionInfo | null {
     const stored = window.sessionStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
     const parsed = JSON.parse(stored) as { token?: unknown; daemonToken?: unknown } | null;
-    // An obsolete or hand-edited value reads as absent; the daemon still checks the token.
     if (typeof parsed?.token !== "string" || typeof parsed?.daemonToken !== "string") return null;
     return { token: parsed.token, daemonToken: parsed.daemonToken };
   } catch {
-    // Storage may be disabled, unavailable, or contain an obsolete credential.
     return null;
   }
 }
@@ -31,9 +29,7 @@ function setCredential(value: WebSessionInfo | null, ready = value !== null): vo
   try {
     if (value) window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(value));
     else window.sessionStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Authorization still works in memory when browser storage is unavailable.
-  }
+  } catch {}
 }
 
 /** Consume the fragment before any network request, including invalid handoffs. */

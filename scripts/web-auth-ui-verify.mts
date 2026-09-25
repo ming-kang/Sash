@@ -1,5 +1,3 @@
-// Run after npm run build: npx tsx scripts/web-auth-ui-verify.mts
-// Real daemon authorization and browser navigation; fake Core and system proxy.
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import type http from "node:http";
@@ -281,9 +279,6 @@ try {
             await h.startServer({ supervisor }, port);
             trackEventStreams();
             assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
-            // Sessions persist across daemon restarts: the daemon reloads the
-            // stored hashes, so the tab keeps its credential and returns to the
-            // overview without a fresh handoff.
             await page.locator(".page-overview").waitFor();
             const continued = await page.evaluate(() =>
               JSON.parse(sessionStorage.getItem("sash.control-token") ?? "{}").token,

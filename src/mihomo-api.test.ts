@@ -182,8 +182,6 @@ describe("MihomoApi", () => {
   });
 
   it("waits out a reload that blocks on provider loading, past the default API budget", async () => {
-    // The Core answers a reload only once every provider has loaded, which on a
-    // slow or blocked provider takes far longer than an ordinary API call.
     const reloadMs = 8_000;
     const server = http.createServer((req, res) => {
       if (req.method === "PUT" && req.url === "/configs") {

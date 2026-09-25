@@ -4,7 +4,6 @@ import path from "node:path";
 import { errnoCode, errorMessage } from "./error-utils.js";
 import { isProcessAlive } from "./process.js";
 
-/** On-disk ownership record for a state-file lock. */
 export interface StateLockRecord {
   pid: number;
   token: string;
@@ -12,11 +11,8 @@ export interface StateLockRecord {
 }
 
 export interface StateLockOptions {
-  /** A short description included in diagnostics and the on-disk record. */
   purpose: string;
-  /** Maximum time to wait for a live owner. Defaults to 10 seconds. */
   timeoutMs?: number;
-  /** Delay between acquisition attempts. Defaults to 50 milliseconds. */
   pollMs?: number;
 }
 
@@ -29,7 +25,7 @@ export interface StateLockLease {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_MS = 50;
-/** A record that cannot be parsed within this window is abandoned, not being written. */
+/** A record still unreadable past this window is abandoned, not being written. */
 const WRITE_GRACE_MS = 250;
 
 function ownerText(record?: StateLockRecord): string {
@@ -40,7 +36,7 @@ function lockError(file: string, message: string, record?: StateLockRecord): Err
   return new Error(`State lock ${message}: ${file} (${ownerText(record)})`);
 }
 
-/** Lenient by design: the lock file is a diagnostic record, not a validated schema. */
+/** Lenient by design: a diagnostic record, not a validated schema. */
 function readLockRecord(file: string): StateLockRecord | undefined {
   let parsed: unknown;
   try {
@@ -65,7 +61,7 @@ function readLockRecord(file: string): StateLockRecord | undefined {
   };
 }
 
-/** Read the current owner without modifying the lock file. Missing or unreadable files are absent. */
+/** Missing or unreadable lock files are absent. */
 export function readStateLockRecord(file: string): StateLockRecord | undefined {
   return readLockRecord(file);
 }
@@ -101,12 +97,7 @@ function createLease(file: string, record: StateLockRecord): StateLockLease {
   return { file, record, release: () => releaseLock(file, record) };
 }
 
-/**
- * Remove a lock whose owner is no longer running, or whose record has stayed
- * unreadable past the write grace. The rename makes the removal exclusive:
- * another contender either moves the same file first or sees ENOENT. Returns
- * whether the canonical path was freed.
- */
+/** Renaming the lock away is exclusive: a contender either moves it first or sees ENOENT. */
 function reclaimLock(file: string): boolean {
   const current = readLockRecord(file);
   if (current) {
@@ -129,13 +120,10 @@ function reclaimLock(file: string): boolean {
   }
   try {
     fs.unlinkSync(stale);
-  } catch {
-    // The canonical path is already free; a leftover stale file is diagnostic only.
-  }
+  } catch {}
   return true;
 }
 
-/** Acquire a state-file lock without blocking the Node.js event loop. */
 export async function acquireStateLock(
   file: string,
   options: StateLockOptions,
@@ -168,7 +156,6 @@ export async function acquireStateLock(
   }
 }
 
-/** Acquire a lock, run an action, and release the lock even when the action fails. */
 export async function withStateLock<T>(
   file: string,
   options: StateLockOptions,
@@ -182,7 +169,6 @@ export async function withStateLock<T>(
   }
 }
 
-/** Serializes in-process mutations under the same cross-process lock file. */
 export class StateMutationQueue {
   private operationQueue: Promise<void> = Promise.resolve();
 

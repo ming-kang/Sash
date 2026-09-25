@@ -113,9 +113,8 @@ export async function* watchStatusWithDelay(
   };
   signal.addEventListener("abort", notify, { once: true });
 
-  // Probes run strictly one at a time: each starts only after the previous
-  // settled. A runtime-identity change aborts the in-flight probe and
-  // re-probes immediately instead of waiting out the interval.
+  // Probes run strictly one at a time; a runtime-identity change aborts the
+  // in-flight probe and re-probes immediately instead of waiting out the interval.
   let probing = false;
   let probeAgain = false;
   let probeAbort: AbortController | undefined;
@@ -128,7 +127,6 @@ export async function* watchStatusWithDelay(
     const probeSignal = AbortSignal.any([signal, pending.signal]);
     try {
       const result = await observeStatusDelay(context(), status, name, probeSignal, options.probe);
-      // An aborted probe belongs to a replaced runtime; its result is stale.
       if (!pending.signal.aborted) observation = result;
     } catch (error) {
       if (!pending.signal.aborted && !signal.aborted) {

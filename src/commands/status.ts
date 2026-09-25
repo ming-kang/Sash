@@ -95,8 +95,6 @@ export async function runStatus(
       ? `${status.activeProfile.name} (${status.activeProfile.url ? "subscription" : "local file"})`
       : "none selected — using the built-in configuration",
   );
-  // Only present while the daemon stages or installs a Core binary; the line
-  // answers "why is my update not finishing" from any terminal.
   if (status.coreUpdate) log.kv("core download", coreUpdateProgressText(status.coreUpdate));
   if (status.downloadProxy) log.kv("download proxy", status.downloadProxy);
   log.kv("proxy port", status.endpoints.mixedProxy);
@@ -106,11 +104,8 @@ export async function runStatus(
   );
   log.kv("dashboard", status.endpoints.dashboard);
   log.kv("local API", status.endpoints.daemonApi);
-  // The headline already names the running version; this line answers
-  // "is a Core installed" while it is stopped.
   if (status.core.running !== true) log.kv("core", status.core.installedVersion || "not installed");
-  // A daemon keeps executing the code it started with; say so when the installed
-  // package has moved on, instead of leaving the mismatch silent.
+  // A daemon keeps executing the code it started with.
   const runningVersion = status.daemon.version;
   if (runningVersion) {
     const installedVersion = readSashPackageInfo().version;

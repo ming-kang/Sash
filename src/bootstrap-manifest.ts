@@ -8,21 +8,17 @@ import { validateCoreReleaseTag } from "./github.js";
  * Packaged bootstrap metadata: the pinned Core and geodata releases recorded
  * when this Sash package was built (see scripts/build-bootstrap-manifest.mjs).
  *
- * When the live GitHub release API is unreachable, its SHA-256 trust anchor
- * disappears and no mirror download can be accepted. The manifest preserves
- * that anchor: it is captured from the release API at publish time and
- * travels inside the npm package, whose integrity npm itself guarantees.
- * Mirrors remain byte transports; only the digest source changes.
+ * The manifest is the SHA-256 trust anchor when the live release API is
+ * unreachable and no mirror download can be accepted; it travels inside the
+ * npm package, whose integrity npm itself guarantees.
  *
  * The file is absent from development checkouts, so every read is lenient:
  * a missing or malformed manifest simply means "no offline fallback".
  */
 
 export interface BootstrapAsset {
-  /** Bare file name, no path separators. */
   name: string;
   size: number;
-  /** Lowercase hex SHA-256, without the "sha256:" prefix. */
   sha256: string;
 }
 
@@ -37,8 +33,7 @@ export interface BootstrapManifest {
 }
 
 export function defaultBootstrapManifestPath(): string {
-  // Bundled entries live flat in dist/, so this resolves to
-  // dist/bootstrap-manifest.json both in the CLI and the daemon bundle.
+  // Bundled entries live flat in dist/; the CLI and daemon bundle resolve the same path.
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "bootstrap-manifest.json");
 }
 
@@ -98,7 +93,6 @@ interface CachedManifest {
 
 const manifestCache = new Map<string, CachedManifest>();
 
-/** Present manifest assets in the shape the verified download pipeline expects. */
 export function manifestReleaseAssets(repo: string, release: BootstrapRelease): ReleaseAsset[] {
   return release.assets.map((asset) => ({
     name: asset.name,

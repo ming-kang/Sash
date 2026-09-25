@@ -30,7 +30,6 @@
             <CoreControls apply-only />
           </div>
 
-          <!-- Anchored to the chrome's bottom edge so toasts never cover the apply button. -->
           <ToastHost />
         </div>
 
@@ -74,8 +73,6 @@ import {
   startRuntimeEvents,
   store,
 } from "./stores/index.js";
-// OverviewView is the default route and stays in the entry chunk; the rest
-// load on first navigation (their chunks carry view-only deps like CodeMirror).
 import OverviewView from "./views/OverviewView.vue";
 import ConnectionView from "./views/ConnectionView.vue";
 
@@ -96,8 +93,6 @@ let trafficGapTimer: number | null = null;
 const visible = ref(!document.hidden);
 const updateVisibility = () => { visible.value = !document.hidden; };
 
-/** Marks scrolled elements with .is-scrolling so overlay scrollbars fade in while
- *  scrolling and hide again after a short idle delay. */
 const scrollIdleTimers = new WeakMap<Element, number>();
 
 function handleScrollCapture(event: Event): void {
@@ -153,8 +148,6 @@ watch(
   },
 );
 
-// Log frames are only consumed by the logs view; the socket stays closed
-// on every other route so bursts never hit the reactive store off-screen.
 watch(
   () =>
     visible.value && store.daemonOnline &&

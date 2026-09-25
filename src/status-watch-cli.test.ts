@@ -58,7 +58,6 @@ for (const withDelay of [false, true]) {
     if (withDelay) {
       await harness.startMockCore((req, res) => {
         if (req.url === "/configs") {
-          // Importing the first profile applies it to the running Core live.
           assert.equal(req.method, "PUT");
           reloads += 1;
           res.writeHead(204);

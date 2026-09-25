@@ -13,7 +13,6 @@ export interface ProfileUpdateScheduler {
   stop(): void;
 }
 
-/** Periodic auto-update of due subscription profiles. */
 export function startProfileUpdateScheduler(
   profiles: ProfileService,
   scheduler: DaemonScheduler = {},

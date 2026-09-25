@@ -5,8 +5,6 @@ import { WEB_SOCKET_AUTH_PROTOCOL, WEB_SOCKET_TOKEN_PROTOCOL_PREFIX } from "../c
 import { atomicWriteFileSync } from "../fs-atomic.js";
 import { isPlainObject } from "../json-shape.js";
 
-/** One-time browser bootstrap tokens stay valid long enough for `sash web` to
- * write the bootstrap file and for the browser to load it, but no longer. */
 export const WEB_BOOTSTRAP_TTL_MS = 90_000;
 const MAX_PENDING_BOOTSTRAPS = 32;
 const MAX_SESSIONS = 256;
@@ -38,15 +36,9 @@ function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-/**
- * In-memory WebUI credentials. Session hashes persist beside the other state
- * so an authorized browser keeps its token across daemon restarts; the file
- * alone cannot authenticate anyone.
- */
+/** In-memory credentials; session hashes persist only to survive a daemon restart. */
 export class WebAuthManager {
-  /** Hashed bootstrap token -> expiry (ms since epoch), in insertion order. */
   private readonly pendingBootstraps = new Map<string, number>();
-  /** Hashed session tokens, in insertion order for bounded eviction. */
   private readonly sessions = new Map<string, number>();
 
   constructor(private readonly sessionsFile?: string) {
@@ -58,12 +50,9 @@ export class WebAuthManager {
       for (const seed of parseWebSessionSeeds(JSON.parse(text) as unknown)) {
         if (seed.expiresAt > now) this.setSession(seed.hash, seed.expiresAt);
       }
-    } catch {
-      /* A missing or unreadable session file only means browsers re-authorize. */
-    }
+    } catch {}
   }
 
-  /** Persist the live session hashes for the next daemon generation. */
   private persist(now = Date.now()): void {
     if (!this.sessionsFile) return;
     this.sweepExpired(now);
@@ -74,9 +63,7 @@ export class WebAuthManager {
     }));
     try {
       atomicWriteFileSync(this.sessionsFile, `${JSON.stringify({ seeds })}\n`, 0o600);
-    } catch {
-      /* Session persistence is an optimization; the live daemon keeps working. */
-    }
+    } catch {}
   }
 
   createBootstrap(now = Date.now()): { token: string; expiresAt: string } {
@@ -92,7 +79,6 @@ export class WebAuthManager {
     return { token, expiresAt: new Date(expiresAtMs).toISOString() };
   }
 
-  /** Consume a bootstrap token and issue a session token; null when invalid. */
   redeemBootstrap(token: string, now = Date.now()): string | null {
     this.sweepExpired(now);
     if (!token) return null;
@@ -127,7 +113,6 @@ export class WebAuthManager {
     const stored = this.sessions.get(hash);
     const expiresAt = now + WEB_SESSION_TTL_MS;
     this.setSession(hash, expiresAt);
-    // Creation and slides beyond half the lifetime reach the persisted set.
     if (stored === undefined || expiresAt - stored > WEB_SESSION_TTL_MS / 2) this.persist(now);
   }
 
@@ -140,10 +125,6 @@ export class WebAuthManager {
     }
   }
 }
-
-/* ====================================================================== */
-/* Request authorization                                                   */
-/* ====================================================================== */
 
 function firstHeader(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -188,8 +169,7 @@ export interface ControlAuthorization {
   isSessionToken: (token: string) => boolean;
 }
 
-/** Accept the persistent CLI bearer or a live WebUI session token. The public
- * per-boot health token is an identity nonce only and never authorizes. */
+/** The per-boot health token is an identity nonce only and never authorizes. */
 export function isControlRequestAuthorized(
   req: IncomingMessage,
   opts: ControlAuthorization,
@@ -209,7 +189,6 @@ function webSocketProtocols(value: string | string[] | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Browser WebSockets carry the session token as a private subprotocol. */
 export function isWebSocketRequestAuthorized(
   req: IncomingMessage,
   opts: ControlAuthorization,
@@ -222,9 +201,6 @@ export function isWebSocketRequestAuthorized(
   });
 }
 
-/** Select an offered Sash protocol for the downstream 101 response: browsers
- * fail the handshake when they offered protocols and none was selected, and
- * the marker keeps the credential-bearing token protocol out of the response. */
 export function webSocketAuthResponseProtocol(
   value: string | string[] | undefined,
 ): string | undefined {
@@ -235,7 +211,6 @@ export function webSocketAuthResponseProtocol(
   );
 }
 
-/** Remove daemon-only authentication protocols before forwarding to the Core. */
 export function coreWebSocketProtocols(value: string | string[] | undefined): string | undefined {
   const protocols = webSocketProtocols(value).filter(
     (protocol) =>

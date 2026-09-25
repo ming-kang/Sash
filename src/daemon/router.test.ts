@@ -89,7 +89,6 @@ describe("daemon HTTP route matching", () => {
     ]) {
       assert.equal(matchRoute(routes, "GET", target(raw).routePathname).kind, "notFound", raw);
     }
-    // Non-numeric ids never reach the profile handlers.
     assert.equal(
       matchRoute(routes, "DELETE", target("/sash/profiles/import").routePathname).kind,
       "methodNotAllowed",

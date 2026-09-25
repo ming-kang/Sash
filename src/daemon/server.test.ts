@@ -76,7 +76,6 @@ describe("daemon server WebSocket cap", () => {
         assert.equal(client.status, 101, `upgrade ${i + 1} should succeed with 101`);
       }
 
-      // The 65th concurrent upgrade must be rejected with 503
       const sixtyFifth = await h.rawWebSocketUpgrade("/core/api/logs", {
         Authorization: `Bearer ${h.settings.daemonSecret}`,
       });
@@ -84,7 +83,6 @@ describe("daemon server WebSocket cap", () => {
       assert.match(sixtyFifth, /"code":"shutting_down"/);
       assert.match(sixtyFifth, /"message":"WebSocket streams are unavailable; reconnect shortly"/);
 
-      // Free one slot and confirm the next upgrade succeeds
       const released = clientSockets.pop();
       released?.destroy();
       await new Promise((resolve) => setTimeout(resolve, 50));

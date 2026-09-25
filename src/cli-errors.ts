@@ -1,6 +1,5 @@
 import { errorMessage } from "./error-utils.js";
 
-/** Uniform CLI error presentation for command actions. */
 export function withCliErrors<Args extends unknown[]>(
   fn: (...args: Args) => Promise<void> | void,
 ): (...args: Args) => Promise<void> {

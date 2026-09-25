@@ -123,13 +123,11 @@ describe("proxy connection error classification", () => {
       address: "127.0.0.1",
       port: 7890,
     });
-    // Remote target port is 443; endpoint is 7890 -> proxy refusal
     assert.equal(
       isProxyConnectionRefused(refusedLocalProxy, "https://registry.npmjs.org/@astralyn/sash"),
       true,
     );
 
-    // Same local host and port -> direct connection refusal, not proxy
     assert.equal(isProxyConnectionRefused(refusedLocalProxy, "http://127.0.0.1:7890/test"), false);
   });
 
@@ -192,7 +190,6 @@ async function listenOnEphemeralPort(target: http.Server): Promise<number> {
   return typeof address === "object" && address ? address.port : 0;
 }
 
-/** Reserve and release a loopback port so nothing listens on it afterwards. */
 async function deadLoopbackPort(): Promise<number> {
   const probe = http.createServer();
   const port = await listenOnEphemeralPort(probe);

@@ -12,7 +12,7 @@ export type CoreConfigTestRunner = (
   signal?: AbortSignal,
 ) => Promise<void> | void;
 
-/** Default budget for a configuration test; mirror retries raise it because a geodata download takes time. */
+/** Default budget for a configuration test; a geodata download needs the longer CONFIG_TEST_GEODATA_TIMEOUT_MS. */
 export const CONFIG_TEST_TIMEOUT_MS = 20_000;
 export const CONFIG_TEST_GEODATA_TIMEOUT_MS = 180_000;
 
@@ -42,21 +42,14 @@ function defaultRunner(
   });
 }
 
-/**
- * The Core downloads its geodata databases while the configuration is loaded,
- * so a missing database on an unreachable network looks like a configuration
- * rejection. Recognize that case so the caller can retry through mirrors.
- */
+/** The Core fetches its geodata databases while the configuration loads; a missing database looks like a configuration rejection. */
 const GEODATA_DOWNLOAD = /can't download (MMDB|GeoIP|GeoSite|ASN)/i;
 const GEODATA_ATTEMPT = /(Can't find (MMDB|GeoIP|GeoSite)|start download)/i;
 /** A database left by an interrupted download fails to parse on the next run. */
 const GEODATA_CORRUPT =
   /(can't (open|read|load|parse)|invalid|corrupt)[^\n]*(MMDB|GeoIP|GeoSite|geodata)/i;
 
-/**
- * Every database file the Core may fetch into the data root. Cleanup after a
- * failed download must never touch anything outside this list.
- */
+/** Every database file the Core may fetch into the data root; cleanup must never touch anything outside this list. */
 export const GEODATA_FILE_NAMES = [
   "geoip.dat",
   "geoip.metadb",
@@ -65,7 +58,6 @@ export const GEODATA_FILE_NAMES = [
   "GeoLite2-ASN.mmdb",
 ] as const;
 
-/** mtime per known geodata file; null when absent or unreadable. */
 type GeodataSnapshot = Map<string, number | null>;
 
 function snapshotGeodataFiles(root: string): GeodataSnapshot {
@@ -74,20 +66,12 @@ function snapshotGeodataFiles(root: string): GeodataSnapshot {
     let mtime: number | null = null;
     try {
       mtime = fs.statSync(path.join(root, name)).mtimeMs;
-    } catch {
-      // Absent or unreadable reads as absent.
-    }
+    } catch {}
     snapshot.set(name, mtime);
   }
   return snapshot;
 }
 
-/**
- * Remove only what a failed attempt plausibly damaged: files created or
- * modified since the snapshot (download partials). When the Core refused to
- * parse a database, the error output names that file and it is removed too;
- * a file the Core never mentioned and never rewrote stays untouched.
- */
 function removeDamagedGeodataFiles(
   root: string,
   snapshot: GeodataSnapshot,
@@ -112,17 +96,11 @@ function removeDamagedGeodataFiles(
     try {
       fs.rmSync(path.join(root, name), { force: true });
       console.warn(`[sashd] removed damaged geodata file ${name}`);
-    } catch {
-      // A file that cannot be removed fails the next validation the same way.
-    }
+    } catch {}
   }
 }
 
-/**
- * The Core could not fetch the geodata its rules need, and did not report a
- * configuration problem. Distinct from a rejection so callers can retry through
- * the mirror list instead of telling the user their configuration is wrong.
- */
+/** The Core could not fetch its geodata and did not report a configuration problem; distinct from a rejection so callers retry through mirrors. */
 export class CoreGeodataUnavailableError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -134,8 +112,7 @@ function classifyGeodataFailure(error: unknown): "download" | "corrupt" | undefi
   const text = errorOutput(error);
   if (GEODATA_DOWNLOAD.test(text)) return "download";
   if (GEODATA_CORRUPT.test(text)) return "corrupt";
-  // A stalled download is killed by our own timeout and leaves only the
-  // attempt line behind, so treat "we started a geodata download" as the signal.
+  // Our own timeout kills a stalled download, leaving only the attempt line behind.
   const killed = typeof error === "object" && error !== null && "killed" in error;
   return killed && GEODATA_ATTEMPT.test(text) ? "download" : undefined;
 }
@@ -144,12 +121,10 @@ function looksLikeGeodataDownloadFailure(error: unknown): boolean {
   return classifyGeodataFailure(error) !== undefined;
 }
 
-/** True for both a raw Core failure and the error this module throws for it. */
 export function isGeodataDownloadFailure(error: unknown): boolean {
   return error instanceof CoreGeodataUnavailableError || looksLikeGeodataDownloadFailure(error);
 }
 
-/** The database each failure class fetches when the output names no file. */
 const GEODATA_CLASS_FILES: Record<string, string> = {
   mmdb: "country.mmdb",
   geoip: "geoip.dat",
@@ -157,10 +132,7 @@ const GEODATA_CLASS_FILES: Record<string, string> = {
   asn: "GeoLite2-ASN.mmdb",
 };
 
-/**
- * The database a geodata failure was fetching: a mentioned known file name
- * wins over the failure class, so non-default geox-url layouts still map.
- */
+/** A mentioned known file name wins over the failure class, so non-default geox-url layouts still map. */
 export function geodataFileForFailure(error: unknown): string | undefined {
   if (!isGeodataDownloadFailure(error)) return undefined;
   const output = errorOutput(error);
@@ -184,7 +156,6 @@ function errorOutput(error: unknown): string {
   return "unknown validation error";
 }
 
-/** Validate exact generated YAML without publishing it. Stop/shutdown cancels the owned child. */
 export async function validateCoreConfig(
   executable: string,
   yaml: string,

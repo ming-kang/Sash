@@ -9,7 +9,6 @@ import {
 import { CoreUnhealthyError, SettingsInputError } from "../settings-service.js";
 import { HttpError } from "./http.js";
 
-/** Rejects state mutations once the daemon shutdown gate has closed. */
 export class ShuttingDownError extends Error {
   constructor(message = "Sash is shutting down") {
     super(message);
@@ -33,7 +32,6 @@ export function defaultCodeForStatus(status: number): ApiErrorCode {
   return "http";
 }
 
-/** Map any thrown domain error to the shared HTTP error envelope. */
 export function errorToHttp(err: unknown): HttpErrorMapping {
   if (err instanceof HttpError) {
     return {

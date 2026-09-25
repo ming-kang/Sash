@@ -40,7 +40,6 @@ export class DaemonGate {
     if (this.closing) throw new ShuttingDownError();
   }
 
-  /** Runtime-only RPCs stay outside the state queue. */
   async runLiveMutation<T>(action: () => T | Promise<T>): Promise<T> {
     this.assertMutable();
     let finish!: () => void;
@@ -128,7 +127,6 @@ export interface DaemonContext {
   mutate<T>(action: () => T | Promise<T>): Promise<T>;
   stateRevision(): number;
   pendingApply(): boolean;
-  /** Core preparation, validation, update and lifecycle control. */
   readonly core: CoreControlService;
   shutdown(): Promise<void>;
   closeListener(): Promise<void>;

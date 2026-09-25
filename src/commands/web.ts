@@ -15,7 +15,7 @@ export interface WebCommandDeps {
   log?: Pick<typeof log, "info" | "ok">;
 }
 
-/** Open the dashboard without starting Core. Credentials travel only through the private handoff. */
+/** Open the dashboard without starting Core; credentials travel only through the private handoff. */
 export async function runWeb(
   opts: { noOpen?: boolean } = {},
   deps: WebCommandDeps = {},

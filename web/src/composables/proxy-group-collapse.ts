@@ -13,9 +13,7 @@ export function useProxyGroupCollapse(groups: Ref<string[]>) {
           (entry): entry is [string, boolean] => typeof entry[1] === "boolean",
         ),
       );
-  } catch {
-    // Keep the default when storage is unavailable or malformed.
-  }
+  } catch {}
 
   const collapsedGroups = computed(
     () =>
@@ -32,9 +30,7 @@ export function useProxyGroupCollapse(groups: Ref<string[]>) {
     preferences.value = { ...preferences.value, [group]: !collapsedGroups.value.has(group) };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences.value));
-    } catch {
-      // The choice still works for this page when persistence is unavailable.
-    }
+    } catch {}
   }
 
   return { collapsedGroups, toggleCollapse };

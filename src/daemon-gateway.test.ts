@@ -50,7 +50,6 @@ describe("daemon server", () => {
         "/core/api/proxies/DIRECT/delay?url=http%3A%2F%2F192.168.1.1%2Faction",
         { token: "" },
       );
-      // Root-level Core aliases are gone: unknown paths never reach the upstream.
       const fallback = await h.apiRequest("/version", { token: "" });
 
       assert.equal(delay.statusCode, 401);
@@ -63,7 +62,6 @@ describe("daemon server", () => {
       let receivedWebToken: string | undefined;
       let receivedPath: string | undefined;
 
-      // Start a mock Core external-controller server
       await h.startMockCore((req, res) => {
         receivedAuth = req.headers.authorization;
         receivedWebToken = req.headers["x-sash-token"] as string | undefined;
@@ -74,7 +72,6 @@ describe("daemon server", () => {
 
       await h.startServer();
 
-      // Call /core/api/version with a WebUI session credential via sashd.
       const res = await h.apiRequest("/core/api/version", {
         token: "",
         webToken: await h.mintWebSession(),

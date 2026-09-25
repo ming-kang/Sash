@@ -1,4 +1,3 @@
-/** Core install progress on the dashboard while the daemon stages a binary, both locales. */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";

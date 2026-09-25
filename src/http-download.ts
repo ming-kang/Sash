@@ -14,11 +14,6 @@ import {
   USER_AGENT,
 } from "./http.js";
 
-/**
- * Streamed file downloads with stall/deadline detection, redirect allowlists,
- * size caps, and optional SHA-256 verification of the bytes as they arrive.
- */
-
 export type DownloadProgress = (downloaded: number, total: number | undefined) => void;
 
 type UndiciResponseBody = Awaited<ReturnType<typeof request>>["body"];
@@ -31,22 +26,18 @@ function abortResponseBody(body: UndiciResponseBody): void {
 export interface DownloadOptions {
   signal?: AbortSignal;
   stallMs?: number;
-  /** Absolute budget across redirects, headers, and the complete body. Default 15 minutes. */
   deadlineMs?: number;
   maxBytes?: number;
   onProgress?: DownloadProgress;
   headers?: Record<string, string>;
   requireHttps?: boolean;
-  /** Route through this proxy instead of the environment proxy. */
   proxyUri?: string;
-  /** Every initial and redirected download host must be in this set. */
   allowedHosts: ReadonlySet<string>;
-  /** Expected SHA-256 digest of the bytes, checked as they stream. */
   integrity?: string;
   /**
-   * When set, a loopback proxy refusal warns through this listener and the
-   * download retries once without the proxy. Omit it for URLs that must
-   * never leave the machine unproxied.
+   * When set, a loopback proxy refusal warns and the download retries once
+   * without the proxy. Omit it for URLs that must never leave the machine
+   * unproxied.
    */
   onProxyFallback?: ProxyFallbackListener;
 }
@@ -70,11 +61,6 @@ function validateRedirectTarget(
   return target.href;
 }
 
-/**
- * Download a URL to a file with stall and absolute-deadline detection. Throws
- * on non-2xx, when no bytes arrive for stallMs, or when the total redirect/body
- * budget expires. Partial files are removed on failure.
- */
 export async function downloadToFile(
   url: string,
   dest: string,

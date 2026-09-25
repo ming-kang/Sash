@@ -10,7 +10,6 @@ export function buildBrowserSpawnOptions(sourceEnv: NodeJS.ProcessEnv = process.
   };
 }
 
-/** Open a URL in the default browser without blocking; tolerant of headless envs. */
 export function openInBrowser(url: string): void {
   const command =
     process.platform === "win32"
@@ -20,11 +19,10 @@ export function openInBrowser(url: string): void {
         : { cmd: findExecutableOnPath("xdg-open") ?? "xdg-open", args: [url] };
   try {
     const child = spawn(command.cmd, command.args, buildBrowserSpawnOptions());
-    child.on("error", () => {
-      // headless environment: caller already printed the URL
-    });
+    // Headless environments have no browser; the caller already printed the URL.
+    child.on("error", () => {});
     child.unref();
   } catch {
-    // ignore: URL is printed by the caller as fallback
+    // The caller prints the URL as a fallback.
   }
 }

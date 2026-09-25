@@ -45,19 +45,15 @@ export async function runUpdate(
       },
     );
   } catch (error) {
-    // Ctrl+C already reported what it cancelled; the aborted request only
-    // carries the daemon's confirmation.
     if (!interrupt.triggered) throw error;
     if (interrupt.cancelledDownload) log.info("Core download cancelled");
   } finally {
     interrupt.restore();
     printer?.settle();
-    // An interrupt is not a command failure.
     if (interrupt.triggered) process.exitCode = 130;
   }
 }
 
-/** Cancel the daemon's in-flight Core download; a stopped Sash has none. */
 async function cancelUpdate(json: boolean): Promise<void> {
   const ctx = runtimeContext();
   await commandOutput(

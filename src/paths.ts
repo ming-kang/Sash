@@ -1,11 +1,6 @@
 import os from "node:os";
 import path from "node:path";
 
-/**
- * Sash manages one canonical local Mihomo instance. The root directory follows
- * per-platform data dir conventions; SASH_HOME may override it when absolute.
- */
-
 function envPathOr(fallback: string, value: string | undefined): string {
   const trimmed = value?.trim();
   // Per XDG spec: non-absolute paths must be ignored to avoid cwd-dependent drift.

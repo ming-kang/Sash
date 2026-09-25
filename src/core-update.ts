@@ -41,11 +41,9 @@ export interface CoreUpdateProgress {
   downloading: boolean;
   downloaded: number;
   total: number | null;
-  /** A non-fatal condition worth surfacing next to the stage, e.g. a proxy fallback. */
   note?: string;
 }
 
-/** Reports progress lines and closes the last one when the operation ends. */
 export interface CoreUpdateProgressPrinter {
   onProgress(progress: CoreUpdateProgress): void;
   settle(): void;
@@ -64,10 +62,8 @@ export interface CoreUpdateRuntime {
   stop(): Promise<void>;
   /**
    * Start whatever binary now occupies the installed path and prove it healthy.
-   * `version` names the release that path is expected to hold — the target on
-   * the install attempt, the previous release on the rollback — so callers can
-   * tell the two apart. It selects nothing: the swap already decided which
-   * binary runs.
+   * `version` only names the release that path is expected to hold; it selects
+   * nothing, the swap already decided which binary runs.
    */
   startAndVerify(version: string): Promise<void>;
   applySystemProxy(): Promise<void>;
@@ -90,10 +86,7 @@ export interface CoreUpdateCheck {
   asset: string;
 }
 
-/**
- * Lenient read: a damaged journal reads as absent, so it can never block daemon
- * startup; the `.bak` binary and the committed install record decide recovery.
- */
+/** Lenient read: a damaged journal reads as absent, so it can never block daemon startup. */
 export function readCoreUpdateTransaction(layout: SashLayout): CoreUpdateTransaction | undefined {
   let text: string;
   try {
@@ -129,11 +122,7 @@ function clearJournal(layout: SashLayout): void {
   durableRemoveFileSync(layout.coreUpdateTransactionFile);
 }
 
-/**
- * Roll a possibly-swapped installation back to its recorded previous state.
- * A missing backup only means the swap never began or had already been rolled
- * back, so the recorded previous state is written either way.
- */
+/** A missing backup only means the swap never began; the recorded previous state is written either way. */
 function restoreTransaction(layout: SashLayout, transaction: CoreUpdateTransaction): void {
   const backup = `${layout.coreExe}.bak`;
   if (transaction.previous) {
@@ -154,7 +143,6 @@ function restoreTransaction(layout: SashLayout, transaction: CoreUpdateTransacti
   clearJournal(layout);
 }
 
-/** The new binary passed its health check; only cleanup can still be pending. */
 function finishVerified(layout: SashLayout, transaction: CoreUpdateTransaction): void {
   try {
     const backup = `${layout.coreExe}.bak`;
@@ -170,7 +158,6 @@ function finishVerified(layout: SashLayout, transaction: CoreUpdateTransaction):
   }
 }
 
-/** Called by the daemon after proxy recovery and verified orphan termination. */
 export function recoverCoreUpdateTransaction(layout: SashLayout): void {
   const transaction = readCoreUpdateTransaction(layout);
   if (!transaction) {
@@ -197,7 +184,6 @@ function regularFileStat(file: string): fs.BigIntStats | undefined {
   }
 }
 
-/** Restore a binary stranded by an interrupted Windows unlock probe. */
 export function recoverBinaryUnlockProbe(target: string): void {
   const probe = binaryUnlockProbePath(target);
   const probeStat = regularFileStat(probe);
@@ -330,7 +316,6 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
   }
 }
 
-/** Read release metadata only; checking never starts management or downloads an archive. */
 export async function checkCoreUpdate(
   layout: SashLayout,
   version?: string,
@@ -374,10 +359,6 @@ export function coreUpdateProgressText(progress: CoreUpdateProgress): string {
   return `${STAGE_TEXT[progress.stage]}${target}${bytes}${note}`;
 }
 
-/**
- * Poll Core update progress while an operation runs. Supplemental progress
- * reads never retry or determine the outcome of the operation.
- */
 export async function withCoreUpdateProgress<T>(
   client: Pick<SashDaemonClient, "coreUpdateProgress">,
   operation: Promise<T>,

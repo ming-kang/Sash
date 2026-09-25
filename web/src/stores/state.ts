@@ -16,9 +16,7 @@ export interface ToastItem {
   id: number;
   kind: "success" | "error" | "info" | "warning";
   text: string;
-  /** Repeated pushes of the same kind+text fold into one toast and bump this. */
   count: number;
-  /** Milliseconds until auto-dismiss; 0 means the toast stays until dismissed. */
   duration: number;
 }
 export interface StoredLogMessage extends LogMessage {
@@ -160,7 +158,6 @@ export function setProfiles(response: ProfilesResponse): void {
   store.activeProfileId = response.activeId;
 }
 
-/** Drops everything the Core produced. Used when the Core runtime is gone or replaced. */
 export function resetCoreState(): void {
   store.mode = "rule";
   store.proxies = {};

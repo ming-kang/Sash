@@ -17,11 +17,6 @@ export function addTraffic(message: TrafficMessage, generation = store.runtimeGe
   };
 }
 
-/**
- * Log frames arrive in bursts; batch them and swap the array once per flush
- * instead of push/shift-ing per frame (each shift used to re-index the whole
- * reactive array and re-render the log view on every single line).
- */
 export function addLog(message: LogMessage, generation = store.runtimeGeneration): void {
   if (generation !== store.runtimeGeneration) return;
   pendingLogs.push({ ...message, id: ++logSequence });

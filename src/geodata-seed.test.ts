@@ -138,7 +138,6 @@ describe("seedGeodataFile", () => {
       .intercept({ path: "/repos/MetaCubeX/meta-rules-dat/releases/latest" })
       .replyWithError(failure)
       .times(2);
-    // Direct and both mirrors all serve poisoned bytes; none may be accepted.
     const poisoned = Buffer.from("evil!");
     const directPath = `${DOWNLOAD}/v2026.02/geoip.dat`;
     agent.get("https://github.com").intercept({ path: directPath }).reply(200, poisoned);

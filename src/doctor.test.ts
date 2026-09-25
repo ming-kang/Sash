@@ -12,7 +12,6 @@ import { npmPackageRoot } from "./sash-installation.js";
 import type { StatusObservationDependencies } from "./status.js";
 import { createTestState, testStatus } from "./testing/state.js";
 
-/** Minimal npm-global package layout; the doctor dashboard check only needs these four files. */
 function writeSashPackage(prefix: string, version: string): string {
   const packageRoot = npmPackageRoot(prefix);
   fs.mkdirSync(path.join(packageRoot, "dist", "ui"), { recursive: true });
@@ -61,7 +60,6 @@ function fixture() {
   };
 }
 
-/** A healthy daemon that reports the transport Core downloads would leave through. */
 function runningStatus(downloadTransport?: DownloadTransport): StatusObservationDependencies {
   return {
     evaluateDaemon: async () => ({
@@ -357,7 +355,6 @@ it("warns when the running daemon still executes an older installed version", as
     });
     const check = running.checks.find((item) => item.id === "sash-version");
     assert.equal(check?.status, "warning");
-    // The fixture package is 1.0.0; the daemon claims 0.0.1.
     assert.match(
       check?.message ?? "",
       /Sash 1\.0\.0 is installed; the running Sash is still 0\.0\.1/,
@@ -402,7 +399,6 @@ it("probes download sources through the transport the daemon would use", async (
       uri: `http://127.0.0.1:${testStatus().configuration.appliedSettings?.mixedPort ?? 0}`,
       source: "core",
     };
-    // A spread, not the array itself: assert.deepEqual narrows what it is given.
     const transports: Array<DownloadTransport | undefined> = [];
     const viaCore = await diagnoseSash({
       ...f,
@@ -414,8 +410,8 @@ it("probes download sources through the transport the daemon would use", async (
       },
     });
     assert.equal(transports.length, 3);
+    // A spread, not the array itself: assert.deepEqual narrows what it is given.
     assert.deepEqual([...transports], [coreTransport, coreTransport, coreTransport]);
-    // The result must name the path it measured, or a failure points nowhere.
     assert.match(
       viaCore.checks.find((check) => check.id === "network")?.message ?? "",
       new RegExp(
@@ -472,7 +468,6 @@ it("falls back to a direct probe when the daemon did not answer", async () => {
       },
     });
     assert.deepEqual(seen, [undefined, undefined, undefined]);
-    // A stopped or unanswering Sash downloads direct, so that is what was measured.
     assert.match(
       result.checks.find((check) => check.id === "network")?.message ?? "",
       /reachable via a direct connection: github\.com, api\.github\.com, ghfast\.top/,

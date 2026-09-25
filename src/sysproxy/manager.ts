@@ -123,11 +123,7 @@ function combinedError(primary: unknown, recovery: unknown): Error {
   );
 }
 
-/**
- * Snapshot/journal based controller. All operations are serialized within this
- * process and across processes by the shared state lock, so a persisted
- * snapshot cannot change while an operation runs.
- */
+/** Snapshot/journal based controller; the shared state lock serializes every operation across processes, so a persisted snapshot cannot change mid-operation. */
 export class SystemProxyManager implements SystemProxyController {
   private readonly layout: SystemProxyJournalLayout;
   private readonly backend: SystemProxyBackend;
@@ -386,10 +382,7 @@ export class SystemProxyManager implements SystemProxyController {
     await this.restoreJournal(journal);
   }
 
-  /**
-   * Restore only when current managed values still belong to this journal.
-   * A value changed by another application is never overwritten.
-   */
+  /** Restore only when the current values still belong to this journal; another application's value is never overwritten. */
   private async restoreJournal(journal: SystemProxyJournal): Promise<void> {
     const current = await this.captureCurrent();
     if (this.backend.equivalent(current, journal.original)) {

@@ -2,21 +2,8 @@ import fs from "node:fs";
 import { fetchWithRetry, type ProxyFallbackListener, readErrorSummary } from "./http.js";
 import { downloadToFile } from "./http-download.js";
 
-/**
- * GitHub release access without hard dependency on the REST API:
- *
- * 1. Latest tag is resolved from the `releases/latest` 302 redirect, which does
- *    not consume the (60/h anonymous) REST rate limit and works through page
- *    mirrors such as ghfast.top.
- * 2. Asset metadata comes from the REST API (supports GITHUB_TOKEN / GH_TOKEN)
- *    because its publisher-provided SHA-256 digest is the trust anchor.
- * 3. Downloads may use mirrors as transports, but bytes are accepted only
- *    after matching that official digest.
- */
-
 export const MIHOMO_REPO = "MetaCubeX/mihomo";
 
-/** Geodata databases the Core fetches from this repository's releases. */
 export const GEODATA_REPO = "MetaCubeX/meta-rules-dat";
 
 /** Release tags become URL path segments; keep them single, printable words. */
@@ -28,14 +15,12 @@ export function validateCoreReleaseTag(tag: string): string {
   return normalized;
 }
 
-/** Mirrors that proxy github.com URLs. Direct first. */
 export const GITHUB_MIRRORS = [
   "", // direct
   "https://ghfast.top/",
   "https://gh-proxy.com/",
 ];
 
-/** Trusted initial and redirect hosts for release artifact downloads. */
 export const GITHUB_DOWNLOAD_HOSTS: ReadonlySet<string> = new Set([
   "github.com",
   "release-assets.githubusercontent.com",
@@ -87,10 +72,8 @@ export async function resolveLatestTag(
   } catch (error) {
     signal?.throwIfAborted();
     if (error instanceof Error && error.name === "AbortError") throw error;
-    // Fall through to the official REST API.
   }
 
-  // Fallback: GitHub REST API (consumes rate limit, direct only)
   const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`;
   const res = await fetchWithRetry(apiUrl, {
     signal,
@@ -111,9 +94,7 @@ export async function resolveLatestTag(
   let data: { tag_name?: string } | undefined;
   try {
     data = JSON.parse(text) as { tag_name?: string };
-  } catch {
-    // ignore
-  }
+  } catch {}
   if (!data?.tag_name) {
     throw new Error(`GitHub release response for ${repo} missing tag_name`);
   }
@@ -154,9 +135,7 @@ export async function listReleaseAssets(
   let data: { assets?: unknown } | undefined;
   try {
     data = JSON.parse(text) as { assets?: unknown };
-  } catch {
-    // handled below
-  }
+  } catch {}
   if (!Array.isArray(data?.assets)) {
     throw new Error(`GitHub release response for ${repo}@${tag} is missing assets`);
   }
@@ -197,9 +176,7 @@ export interface DownloadOptions {
   signal?: AbortSignal;
   repo: string;
   tag: string;
-  /** Absolute budget shared by all mirror attempts. Default 15 minutes. */
   deadlineMs?: number;
-  /** Route through this proxy instead of the environment proxy. */
   proxyUri?: string;
   assets: ReleaseAsset[];
   candidates: string[];
@@ -267,8 +244,8 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
     } catch (err) {
       fs.rmSync(opts.dest, { force: true });
       lastError = err as Error;
-      // A mirror is only a transport. Try the next source, but never accept
-      // bytes that differ from the digest published by GitHub's release API.
+      // A mirror is only a transport; never accept bytes that differ from the
+      // digest published by GitHub's release API.
     }
   }
 

@@ -42,10 +42,8 @@ const SET_SCRIPT = [
   "} finally { if ($runKey) { $runKey.Dispose() }; if ($approvalKey) { $approvalKey.Dispose() } }",
 ].join(" ");
 
-// Fallback inspection for registry data that reg.exe cannot deliver losslessly:
-// it writes raw OEM code page bytes to its pipe, so a start.vbs path under a
-// non-ASCII user profile would decode to replacement characters. Base64 through
-// PowerShell's .NET registry APIs is immune to the console code page.
+// Fallback for values reg.exe cannot deliver losslessly: it writes raw OEM code
+// page bytes, so a non-ASCII path would decode to replacement characters.
 const INSPECT_SCRIPT = [
   ...REGISTRY_SETUP,
   "try {",
@@ -101,12 +99,8 @@ function parseRegistryBinary(data: string): Buffer {
   return Buffer.from(data, "hex");
 }
 
-/**
- * Strictly parse one `reg.exe query <key> /v <name>` response. reg.exe echoes the
- * queried key as a header line (always with the full HKEY_CURRENT_USER hive name),
- * then each value as an indented line with four-space-separated name, type and data
- * fields. Anything else means the output does not answer our query.
- */
+/** Strictly parse one `reg.exe query` response: a header line, then indented
+ * values with four-space-separated name, type and data fields. */
 export function parseWindowsRegistryValue(
   output: string,
   keyPath: string,
@@ -133,7 +127,6 @@ export function parseWindowsRegistryValue(
     if (!line.startsWith(" ") && !line.startsWith("\t")) {
       throw new Error("Invalid Windows registry output: unexpected line in registry response");
     }
-    // The data field may itself contain spaces, so rejoin everything past the type.
     const [name, type, ...rest] = line.trimStart().split("    ");
     if (name !== valueName || !type || !/^REG_[A-Z0-9_]+$/.test(type)) {
       throw new Error("Invalid Windows registry output: unexpected line in registry response");
@@ -190,9 +183,8 @@ async function readWindowsRegistrationViaPowerShell(
 }
 
 function hasLossyData(value: WindowsRegistryValue | undefined): boolean {
-  // A replacement character means the OEM bytes were not valid UTF-8; a question
-  // mark means the console code page could not represent the character. Windows
-  // paths cannot contain "?".
+  // A replacement character means invalid UTF-8; "?" means the console code page
+  // could not represent it. Windows paths contain neither.
   return (
     typeof value?.data === "string" && (value.data.includes("\uFFFD") || value.data.includes("?"))
   );

@@ -6,7 +6,7 @@ import { SashClient, type SashClientFetch } from "./sash-client.js";
 // Profile metadata can occupy most of the supported 2 MiB application manifest.
 const DAEMON_SUCCESS_BODY_LIMIT = 2 * 1024 * 1024;
 
-/** Loopback-only fetch with deadlines and body caps; local IPC fails fast without retries. */
+/** Loopback-only fetch; local IPC fails fast without retries. */
 const daemonFetch: SashClientFetch = async (url, init) => {
   const res = await fetchWithRetry(url, {
     method: init.method,
@@ -29,8 +29,8 @@ const daemonFetch: SashClientFetch = async (url, init) => {
   };
 };
 
-// Event streams are deliberately long-lived. They use idle/header deadlines,
-// cancellation and the direct dispatcher, with no redirects or mutation retries.
+// Event streams are deliberately long-lived; they use the direct dispatcher, with
+// no redirects or mutation retries.
 const daemonEventFetch: SashEventFetch = async (url, init) => {
   const response = await request(url, {
     method: "GET",
@@ -47,7 +47,6 @@ const daemonEventFetch: SashEventFetch = async (url, init) => {
   };
 };
 
-/** CLI-facing daemon client: SashClient with the Node transport defaults. */
 export type SashDaemonClient = SashClient;
 
 export function createDaemonClient(port: number, secret: string): SashDaemonClient {

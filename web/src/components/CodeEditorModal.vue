@@ -123,7 +123,6 @@ async function requestClose(): Promise<void> {
   emit("close");
 }
 
-// Overlay click never discards a dirty editor; cancel/ESC go through the confirm flow.
 function onOverlayClick(): void {
   if (props.saving || isDirty()) return;
   emit("close");

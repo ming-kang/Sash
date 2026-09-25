@@ -48,12 +48,10 @@ describe("canonical Sash state", () => {
     assert.ok(repaired.secret, "an empty Core secret would publish an unauthenticated controller");
     assert.ok(repaired.daemonSecret, "an empty daemon secret would reject every CLI bearer");
     assert.notEqual(repaired.secret, repaired.daemonSecret);
-    // The repair is committed, so the next reader observes the same credentials.
     assert.deepEqual(readState(layout)?.settings, repaired);
     assert.equal(readState(layout)?.revision, stored.revision + 1);
     assert.equal(loadSettings(layout).daemonSecret, repaired.daemonSecret);
 
-    // Intact credentials are left alone: reopening must not churn the revision.
     const untouched = new SashStateStore(layout);
     assert.deepEqual(untouched.snapshot().settings, repaired);
     assert.equal(readState(layout)?.revision, stored.revision + 1);
@@ -169,7 +167,6 @@ describe("canonical Sash state", () => {
       );
       assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), text);
     }
-    // No read-side size limit: an oversized file simply fails to parse as corrupt.
     fs.truncateSync(layout.settingsFile, 2 * 1024 * 1024 + 1);
     assert.throws(
       () => readState(layout),

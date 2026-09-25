@@ -22,9 +22,7 @@ describe("state locks", () => {
   afterEach(() => {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    } catch {}
   });
 
   function writeLock(record: StateLockRecord): void {

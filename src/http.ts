@@ -2,13 +2,9 @@ import type { Dispatcher } from "undici";
 import { Agent, EnvHttpProxyAgent, ProxyAgent, request } from "undici";
 
 /**
- * HTTP helpers built on undici.
- *
- * Remote requests honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY / ALL_PROXY, or
- * one explicitly requested proxy URI. Loopback external-controller requests
- * use a direct Agent so proxy environment variables cannot intercept them.
- * Redirects are never followed implicitly: every caller receives 3xx
- * responses and handles each hop itself.
+ * Remote requests honour the proxy environment. Loopback requests use a direct
+ * agent so proxy variables cannot intercept them, and redirects are never
+ * followed: callers receive every 3xx.
  */
 
 export const USER_AGENT = "sash-cli (https://github.com/ming-kang/Sash)";
@@ -20,20 +16,18 @@ const uriProxyDispatchers = new Map<string, Dispatcher>();
 
 function getBaseProxyDispatcher(): Dispatcher {
   if (!baseProxyDispatcher) {
-    // EnvHttpProxyAgent covers HTTP_PROXY/HTTPS_PROXY/NO_PROXY; ALL_PROXY is a
-    // common extra convention, folded into options without changing process.env.
+    // undici's EnvHttpProxyAgent ignores ALL_PROXY, so it is folded in here.
     const allProxyRaw = process.env.ALL_PROXY ?? process.env.all_proxy;
     let allProxy: string | undefined;
     if (allProxyRaw && /^https?:\/\//i.test(allProxyRaw)) {
       allProxy = allProxyRaw;
     } else if (allProxyRaw) {
-      // Warned once per process: the dispatcher below is cached.
       console.warn("[sash] ignoring ALL_PROXY — only http:// or https:// proxies are supported");
     }
     const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? allProxy;
     const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? allProxy;
-    // allowH2: false keeps the pre-undici-8 HTTP/1.1 wire behavior; the
-    // download path's stall-timeout and size-cap invariants are tested on h1.
+    // allowH2: false keeps HTTP/1.1 wire behavior; the download path's
+    // stall-timeout and size-cap invariants are tested on h1.
     baseProxyDispatcher = new EnvHttpProxyAgent({
       allowH2: false,
       ...(httpProxy ? { httpProxy } : {}),
@@ -48,21 +42,14 @@ function getBaseDirectDispatcher(): Dispatcher {
   return baseDirectDispatcher;
 }
 
-/** Public accessor for the shared proxy-aware dispatcher (remote requests). */
 export function proxyAwareDispatcher(): Dispatcher {
   return getBaseProxyDispatcher();
 }
 
-/** Public accessor for the shared direct dispatcher (loopback requests). */
 export function directDispatcherForLoopback(): Dispatcher {
   return getBaseDirectDispatcher();
 }
 
-/**
- * Dispatcher for one explicit proxy URI, cached per URI. Used for verified
- * GitHub traffic that should leave through a known proxy — currently Sash's
- * own Core port — instead of whatever the environment happens to say.
- */
 export function proxyDispatcherFor(uri: string): Dispatcher {
   const cached = uriProxyDispatchers.get(uri);
   if (cached) return cached;
@@ -71,11 +58,6 @@ export function proxyDispatcherFor(uri: string): Dispatcher {
   return dispatcher;
 }
 
-/**
- * The proxy the environment asks for, in the precedence the shared dispatcher
- * uses. Callers compare it against their own preference to decide whether the
- * environment already decided the transport.
- */
 export function envProxyUri(): string | undefined {
   for (const key of [
     "HTTPS_PROXY",
@@ -91,13 +73,9 @@ export function envProxyUri(): string | undefined {
   return undefined;
 }
 
-/**
- * The proxy a verified GitHub request leaves through. Direct downloads and
- * mirror fallbacks report no transport.
- */
+/** The proxy a verified GitHub request leaves through; direct and mirror traffic report none. */
 export interface DownloadTransport {
   uri: string;
-  /** "environment" for a proxy variable, "core" for Sash's own Core port. */
   source: "environment" | "core";
 }
 
@@ -181,10 +159,6 @@ export interface ProxyRefusedFallback {
   url: string;
 }
 
-/**
- * Invoked when a loopback proxy refusal sends the request down a direct
- * retry. Callers decide how the warning reaches the user.
- */
 export type ProxyFallbackListener = (info: ProxyRefusedFallback) => void;
 
 export function formatProxyFallbackWarning(info: ProxyRefusedFallback): string {
@@ -202,12 +176,7 @@ export function formatProxyFallbackFailure(
   );
 }
 
-/**
- * Decide whether an exhausted request may retry without the proxy. Only a
- * loopback refusal qualifies: the dead endpoint is a local tool (often Sash
- * itself), so direct access matches the caller's intent. A dead remote proxy
- * means the user's upstream is down and silently bypassing it would surprise.
- */
+// Only a loopback refusal qualifies; a dead remote proxy is never bypassed silently.
 function loopbackRefusalOf(error: unknown): ConnectRefusedEndpoint | undefined {
   const endpoint = extractConnectRefusedEndpoint(error);
   return endpoint && isLoopbackHost(endpoint.address) ? endpoint : undefined;
@@ -219,13 +188,7 @@ export interface ProxyFallbackContext {
   onProxyFallback?: ProxyFallbackListener;
 }
 
-/**
- * Shared loopback-refusal policy for both HTTP pipelines: when the proxied
- * attempt failed because a loopback proxy refused the connection and the
- * caller opted in, warn and retry once through the direct path. Everything
- * else fails closed — user-supplied URLs (for example subscriptions) never
- * set onProxyFallback, and a dead remote proxy surfaces with proxy context.
- */
+/** Retries a request directly after a loopback proxy refusal, once. User-supplied URLs never opt in. */
 export async function retryDirectOnLoopbackRefusal<T>(
   error: unknown,
   context: ProxyFallbackContext,
@@ -248,13 +211,10 @@ export async function retryDirectOnLoopbackRefusal<T>(
 export interface FetchResponse {
   statusCode: number;
   headers: Record<string, string | string[] | undefined>;
-  /** Consume the body as UTF-8, rejecting it if it exceeds maxBytes. */
   text: (maxBytes: number) => Promise<string>;
-  /** Drain the body without buffering it. */
   discard: () => Promise<void>;
 }
 
-/** Best-effort diagnostics must never replace an already known HTTP failure. */
 export async function readErrorSummary(response: FetchResponse): Promise<string> {
   try {
     return (await response.text(ERROR_BODY_LIMIT)).slice(0, 200).trim();
@@ -265,22 +225,13 @@ export async function readErrorSummary(response: FetchResponse): Promise<string>
 
 export interface FetchOptions {
   signal?: AbortSignal;
-  /** Total attempts including the first. The default is method-aware. */
   attempts?: number;
-  /** Per-attempt time to receive response headers. Default 30 seconds. */
   headersTimeoutMs?: number;
-  /** Absolute request budget, including retries, headers, and body consumption. Default 60 seconds. */
   deadlineMs?: number;
   headers?: Record<string, string>;
-  /** Use the direct (non-proxy) dispatcher. Reserved for loopback API calls. */
   direct?: boolean;
-  /** Route through this proxy instead of the environment proxy. */
   proxyUri?: string;
-  /**
-   * When set, a loopback proxy refusal warns through this listener and the
-   * request retries once without the proxy. Omit it for URLs that must never
-   * leave the machine unproxied (for example user-supplied subscriptions).
-   */
+  /** A loopback proxy refusal warns and retries once direct; never set for user-supplied URLs. */
   onProxyFallback?: ProxyFallbackListener;
   method?: string;
   body?: string | Buffer;
@@ -318,11 +269,8 @@ export function positiveTimeout(value: number | undefined, fallback: number, nam
 }
 
 /**
- * A request that outlived its budget. Unlike an HTTP status, this says nothing
- * about the outcome: a Core configuration reload, for instance, only answers
- * once it has finished applying, so the work may well have succeeded after the
- * caller stopped waiting. Callers that must know whether a peer acted on the
- * request have to treat this as an unknown result, never as a refusal.
+ * A request that outlived its budget; it says nothing about the outcome. A Core
+ * reload only answers once it has applied, so callers must treat this as unknown.
  */
 export class RequestDeadlineError extends Error {
   constructor(readonly deadlineMs: number) {
@@ -339,11 +287,7 @@ function defaultAttempts(method: string): number {
   return RETRYABLE_METHODS.has(method.toUpperCase()) ? 4 : 1;
 }
 
-/**
- * Fetch a non-download response with method-aware retries and an absolute
- * deadline. The deadline remains active until the returned body is consumed or
- * discarded, so a peer cannot evade it by slowly dripping body bytes.
- */
+/** Non-download fetch with method-aware retries; the deadline covers body consumption too. */
 export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Promise<FetchResponse> {
   const method = (opts.method ?? "GET").toUpperCase();
   const attempts = opts.attempts ?? defaultAttempts(method);
@@ -439,14 +383,11 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
       return retryDirectOnLoopbackRefusal(
         lastErr,
         { url, signal, ...(opts.onProxyFallback ? { onProxyFallback: opts.onProxyFallback } : {}) },
-        // direct: true disables this fallback branch in the recursive call.
         () => fetchWithRetry(url, { ...opts, direct: true }),
       );
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   } finally {
-    // Once a response is returned, its ownership methods clear this timer.
-    // Failed attempts and exhausted retries must clear it here.
     if (!responseReturned) clearDeadline();
   }
 }

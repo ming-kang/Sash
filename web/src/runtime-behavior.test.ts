@@ -178,37 +178,31 @@ describe("minimal Vue behavior harness", () => {
       await flush();
       assert.equal(configReads, 1, "initial read on visible startup");
 
-      // Advance timers to trigger the next periodic poll (cycle 2, then cycle 3 where cycle % 3 === 0)
       t.mock.timers.tick(2000);
       await flush();
       t.mock.timers.tick(2000);
       await flush();
       assert.equal(configReads, 2, "periodic polling occurs while visible");
 
-      // Hide the tab
       Object.defineProperty(window.document, "hidden", { value: true, configurable: true });
       window.document.dispatchEvent(new window.Event("visibilitychange"));
       await flush();
 
-      // Advance timers by 10s while hidden: polling must not occur
       t.mock.timers.tick(10_000);
       await flush();
       assert.equal(configReads, 2, "no polls occur while document is hidden");
 
-      // Tab becomes visible again: immediate forced refresh occurs
       Object.defineProperty(window.document, "hidden", { value: false, configurable: true });
       window.document.dispatchEvent(new window.Event("visibilitychange"));
       await flush();
       assert.equal(configReads, 3, "immediately refreshes resources when document becomes visible");
 
-      // Advance timers: periodic polling resumes (cycle 5, then cycle 6 where 6 % 3 === 0)
       t.mock.timers.tick(2000);
       await flush();
       t.mock.timers.tick(2000);
       await flush();
       assert.equal(configReads, 4, "periodic ticking resumes after becoming visible");
 
-      // Hide again: polling pauses again
       Object.defineProperty(window.document, "hidden", { value: true, configurable: true });
       window.document.dispatchEvent(new window.Event("visibilitychange"));
       await flush();
@@ -216,11 +210,9 @@ describe("minimal Vue behavior harness", () => {
       await flush();
       assert.equal(configReads, 4, "polling pauses again when hidden a second time");
 
-      // Cleanup via returned stop function detaches listeners
       stopRuntime();
       stopRuntime = null;
 
-      // Make visible after stop: no refresh should occur
       Object.defineProperty(window.document, "hidden", { value: false, configurable: true });
       window.document.dispatchEvent(new window.Event("visibilitychange"));
       await flush();
@@ -339,18 +331,15 @@ describe("minimal Vue behavior harness", () => {
       await flush();
       assert.equal(configReads, 0, "no initial read when document is hidden at start");
 
-      // Advance timers by 10s while staying hidden
       t.mock.timers.tick(10_000);
       await flush();
       assert.equal(configReads, 0, "no polls while staying hidden");
 
-      // Transition to visible
       Object.defineProperty(window.document, "hidden", { value: false, configurable: true });
       window.document.dispatchEvent(new window.Event("visibilitychange"));
       await flush();
       assert.equal(configReads, 1, "immediate forced refresh upon becoming visible");
 
-      // Periodic ticking resumes
       t.mock.timers.tick(2000);
       await flush();
       t.mock.timers.tick(2000);
@@ -470,7 +459,6 @@ describe("minimal Vue behavior harness", () => {
 
     let stopRuntime: (() => void) | null = null;
     try {
-      // Set up deferred in-flight promise for initial poll
       let resolveFirst: () => void = () => {};
       finishInFlight = () =>
         new Promise<void>((resolve) => {
@@ -481,17 +469,14 @@ describe("minimal Vue behavior harness", () => {
       await flush();
       assert.equal(configReads, 1, "in-flight request started");
 
-      // While request is in-flight, hide the tab
       Object.defineProperty(window.document, "hidden", { value: true, configurable: true });
       window.document.dispatchEvent(new window.Event("visibilitychange"));
       await flush();
 
-      // Now complete the in-flight request
       finishInFlight = null;
       resolveFirst();
       await flush();
 
-      // Advance timers by 10s: no new tick should have been scheduled
       t.mock.timers.tick(10_000);
       await flush();
       assert.equal(configReads, 1, "no further polls scheduled after in-flight tick completed");

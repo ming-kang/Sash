@@ -48,15 +48,9 @@ export interface WindowsSystemProxySnapshot {
   autoDetect: number | null;
 }
 
-/** A JSON-serializable, platform-discriminated snapshot of managed proxy values. */
 export type SystemProxySnapshot = WindowsSystemProxySnapshot;
 
-/**
- * Low-level backend. OS capture and apply are asynchronous; pure snapshot
- * construction and comparison remain synchronous and strictly validated.
- */
 export interface SystemProxyBackend {
-  /** Present on the built-in backends so callers can report unsupported systems. */
   readonly supported?: boolean;
   readonly details?: string;
   capture(): Promise<SystemProxySnapshot>;

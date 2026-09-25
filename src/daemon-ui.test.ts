@@ -172,16 +172,11 @@ describe("daemon server", () => {
         assert.equal(escaped.statusCode, 403);
         assert.doesNotMatch(escaped.body, /top secret/);
 
-        // A doubled slash must stay a relative segment, not an absolute path:
-        // the lookup lands inside the asset root, finds nothing, and leaves the
-        // 404 to the caller rather than reading the state file.
         const absolute = capture("/ui//sashd.state.json", layout);
         assert.equal(absolute.handled, false);
         assert.equal(absolute.statusCode, 0);
         assert.doesNotMatch(absolute.body, /top secret/);
 
-        // Containment must not cost the legitimate document its 200. HEAD takes
-        // the same path without streaming a body into the response stub.
         assert.equal(capture("/ui/", layout, "HEAD").statusCode, 200);
       } finally {
         fs.rmSync(root, { recursive: true, force: true });

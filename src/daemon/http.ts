@@ -57,7 +57,6 @@ export type RequestTargetResult =
   | { ok: true; target: ParsedDaemonRequestTarget }
   | { ok: false; message: string };
 
-/** Parse the origin-form request target, reporting a message instead of throwing. */
 export function parseRequestTarget(req: IncomingMessage): RequestTargetResult {
   try {
     return {

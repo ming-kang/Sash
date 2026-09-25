@@ -1,9 +1,8 @@
 import type { Plugin } from "vite";
 
 /**
- * @remixicon/vue 4.9 exports only a single prebuilt module. Its component
- * factories lack PURE annotations, so unused icons otherwise survive the build.
- * Annotate only that package's icon factories; retain the official components.
+ * @remixicon/vue component factories lack PURE annotations, so unused icons
+ * otherwise survive the build.
  */
 export function remixIconsPlugin(): Plugin {
   return {

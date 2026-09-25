@@ -1,4 +1,3 @@
-/** Real dashboard, HTTP/auth and Core controls with isolated files and fake Core/OS adapters. */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -100,7 +99,6 @@ async function verify(engine: BrowserType, name: string) {
     const startsBeforeSwitch = core.starts;
     await page.locator(".profile-card").filter({ has: page.getByText("备用配置", { exact: true }) }).locator(".profile-card-main").click();
     await page.locator(`.profile-card[data-id="${second.id}"]`).locator(".profile-card-main[aria-current='true']").waitFor();
-    // Selecting a profile applies it to the running Core without a restart.
     assert.equal(((await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus).configuration.appliedProfile?.id, second.id);
     assert.equal(await page.locator(".pending-config").count(), 0);
     assert.equal(core.starts, startsBeforeSwitch);

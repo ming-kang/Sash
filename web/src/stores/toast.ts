@@ -1,13 +1,11 @@
 import { store, type ToastItem } from "./state.js";
 
-/** Errors stay until dismissed; everything else auto-dismisses. */
 const TOAST_DURATION: Record<ToastItem["kind"], number> = {
   success: 3600,
   info: 4200,
   warning: 6500,
   error: 0,
 };
-/** Beyond this the oldest dismissible toast leaves; a wall of text helps nobody. */
 const MAX_TOASTS = 5;
 
 let toastSequence = 0;
@@ -30,7 +28,6 @@ function armTimer(id: number, delay: number): void {
 
 export function pushToast(kind: ToastItem["kind"], text: string): void {
   const duration = TOAST_DURATION[kind];
-  // An identical visible toast folds into a repeat counter instead of stacking.
   const duplicate = store.toasts.find((item) => item.kind === kind && item.text === text);
   if (duplicate) {
     store.toasts = [

@@ -139,9 +139,8 @@ function assertPackedFiles(files) {
   assert.ok(uiAssets.some((entry) => entry.path.endsWith(".js") && entry.size > 0));
   assert.ok(uiAssets.some((entry) => entry.path.endsWith(".css") && entry.size > 0));
 
-  // The bootstrap manifest is generated in CI after the build; local packs
-  // may omit it, but CI must pack one (content is checked after install).
   const manifestEntry = byPath.get("dist/bootstrap-manifest.json");
+  // CI packs the manifest between build and pack; local packs may omit it.
   if (process.env.SASH_PACKAGE_SMOKE_REQUIRE_BOOTSTRAP === "1") {
     assert.ok(
       manifestEntry,
@@ -285,7 +284,6 @@ try {
   if (process.platform === "win32")
     assert.equal(runCli(["--version"], ".cmd").trim(), expectedVersion);
   const help = runCli(["--help"]);
-  // Assert the wiring, not the wording: command presence survives copy edits.
   assert.match(help, /Usage:\s+sash/);
   for (const command of ["start", "stop", "restart", "doctor", "status", "profile", "upgrade"]) {
     assert.match(help, new RegExp(`^\\s+${command}\\b`, "m"), `help is missing ${command}`);
@@ -297,7 +295,6 @@ try {
     false,
     "Read-only commands must not initialize application data",
   );
-  // Wiring again, not wording: the subcommand exists and its options are wired.
   const upgradeHelp = runCli(["upgrade", "--help"]);
   assert.match(upgradeHelp, /Usage:\s+sash upgrade/);
   for (const option of ["--check", "--no-restart", "--json"]) {

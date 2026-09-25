@@ -51,9 +51,7 @@ describe("core", () => {
   afterEach(() => {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    } catch {}
   });
 
   describe("goOsArch", () => {
@@ -213,9 +211,11 @@ describe("core", () => {
     });
 
     it("rejects traversal paths before extracting any executable", async () => {
+      // The ZIP directory is patched byte-wise: an archive writer would not emit a
+      // name escaping its own directory, so the malicious one cannot be built
+      // through one.
       const bytes = await zipBytes([["safe/mihomo.exe", Buffer.from("core")]]);
       const name = Buffer.from("safe/mihomo.exe");
-      // Patch both ZIP directory entries without a library sanitizing the malicious path.
       for (let at = bytes.indexOf(name); at >= 0; at = bytes.indexOf(name, at + name.length)) {
         Buffer.from(".././mihomo.exe").copy(bytes, at);
       }

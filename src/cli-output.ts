@@ -5,7 +5,6 @@ import { errorMessage } from "./error-utils.js";
 const outputClosed = new AbortController();
 export const cliOutputSignal = outputClosed.signal;
 
-/** Let streaming commands release their readers before Node exits normally. */
 export function handleCliOutputError(error: NodeJS.ErrnoException): boolean {
   if (error.code !== "EPIPE" && !outputClosed.signal.aborted) return false;
   outputClosed.abort(error);
@@ -13,7 +12,6 @@ export function handleCliOutputError(error: NodeJS.ErrnoException): boolean {
   return true;
 }
 
-/** Keep machine output as a single JSON result, including command failures. */
 export async function commandOutput<T>(
   json: boolean | undefined,
   action: () => T | Promise<T>,
@@ -31,12 +29,6 @@ export async function commandOutput<T>(
   }
 }
 
-/**
- * Report Core update progress once per distinct line. A terminal redraws the
- * line in place — a download reports progress twice a second and would
- * otherwise flood the scrollback — while pipes and files keep one line per
- * change so redirected output stays readable.
- */
 export function coreUpdateProgressPrinter(): CoreUpdateProgressPrinter {
   const interactive = process.stderr.isTTY === true;
   let previous = "";

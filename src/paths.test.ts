@@ -23,9 +23,7 @@ describe("paths", () => {
     for (const dir of tmpDirs) {
       try {
         fs.rmSync(dir, { recursive: true, force: true });
-      } catch {
-        // best effort cleanup
-      }
+      } catch {}
     }
   });
 

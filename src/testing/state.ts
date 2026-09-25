@@ -93,7 +93,6 @@ export function testStatus(): DaemonStatus {
   };
 }
 
-/** No OS processes or signals: integration tests exercise App with a deterministic Core. */
 export class FakeCoreSupervisor extends CoreSupervisor {
   running = false;
   healthy = true;

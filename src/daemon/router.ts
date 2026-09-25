@@ -18,10 +18,6 @@ import {
 } from "./http.js";
 import { coreApiTarget } from "./proxy.js";
 
-/* ====================================================================== */
-/* Route types                                                             */
-/* ====================================================================== */
-
 /** public: no credential. control: CLI bearer or WebUI session token. gateway: same, then proxied to Core. */
 export type RouteAuth = "public" | "control" | "gateway";
 
@@ -41,7 +37,6 @@ export type RouteResponse = {
   status: number;
   json?: unknown;
   location?: string;
-  /** Runs once after the response has finished streaming. */
   after?: () => void;
 };
 
@@ -64,10 +59,6 @@ export interface RouteDef {
   readonly handler?: JsonRouteHandler;
   readonly raw?: RawRouteHandler;
 }
-
-/* ====================================================================== */
-/* Dispatch                                                                */
-/* ====================================================================== */
 
 const METHOD_ORDER = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;
 
@@ -106,7 +97,6 @@ type RouteMatch =
   | { kind: "methodNotAllowed"; allow: readonly string[] }
   | { kind: "notFound" };
 
-/** Pure route-table matching, including method-mismatch Allow metadata. */
 export function matchRoute(
   routes: readonly RouteDef[],
   method: string,
@@ -142,7 +132,6 @@ export function checkLoopbackBoundary(req: IncomingMessage): RequestBoundaryFail
   return undefined;
 }
 
-/** Match, authorize, and execute one HTTP request against the route table. */
 export async function dispatch(
   ctx: DaemonContext,
   routes: readonly RouteDef[],
@@ -240,16 +229,11 @@ export async function dispatch(
   }
 }
 
-/* ====================================================================== */
-/* WebSocket upgrade matching                                              */
-/* ====================================================================== */
-
 export type WebSocketRouteMatch =
   | { kind: "gateway"; target: string }
   | { kind: "methodNotAllowed"; allow: readonly ["GET"] }
   | { kind: "notFound" };
 
-/** WebSocket streams reuse the route table: only gateway rows, GET only. */
 export function matchWebSocketUpgrade(
   routes: readonly RouteDef[],
   method: string,

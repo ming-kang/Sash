@@ -289,12 +289,10 @@ describe("startProfileUpdateScheduler", () => {
       const timers = fakeTimers();
       const handle = startProfileUpdateScheduler(profileService, timers.scheduler, () => true);
       try {
-        // Kickoff idle tick
         timers.timeouts[0]?.callback();
         await flush();
         assert.equal(notifications, 0, "kickoff idle tick must not emit mutation notification");
 
-        // Interval idle tick
         timers.intervals[0]?.callback();
         await flush();
         assert.equal(notifications, 0, "interval idle tick must not emit mutation notification");
@@ -345,7 +343,6 @@ describe("startProfileUpdateScheduler", () => {
         assert.equal(fs.existsSync(staleFile), false, "stale file was pruned");
         assert.equal(notifications, 1, "commit and notify triggered when stale file was pruned");
 
-        // Subsequent idle tick has nothing left to prune -> no new notification
         timers.intervals[0]?.callback();
         await flush();
         assert.equal(notifications, 1, "subsequent idle tick did not emit additional notification");

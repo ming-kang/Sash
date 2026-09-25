@@ -14,24 +14,19 @@ import type { ProxyFallbackListener } from "./http.js";
 import type { SashLayout } from "./paths.js";
 
 /**
- * Verified geodata pre-seeding. The Core fetches its databases itself and
- * cannot use the proxy it has not started yet, so when every geox-url mirror
- * fails, Sash downloads the missing database through the verified release
- * pipeline (publisher SHA-256 from the release API, or from the packaged
- * bootstrap manifest when the API is unreachable) and drops it into the data
- * folder. The Core then skips the download entirely.
+ * Verified geodata pre-seeding. Core fetches its geodata itself and cannot use
+ * the proxy it has not started yet, so Sash pre-seeds missing databases through
+ * the verified release pipeline and drops them into the data folder.
  */
 
 export interface GeodataSeedOptions {
   signal?: AbortSignal;
-  /** Route GitHub traffic through this proxy instead of the environment proxy. */
   proxyUri?: string;
   onProxyFallback?: ProxyFallbackListener;
 }
 
 export interface GeodataSeedResult {
   file: string;
-  /** "pinned" when the digest came from the packaged bootstrap manifest. */
   source: "live" | "pinned";
 }
 
@@ -69,7 +64,6 @@ async function resolveGeodataRelease(
   }
 }
 
-/** Download one known geodata database into the data folder, digest-verified. */
 export async function seedGeodataFile(
   file: string,
   layout: SashLayout,

@@ -3,13 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 
-/**
- * Low-level process toolkit: liveness probes, fail-closed identity
- * classification, graceful termination, PID records and sanitized child
- * environments. Contains no daemon- or core-specific policy — that lives in
- * daemon.ts (core child supervision) and daemon-lifecycle.ts (sashd control).
- */
-
 export interface PidRecord {
   pid: number;
   exe: string;
@@ -22,7 +15,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** True if a process with this PID exists (including when signal is not permitted). */
 export function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -100,9 +92,7 @@ function runPowerShell(script: string, timeoutMs = 5000): string | undefined {
       ).trim();
       cachedPowerShell = shell;
       if (output) return output;
-    } catch {
-      /* try next shell candidate */
-    }
+    } catch {}
   }
   return undefined;
 }
@@ -126,13 +116,6 @@ function classifyDarwinComm(commOutput: string, expectedExe: string): ProcessIde
   return imageMatchesExpectedExe(out, expectedExe) ? "unknown" : "mismatch";
 }
 
-/**
- * Classify whether `pid` corresponds to the expected executable binary.
- *
- * - Linux: reads /proc/<pid>/exe symlink.
- * - Windows: queries the process path through PowerShell.
- * - macOS: queries ps -p <pid> -o comm=.
- */
 export function classifyProcessIdentity(pid: number, expectedExe: string): ProcessIdentity {
   if (!isProcessAlive(pid)) return "mismatch";
   const expected = expectedExe || "";
@@ -154,9 +137,7 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
       if (executable) {
         return exePathsMatch(executable, expected) ? "match" : "mismatch";
       }
-      // An elevated or protected process whose path cannot be read stays
-      // unverified, which every caller treats as "do not signal". Comparing the
-      // image name instead could only downgrade a mismatch to the same outcome.
+      // An unreadable path stays "unknown", and every caller then refuses to signal.
       return "unknown";
     }
 
@@ -177,7 +158,6 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
   return "unknown";
 }
 
-/** Credentials and CI tokens that must never reach a child process. */
 export const CREDENTIAL_ENV_KEYS: readonly string[] = [
   "GITHUB_TOKEN",
   "GH_TOKEN",
@@ -195,11 +175,7 @@ export const CREDENTIAL_ENV_KEYS: readonly string[] = [
 
 const STRIPPED_ENV_KEYS = new Set(CREDENTIAL_ENV_KEYS);
 
-/**
- * Only the management daemon may carry a GitHub token: it performs release
- * metadata lookups and asset downloads. The Core and every helper keep
- * receiving a fully scrubbed environment.
- */
+/** Only the daemon may carry a GitHub token; every other child gets a scrubbed environment. */
 export function githubTokenEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of ["GITHUB_TOKEN", "GH_TOKEN"]) {
@@ -237,7 +213,6 @@ export interface SanitizedCommandOptions {
   sourceEnv?: NodeJS.ProcessEnv;
 }
 
-/** Synchronously execute a fixed helper without forwarding package/registry credentials. */
 export function runSanitizedCommand(
   command: string,
   args: string[],
@@ -254,7 +229,6 @@ export function runSanitizedCommand(
   return output ?? "";
 }
 
-/** Asynchronously execute a fixed helper without blocking the Node event loop. */
 export function runSanitizedCommandAsync(
   command: string,
   args: string[],
@@ -284,7 +258,6 @@ export function runSanitizedCommandAsync(
   });
 }
 
-/** Resolve a trusted executable bundled with Windows rather than consulting cwd/PATH. */
 export function windowsSystemExecutable(relativePath: string): string {
   const root = process.env.SystemRoot?.trim() || process.env.WINDIR?.trim();
   return root && path.isAbsolute(root)
@@ -292,7 +265,6 @@ export function windowsSystemExecutable(relativePath: string): string {
     : path.basename(relativePath);
 }
 
-/** Resolve a helper only through absolute PATH entries and require an executable regular file. */
 export function findExecutableOnPath(
   command: string,
   sourceEnv: NodeJS.ProcessEnv = process.env,
@@ -304,9 +276,7 @@ export function findExecutableOnPath(
       if (!fs.lstatSync(candidate).isFile()) continue;
       fs.accessSync(candidate, fs.constants.X_OK);
       return candidate;
-    } catch {
-      // Continue through the remaining trusted absolute PATH entries.
-    }
+    } catch {}
   }
   return undefined;
 }
@@ -316,11 +286,7 @@ export interface AppendLogFds {
   stderrFd: number;
 }
 
-/**
- * Open one child log file for append: create it 0o600, refuse symlinks and
- * non-regular files, and restrict permissions on the opened handle itself so
- * a pre-existing permissive file cannot stay readable.
- */
+/** Append with 0o600, refusing symlinks and non-regular files; an existing loose mode is tightened. */
 function openPrivateAppendLogFd(filePath: string): number {
   try {
     if (!fs.lstatSync(filePath).isFile()) {
@@ -345,18 +311,11 @@ function openPrivateAppendLogFd(filePath: string): number {
   } catch (err) {
     try {
       fs.closeSync(fd);
-    } catch {
-      // Preserve the open/validation failure.
-    }
+    } catch {}
     throw err;
   }
 }
 
-/**
- * Open private append logs for a spawned child, run `use`, and always close
- * both descriptors — including when `use` throws synchronously, which the
- * previous open/spawn/close sequence leaked on.
- */
 export function withPrivateAppendLogFds<T>(
   stdoutPath: string,
   stderrPath: string,
@@ -369,9 +328,7 @@ export function withPrivateAppendLogFds<T>(
   } catch (err) {
     try {
       fs.closeSync(stdoutFd);
-    } catch {
-      // Preserve the stderr open failure.
-    }
+    } catch {}
     throw err;
   }
   try {
@@ -380,9 +337,7 @@ export function withPrivateAppendLogFds<T>(
     for (const fd of [stdoutFd, stderrFd]) {
       try {
         fs.closeSync(fd);
-      } catch {
-        // A failed close must not mask the callback outcome.
-      }
+      } catch {}
     }
   }
 }
@@ -404,11 +359,8 @@ export interface KillProcessOptions {
   timeoutMs?: number;
   /** Revalidate ownership immediately before every termination signal. */
   verify: () => ProcessIdentity | Promise<ProcessIdentity>;
-  /** Test seam; production callers use the real liveness probe. */
   isAliveFn?: (pid: number) => boolean;
-  /** Test seam; the boolean is true only for the force signal. */
   signalFn?: (pid: number, force: boolean) => Promise<boolean>;
-  /** Test seam for bounded termination polling. */
   sleepFn?: (ms: number) => Promise<void>;
 }
 
@@ -492,7 +444,5 @@ export function writePidRecord(pidFile: string, record: PidRecord): void {
 export function clearPidRecord(pidFile: string): void {
   try {
     fs.rmSync(pidFile, { force: true });
-  } catch {
-    // best effort
-  }
+  } catch {}
 }

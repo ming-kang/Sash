@@ -2,7 +2,6 @@
   <div>
     <PageHeader :title="t('page.settings.title')" :desc="t('page.settings.desc')" />
     <div class="settings-grid">
-      <!-- Interface -->
       <UiCard :title="t('settings.appearanceTitle')" class="settings-card">
         <div class="setting-row">
           <div class="setting-info">
@@ -74,7 +73,6 @@
 
       <AutostartCard />
 
-      <!-- Network -->
       <UiCard :title="t('settings.networkTitle')" class="settings-card">
         <div class="setting-row interrupt-row">
           <div class="setting-info">
@@ -145,7 +143,6 @@
         </div>
       </UiCard>
 
-      <!-- Runtime info -->
       <UiCard :title="t('settings.aboutTitle')" class="settings-card runtime-card">
         <dl class="info-grid">
           <div class="info-item">

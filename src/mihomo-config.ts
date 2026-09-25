@@ -2,15 +2,6 @@ import YAML from "yaml";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
 import type { SashSettings } from "./settings.js";
 
-/**
- * Generates mihomo's config.yaml.
- *
- * Sash owns a fixed set of operational keys (ports, controller, secret,
- * tun, allow-lan). Everything else — proxies, proxy-groups, rules, dns —
- * comes from the active local/remote profile or from a built-in DIRECT-only
- * default.
- */
-
 export interface GeneratedConfig {
   yaml: string;
   proxyCount: number;
@@ -47,17 +38,12 @@ export interface SubscriptionUserinfo {
   expire?: number;
 }
 
-/** A fetched subscription document plus the metadata gateways send as headers. */
 export interface SubscriptionFetch {
   doc: Record<string, unknown>;
-  /** Raw response body, stored verbatim as the local profile file. */
   yamlText: string;
-  /** Display name from Content-Disposition, when provided. */
   name?: string;
   subInfo?: SubscriptionUserinfo;
-  /** `profile-web-page-url` header. */
   homePage?: string;
-  /** `profile-update-interval` header, in hours. */
   intervalHours?: number;
 }
 
@@ -66,7 +52,6 @@ function firstHeader(value: string | string[] | undefined): string | undefined {
   return value;
 }
 
-/** Parse `subscription-userinfo: upload=..; download=..; total=..; expire=..`. */
 export function parseSubscriptionUserinfo(
   header: string | undefined,
 ): SubscriptionUserinfo | undefined {
@@ -92,18 +77,14 @@ export function parseSubscriptionUserinfo(
   };
 }
 
-/** Parse a display filename out of a Content-Disposition header. */
 export function parseContentDispositionFilename(header: string | undefined): string | undefined {
   if (!header) return undefined;
-  // RFC 5987 form: filename*=UTF-8''<percent-encoded>
   const ext = header.match(/filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/);
   if (ext?.[1]) {
     try {
       const decoded = sanitizeFilename(decodeURIComponent(ext[1].trim()));
       if (decoded) return stripYamlExt(decoded);
-    } catch {
-      // fall through to the plain form
-    }
+    } catch {}
   }
   const plain = header.match(/filename\s*=\s*"?([^";]+)"?/);
   const value = plain?.[1] ? sanitizeFilename(plain[1]) : undefined;
@@ -208,11 +189,10 @@ export async function fetchSubscriptionProfile(
 }
 
 /**
- * Geodata URLs used only when the Core cannot fetch its databases directly.
- * mihomo downloads geodata from `geox-url` on demand; the upstream defaults
+ * Geodata URLs used only when the Core cannot fetch its databases directly:
+ * mihomo downloads geodata from `geox-url` on demand, the upstream defaults
  * point at github.com, which is unreachable on some networks, and the Core
- * cannot use the proxy it has not started yet. These mirrors are transports
- * for public data, exactly like the Core release mirrors.
+ * cannot use the proxy it has not started yet.
  */
 export interface GeoxMirrorSet {
   geoip: string;
@@ -232,15 +212,12 @@ function geoxMirrorSet(mirror: string): GeoxMirrorSet {
   };
 }
 
-/** Mirror sets tried in order when the Core cannot fetch geodata directly. */
 const GHFAST_TOP = geoxMirrorSet("https://ghfast.top/");
 const GH_PROXY = geoxMirrorSet("https://gh-proxy.com/");
 export const GEOX_MIRROR_SETS: readonly GeoxMirrorSet[] = [GHFAST_TOP, GH_PROXY];
 
-/** The primary mirror set. */
 export const GEOX_MIRRORS: GeoxMirrorSet = GHFAST_TOP;
 
-/** Rewrite an already generated configuration to fetch geodata through a mirror set. */
 export function withGeodataMirrors(generated: GeneratedConfig, mirrorIndex = 0): GeneratedConfig {
   const set = GEOX_MIRROR_SETS[mirrorIndex];
   if (!set) throw new Error(`internal error: unknown geodata mirror index ${mirrorIndex}`);
@@ -283,7 +260,6 @@ export function overlayManagedKeys(
   out["allow-lan"] = settings.allowLan;
   out["external-controller"] = settings.controller;
   out.secret = settings.secret;
-  // The generated runtime configuration always disables the TUN listener.
   out.tun = { enable: false };
   return out;
 }

@@ -19,7 +19,6 @@ import { HttpError, requiredParam, routePath } from "./http.js";
 import type { RouteDef, RouteRequest, RouteResponse } from "./router.js";
 import { readDaemonStatus } from "./status.js";
 
-/* Route table: one declarative row per endpoint; the dispatch engine lives in router.ts. */
 export function sashApiRoutes(): readonly RouteDef[] {
   return [
     {
@@ -196,8 +195,6 @@ export function sashApiRoutes(): readonly RouteDef[] {
   ];
 }
 
-/* ── autostart ── */
-
 export async function readAutostart(ctx: DaemonContext): Promise<RouteResponse> {
   return { status: 200, json: await ctx.autostart.inspect() };
 }
@@ -217,8 +214,6 @@ export async function writeAutostart(
   return { status: 200, json: status };
 }
 
-/* ── core ── */
-
 export async function startCore(ctx: DaemonContext): Promise<RouteResponse> {
   return { status: 200, json: await ctx.core.start() };
 }
@@ -232,7 +227,6 @@ export async function restartCore(ctx: DaemonContext): Promise<RouteResponse> {
 export function coreUpdateProgress(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: ctx.core.progress };
 }
-/** Abandon an in-flight Core download; a conflict reports that none is running. */
 export async function cancelCoreUpdate(ctx: DaemonContext): Promise<RouteResponse> {
   ctx.core.cancel();
   return { status: 204 };
@@ -296,8 +290,6 @@ export async function testCoreDelay(ctx: DaemonContext, req: RouteRequest): Prom
   return { status: 200, json: result };
 }
 
-/* ── daemon ── */
-
 export function health(ctx: DaemonContext): RouteResponse {
   // The token is a per-boot identity nonce for daemon instance matching. It
   // is deliberately not a credential: control requests require the CLI
@@ -318,7 +310,6 @@ export function createWebBootstrap(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: body };
 }
 
-/** Public exchange: a valid one-time bootstrap token becomes a session token. */
 export async function redeemWebBootstrap(
   ctx: DaemonContext,
   req: RouteRequest,
@@ -356,8 +347,6 @@ export function shutdownDaemon(ctx: DaemonContext): Promise<RouteResponse> {
     },
   }));
 }
-
-/* ── profiles ── */
 
 export function listProfiles(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: ctx.profiles.list() };
@@ -445,8 +434,6 @@ export async function removeProfile(ctx: DaemonContext, req: RouteRequest): Prom
   return { status: 200, json: result };
 }
 
-/* ── proxy ── */
-
 export async function proxyStatus(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
   const fresh = req.searchParams.get("fresh") === "1";
   if (fresh && !req.authorized)
@@ -462,8 +449,6 @@ export async function proxyStatus(ctx: DaemonContext, req: RouteRequest): Promis
   };
   return { status: 200, json: body };
 }
-
-/* ── settings ── */
 
 const PATCHABLE_KEYS = ["expectedRevision", "mixedPort", "allowLan", "systemProxy"];
 

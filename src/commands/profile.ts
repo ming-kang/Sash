@@ -9,7 +9,6 @@ import { log } from "../log.js";
 import { getActiveProfile, type ProfileMeta, type ProfilesIndex } from "../profiles.js";
 import { runtimeContext } from "./shared.js";
 
-/** IDs are unambiguous; display names must match exactly and uniquely. */
 export function resolveProfileReference(index: ProfilesIndex, reference?: string): ProfileMeta {
   if (reference === undefined) {
     const active = getActiveProfile(index);
@@ -142,7 +141,6 @@ export async function runProfileUpdate(
     async () => {
       if (options.all && reference !== undefined)
         throw new Error("Use a profile ID/name or --all, not both");
-      // The hint below is only honest for the profile the runtime selected.
       const index = options.all ? null : await profiles().list();
       const target = index === null ? null : resolveProfileReference(index, reference);
       const result = await profiles().update(reference, options.all);

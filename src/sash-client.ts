@@ -30,8 +30,8 @@ import type { PublicSashSettings } from "./settings.js";
 export { SashApiError } from "./contracts.js";
 
 /**
- * Browser-safe client for the daemon-owned /sash/* HTTP API. Response bodies are
- * typed by the daemon handlers of this installation; only error bodies are parsed.
+ * Response bodies are typed by the daemon handlers of this installation; only
+ * error bodies are parsed.
  */
 export interface SashClientFetchResponse {
   status: number;
@@ -55,23 +55,17 @@ export type SashClientFetch = (
 ) => Promise<SashClientFetchResponse>;
 
 export interface SashClientOptions {
-  /** Origin or absolute base, e.g. "http://127.0.0.1:19090". Empty = same-origin. */
   baseUrl: string;
-  /** Resolves the credential before every request (WebUI tokens arrive after authorization). */
   token?: () => string;
-  /** Header carrying the credential; defaults to the CLI bearer. */
   tokenHeader?: "authorization" | "x-sash-token";
   /**
-   * Required transport. Browser callers pass {@link browserFetch}; Node callers
-   * must inject the direct-dispatcher adapter from sash-client-node.ts so
-   * loopback API traffic never depends on ambient fetch behavior.
+   * Required transport. Node callers must inject the direct-dispatcher adapter
+   * from sash-client-node.ts so loopback API traffic never depends on ambient
+   * fetch behavior.
    */
   fetchFn: SashClientFetch;
-  /** SSE transport; required before calling {@link SashClient.events}. */
   eventFetchFn?: SashEventFetch;
-  /** Default per-request deadline. */
   timeoutMs?: number;
-  /** Called when the daemon rejects the configured credential with 401. */
   onUnauthorized?: (token: string) => void;
 }
 
@@ -86,7 +80,6 @@ export interface SashRequestOptions {
   signal?: AbortSignal;
 }
 
-/** Same-origin browser transport for the WebUI; see SashClientOptions.fetchFn. */
 export const browserFetch: SashClientFetch = async (url, init) => {
   const deadline = AbortSignal.timeout(init.timeoutMs ?? 5000);
   const response = await fetch(url, {
@@ -99,35 +92,21 @@ export const browserFetch: SashClientFetch = async (url, init) => {
 };
 
 /**
- * An update downloads, verifies, validates and reinstalls the Core, so its
- * request must outlive the daemon-side budgets: a 15 minute download shared by
- * every mirror, plus configuration validation that may fetch geodata through
- * several mirrors before the binary is swapped. A start and a restart run the
- * same preparation path — installing, seeding geodata and validating — so all
- * three share this budget.
+ * An update, a start and a restart share the Core preparation path — install,
+ * geodata seeding and validation — so this budget must outlive the daemon-side
+ * work.
  */
 const CORE_UPDATE_TIMEOUT_MS = 45 * 60_000;
 
 /**
- * A profile change is applied by the daemon, not by this client: the mutation
- * queue serializes every change, and a change that alters the core config then
- * validates it (one configuration test plus a retry per geodata mirror set) and
- * reloads the running Core. These budgets mirror those daemon-side budgets
- * because a shorter one reports a failure for work that still succeeds — the
- * change is already committed and the Core is serving it by the time the user
- * reads the error.
- *
- * The one path these do not cover is a machine that reaches no geodata source
- * at all: the daemon then fetches the databases itself, each with its own
- * download budget, before revalidating.
+ * These budgets mirror the daemon-side validation and reload because a shorter
+ * one reports failure for a change already committed and being served.
  */
 /** The plain configuration test, then one 3 minute retry per mirror set. */
 const CONFIG_VALIDATION_TIMEOUT_MS = 20_000 + 2 * 180_000;
-/** The reload that follows a successful validation. */
 const CONFIG_RELOAD_TIMEOUT_MS = 180_000;
 /** One subscription fetch: a single absolute deadline, redirects included. */
 const PROFILE_FETCH_TIMEOUT_MS = 30_000;
-/** A change that commits, validates and reloads. */
 const PROFILE_APPLY_TIMEOUT_MS = CONFIG_VALIDATION_TIMEOUT_MS + CONFIG_RELOAD_TIMEOUT_MS;
 /** A change that also fetches its subscription source, inside or ahead of the queue. */
 const PROFILE_REFRESH_TIMEOUT_MS = PROFILE_APPLY_TIMEOUT_MS + PROFILE_FETCH_TIMEOUT_MS;
@@ -212,8 +191,6 @@ export class SashClient {
     return this.request<T>(endpoint, options);
   }
 
-  /* ---- daemon ---- */
-
   async health(): Promise<HealthInfo> {
     return this.request<HealthInfo>("/sash/daemon/health", {
       timeoutMs: 2_000,
@@ -222,7 +199,6 @@ export class SashClient {
     });
   }
 
-  /** Authenticated CLI clients mint a one-time browser bootstrap token. */
   async createWebBootstrap(): Promise<WebBootstrapInfo> {
     return this.request<WebBootstrapInfo>("/sash/web/bootstrap", {
       method: "POST",
@@ -230,7 +206,6 @@ export class SashClient {
     });
   }
 
-  /** Public exchange: redeem a one-time bootstrap token for a session token. */
   async redeemWebBootstrap(token: string): Promise<WebSessionInfo> {
     return this.request<WebSessionInfo>("/sash/web/session", {
       method: "POST",
@@ -279,8 +254,6 @@ export class SashClient {
     });
   }
 
-  /* ---- core lifecycle ---- */
-
   async startCore(opts: { signal?: AbortSignal } = {}): Promise<CoreStartResult> {
     return this.request<CoreStartResult>("/sash/core/start", {
       method: "POST",
@@ -313,7 +286,7 @@ export class SashClient {
     });
   }
 
-  /** Cancel an in-flight Core download; the daemon answers 409 when none runs. */
+  /** The daemon answers 409 when no Core download is running. */
   async cancelCoreUpdate(): Promise<void> {
     await this.request("/sash/core/update", { method: "DELETE", timeoutMs: 10_000, attempts: 1 });
   }
@@ -335,8 +308,6 @@ export class SashClient {
     });
   }
 
-  /* ---- system proxy ---- */
-
   async setMode(mode: RoutingMode): Promise<void> {
     await this.request("/sash/core/mode", { method: "PUT", body: { mode } });
   }
@@ -344,8 +315,6 @@ export class SashClient {
   async proxyStatus(fresh = false): Promise<SystemProxyStatusResponse> {
     return this.request<SystemProxyStatusResponse>(fresh ? "/sash/proxy?fresh=1" : "/sash/proxy");
   }
-
-  /* ---- settings ---- */
 
   async getSettings(): Promise<PublicSashSettings> {
     return this.request<PublicSashSettings>("/sash/settings");
@@ -358,8 +327,6 @@ export class SashClient {
       timeoutMs: 45_000,
     });
   }
-
-  /* ---- profiles ---- */
 
   async listProfiles(): Promise<ProfilesIndex> {
     return this.request<ProfilesIndex>("/sash/profiles");
@@ -434,9 +401,8 @@ export class SashClient {
     return this.request<ProfileRenameResponse>(`/sash/profiles/${id}`, {
       method: "PATCH",
       body: { name },
-      // A rename never touches the core config, so its own work is instant. It
-      // still waits in the mutation queue behind whatever change runs now, and
-      // that change may be a full validation and reload.
+      // A rename does no config work but still waits in the mutation queue
+      // behind a change that may run a full validation and reload.
       timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
     });
   }
@@ -458,7 +424,6 @@ export type SashEventFetch = (
   body: AsyncIterable<Uint8Array>;
 }>;
 
-/** Browser SSE transport for the WebUI; Node uses sash-client-node.ts instead. */
 export const browserEventFetch: SashEventFetch = async (url, init) => {
   const response = await fetch(url, { ...init, redirect: "error" });
   return {
@@ -483,7 +448,7 @@ export const browserEventFetch: SashEventFetch = async (url, init) => {
   };
 };
 
-/** One stream attempt. Callers own reconnect policy and the lifetime of the subscription. */
+/** One stream attempt; the caller owns reconnect policy and subscription lifetime. */
 export async function* readSashEvents(options: {
   url: string;
   token: string;
@@ -519,9 +484,7 @@ export async function* readSashEvents(options: {
           text += decoder.decode(chunk, { stream: true });
           if (text.length >= 32_768) break;
         }
-      } catch {
-        /* Preserve the known HTTP status if the diagnostic body fails. */
-      }
+      } catch {}
       let message = text.slice(0, 300).trim();
       let code: string | undefined;
       try {
@@ -530,9 +493,7 @@ export async function* readSashEvents(options: {
           message = error.message;
           code = error.code;
         }
-      } catch {
-        /* Plain HTTP diagnostics are also useful. */
-      }
+      } catch {}
       throw new SashApiError(response.status, code, message || `HTTP ${response.status}`);
     }
     if (response.contentType.split(";")[0]?.trim().toLowerCase() !== "text/event-stream")

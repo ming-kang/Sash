@@ -114,7 +114,6 @@ const props = defineProps<{
   testing: boolean;
   testingNodes?: ReadonlySet<string>;
   busy?: boolean;
-  /** Node whose selection is in flight; shows a spinner on its card. */
   pending?: string;
   collapsed?: boolean;
   hideTimeout?: boolean;

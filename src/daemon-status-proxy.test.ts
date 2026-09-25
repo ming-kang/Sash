@@ -118,7 +118,6 @@ describe("daemon server", () => {
 
       await h.startServer({ supervisor: fakeSupervisor, systemProxy });
 
-      // Core not running -> enable should fail with a core_unhealthy conflict
       const failRes = await h.apiRequest("/sash/settings", {
         method: "PATCH",
         body: { systemProxy: true },
@@ -126,7 +125,6 @@ describe("daemon server", () => {
       assert.equal(failRes.statusCode, 409);
       assert.equal((failRes.data as { error: { code: string } }).error.code, "core_unhealthy");
 
-      // Start core first
       await h.apiRequest("/sash/core/start", { method: "POST" });
 
       const enableRes = await h.apiRequest("/sash/settings", {
@@ -136,14 +134,12 @@ describe("daemon server", () => {
       assert.equal(enableRes.statusCode, 200);
       assert.equal(enabledCalls, 1);
 
-      // GET /sash/proxy should show enabled
       const stateRes = await h.apiRequest("/sash/proxy");
       assert.equal(stateRes.statusCode, 200);
       const state = stateRes.data as { desired: boolean; applied: boolean };
       assert.equal(state.desired, true);
       assert.equal(state.applied, true);
 
-      // Disable
       const disableRes = await h.apiRequest("/sash/settings", {
         method: "PATCH",
         body: { systemProxy: false },

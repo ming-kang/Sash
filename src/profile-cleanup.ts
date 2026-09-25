@@ -54,9 +54,7 @@ export function pruneProfileFiles(
     try {
       const stat = fs.lstatSync(directory);
       if (stat.isDirectory() && stat.mtimeMs <= cutoff && owned(directory)) fs.rmdirSync(directory);
-    } catch {
-      /* Preserve recent, nonempty, locked and foreign directories. */
-    }
+    } catch {}
   };
   const revisions = new Map(
     index.profiles.map((profile) => [profile.id, `${profile.revision}.yaml`]),

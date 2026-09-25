@@ -22,9 +22,7 @@ describe("fs-atomic", () => {
   afterEach(() => {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    } catch {}
   });
 
   describe("pathEntryExists", () => {

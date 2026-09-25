@@ -8,13 +8,6 @@ import { remixIconsPlugin } from "./remix-icons.js";
 
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Splits the LXGW WenKai Lite source font (web/fonts/) into unicode-range
- * woff2 chunks under web/src/assets/fonts/lxgw/, so the dashboard downloads
- * only the glyph slices a page actually renders instead of one 5 MB file.
- * Runs in both `vite` dev and `vite build`; regeneration is content-stamped
- * and skipped while the source font is unchanged.
- */
 function fontSplitPlugin(): Plugin {
   const sourceFont = path.join(webRoot, "fonts", "LXGWWenKaiLite-Regular.woff2");
   const outDir = path.join(webRoot, "src", "assets", "fonts", "lxgw");
@@ -60,7 +53,6 @@ function fontSplitPlugin(): Plugin {
             "CN_FONT_SPLIT_GH_HOST to a GitHub mirror where needed).",
         );
       }
-      // Drop the preview/report artifacts; keep only chunks and result.css.
       for (const junk of ["index.html", "index.proto", "reporter.bin"]) {
         fs.rmSync(path.join(outDir, junk), { force: true });
       }
@@ -81,8 +73,8 @@ export default defineConfig({
     minify: true,
     cssMinify: true,
     manifest: true,
-    // Font chunks stay discrete files: they are fingerprinted, fetched in
-    // parallel and cached immutably by the daemon, never inlined into CSS.
+    // Font chunks stay discrete files: fingerprinted, fetched in parallel and
+    // cached immutably by the daemon, never inlined into CSS.
     assetsInlineLimit: (filePath) => (filePath.endsWith(".woff2") ? false : undefined),
   },
   server: {

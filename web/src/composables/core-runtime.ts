@@ -9,10 +9,6 @@ export const coreVersion = computed(() => {
   return version ? (version.startsWith("v") ? version : `v${version}`) : "";
 });
 
-/**
- * Live Core install/update progress, shown while the daemon stages a binary.
- * Empty when no update is running.
- */
 export const coreUpdateText = computed(() => {
   const update = store.status?.coreUpdate;
   if (!update) return "";
@@ -29,7 +25,6 @@ const stopping = ref(false);
 const cancellingUpdate = ref(false);
 let actionGeneration = 0;
 
-/** Abandon the daemon's in-flight Core download. */
 async function cancelCoreUpdate(): Promise<void> {
   if (cancellingUpdate.value) return;
   cancellingUpdate.value = true;
@@ -45,7 +40,6 @@ async function cancelCoreUpdate(): Promise<void> {
   }
 }
 
-/** Shared busy state and actions for every Core control in the dashboard. */
 export function useCoreControl() {
   async function restartCore(): Promise<void> {
     if (restarting.value || stopping.value || !store.status) return;

@@ -29,7 +29,6 @@ export interface CoreState {
   version?: string;
 }
 
-/** A point-in-time claim for the child currently owned by this supervisor. */
 export interface CoreOwnershipSnapshot {
   /** Opaque identity of the claimed child; only compared, never inspected. */
   readonly child: object;
@@ -49,12 +48,7 @@ export interface CoreSupervisorOptions {
 
 export const CORE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
 
-/**
- * Rotate Core stdout and stderr logs if they exceed CORE_LOG_ROTATE_BYTES.
- * Rotates one generation (e.g. mihomo.log -> mihomo.log.1), overwriting any previous .1 file.
- * Non-regular files (such as symlinks) are skipped without following.
- * Rotation failure is best-effort and must not throw or block Core startup.
- */
+/** Skips non-regular files (such as symlinks) without following them. */
 export function rotateCoreLogs(layout: SashLayout): void {
   const targets = [layout.coreLogFile, layout.coreErrLogFile];
   for (const target of targets) {
@@ -86,10 +80,6 @@ function managedPathsMatch(a: string, b: string): boolean {
   return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
-/**
- * Supervise the child mihomo process directly. The child is NOT detached:
- * sashd holds its handle, monitors exit events, and cleans up state on exit.
- */
 export class CoreSupervisor {
   private child: ChildProcess | null = null;
   private readonly pidRecordOwners = new WeakSet<ChildProcess>();
@@ -148,7 +138,6 @@ export class CoreSupervisor {
     if (this.pidRecordOwners.delete(child)) clearPidRecord(this.layout.pidFile);
   }
 
-  /** Terminate a just-spawned child after a startup failure. */
   private async abortStart(child: ChildProcess, pid: number): Promise<boolean> {
     this.stopping = true;
     const terminated = await this.kill(pid, {
@@ -194,17 +183,14 @@ export class CoreSupervisor {
     this.childStartedAt = new Date().toISOString();
 
     child.once("exit", (code, signal) => {
-      // A stale exit from a replaced process (restart race) must not clobber
-      // the new child handle, the new PID record, or trigger onExit actions.
+      // A stale exit from a replaced child must not clobber the new handle or PID record.
       if (this.child !== child) return;
       const wasStopping = this.stopping;
       this.child = null;
       this.childStartedAt = undefined;
       this.clearOwnedPidRecord(child);
       if (!wasStopping) {
-        Promise.resolve(this.onExitCallback?.(code, signal)).catch(() => {
-          // ignore rejection in exit callback
-        });
+        Promise.resolve(this.onExitCallback?.(code, signal)).catch(() => {});
       }
     });
 
@@ -250,14 +236,11 @@ export class CoreSupervisor {
       try {
         version = await api.version();
         if (this.isAlive(pid)) return { pid, version };
-      } catch {
-        // Keep waiting until the owned process exposes a ready controller.
-      }
+      } catch {}
       await sleep(250);
     }
 
-    // Health check timed out. Preserve ownership records unless termination
-    // is positively confirmed, so later recovery can still identify the Core.
+    // Keep the PID record unless termination is confirmed, so recovery can still identify the Core.
     const terminated = await this.abortStart(child, pid);
     const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
       maxLines: 20,
@@ -297,14 +280,12 @@ export class CoreSupervisor {
     }
   }
 
-  /** Capture the currently live child so callers can detect replacement across awaits. */
   ownedCoreSnapshot(): CoreOwnershipSnapshot | undefined {
     const child = this.child;
     if (!child?.pid || !this.isAlive(child.pid)) return undefined;
     return { child, pid: child.pid };
   }
 
-  /** True only while the exact child captured by `ownedCoreSnapshot` remains live. */
   ownsCore(snapshot: CoreOwnershipSnapshot): boolean {
     return Boolean(this.child && this.child === snapshot.child && this.isAlive(snapshot.pid));
   }
@@ -330,8 +311,7 @@ export class CoreSupervisor {
       healthy = false;
     }
 
-    // The controller probe can outlive its child or overlap a replacement.
-    // Never describe a different (or dead) child with this probe result.
+    // A controller probe can outlive its child or overlap a replacement; never attribute the result to another child.
     if (!this.ownsCore(ownership)) return { running: false };
 
     return {
@@ -347,10 +327,7 @@ export class CoreSupervisor {
     return Boolean(this.child && this.isAlive(this.child.pid ?? -1));
   }
 
-  /**
-   * Reconcile stale core processes on daemon startup: if a previous core
-   * was orphaned, verify its executable identity before killing it.
-   */
+  /** Verify an orphaned Core's executable identity before terminating it. */
   async cleanStaleCore(): Promise<void> {
     const record = readPidRecord(this.layout.pidFile);
     if (!record) {

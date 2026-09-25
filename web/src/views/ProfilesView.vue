@@ -153,7 +153,6 @@ import {
 } from "../stores/index.js";
 import type { ProfileMeta } from "../types/index.js";
 
-// CodeMirror rides along with the editor dialog chunk, not the profiles page.
 const ProfileEditorDialog = asyncView(
   () => import("../components/ProfileEditorDialog.vue"),
 );

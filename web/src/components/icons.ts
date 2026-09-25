@@ -34,7 +34,6 @@ import {
 } from "@remixicon/vue";
 import type { Component } from "vue";
 
-/** Semantic Sash names mapped to official Remix Icon line components. */
 export const iconComponents = {
   alert: RiErrorWarningLine,
   "check-circle": RiCheckboxCircleLine,

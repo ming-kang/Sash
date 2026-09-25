@@ -1,4 +1,3 @@
-/** Build first, then: node --import tsx scripts/ui-smoke.mjs [chromium|firefox]. */
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -180,7 +179,6 @@ async function exercise(fixture, label) {
   await screenshot(page, `${label}-rules`);
   await go("Connections");
   await page.getByText("updated-host.example.test", { exact: true }).waitFor();
-  // Same traffic counters, different metadata: row memoization must still update.
   fixture.connections[0].metadata.host = "memo-updated.example.test";
   await page.getByText("memo-updated.example.test", { exact: true }).waitFor();
   await page.locator(".page-head").scrollIntoViewIfNeeded();

@@ -23,7 +23,6 @@ import { uiInstalled } from "./webui.js";
 
 const CLI_STATUS_SCHEMA_VERSION = 2 as const;
 
-/** Human-readable transport for Core downloads, matching the CLI status line. */
 function describeDownloadTransport(transport: DownloadTransport): string {
   return transport.source === "core"
     ? `Sash's own Core proxy: ${transport.uri}`
@@ -38,7 +37,6 @@ export interface CliDaemonObservation {
   healthy: boolean;
   pid: number | null;
   port: number;
-  /** The version the running daemon executes; null when it cannot be observed. */
   version: string | null;
 }
 
@@ -55,20 +53,13 @@ export interface CliRuntimeStatus {
   delay?: StatusDelayObservation;
   /** Present only while the daemon stages or installs a Core binary. */
   coreUpdate?: CoreUpdateProgress;
-  /** Present only when the daemon answered; describes how Core downloads leave. */
   downloadProxy?: string;
-  /**
-   * Present only when the daemon answered: the transport itself, not a
-   * description. Diagnostics use it to probe the path a real download takes.
-   */
+  /** The transport itself, not a description; diagnostics probe the real download path. */
   downloadTransport?: DownloadTransport;
-  /** True only when every runtime field required by this contract was observed. */
   complete: boolean;
-  /** Overall daemon/Core health; null when the daemon status query is unavailable. */
   healthy: boolean | null;
   queryError: string | null;
   autostart: AutostartStatus;
-  /** Last login-start outcome; null when none was recorded. */
   loginStart: LoginStartRecord | null;
   daemon: CliDaemonObservation;
   core: {
@@ -280,9 +271,7 @@ async function observeAutostart(
   if (daemonOnline && daemonState.kind === "healthy") {
     try {
       return await queryAutostart(context, dependencies, daemonState);
-    } catch {
-      // Fall back to local probe
-    }
+    } catch {}
   }
   try {
     return await inspectLocalAutostart(context, dependencies);
@@ -304,10 +293,6 @@ export interface CliStatusFromDaemonOptions {
   daemonPid?: number | null;
 }
 
-/**
- * Deterministically maps a complete daemon status snapshot and autostart state
- * to the CLI runtime status contract.
- */
 export function cliStatusFromDaemonStatus(
   context: StatusObservationContext,
   status: DaemonStatus,
@@ -495,9 +480,8 @@ export async function collectRuntimeStatus(
     addError(errors, "the local API is unreachable");
   }
 
-  // Reaching here means the daemon's own status was never read: either Sash is
-  // stopped, or its local API did not answer. Core facts stay unobserved, which
-  // reads as unknown while Sash runs and as a definitive "no" once it is not.
+  // No daemon status was read: Core facts are unobserved as null (unknown)
+  // while Sash runs and as false (definitive "no") once it is stopped.
   const observed: boolean | null = daemonState.running ? null : false;
   const [proxyObservation, autostart] = await Promise.all([
     observeSystemProxy(context, dependencies, undefined, observed),
@@ -572,12 +556,6 @@ export function runtimeStatusHeadline(status: CliRuntimeStatus): StatusHeadline 
   };
 }
 
-/**
- * One line for the three facts about the system proxy: whether the user wants
- * it, and what Windows actually has. "Wanted but not applied", "off but still
- * set" and "could not read" are the states a user has to act on, so they name
- * the next step instead of the internal desired/applied/observed split.
- */
 export function formatSystemProxyLine(desired: boolean, observed: CliObservedSystemProxy): string {
   if (observed.supported === false) return "not supported on this system";
   if (observed.enabled === null) return "unknown — could not read the Windows setting";
@@ -592,9 +570,8 @@ export function formatSystemProxyLine(desired: boolean, observed: CliObservedSys
 
 /**
  * Start-at-login states in the user's terms. Only suggest the repair command
- * when this installation can actually register one: a source checkout or a
- * linked package reports why instead, so the advice is never a command that
- * fails.
+ * when this installation can actually register one; a source checkout or linked
+ * package reports why instead.
  */
 export function formatAutostart(status: {
   state: string;
@@ -621,7 +598,6 @@ export function formatAutostart(status: {
   }
 }
 
-/** One appended fact when the last login start failed, otherwise nothing. */
 export function formatLoginStartSuffix(record: LoginStartRecord | null): string {
   if (!record || record.ok) return "";
   return " · last login start failed — run sash doctor";

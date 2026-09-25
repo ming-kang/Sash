@@ -12,13 +12,6 @@ import { readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import { CORE_LOG_ROTATE_BYTES, CoreSupervisor, rotateCoreLogs } from "./supervisor.js";
 
-/**
- * Regression test for the restart race: when the production restart path
- * (stop() followed by start()) replaces the core, the old process's `exit`
- * event may be dispatched AFTER the new child handle is assigned. A stale
- * exit must not clear the new child, the new PID record, or fire the onExit
- * callback.
- */
 test("restart: stale exit event from the replaced core does not clobber the new one", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-"));
   const layout = sashLayout(root);
@@ -27,7 +20,6 @@ test("restart: stale exit event from the replaced core does not clobber the new 
   fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
 
-  // Stub external-controller: healthy version.
   const server = http.createServer((req, res) => {
     if (req.url === "/version") {
       res.writeHead(200, { "content-type": "application/json" });
@@ -74,8 +66,7 @@ test("restart: stale exit event from the replaced core does not clobber the new 
     assert.ok(second.pid);
     assert.notEqual(first.pid, second.pid);
 
-    // Simulate the late-arriving exit event from the replaced process. On
-    // Windows the event is routinely dispatched only after start() has
+    // On Windows the exit event is routinely dispatched only after start() has
     // already assigned the new child handle.
     if (oldChild.listenerCount("exit") > 0) {
       oldChild.emit("exit", 0, null);
@@ -94,9 +85,7 @@ test("restart: stale exit event from the replaced core does not clobber the new 
     for (const child of children) {
       try {
         child.kill("SIGKILL");
-      } catch {
-        // already dead
-      }
+      } catch {}
     }
     server.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -475,14 +464,12 @@ test("rotateCoreLogs: file above threshold is rotated to .1 and replaces existin
   const layout = sashLayout(root);
   fs.mkdirSync(layout.logsDir, { recursive: true });
 
-  // Prepare coreLogFile above threshold with distinct header content
   const logFd = fs.openSync(layout.coreLogFile, "w");
   fs.writeSync(logFd, "active-core-log-data");
   fs.ftruncateSync(logFd, CORE_LOG_ROTATE_BYTES);
   fs.closeSync(logFd);
   fs.writeFileSync(`${layout.coreLogFile}.1`, "stale-core-log-generation");
 
-  // Prepare coreErrLogFile above threshold with distinct header content
   const errFd = fs.openSync(layout.coreErrLogFile, "w");
   fs.writeSync(errFd, "active-core-err-data");
   fs.ftruncateSync(errFd, CORE_LOG_ROTATE_BYTES + 4096);
@@ -492,11 +479,9 @@ test("rotateCoreLogs: file above threshold is rotated to .1 and replaces existin
   try {
     rotateCoreLogs(layout);
 
-    // Active files should have been rotated away
     assert.equal(fs.existsSync(layout.coreLogFile), false);
     assert.equal(fs.existsSync(layout.coreErrLogFile), false);
 
-    // .1 files should exist with the rotated content and size
     assert.equal(fs.existsSync(`${layout.coreLogFile}.1`), true);
     assert.equal(fs.statSync(`${layout.coreLogFile}.1`).size, CORE_LOG_ROTATE_BYTES);
     const logHeader = Buffer.alloc(20);
@@ -563,7 +548,6 @@ test("rotateCoreLogs: symlink at the log path is not followed or rotated", () =>
   try {
     rotateCoreLogs(layout);
 
-    // Symlink / junction must remain intact and must not be rotated to .1
     const stat = fs.lstatSync(layout.coreLogFile);
     assert.equal(stat.isSymbolicLink(), true);
     assert.equal(stat.isFile(), false);

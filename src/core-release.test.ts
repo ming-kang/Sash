@@ -242,7 +242,6 @@ describe("resolveCoreRelease failure guidance", () => {
     agent.disableNetConnect();
     t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
     t.after(() => agent.close());
-    // No github.com intercept: any latest lookup fails this test on its own.
     agent
       .get("https://api.github.com")
       .intercept({ path: `${API_TAGS}/v9.9.9` })

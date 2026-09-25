@@ -8,10 +8,8 @@ import { serveUiAsset, serveUiIndexOrRedirect } from "./static.js";
 const CORE_API_PREFIX = "/core/api";
 
 /**
- * The whole daemon HTTP surface, in matching order. The dispatch engine lives
- * in router.ts; this table only assembles routes from their owning modules:
- * business JSON handlers (handlers.ts), the event stream (events.ts), the
- * Core gateway (proxy.ts) and the dashboard assets (static.ts).
+ * The whole daemon HTTP surface, in matching order; the dispatch engine
+ * lives in router.ts.
  */
 export function buildRoutes(): readonly RouteDef[] {
   return [
@@ -23,8 +21,8 @@ export function buildRoutes(): readonly RouteDef[] {
       raw: streamDaemonEvents,
     },
     // The Core gateway proxies everything under /core/api/* straight to the
-    // external controller. Two patterns: URLPattern wildcards do not match the
-    // bare prefix itself.
+    // external controller; two patterns because URLPattern wildcards do not
+    // match the bare prefix itself.
     {
       methods: "*",
       pattern: routePath(CORE_API_PREFIX),

@@ -1,5 +1,3 @@
-// Run after npm run build: npx tsx scripts/profile-ui-verify.mts
-// Real isolated daemon/profile persistence; synthetic Core, subscriptions and OS proxy.
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -219,7 +217,6 @@ try {
         document.documentElement.dataset.theme = "light";
       });
       await profilesPage(page);
-      // Click the card's blank bottom padding, outside its text content.
       const first = page.locator(`.profile-card[data-id="${initialIds[0]}"]`);
       const box = await first.boundingBox();
       assert.ok(box);
@@ -298,9 +295,7 @@ try {
       await held.locator(".profile-card-main").click();
       await idle(page);
       assert.equal(loadProfiles(h.layout).activeId, initialIds[2]);
-      // Selecting a profile applies to the running Core immediately.
       assert.equal(await page.locator(".pending-config").count(), 0);
-      // A proxy port change still waits for Apply; its bar must stay clear of toasts.
       assert.equal(
         (
           await h.apiRequest("/sash/settings", {
@@ -313,7 +308,6 @@ try {
       await page.locator(".pending-config").waitFor();
       await page.locator(`.profile-card[data-id="${initialIds[0]}"] .profile-card-main`).click();
       await idle(page);
-      // Regression: toasts must never cover the pending bar (its apply button sits top-right).
       const toastOverlap = await page.evaluate(() => {
         const bar = document.querySelector(".pending-config")?.getBoundingClientRect();
         const toasts = Array.from(document.querySelectorAll(".toast"), (el) =>
@@ -388,7 +382,6 @@ try {
     }
   }
 
-  // Drive actual touch events in Chromium; quick vertical gestures must remain scrollable.
   const browser = await launchUiBrowser(chromium);
   try {
     await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids: initialIds } });

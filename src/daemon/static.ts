@@ -17,7 +17,6 @@ const UI_SECURITY_HEADERS = {
 /**
  * Vite emits fingerprinted bundles and font chunks as `assets/<name>-<hash>.<ext>`;
  * those URLs change with their content, so clients may cache them forever.
- * Unfingerprinted files (favicon, branding art) get a short bounded lifetime.
  */
 const FINGERPRINTED_ASSET = /^assets\/.+-[A-Za-z0-9_-]{8}\.[^/\\]+$/;
 
@@ -48,9 +47,6 @@ function sendUiError(
   sendError(res, statusCode, code, message);
 }
 
-/* ── route handlers for the dashboard surface ── */
-
-/** /ui redirects to /ui/; /ui/ itself serves index.html. */
 export function serveUiIndexOrRedirect(
   ctx: DaemonContext,
   req: IncomingMessage,
@@ -78,10 +74,6 @@ export function serveUiAsset(
   }
 }
 
-/**
- * Handle static file serving for /ui and /ui/* endpoints.
- * Returns true if the request was handled, false otherwise.
- */
 export function serveStaticUi(
   req: IncomingMessage,
   res: ServerResponse,
@@ -125,9 +117,7 @@ export function serveStaticUi(
       fd = fs.openSync(file, "r");
       const stats = fs.fstatSync(fd);
       if (stats.isFile()) return { fd, stats };
-    } catch {
-      // Missing assets and non-files may fall back to the SPA document below.
-    }
+    } catch {}
     if (fd !== undefined) fs.closeSync(fd);
     return null;
   };

@@ -13,22 +13,13 @@ export function runtimeContext(): RuntimeContext {
 }
 
 export interface CoreUpdateInterrupt {
-  /** Aborted once the interrupt ran; commands use it to stop their request. */
   readonly signal: AbortSignal;
-  /** True once Ctrl+C was handled. */
   readonly triggered: boolean;
-  /** True only when the interrupt actually cancelled a Core download. */
   readonly cancelledDownload: boolean;
   restore(): void;
 }
 
-/**
- * Ctrl+C cancels a Core download that Sash is running, instead of only killing
- * this command: the download would otherwise continue with no command left to
- * observe or stop it. Commands that never start a download — a start with Core
- * already running — keep the plain interrupt, because there is nothing to
- * cancel. Any other disconnect still detaches and leaves the download running.
- */
+/** Ctrl+C cancels a Core download Sash is running; otherwise it would continue with no command left to stop it. */
 export function installCoreUpdateInterrupt(
   ctx: RuntimeContext = runtimeContext(),
 ): CoreUpdateInterrupt {
@@ -36,7 +27,6 @@ export function installCoreUpdateInterrupt(
   let triggered = false;
   let cancelledDownload = false;
   const onSigint = (): void => {
-    // A second interrupt means "leave now"; the cancel request is already sent.
     if (triggered) process.exit(130);
     triggered = true;
     void (async () => {

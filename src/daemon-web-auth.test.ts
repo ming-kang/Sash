@@ -152,15 +152,12 @@ describe("daemon browser authorization", () => {
     await before.close();
     const after = await h.startServer();
     assert.notEqual(after.token, before.token);
-    // The daemon reloads persisted session hashes, so the browser keeps its credential.
     assert.equal((await h.apiRequest("/sash/autostart", { webToken: session })).statusCode, 200);
-    // A pending bootstrap grant does not survive the restart.
     assert.equal(
       (await h.apiRequest("/sash/web/session", { method: "POST", token: "", body: bootstrap }))
         .statusCode,
       401,
     );
-    // A fresh bootstrap still authorizes a new session on the new daemon.
     assert.equal(
       (await h.apiRequest("/sash/autostart", { webToken: await h.mintWebSession() })).statusCode,
       200,

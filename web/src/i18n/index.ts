@@ -12,9 +12,7 @@ function detectLocale(): Locale {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === "en" || saved === "zh") return saved;
-  } catch {
-    // storage unavailable (private mode etc.)
-  }
+  } catch {}
   return "zh";
 }
 
@@ -26,9 +24,7 @@ export function setLocale(next: Locale): void {
   locale.value = next;
   try {
     localStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    // ignore
-  }
+  } catch {}
   if (hasDOM) {
     document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
   }

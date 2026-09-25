@@ -27,9 +27,7 @@ describe("process utilities", () => {
     mock.restoreAll();
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    } catch {}
   });
 
   describe("isProcessAlive", () => {

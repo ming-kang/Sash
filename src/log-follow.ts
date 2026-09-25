@@ -13,7 +13,6 @@ export function fileIdentity(stat: fs.Stats): string {
   return `${stat.dev}:${stat.ino}:${stat.birthtimeMs}`;
 }
 
-/** Tail text and follow position describe the same descriptor and captured end offset. */
 export function readLogTail(
   file: string,
   lineCount: number,
@@ -108,7 +107,6 @@ export function logCursorAtEnd(file: string): LogFileCursor {
   }
 }
 
-/** Read at most one bounded chunk, resetting the cursor on replacement or truncation. */
 export function readLogGrowth(
   file: string,
   cursor: LogFileCursor,
@@ -150,10 +148,7 @@ export function readLogGrowth(
   }
 }
 
-/**
- * End-of-file cursor for startup diagnostics; never throws. An unreadable
- * path yields a marker identity that later reads treat as a reset.
- */
+/** Never throws; an unreadable path yields a marker identity that later reads treat as a reset. */
 export function logTailCursor(file: string): LogFileCursor {
   try {
     return logCursorAtEnd(file);
@@ -162,11 +157,7 @@ export function logTailCursor(file: string): LogFileCursor {
   }
 }
 
-/**
- * Last non-empty lines appended after `cursor`, for startup failure
- * diagnostics: content written before the cursor is never reported. Missing,
- * replaced, truncated, or unreadable files fail soft with "".
- */
+/** Missing, replaced, truncated, or unreadable files fail soft with "". */
 export interface BoundedLogTailOptions {
   maxBytes?: number;
   maxLines?: number;
@@ -203,8 +194,7 @@ export function boundedLogTailSince(
     const buffer = Buffer.allocUnsafe(length);
     const bytesRead = fs.readSync(fd, buffer, 0, length, position);
     let start = 0;
-    // If the bounded window begins inside a UTF-8 code point, discard only
-    // its continuation bytes instead of emitting a replacement character.
+    // If the bounded window begins inside a UTF-8 code point, skip only its continuation bytes.
     while (start < bytesRead && ((buffer[start] ?? 0) & 0xc0) === 0x80) start++;
     const lines = buffer
       .subarray(start, bytesRead)
@@ -218,18 +208,12 @@ export function boundedLogTailSince(
     if (fd !== undefined) {
       try {
         fs.closeSync(fd);
-      } catch {
-        // Startup diagnostics are fail-soft.
-      }
+      } catch {}
     }
   }
 }
 
-/**
- * Follow a path like `tail -F`: wait for creation, detect replacement by file
- * identity, restart at byte zero after truncation, and retain a polling fallback
- * when directory watch events are unavailable or coalesced.
- */
+/** Poll as a fallback: directory watch events can be unavailable or coalesced. */
 export function followLogFile(file: string, options: FollowLogOptions): Promise<void> {
   const chunkBytes = options.chunkBytes ?? LOG_FOLLOW_CHUNK_BYTES;
   const pollMs = options.pollMs ?? 500;
@@ -249,9 +233,7 @@ export function followLogFile(file: string, options: FollowLogOptions): Promise<
     const closeWatcher = (): void => {
       try {
         watcher?.close();
-      } catch {
-        // Already closed by the platform.
-      }
+      } catch {}
       watcher = undefined;
     };
 
@@ -283,17 +265,13 @@ export function followLogFile(file: string, options: FollowLogOptions): Promise<
           if (watcher === watched) watcher = undefined;
           try {
             watched.close();
-          } catch {
-            // Already closed by the platform.
-          }
+          } catch {}
         });
         watched.on("close", () => {
           if (watcher === watched) watcher = undefined;
         });
         watcher = watched;
-      } catch {
-        // The directory may not exist yet. The polling fallback retries.
-      }
+      } catch {}
     };
 
     const drain = async (): Promise<void> => {

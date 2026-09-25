@@ -4,7 +4,6 @@ import { t } from "../i18n/index.js";
 import { errorText, reorderProfiles, toast } from "../stores/index.js";
 import type { ProfileMeta } from "../types/index.js";
 
-/** Keep Sortable's temporary DOM order separate from Vue and the committed index. */
 export function useProfileOrder(
   grid: Ref<HTMLElement | null>,
   source: Readonly<Ref<ProfileMeta[]>>,
@@ -141,7 +140,6 @@ export function useProfileOrder(
   }
 
   function onPointerdown(): void {
-    // A drag's synthetic click may never arrive; a fresh gesture is always clickable.
     suppressClick = false;
     cancelled = false;
   }

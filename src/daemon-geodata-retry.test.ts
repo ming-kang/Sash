@@ -117,7 +117,6 @@ describe("daemon geodata mirror retry", () => {
     const response = await h.apiRequest("/sash/core/start", { method: "POST" });
     assert.equal(response.statusCode, 200);
     assert.deepEqual(seeded, ["country.mmdb"]);
-    // Direct, two mirrors, then the post-seed revalidation.
     assert.equal(validated.length, 4);
     const finalDoc = YAML.parse(validated[3]?.yaml ?? "") as Record<string, unknown>;
     assert.equal("geox-url" in finalDoc, false);

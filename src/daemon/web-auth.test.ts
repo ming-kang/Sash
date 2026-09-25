@@ -69,7 +69,6 @@ describe("WebAuthManager", () => {
     const next = new WebAuthManager(file);
     assert.equal(next.isSession(session, now), true);
 
-    // Expired seeds are dropped when the file loads.
     const expired = readSeeds(file);
     if (expired[0]) expired[0].expiresAt = now - 1;
     fs.writeFileSync(file, JSON.stringify({ seeds: expired }));
@@ -89,11 +88,9 @@ describe("WebAuthManager", () => {
     assert.ok(session);
     assert.equal(readSeeds(file)[0]?.expiresAt, now + WEB_SESSION_TTL_MS);
 
-    // Within half a lifetime the slide stays in memory.
     assert.equal(auth.isSession(session, now + WEB_SESSION_TTL_MS / 3), true);
     assert.equal(readSeeds(file)[0]?.expiresAt, now + WEB_SESSION_TTL_MS);
 
-    // Beyond half a lifetime the new deadline reaches the file.
     const late = now + WEB_SESSION_TTL_MS * 0.9;
     assert.equal(auth.isSession(session, late), true);
     assert.equal(readSeeds(file)[0]?.expiresAt, late + WEB_SESSION_TTL_MS);
@@ -119,7 +116,6 @@ describe("WebAuthManager", () => {
     const auth = new WebAuthManager();
     const tokens: string[] = [];
     for (let i = 0; i < 40; i += 1) tokens.push(auth.createBootstrap().token);
-    // Only the most recent 32 pending bootstraps survive.
     assert.equal(auth.redeemBootstrap(tokens[0] as string), null);
     assert.notEqual(auth.redeemBootstrap(tokens[39] as string), null);
 

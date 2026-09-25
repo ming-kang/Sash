@@ -21,7 +21,6 @@ export function markDaemonOffline(): void {
 
 type RuntimeRefreshResult = "status" | "stopped" | "degraded" | "unauthorized";
 
-/** Metadata changes refresh metadata only. Core resources follow their own runtime epoch. */
 export async function refreshStatus(): Promise<RuntimeRefreshResult> {
   return adoptRuntimeSnapshot(await api.getStatus());
 }
@@ -36,9 +35,7 @@ export async function adoptRuntimeSnapshot(status: SashStatus): Promise<RuntimeR
     try {
       setProfiles(await api.getProfiles());
       store.lastStateRevision = status.revisions.state;
-    } catch {
-      /* Keep the prior list and retry its revision on the next poll. */
-    }
+    } catch {}
   }
   return isCoreHealthy(status) ? "status" : status.core.running ? "degraded" : "stopped";
 }

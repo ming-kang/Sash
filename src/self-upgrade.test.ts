@@ -309,7 +309,6 @@ describe("Sash upgrade sequence", () => {
     }) as NpmInstallation;
   }
 
-  /** Records the order of the steps that must not be reordered. */
   function recorder(
     running: boolean,
     calls: string[],

@@ -104,11 +104,8 @@ function parseManagedWindowsRegistryValue(
   return true;
 }
 
-/**
- * Strictly parse managed values from the exact `reg query` response used for
- * ownership snapshots. A header and at least one managed value are required so
- * empty, unrelated, or truncated command output cannot become an all-null snapshot.
- */
+/** Strict parse: a header plus at least one managed value, so truncated
+ * output cannot become an all-null snapshot. */
 export function parseWindowsRegistryProxyValues(output: string): WindowsRegistryProxyValues {
   const lines = output.split(/\r\n?|\n/);
   let headerIndex = 0;
@@ -126,8 +123,7 @@ export function parseWindowsRegistryProxyValues(output: string): WindowsRegistry
     const line = lines[index] ?? "";
     if (line.trim().length === 0) continue;
     if (!line.startsWith(" ") && !line.startsWith("\t")) {
-      // Value lines are always indented. `reg query` prints the queried key's
-      // subkey paths flush-left after its values; they carry no value data.
+      // `reg query` prints the queried key's subkey paths flush-left after its values.
       if (line.trim().toLowerCase().startsWith(`${headerText}\\`)) break;
       throw new Error("Invalid Windows registry output: unexpected line in registry response");
     }
@@ -184,17 +180,13 @@ async function refreshWindowsWinINet(run: CommandRunner): Promise<void> {
       if (!shell) continue;
       await run(shell, ["-NoProfile", "-NonInteractive", "-Command", script]);
       return;
-    } catch {
-      /* Try the other installed PowerShell host before falling back to registry-only changes. */
-    }
+    } catch {}
   }
   try {
     console.warn(
       "[sash] WinINet notification is unavailable. Restart affected applications to pick up proxy registry changes, or install PowerShell for immediate notification.",
     );
-  } catch {
-    /* Notification diagnostics cannot replace a registry operation's result. */
-  }
+  } catch {}
 }
 
 function windowsSnapshotValue(
@@ -219,8 +211,8 @@ async function deleteWindowsValue(name: WindowsValueName, run: CommandRunner): P
   try {
     await run("reg.exe", ["delete", WIN_REG_PATH, "/v", name, "/f"]);
   } catch (err) {
-    // A failed delete is harmless only when a fresh, strictly parsed snapshot
-    // proves the value is already absent. Do not infer absence from stderr.
+    // A failed delete is harmless only when a fresh snapshot proves the value is
+    // already absent; never infer absence from stderr.
     const current = await captureWindowsSnapshot(run);
     if (windowsSnapshotValue(current, name) !== null) throw err;
   }
@@ -245,11 +237,10 @@ export async function applyWindowsSnapshot(
 ): Promise<void> {
   const snapshot = windowsSnapshot(value);
   try {
-    // Disable/restore PAC metadata before enabling the manual proxy. Keep
-    // ProxyEnable last so partially-written targets do not become active first.
-    // AutoDetect is intentionally not written: Windows owns the legacy flat
-    // value and rewrites it from DefaultConnectionSettings on every WinINet
-    // refresh, so it can neither be applied nor verified reliably.
+    // Disable/restore PAC metadata before enabling the manual proxy, and keep
+    // ProxyEnable last so a partial write does not become active first. AutoDetect
+    // is never written: Windows rewrites it from DefaultConnectionSettings on
+    // every WinINet refresh.
     await applyWindowsValue("AutoConfigURL", "REG_SZ", snapshot.autoConfigUrl, run);
     await applyWindowsValue("ProxyServer", "REG_SZ", snapshot.proxyServer, run);
     await applyWindowsValue("ProxyOverride", "REG_SZ", snapshot.proxyOverride, run);
@@ -272,8 +263,8 @@ export function createWindowsTarget(
     proxyServer: formatHostPort(normalized.host, normalized.port),
     proxyOverride: formatWindowsBypass(normalized.bypass),
     autoConfigUrl: null,
-    // A manual proxy takes precedence over WPAD, and the flat AutoDetect value
-    // is not durable across WinINet refreshes, so it is left untouched.
+    // A manual proxy takes precedence over WPAD, and the flat AutoDetect value is
+    // not durable across WinINet refreshes.
     autoDetect: null,
   };
 }
@@ -299,11 +290,6 @@ export function windowsState(value: unknown): SystemProxyState {
   return { supported: true, enabled: false };
 }
 
-/**
- * The system-proxy backend for this platform. Windows is the only supported
- * desktop integration; other platforms get an unsupported null object so the
- * rest of Sash keeps working without system-proxy control.
- */
 export function createSystemProxyBackend(
   platform: NodeJS.Platform = process.platform,
 ): SystemProxyBackend {

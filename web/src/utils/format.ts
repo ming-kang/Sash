@@ -33,7 +33,6 @@ export function formatTime(date: Date = new Date()): string {
   return `${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`;
 }
 
-/** ISO timestamp → compact relative age ("12 min ago" / "12 分钟前"). */
 export function formatAgo(iso: string): string {
   const ms = new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return "-";
@@ -50,14 +49,12 @@ export function formatAgo(iso: string): string {
   return t("format.yearsAgo", { n: years });
 }
 
-/** Unix epoch seconds → yyyy-mm-dd. */
 export function formatDate(epochSec: number): string {
   const d = new Date(epochSec * 1000);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-/** Delay in ms → semantic level used for colors. 0/undefined handled by caller. */
 export function delayLevel(delay: number): "good" | "mid" | "bad" {
   if (delay <= 0) return "bad";
   if (delay < 300) return "good";

@@ -17,19 +17,16 @@ describe("stable autostart installation", () => {
     const ctx = autostartContext({ ...options, packageRoot });
     assert.equal(installationIssue(ctx), null);
 
-    // A checkout or any other package shape cannot register a stable login entry.
     assert.match(
       installationIssue(
         autostartContext({ ...options, packageRoot: path.join(root, "package") }),
       ) ?? "",
       /needs a global installation/,
     );
-    // The npm layout is recognized for the requested platform only.
     assert.match(
       installationIssue(autostartContext({ ...options, packageRoot, platform: "linux" })) ?? "",
       /needs a global installation/,
     );
-    // The referenced entry file must exist.
     fs.unlinkSync(ctx.entryPath);
     assert.match(installationIssue(ctx) ?? "", /needs a global installation/);
   });

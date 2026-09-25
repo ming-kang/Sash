@@ -54,9 +54,6 @@ function iconFor(kind: ToastItem["kind"]): string {
 </script>
 
 <style scoped>
-/* The host sits inside App.vue's .app-chrome: absolute top:100% drops the stack just
-   below the pending bar so toasts never cover its apply button; with an empty chrome
-   it lands at the usual top offset. */
 .toast-host {
   position: absolute;
   top: 100%;

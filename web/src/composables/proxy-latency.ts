@@ -30,7 +30,6 @@ export function useProxyLatency() {
       const timeouts = values.filter((delay) => delay === 0).length;
       const failures = values.filter((delay) => delay === "failed").length;
       if (timeouts || failures) {
-        // A partial sweep is a result, not an action failure: warn and dismiss.
         toast.warning(
           t("toast.testGroupPartial", {
             name: group,

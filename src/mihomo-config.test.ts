@@ -254,7 +254,6 @@ describe("mihomo-config", () => {
 
       const overlaid = overlayManagedKeys(subscriptionBase, settings);
 
-      // Overwritten / managed keys
       assert.equal(overlaid["mixed-port"], 7890);
       assert.equal(overlaid["allow-lan"], false);
       assert.equal(overlaid["external-controller"], "127.0.0.1:9090");
@@ -270,7 +269,6 @@ describe("mihomo-config", () => {
       assert.equal("tunnels" in overlaid, false);
       assert.deepEqual(overlaid.tun, { enable: false });
 
-      // Preserved unmanaged keys
       assert.equal(overlaid.mode, "rule");
       assert.deepEqual(overlaid.dns, { enable: true, nameserver: ["1.1.1.1"] });
       assert.deepEqual(overlaid.proxies, [

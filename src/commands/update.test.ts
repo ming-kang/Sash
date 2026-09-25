@@ -9,7 +9,6 @@ import { acquireStateLock } from "../state-lock.js";
 import { createTestState, testSettings } from "../testing/state.js";
 import { runUpdate } from "./update.js";
 
-/** `sash update --cancel` and Ctrl+C cancellation against a stub daemon. */
 describe("update command cancellation", () => {
   let root: string;
   let previousHome: string | undefined;

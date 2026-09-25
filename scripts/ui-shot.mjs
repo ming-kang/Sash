@@ -1,17 +1,3 @@
-/**
- * One-off WebUI screenshot helper for design review.
- *
- * Requires the Vite dev server (default http://localhost:5173) backed by a
- * running sashd. Screenshots land in the OS temp dir by default.
- *
- * Usage:
- *   node scripts/ui-shot.mjs [route] [--out <file>] [--dark] [--mobile]
- *                            [--width <px>] [--height <px>] [--full]
- * Examples:
- *   node scripts/ui-shot.mjs overview
- *   node scripts/ui-shot.mjs settings --dark --mobile
- *   node scripts/ui-shot.mjs rules --full --out rules.png
- */
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";

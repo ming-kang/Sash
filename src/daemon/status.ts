@@ -5,7 +5,6 @@ import { publicSettings } from "../settings.js";
 import type { SystemProxyState } from "../sysproxy/types.js";
 import type { DaemonContext } from "./context.js";
 
-/** Complete control snapshot shared by HTTP reads and the authenticated event observer. */
 export async function readDaemonStatus(
   ctx: DaemonContext,
   freshProxy = false,

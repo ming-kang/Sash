@@ -4,7 +4,6 @@ import { log } from "../log.js";
 import { followLogFile, readLogTail } from "../log-follow.js";
 import { sashLayout } from "../paths.js";
 
-/** Print the last N lines of logs; with follow, wait for and stream future files. */
 export async function runLogs(
   opts: {
     lines?: number;

@@ -65,12 +65,10 @@ export interface SettingsWriteResult {
 export interface ProfileActionResponse {
   profile: ProfileMeta;
   activated: boolean;
-  /** True when this change is already live in the running Core. */
   applied: boolean;
 }
 export interface ProfileUpdateResponse {
   profile: ProfileMeta;
-  /** True when this change is already live in the running Core. */
   applied: boolean;
 }
 export interface ProfileRenameResponse {
@@ -84,19 +82,16 @@ export interface ProfileContentResponse {
 export interface ProfileActivateResponse {
   activeId: string | null;
   proxyCount: number;
-  /** True when the selected profile is already live in the running Core. */
   applied: boolean;
 }
 export interface ProfileRemoveResponse {
   wasActive: boolean;
-  /** True when the fallback configuration is already live in the running Core. */
   applied: boolean;
 }
 export interface ProfilesResponse extends ProfilesIndex {}
 export interface ProfilesUpdateAllResponse {
   updated: number;
   failed: Array<{ id: string; name: string; error: string }>;
-  /** True when an updated profile is already live in the running Core. */
   applied: boolean;
 }
 export interface SystemProxyStatusResponse extends SystemProxyState {
@@ -108,7 +103,7 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
 }
 export interface DaemonStatus {
   coreUpdate?: CoreUpdateProgress | null;
-  /** How verified Core downloads leave this daemon; null means direct with mirror fallback. */
+  /** null means direct with mirror fallback. */
   downloadTransport?: DownloadTransport | null;
   daemon: { pid: number; bootId: string; startedAt: string; port: number; version: string };
   revisions: { state: number; runtime: number };
@@ -134,7 +129,6 @@ export function apiErrorBody(code: ApiErrorCode, message: string): ApiErrorBody 
   return { error: { code, message } };
 }
 
-/** HTTP failure from the daemon API, carrying the error-envelope fields. */
 export class SashApiError extends Error {
   constructor(
     readonly status: number,

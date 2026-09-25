@@ -157,7 +157,6 @@ describe("configuration reload", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  /** A loopback Core stand-in that records every controller request it serves. */
   async function coreStandIn(
     respond: (method: string, url: string) => { status: number; body?: string },
   ) {
@@ -238,7 +237,6 @@ describe("configuration reload", () => {
       const result = await f.lifecycle.reload(next);
       assert.equal(result.alreadyRunning, true);
       assert.equal(result.pid, f.core.pid);
-      // A reload neither stops nor starts the Core; it only advances the epoch.
       assert.equal(f.core.starts, starts);
       assert.equal(f.core.stops, stops);
       assert.equal(f.lifecycle.revision, revision + 1);
@@ -263,7 +261,6 @@ describe("configuration reload", () => {
       };
       const revision = f.lifecycle.revision;
       await assert.rejects(f.lifecycle.reload(next), /HTTP 400/);
-      // The Core still runs the old configuration, so the file must say so too.
       assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), f.applied.generated.yaml);
       assert.equal(f.lifecycle.configuration(), f.applied);
       assert.equal(f.lifecycle.revision, revision);
@@ -299,8 +296,6 @@ describe("configuration reload", () => {
       };
       const revision = f.lifecycle.revision;
       await assert.rejects(f.lifecycle.reload(next), /may already be running the new/);
-      // The new file stays; the applied configuration does not move, so the next
-      // reconciliation reloads it and reports the real reason if the Core objects.
       assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), next.generated.yaml);
       assert.equal(f.lifecycle.configuration(), f.applied);
       assert.equal(f.lifecycle.revision, revision);

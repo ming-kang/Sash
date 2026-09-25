@@ -14,7 +14,6 @@ export interface SashSettings {
 
 export type PublicSashSettings = Omit<SashSettings, "secret" | "daemonSecret">;
 
-// The source launcher selects separate defaults; initialization still belongs to sashd.
 const development = process.env.SASH_DEVELOPMENT === "1";
 export const DEFAULT_SETTINGS: SashSettings = {
   mixedPort: development ? 18890 : 7890,

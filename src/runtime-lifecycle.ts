@@ -21,24 +21,16 @@ export interface RuntimeConfiguration {
   settings: SashSettings;
   profile: { id: string; revision: number; name: string; url: string } | null;
 }
-/** What the saved state asks the runtime to become. */
 export interface RuntimeTarget {
   profile: { id: string; revision: number } | null;
   settings: SashSettings;
 }
 export interface RuntimeDelta {
-  /** The running Core does not match the saved state. */
   pending: boolean;
-  /** Closing the difference needs a Core restart: listener-level settings. */
   restartRequired: boolean;
 }
 export interface RuntimeLifecycleOptions {
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
-  /**
-   * Reload one configuration file into the running Core. Overridable so tests
-   * can stand in for the Core; the default targets the controller the runtime
-   * is currently serving.
-   */
   reloadConfig?: (path: string) => Promise<void>;
   layout: SashLayout;
   supervisor: CoreSupervisor;
@@ -57,11 +49,6 @@ export function listenerSettingsChanged(
   return applied.mixedPort !== target.mixedPort || applied.allowLan !== target.allowLan;
 }
 
-/**
- * Compare what the Core runs with what the saved state asks for. Ports and LAN
- * binding belong to listeners the Core cannot re-bind during a reload, so they
- * are the only difference a restart can close.
- */
 export function runtimeDelta(
   applied: RuntimeConfiguration | undefined,
   target: RuntimeTarget,
@@ -126,7 +113,6 @@ export class RuntimeLifecycle {
     };
   }
 
-  /** Idempotent start for an already running Core; stopped starts go through Apply. */
   async start(): Promise<CoreStartResult> {
     const core = await this.options.supervisor.status();
     if (!core.running || !core.healthy || !core.pid)
@@ -170,13 +156,10 @@ export class RuntimeLifecycle {
       await reloadConfig(this.options.layout.configFile);
     } catch (error) {
       if (isRequestDeadlineError(error)) {
-        // The Core answers a reload only once it finished applying, so a spent
-        // budget says nothing about the outcome: the new configuration may
-        // already be live. Restoring the previous file here would put the two
-        // at odds and a later restart would drop the change the user asked for.
-        // Keep the new file and leave the applied configuration as it was, so
-        // the next reconciliation reloads it — and reports the real reason if
-        // the Core refuses it after all.
+        // A spent budget says nothing about the outcome: the Core only answers
+        // once it finished applying, so the new configuration may already be live.
+        // Keep the new file so the next reconciliation reloads it rather than
+        // dropping the change the user asked for.
         throw new Error(
           `The Core did not answer the configuration reload within ${error.deadlineMs}ms — it may already be running the new configuration; Sash keeps it and reconciles on the next change`,
           { cause: error },

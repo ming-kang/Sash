@@ -3,7 +3,6 @@ import type { AutostartStatus } from "../../../src/autostart/contract.js";
 import { api } from "../api/index.js";
 import { errorText } from "../stores/index.js";
 
-/** Keep OS observations tied to the authorized daemon that requested them. */
 export function useAutostart(owner: Readonly<Ref<string | null>>) {
   const status = ref<AutostartStatus | null>(null);
   const loading = ref(false);
@@ -39,7 +38,6 @@ export function useAutostart(owner: Readonly<Ref<string | null>>) {
       status.value = result;
       return true;
     } catch (error) {
-      // A failed HTTP response may follow a partial OS write. Re-observe it.
       if (disposed || request !== sequence) return false;
       try {
         const result = await api.getAutostart();
