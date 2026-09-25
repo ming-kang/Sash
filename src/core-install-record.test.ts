@@ -59,74 +59,39 @@ describe("Core install record codec", () => {
     assert.deepEqual(readInstallRecord(layout), { coreVersion: "v1.2.4" });
   });
 
-  it("caches the install record by mtime and size, avoiding repeated disk reads", () => {
+  it("re-reads on every call, so a same-mtime rewrite is never stale", () => {
     writeInstallRecord({ coreVersion: "v1.0.0" }, layout);
+    assert.deepEqual(readInstallRecord(layout), { coreVersion: "v1.0.0" });
 
     const readSpy = mock.method(fs, "readFileSync");
     try {
-      const first = readInstallRecord(layout);
-      assert.deepEqual(first, { coreVersion: "v1.0.0" });
-      const initialCalls = readSpy.mock.calls.length;
-      assert.ok(initialCalls >= 1);
-
-      // Repeated reads with unchanged mtime and size return the cached record without reading from disk
-      const second = readInstallRecord(layout);
-      assert.deepEqual(second, { coreVersion: "v1.0.0" });
-      assert.equal(
-        readSpy.mock.calls.length,
-        initialCalls,
-        "repeated read did not call readFileSync",
-      );
-
-      assert.equal(currentCoreVersion(layout), "v1.0.0");
-      assert.equal(
-        readSpy.mock.calls.length,
-        initialCalls,
-        "currentCoreVersion did not call readFileSync",
-      );
-
-      // Rewrite with new mtime is picked up
-      const futureTime = new Date(Date.now() + 5000);
-      fs.writeFileSync(layout.installFile, JSON.stringify({ coreVersion: "v2.0.0" }));
-      fs.utimesSync(layout.installFile, futureTime, futureTime);
-
-      const updated = readInstallRecord(layout);
-      assert.deepEqual(updated, { coreVersion: "v2.0.0" });
-      assert.equal(
-        readSpy.mock.calls.length,
-        initialCalls + 1,
-        "rewrite with new mtime triggered a re-read",
-      );
-
-      // Repeated read of the new version stays cached
-      const updatedCached = readInstallRecord(layout);
-      assert.deepEqual(updatedCached, { coreVersion: "v2.0.0" });
-      assert.equal(readSpy.mock.calls.length, initialCalls + 1, "subsequent read remained cached");
-
-      // Corrupt rewrite is surfaced leniently as undefined without poisoning subsequent reads
-      const corruptTime = new Date(Date.now() + 10000);
-      fs.writeFileSync(layout.installFile, "{ invalid json");
-      fs.utimesSync(layout.installFile, corruptTime, corruptTime);
-
-      assert.equal(readInstallRecord(layout), undefined, "corrupt rewrite surfaces as undefined");
-      assert.equal(
-        currentCoreVersion(layout),
-        "",
-        "currentCoreVersion returns empty string on corrupt file",
-      );
-
-      // Recovery after corrupt file is rewritten with valid data
-      const recoveryTime = new Date(Date.now() + 15000);
-      writeInstallRecord({ coreVersion: "v3.0.0" }, layout);
-      fs.utimesSync(layout.installFile, recoveryTime, recoveryTime);
-
-      assert.deepEqual(readInstallRecord(layout), { coreVersion: "v3.0.0" });
+      const firstCalls = readSpy.mock.calls.length;
+      readInstallRecord(layout);
+      assert.ok(readSpy.mock.calls.length > firstCalls, "repeated read hit the disk");
     } finally {
       readSpy.mock.restore();
     }
+
+    const sameMtime = fs.statSync(layout.installFile);
+    fs.writeFileSync(layout.installFile, JSON.stringify({ coreVersion: "v2.0.0" }));
+    fs.utimesSync(layout.installFile, sameMtime.atime, sameMtime.mtime);
+
+    assert.deepEqual(readInstallRecord(layout), { coreVersion: "v2.0.0" });
+    assert.equal(currentCoreVersion(layout), "v2.0.0");
+
+    fs.writeFileSync(layout.installFile, "{ invalid json");
+    assert.equal(readInstallRecord(layout), undefined, "corrupt rewrite surfaces as undefined");
+    assert.equal(
+      currentCoreVersion(layout),
+      "",
+      "currentCoreVersion returns empty string on corrupt file",
+    );
+
+    writeInstallRecord({ coreVersion: "v3.0.0" }, layout);
+    assert.deepEqual(readInstallRecord(layout), { coreVersion: "v3.0.0" });
   });
 
-  it("handles missing file gracefully without throwing or poisoning cache", () => {
+  it("handles missing file gracefully", () => {
     assert.equal(readInstallRecord(layout), undefined);
     assert.equal(currentCoreVersion(layout), "");
 
