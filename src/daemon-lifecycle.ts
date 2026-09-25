@@ -108,14 +108,17 @@ export async function evaluateDaemon(
   return { kind: "unhealthy", running: true, healthy: false, pid: record.pid, port: record.port };
 }
 
-function resolveDaemonEntryPath(): string {
+/**
+ * Arguments for the management daemon: the compiled entry bundled next to this
+ * module, or the source checkout's entry under tsx. Returning the whole argument
+ * list keeps the loader decision in one place instead of re-inspecting the path.
+ */
+function daemonNodeArgs(): string[] {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const candidate = path.join(here, "daemon-entry.js");
-  if (fs.existsSync(candidate)) return candidate;
-  // During tests / tsx execution, fallback to daemon/entry.ts
-  const tsCandidate = path.join(here, "daemon", "entry.ts");
-  if (fs.existsSync(tsCandidate)) return tsCandidate;
-  return candidate;
+  const compiled = path.join(here, "daemon-entry.js");
+  if (fs.existsSync(compiled)) return [compiled];
+  const source = path.join(here, "daemon", "entry.ts");
+  return ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, source];
 }
 
 /** Bounded startup diagnostics: only errors appended after spawn are reported. */
@@ -164,14 +167,9 @@ async function spawnDaemonUnlocked(
   fs.mkdirSync(layout.logsDir, { recursive: true });
   fs.mkdirSync(layout.stateDir, { recursive: true });
 
-  const entryPath = resolveDaemonEntryPath();
-
-  // If entry ends in .ts, resolve tsx relative to Sash itself rather than the
-  // data-directory cwd used by the child daemon. Compute every spawn argument
-  // before opening log descriptors so a synchronous failure cannot leak them.
-  const nodeArgs = entryPath.endsWith(".ts")
-    ? ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, entryPath]
-    : [entryPath];
+  // Every spawn argument is computed before opening log descriptors, so a
+  // synchronous failure cannot leak them.
+  const nodeArgs = daemonNodeArgs();
 
   const errLogCursor = logTailCursor(layout.daemonErrLogFile);
   const child = withPrivateAppendLogFds(
@@ -223,9 +221,7 @@ async function spawnDaemonUnlocked(
           return { pid };
         }
       }
-    } catch {
-      // not ready yet
-    }
+    } catch {}
 
     await sleep(200);
   }

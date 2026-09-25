@@ -1,6 +1,7 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
+import type { SashLayout } from "../paths.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
@@ -24,6 +25,16 @@ export interface DaemonInstance {
   close: () => Promise<void>;
 }
 
+/** Build the daemon and finish the recovery that must finish before it listens. */
+export async function createStartedDaemon(opts: {
+  layout: SashLayout;
+  packageRoot: string;
+}): Promise<DaemonInstance> {
+  const instance = createDaemonServer({ layout: opts.layout, packageRoot: opts.packageRoot });
+  await instance.lifecycle.recoverStartup();
+  return instance;
+}
+
 export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   const app: DaemonApp = buildDaemonContext(deps);
   const { context } = app;
@@ -42,7 +53,6 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     });
   });
 
-  // WebSocket streams reuse the HTTP route table: only gateway rows, GET only.
   const upgradedSockets = new Set<Duplex>();
   const handleUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
     const boundary = checkLoopbackBoundary(req);
@@ -124,10 +134,11 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
         for (const socket of upgradedSockets) socket.destroy();
         await closed;
       }
-      // Timers stay alive if either runtime cleanup or listener closure fails,
-      // preserving retryability and scheduled updates after a failed close.
-      scheduler?.stop();
-      context.events.close();
+      try {
+        scheduler?.stop();
+      } finally {
+        context.events.close();
+      }
     })();
     listenerClosePromise = attempt;
     void attempt.catch(() => {

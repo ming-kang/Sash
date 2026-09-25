@@ -6,7 +6,7 @@ import { currentPackageRoot } from "../package-info.js";
 import { type SashLayout, sashLayout } from "../paths.js";
 import { canonicalPath } from "../sash-installation.js";
 import { acquireStateLock } from "../state-lock.js";
-import type { DaemonInstance } from "./server.js";
+import { createStartedDaemon, type DaemonInstance } from "./server.js";
 
 export interface DaemonPidRecord {
   pid: number;
@@ -26,15 +26,10 @@ async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
   let published = false;
   let instance: DaemonInstance | undefined;
   try {
-    // Load application code only after startup admission is acquired.
-    const { SashStateStore } = await import("../app-state.js");
-    const { createDaemonServer } = await import("./server.js");
-    const state = new SashStateStore(layout);
-    const current = createDaemonServer({ layout, state, packageRoot });
+    const current = await createStartedDaemon({ layout, packageRoot });
     instance = current;
-    await current.lifecycle.recoverStartup();
     const closed = new Promise<void>((resolve) => current.server.once("close", resolve));
-    const port = state.snapshot().settings.daemonPort;
+    const port = current.port;
     await new Promise<void>((resolve, reject) => {
       const onError = (error: NodeJS.ErrnoException) => {
         reject(
