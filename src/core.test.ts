@@ -85,14 +85,12 @@ describe("core", () => {
   });
 
   describe("mihomoAssetCandidates", () => {
-    it("returns windows candidates ending in .zip, newest ISA level first", () => {
+    it("returns windows candidates ending in .zip, one per ISA level, newest first", () => {
       const candidates = mihomoAssetCandidates("v1.19.30", "win32", "x64");
       assert.deepEqual(candidates, [
         "mihomo-windows-amd64-v3-v1.19.30.zip",
-        "mihomo-windows-amd64-v1.19.30.zip",
         "mihomo-windows-amd64-v2-v1.19.30.zip",
         "mihomo-windows-amd64-v1-v1.19.30.zip",
-        "mihomo-windows-amd64-compatible-v1.19.30.zip",
       ]);
     });
 
@@ -101,7 +99,7 @@ describe("core", () => {
       assert.deepEqual(candidates, ["mihomo-linux-arm64-v1.19.30.gz"]);
     });
 
-    it("prefers the newest available build and leaves the fallback to the preflight", () => {
+    it("skips a rung the release did not publish and leaves the fallback to the preflight", () => {
       const candidates = mihomoAssetCandidates("v1.19.30", "linux", "x64");
       const asset = (name: string): ReleaseAsset => ({
         name,
@@ -110,12 +108,19 @@ describe("core", () => {
         digest: `sha256:${"a".repeat(64)}`,
       });
       const assets = [
-        asset("mihomo-linux-amd64-v1.19.30.gz"),
+        asset("mihomo-linux-amd64-v3-v1.19.30.gz"),
         asset("mihomo-linux-amd64-v1-v1.19.30.gz"),
-        asset("mihomo-linux-amd64-compatible-v1.19.30.gz"),
       ];
 
-      assert.equal(selectReleaseAsset(assets, candidates)?.name, "mihomo-linux-amd64-v1.19.30.gz");
+      assert.equal(
+        selectReleaseAsset(assets, candidates)?.name,
+        "mihomo-linux-amd64-v3-v1.19.30.gz",
+      );
+
+      assert.equal(
+        selectReleaseAsset(assets.slice(1), candidates)?.name,
+        "mihomo-linux-amd64-v1-v1.19.30.gz",
+      );
     });
   });
 

@@ -35,7 +35,12 @@ export function goOsArch(
   return { os: goOs, arch: goArch };
 }
 
-/** Newest ISA level first; stageCore preflights each build and falls through when this processor rejects it. */
+/**
+ * Newest ISA level first; stageCore preflights each build and falls through when this processor rejects it.
+ *
+ * Upstream's Meta-branch Makefile builds the unsuffixed amd64 asset at GOAMD64=v3 and the
+ * "compatible" asset at GOAMD64=v1, so both repeat a rung of this ladder.
+ */
 export function mihomoAssetCandidates(
   tag: string,
   platform = process.platform,
@@ -44,9 +49,7 @@ export function mihomoAssetCandidates(
   const { os, arch: goArch } = goOsArch(platform, arch);
   const ext = platform === "win32" ? "zip" : "gz";
   if (goArch === "amd64") {
-    return ["v3", "", "v2", "v1", "compatible"].map(
-      (variant) => `mihomo-${os}-amd64-${variant ? `${variant}-` : ""}${tag}.${ext}`,
-    );
+    return ["v3", "v2", "v1"].map((variant) => `mihomo-${os}-amd64-${variant}-${tag}.${ext}`);
   }
   return [`mihomo-${os}-arm64-${tag}.${ext}`];
 }
