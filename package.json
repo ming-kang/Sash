@@ -30,6 +30,7 @@
     "smoke:package": "node scripts/package-smoke.mjs",
     "smoke:ui": "node --import tsx scripts/ui-smoke.mjs",
     "verify:ui": "node --import tsx scripts/ui-verify.mts",
+    "verify:ui:core-update": "node --import tsx scripts/core-update-ui-verify.mts",
     "verify:ui:profiles": "node --import tsx scripts/profile-ui-verify.mts",
     "verify:ui:auth": "node --import tsx scripts/web-auth-ui-verify.mts",
     "verify:ui:autostart": "node --import tsx scripts/autostart-ui-verify.mts",

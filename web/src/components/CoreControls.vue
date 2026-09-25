@@ -47,21 +47,22 @@ const { restarting, stopping, cancellingUpdate, restartCore, stopCore, cancelCor
 </script>
 
 <style scoped>
+/* Both rows keep the header's right edge: the progress row must not push the controls away from it. */
 .core-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 
 .core-update-progress {
+  display: flex;
   flex-basis: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   font-size: 12px;
   opacity: 0.75;
-}
-
-.core-update-progress button {
-  margin-left: 8px;
-  vertical-align: middle;
 }
 </style>
