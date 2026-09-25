@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-25
+
 ### Fixed
 
 - A configuration reload no longer gives up after five seconds. The Core answers a reload only once it has finished applying it — it loads every provider for the first time, and fetches any geodata database it still needs, while holding its configuration lock — so a provider that took ten seconds made Sash report a failed reload and then restore the previous core config on disk while the Core was already serving the new one. The reload now carries a three-minute budget, and a reload that runs out of budget is no longer mistaken for a refusal: the new core config stays on disk, the applied configuration stays where it was so the next change reconciles it, and the message says the outcome is unknown instead of claiming the Core refused it.
@@ -15,7 +17,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - `sash doctor` probes the Core download sources through the transport Sash would actually use, and says which one it measured. The probes used to leave the machine directly while real downloads go through the proxy environment variable, or through Sash's own Core when it is running, so the check could call every source unreachable while a download would succeed, or the reverse. The advice now names the transport to check, and a probe gets a fifteen-second budget instead of five, so a reachable mirror is no longer reported as unreachable. When Sash did not answer the status query, the check reports a direct connection, which is the path a download takes while Sash is stopped.
-
 - The dashboard's restart action drops a guard that could never be reached, because the reachable one covers it.
 
 ## [0.3.0] - 2026-09-23
