@@ -78,7 +78,7 @@ export function pruneProfileFiles(
     for (const entry of entries(layout.tempDir)) {
       const location = path.join(layout.tempDir, entry.name);
       if (entry.isFile() && VALIDATION_FILE.test(entry.name)) removeOld(location);
-      if (entry.isDirectory() && /^core-download-[A-Za-z0-9]{6}$/.test(entry.name)) {
+      if (entry.isDirectory() && /^core-(?:staged|download)-[A-Za-z0-9]{6}$/.test(entry.name)) {
         for (const file of entries(location))
           if (coreNames.has(file.name)) removeOld(path.join(location, file.name));
         removeEmptyOldDirectory(location);

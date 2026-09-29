@@ -35,8 +35,8 @@ it("cleans only old generated files and preserves referenced, recent, foreign an
   const deleted = write("profiles/2/1.yaml");
   const atomic = write("profiles/1/.4.yaml.123.abcdefabcdef.tmp");
   const validation = write("temp/config-validate-12345678-1234-1234-1234-123456789abc.yaml");
-  const download = write(`temp/core-download-ABC123/${path.basename(layout.coreExe)}`);
-  const unknown = write("temp/core-download-ABC123/keep.txt");
+  const download = write(`temp/core-staged-ABC123/${path.basename(layout.coreExe)}`);
+  const unknown = write("temp/core-staged-ABC123/keep.txt");
   const recentDirectory = path.join(layout.tempDir, "core-download-NEW123");
   const oldDirectory = path.join(layout.tempDir, "core-download-OLD123");
   fs.mkdirSync(recentDirectory);
