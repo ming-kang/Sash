@@ -646,7 +646,8 @@ test("defaultSpawn rotates oversized log files before opening append fds", async
     assert.equal(fs.existsSync(`${layout.coreLogFile}.1`), true);
     assert.equal(fs.statSync(`${layout.coreLogFile}.1`).size, CORE_LOG_ROTATE_BYTES);
   } finally {
-    await supervisor.stop().catch(() => {});
-    fs.rmSync(root, { recursive: true, force: true });
+    await supervisor.stop();
+    // Windows can retain executable/directory handles briefly after process exit.
+    await fs.promises.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
