@@ -75,7 +75,7 @@ it("wraps any operation with progress polling and renders notes", async () => {
   assert.ok(polls >= 1);
   assert.match(
     seen[0] ?? "",
-    /Downloading Core \(v2\.0\.0\): 1\.0 \/ 2\.0 MiB · proxy 127\.0\.0\.1:7890 refused connection — retrying without proxy/,
+    /Downloading · v2\.0\.0 · 1\.0 \/ 2\.0 MiB · proxy 127\.0\.0\.1:7890 refused connection — retrying without proxy/,
   );
 });
 

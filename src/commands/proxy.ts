@@ -1,4 +1,5 @@
 import { commandOutput } from "../cli-output.js";
+import { printSystemProxyWarnings, systemProxyValue } from "../cli-status.js";
 import type { SystemProxyStatusResponse } from "../contracts.js";
 import {
   ensureDaemonSession,
@@ -6,7 +7,6 @@ import {
   resolveDaemonSession,
 } from "../daemon-session.js";
 import { log } from "../log.js";
-import { formatSystemProxyLine } from "../status.js";
 import { SystemProxyManager } from "../sysproxy/manager.js";
 import { runtimeContext } from "./shared.js";
 
@@ -50,15 +50,19 @@ export async function runProxy(
       return result;
     },
     (result) => {
-      log.kv(
-        "system proxy",
-        formatSystemProxyLine(result.desired, {
-          supported: result.stateKnown ? result.supported : null,
-          enabled: result.stateKnown ? result.enabled : null,
-          server: result.server ?? null,
-          details: null,
-        }),
-      );
+      const observed = {
+        supported: result.stateKnown ? result.supported : null,
+        enabled: result.stateKnown ? result.enabled : null,
+        server: result.server ?? null,
+        details: result.queryError ?? null,
+      };
+      const rows = [["System Proxy", systemProxyValue(observed)]];
+      if (observed.enabled !== null && observed.enabled !== result.desired) {
+        rows.push(["Sash Setting", result.desired ? "On" : "Off"]);
+        if (observed.server) rows.push(["Windows", observed.server]);
+      }
+      log.table(rows);
+      printSystemProxyWarnings(result.desired, observed);
       if (result.queryError) log.warn(result.queryError);
     },
   );

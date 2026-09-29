@@ -39,7 +39,7 @@ export function coreUpdateProgressPrinter(): CoreUpdateProgressPrinter {
       if (text === previous) return;
       previous = text;
       pending = true;
-      process.stderr.write(interactive ? `\r\x1b[K[sash] ${text}` : `[sash] ${text}\n`);
+      process.stderr.write(interactive ? `\r\x1b[KCore Update  ${text}` : `Core Update  ${text}\n`);
     },
     settle() {
       if (!pending) return;

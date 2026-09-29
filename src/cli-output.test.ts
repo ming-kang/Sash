@@ -49,8 +49,8 @@ describe("Core update progress printer", () => {
       printer.settle();
     });
     assert.deepEqual(captureRun.chunks, [
-      `\r\x1b[K[sash] ${coreUpdateProgressText(progress({ downloaded: 1_000_000 }))}`,
-      `\r\x1b[K[sash] ${coreUpdateProgressText(progress({ downloaded: 2_000_000 }))}`,
+      `\r\x1b[KCore Update  ${coreUpdateProgressText(progress({ downloaded: 1_000_000 }))}`,
+      `\r\x1b[KCore Update  ${coreUpdateProgressText(progress({ downloaded: 2_000_000 }))}`,
       "\n",
     ]);
   });
@@ -65,8 +65,8 @@ describe("Core update progress printer", () => {
       printer.settle();
     });
     assert.deepEqual(captureRun.chunks, [
-      `[sash] ${coreUpdateProgressText(progress({ downloaded: 1_000_000 }))}\n`,
-      `[sash] ${coreUpdateProgressText(progress({ stage: "installing", downloading: false, downloaded: 0 }))}\n`,
+      `Core Update  ${coreUpdateProgressText(progress({ downloaded: 1_000_000 }))}\n`,
+      `Core Update  ${coreUpdateProgressText(progress({ stage: "installing", downloading: false, downloaded: 0 }))}\n`,
     ]);
   });
 

@@ -31,6 +31,8 @@ export async function runWeb(
       ...bootstrap,
     });
     (deps.openInBrowser ?? openInBrowser)(file.fileUrl);
-  } else logger.info("run 'sash web' without --no-open to authorize a browser session");
-  logger.ok(`dashboard: ${url}`);
+    logger.info("Opening WebUI");
+  }
+  logger.ok(url);
+  if (opts.noOpen) logger.info("\nRun sash web to open an authorized browser session.");
 }

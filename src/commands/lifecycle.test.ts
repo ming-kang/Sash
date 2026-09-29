@@ -85,9 +85,7 @@ describe("lifecycle commands", () => {
     t.mock.method(console, "log", (...args: unknown[]) => output.push(args.map(String).join(" ")));
     await runStart();
     assert.equal(requests.filter((request) => request.url === "/sash/core/start").length, 1);
-    assert.ok(
-      output.some((line) => line.includes("local API") && line.includes(`127.0.0.1:${port}`)),
-    );
+    assert.ok(output.some((line) => line.includes("WebUI") && line.includes(`127.0.0.1:${port}`)));
   });
 
   it("prints Core download progress while the daemon installs", async (t) => {
@@ -113,7 +111,7 @@ describe("lifecycle commands", () => {
     releaseStart();
     await starting;
     assert.ok(
-      lines.some((line) => line.includes("Downloading Core (v1.2.3): 1.0 / 2.0 MiB")),
+      lines.some((line) => line.includes("Downloading · v1.2.3 · 1.0 / 2.0 MiB")),
       `expected download progress in stderr: ${lines.join("")}`,
     );
   });

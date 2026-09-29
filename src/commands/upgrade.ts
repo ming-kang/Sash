@@ -29,11 +29,13 @@ export async function runUpgrade(
           `${report.reason ?? "This Sash installation cannot be upgraded automatically"}\n`,
         );
       } else if (report.available) {
-        process.stdout.write(
-          `Sash ${report.current} → ${report.target} is available — run sash upgrade to install it\n`,
-        );
+        log.table([
+          ["Sash Version", report.current],
+          ["Available", report.target ?? "Unknown"],
+        ]);
+        log.info(`\nRun sash upgrade${exact ? ` ${exact}` : ""} to install it.`);
       } else {
-        process.stdout.write(`Sash ${report.current} is up to date\n`);
+        process.stdout.write(`Sash ${report.current} is up to date.\n`);
       }
       if (!options.check && (!report.supported || !report.compatible)) process.exitCode = 1;
       return;
@@ -50,9 +52,7 @@ export async function runUpgrade(
         : {
             onPhase: (phase) => {
               process.stderr.write(
-                phase === "restarting"
-                  ? "[sash] Restarting Sash on the new version\n"
-                  : "[sash] Starting Core\n",
+                phase === "restarting" ? "Restarting Sash\n" : "Starting Core\n",
               );
             },
           }),
@@ -71,19 +71,19 @@ export async function runUpgrade(
         })}\n`,
       );
     } else if (outcome.restarted) {
-      log.ok(`Sash ${outcome.version} installed · restarted on the new version`);
-      if (outcome.autostartRepaired === true) log.info("start at login: repaired");
+      log.ok(`Sash Upgraded to ${outcome.version} · Restarted`);
+      if (outcome.autostartRepaired === true) log.info("Auto Start Repaired");
     } else {
       log.info(
         outcome.wasRunning
-          ? `Sash ${outcome.version} installed · restart Sash to load it: sash stop && sash start`
-          : `Sash ${outcome.version} installed · start Sash to load it: sash start`,
+          ? `Sash ${outcome.version} Installed · Restart Required\nRun sash stop, then sash start to load it.`
+          : `Sash ${outcome.version} Installed\nRun sash start to start it.`,
       );
     }
     if (outcome.coreRestartError !== undefined) {
       if (!options.json) {
         log.error(
-          `Core did not start on the new version: ${outcome.coreRestartError} — run sash logs for details, sash doctor to diagnose`,
+          `Core did not start: ${outcome.coreRestartError}\nRun sash logs --errors, then sash doctor.`,
         );
       }
       process.exitCode = 1;

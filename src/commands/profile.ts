@@ -80,17 +80,35 @@ export class CliProfiles {
 const profiles = () => new CliProfiles(runtimeContext());
 type OutputOptions = { json?: boolean };
 
+function printProfileResult(message: string, applied?: boolean): void {
+  log.info(
+    `${message}${applied === undefined ? "" : applied ? " · Applied to Core" : " · Not Applied to Core"}`,
+  );
+  if (applied === false) log.info("Run sash restart to apply it.");
+}
+
 export async function runProfileList(options: OutputOptions = {}): Promise<void> {
   await commandOutput(
     options.json,
     () => profiles().list(),
     (index) => {
-      if (!index.profiles.length) log.info("No profiles saved — using the built-in configuration");
-      for (const profile of index.profiles)
-        process.stdout.write(
-          `${profile.id === index.activeId ? "*" : " "}  ${profile.id}  ${JSON.stringify(profile.name)}  ${profile.url ? "subscription" : "local file"}${profile.lastError ? `  last error: ${JSON.stringify(profile.lastError)}` : ""}\n`,
+      if (!index.profiles.length) {
+        log.info(
+          "No saved profiles.\nThe built-in configuration is selected.\n\nRun sash profile add <url> to add a subscription.",
         );
-      if (index.profiles.length) log.info("* selected");
+        return;
+      }
+      log.table([
+        ["State", "ID", "Name", "Source"],
+        ...index.profiles.map((profile) => [
+          profile.id === index.activeId ? "Selected" : "",
+          profile.id,
+          profile.name,
+          profile.url ? "Subscription" : "Local File",
+        ]),
+      ]);
+      for (const profile of index.profiles)
+        if (profile.lastError) log.warn(`${JSON.stringify(profile.name)}: ${profile.lastError}`);
     },
   );
 }
@@ -104,12 +122,8 @@ export async function runProfileUse(
     () => profiles().use(reference, options.default),
     (result) => {
       const selected =
-        result.name === null ? "the built-in configuration" : JSON.stringify(result.name);
-      log.info(
-        result.applied
-          ? `Selected ${selected} · applied`
-          : `Selected ${selected} — run sash restart to apply`,
-      );
+        result.name === null ? "Built-in Configuration" : `Profile ${JSON.stringify(result.name)}`;
+      printProfileResult(`${selected} Selected`, result.applied);
     },
   );
 }
@@ -122,11 +136,9 @@ export async function runProfileAdd(
     options.json,
     () => profiles().add(url, options),
     (result) => {
-      const saved = `Saved ${JSON.stringify(result.profile.name)}`;
-      log.info(
-        result.activated
-          ? `${saved} and selected it${result.applied ? " · applied" : " — run sash restart to apply"}`
-          : saved,
+      printProfileResult(
+        `Profile ${JSON.stringify(result.profile.name)} Saved${result.activated ? " & Selected" : ""}`,
+        result.activated ? result.applied : undefined,
       );
     },
   );
@@ -149,14 +161,17 @@ export async function runProfileUpdate(
     },
     ({ result, selected }) => {
       if ("profile" in result) {
-        const saved = `Saved ${JSON.stringify(result.profile.name)}`;
-        const hint = result.applied ? " · applied" : selected ? " — run sash restart to apply" : "";
-        log.info(`${saved}${hint}`);
+        printProfileResult(
+          `Profile ${JSON.stringify(result.profile.name)} Refreshed`,
+          selected ? result.applied : undefined,
+        );
         return;
       }
-      log.info(
-        `Updated ${result.updated} ${result.updated === 1 ? "profile" : "profiles"}, ${result.failed.length} failed${result.applied ? " · applied" : ""}`,
-      );
+      log.table([
+        ["Profiles Updated", String(result.updated)],
+        ["Failed", String(result.failed.length)],
+      ]);
+      if (result.applied) log.info("Applied to Core");
       for (const failure of result.failed)
         log.warn(`${JSON.stringify(failure.name)}: ${failure.error}`);
     },
@@ -172,7 +187,7 @@ export async function runProfileRename(
     options.json,
     () => profiles().rename(reference, name),
     ({ profile }) => {
-      log.info(`Renamed to ${JSON.stringify(profile.name)}`);
+      log.info(`Profile Renamed to ${JSON.stringify(profile.name)}`);
     },
   );
 }
@@ -185,9 +200,8 @@ export async function runProfileRemove(
     options.json,
     () => profiles().remove(reference),
     (result) => {
-      log.info(
-        `Removed ${JSON.stringify(result.name)}${result.wasActive ? ` · using the built-in configuration${result.applied ? " — applied" : " — run sash restart to apply"}` : ""}`,
-      );
+      log.info(`Profile ${JSON.stringify(result.name)} Removed`);
+      if (result.wasActive) printProfileResult("Built-in Configuration Selected", result.applied);
     },
   );
 }

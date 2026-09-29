@@ -40,13 +40,15 @@ export function installCoreUpdateInterrupt(
         controller.abort(new Error("interrupted"));
         return;
       }
-      cancelledDownload = true;
-      process.stderr.write("[sash] Cancelling the Core download\n");
+      process.stderr.write("Cancelling Core Download\n");
       try {
         await session.client.cancelCoreUpdate();
+        cancelledDownload = true;
       } catch (error) {
         log.warn(`Core download was not cancelled: ${errorMessage(error)}`);
       }
+      // Keep the existing interruption payload for JSON clients; only the
+      // confirmed result controls the human-readable success message.
       controller.abort(new Error("Core download cancelled"));
     })();
   };

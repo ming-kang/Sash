@@ -1,7 +1,32 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { withCliErrors } from "./cli-errors.js";
+import { formatCliError, withCliErrors } from "./cli-errors.js";
 import { commandOutput } from "./cli-output.js";
+
+it("clarifies CLI errors without changing their JSON message", async (t) => {
+  const failure = new Error("--cancel checks nothing; drop --check to cancel a download");
+  assert.equal(
+    formatCliError(failure),
+    "--check and --cancel cannot be used together.\nUse sash update --check or sash update --cancel.",
+  );
+  let output = "";
+  const previous = process.exitCode;
+  t.after(() => {
+    process.exitCode = previous;
+  });
+  t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
+    output += String(chunk);
+    return true;
+  });
+  await commandOutput(
+    true,
+    () => {
+      throw failure;
+    },
+    () => {},
+  );
+  assert.deepEqual(JSON.parse(output), { error: failure.message });
+});
 
 it("scopes stack traces to SASH_DEBUG and leaves JSON errors on stdout", async (t) => {
   const originalDebug = process.env.DEBUG;

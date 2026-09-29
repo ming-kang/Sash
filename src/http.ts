@@ -22,7 +22,7 @@ function getBaseProxyDispatcher(): Dispatcher {
     if (allProxyRaw && /^https?:\/\//i.test(allProxyRaw)) {
       allProxy = allProxyRaw;
     } else if (allProxyRaw) {
-      console.warn("[sash] ignoring ALL_PROXY — only http:// or https:// proxies are supported");
+      console.warn("Warning: ALL_PROXY was ignored. Use an http:// or https:// proxy URL.");
     }
     const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? allProxy;
     const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? allProxy;

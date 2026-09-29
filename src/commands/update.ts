@@ -25,29 +25,32 @@ export async function runUpdate(
           opts.version === undefined ? undefined : validateCoreReleaseTag(opts.version);
         if (opts.check)
           return checkCoreUpdate(sashLayout(), version, interrupt.signal, (info) => {
-            process.stderr.write(`[sash] ${formatProxyFallbackWarning(info)}\n`);
+            log.warn(formatProxyFallbackWarning(info));
           });
         const owner = await ensureDaemonSession(runtimeContext());
         if (!opts.json)
           process.stderr.write(
-            "[sash] Updating Core; the proxy pauses briefly when the Core binary is replaced\n",
+            "Updating Core. Replacing a running Core briefly interrupts proxy connections.\n",
           );
         return updateCoreWithProgress(owner.client, version, printer, interrupt.signal);
       },
       (result) => {
-        if ("available" in result)
-          log.info(
-            result.available
-              ? `Core ${result.current ?? "unknown"} → ${result.target} is available — run sash update${opts.version ? ` ${result.target}` : ""}`
-              : `Core ${result.current} is up to date`,
-          );
-        else if (result.alreadyCurrent) log.info(`Core ${result.version} is up to date`);
-        else log.ok(`Core updated to ${result.version}`);
+        printer?.settle();
+        if ("available" in result) {
+          if (result.available) {
+            log.table([
+              ["Core Version", result.current ?? "Not Installed"],
+              ["Available", result.target],
+            ]);
+            log.info(`\nRun sash update${opts.version ? ` ${result.target}` : ""} to install it.`);
+          } else log.info(`Core ${result.current} is up to date.`);
+        } else if (result.alreadyCurrent) log.info(`Core ${result.version} is up to date.`);
+        else log.ok(`Core Updated to ${result.version}`);
       },
     );
   } catch (error) {
     if (!interrupt.triggered) throw error;
-    if (interrupt.cancelledDownload) log.info("Core download cancelled");
+    if (interrupt.cancelledDownload) log.info("Core Download Cancelled");
   } finally {
     interrupt.restore();
     printer?.settle();
@@ -66,6 +69,6 @@ async function cancelUpdate(json: boolean): Promise<void> {
       await session.client.cancelCoreUpdate();
       return { cancelled: true };
     },
-    () => log.ok("Core download cancelled"),
+    () => log.ok("Core Download Cancelled"),
   );
 }

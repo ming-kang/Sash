@@ -255,7 +255,7 @@ describe("CLI runtime status observations", () => {
     assert.equal(status.complete, false);
     assert.match(status.queryError ?? "", /autostart access denied/);
     const output = await captureConsole(() => runStatus({}, async () => status));
-    assert.ok(output.logs.some((line) => /start at login\s+unknown/.test(line)));
+    assert.ok(output.logs.some((line) => /Auto Start\s+Unknown/.test(line)));
     assert.equal(process.exitCode, 2);
   });
 
@@ -302,14 +302,13 @@ describe("CLI runtime status observations", () => {
     assert.equal(mismatched.daemon.version, "0.0.1");
     const mismatchOutput = await captureConsole(() => runStatus({}, async () => mismatched));
     assert.ok(
-      mismatchOutput.logs.some(
-        (line) =>
-          line.includes("sash") && line.includes("0.0.1 running") && line.includes(installed),
+      mismatchOutput.warnings.some(
+        (line) => line.includes("Sash 0.0.1 is running") && line.includes(installed),
       ),
       "the mismatch is reported with the installed version",
     );
     assert.ok(
-      mismatchOutput.logs.some((line) => line.includes("sash stop && sash start")),
+      mismatchOutput.logs.some((line) => line.includes("sash stop, then sash start")),
       "the restart is named",
     );
 
@@ -325,7 +324,7 @@ describe("CLI runtime status observations", () => {
     );
     const matchOutput = await captureConsole(() => runStatus({}, async () => matching));
     assert.equal(
-      matchOutput.logs.some((line) => line.includes("sash stop && sash start")),
+      matchOutput.logs.some((line) => line.includes("sash stop, then sash start")),
       false,
       "a matched version stays silent",
     );
@@ -438,11 +437,11 @@ describe("CLI runtime status observations", () => {
       false,
     );
     assert.equal(
-      textOutput.warnings.some((line) => line.includes("Sash is not responding")),
+      textOutput.logs.some((line) => line.includes("Sash Unresponsive")),
       true,
     );
     assert.equal(
-      textOutput.warnings.some((line) => line.includes("some details are unavailable")),
+      textOutput.warnings.some((line) => line.includes("status timeout")),
       true,
     );
     assert.equal(process.exitCode, 2);

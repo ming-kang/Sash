@@ -57,7 +57,7 @@ test("web opens management independently of Core through a private credential ha
   const f = fixture();
   await runWeb({}, f.deps);
   assert.deepEqual(f.events, ["management", "bootstrap", `open ${FILE_URL}`]);
-  assert.deepEqual(f.logs, ["dashboard: http://127.0.0.1:29193/ui/"]);
+  assert.deepEqual(f.logs, ["Opening WebUI", "http://127.0.0.1:29193/ui/"]);
   assert.ok([...f.events, ...f.logs].every((line) => !line.includes(TOKEN)));
 });
 

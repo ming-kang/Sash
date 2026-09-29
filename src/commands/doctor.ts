@@ -1,25 +1,27 @@
+import { formatCliError } from "../cli-errors.js";
 import { commandOutput } from "../cli-output.js";
 import { diagnoseSash } from "../doctor.js";
+import { log } from "../log.js";
 
 /** Human names for the machine-readable check ids that stay in `doctor --json`. */
 const CHECK_LABELS: Record<string, string> = {
   installation: "Installation",
   node: "Node",
-  dashboard: "Dashboard",
+  dashboard: "WebUI",
   manifest: "Settings",
   core: "Core",
   runtime: "Runtime",
-  "runtime-manifest": "Runtime settings",
-  proxy: "System proxy",
-  autostart: "Start at login",
-  "daemon-port": "Local API port",
-  "controller-port": "Core controller port",
-  "mixed-port": "Proxy port",
-  "proxy-connections": "Windows connections",
-  "sash-version": "Sash version",
+  "runtime-manifest": "Runtime Settings",
+  proxy: "System Proxy",
+  autostart: "Auto Start",
+  "daemon-port": "Local API Port",
+  "controller-port": "Core Controller Port",
+  "mixed-port": "Proxy Port",
+  "proxy-connections": "Windows Connections",
+  "sash-version": "Sash Version",
   geodata: "Geodata",
   network: "Network",
-  "login-start": "Login start",
+  "login-start": "Last Login Start",
 };
 
 export async function runDoctor(options: { json?: boolean } = {}): Promise<void> {
@@ -35,12 +37,24 @@ export async function runDoctor(options: { json?: boolean } = {}): Promise<void>
       return result;
     },
     (result) => {
+      const rows = [["Check", "Result", "Details"]];
+      const labels = { ok: "OK", info: "Info", warning: "Warning", error: "Error" };
       for (const check of result.checks) {
-        process.stdout.write(
-          `[${check.status}] ${CHECK_LABELS[check.id] ?? check.id} — ${check.message}\n`,
-        );
-        if (check.advice) process.stdout.write(`  ${check.advice}\n`);
+        const [message, ...details] = formatCliError(check.message).split("\n");
+        rows.push([CHECK_LABELS[check.id] ?? check.id, labels[check.status], message ?? ""]);
+        for (const detail of details) rows.push(["", "", detail]);
+        if (check.advice) rows.push(["", "", check.advice]);
       }
+      log.table(rows);
+      const errors = result.checks.filter((check) => check.status === "error").length;
+      const warnings = result.checks.filter((check) => check.status === "warning").length;
+      log.info("");
+      log.table([
+        [
+          "Result",
+          `${errors} ${errors === 1 ? "error" : "errors"} · ${warnings} ${warnings === 1 ? "warning" : "warnings"}`,
+        ],
+      ]);
     },
   );
 }

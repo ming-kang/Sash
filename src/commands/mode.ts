@@ -11,6 +11,11 @@ export async function runMode(mode: RoutingMode, options: { json?: boolean } = {
       await setRuntimeMode(runtimeContext(), mode);
       return { mode };
     },
-    () => log.info(`Outbound mode is now ${mode} — it lasts until you apply configuration`),
+    () => {
+      log.table([["Mode", mode[0]?.toUpperCase() + mode.slice(1)]]);
+      log.info(
+        "\nApplies to the current Core session. Applying the saved configuration may reset it.",
+      );
+    },
   );
 }

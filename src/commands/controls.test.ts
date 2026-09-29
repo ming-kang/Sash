@@ -150,7 +150,7 @@ describe("profile and runtime CLI controls", () => {
     assert.equal(JSON.parse(await cli(["proxy", "on", "--json"])).desired, true);
     assert.equal(JSON.parse(await cli(["proxy", "status", "--json"])).enabled, true);
     assert.equal(JSON.parse(await cli(["proxy", "off", "--json"])).desired, false);
-    assert.match(await cli(["stop", "--core"]), /the dashboard is still available/);
+    assert.match(await cli(["stop", "--core"]), /Core Stopped · Sash Running/);
     assert.deepEqual(requests.find((request) => request.url === "/sash/core/mode")?.body, {
       mode: "global",
     });
@@ -168,7 +168,7 @@ describe("profile and runtime CLI controls", () => {
       activeId: null,
       profiles: [],
     });
-    assert.match(await cli(["stop", "--core"], data), /Core is already stopped/);
+    assert.match(await cli(["stop", "--core"], data), /Core Already Stopped/);
     assert.equal(fs.existsSync(data), false);
   });
 

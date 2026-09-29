@@ -131,7 +131,7 @@ export async function resolveSashUpgradeTarget(
     deadlineMs: 20_000,
     signal,
     onProxyFallback: (info) => {
-      process.stderr.write(`[sash] ${formatProxyFallbackWarning(info)}\n`);
+      process.stderr.write(`Warning: ${formatProxyFallbackWarning(info)}\n`);
     },
   });
   if (response.statusCode !== 200) {

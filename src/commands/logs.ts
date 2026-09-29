@@ -29,7 +29,13 @@ export async function runLogs(
 
   const { text, cursor } = readLogTail(file, opts.lines ?? 50);
   if (cursor.identity === null) {
-    log.info(opts.follow ? `Waiting for a log file at ${file}` : `No log file at ${file}`);
+    const source = opts.startup ? "login startup" : opts.daemon ? "Sash" : "Core";
+    log.info(
+      opts.follow
+        ? `Waiting for ${source} logs. Press Ctrl+C to stop.`
+        : `No ${source} log file yet.`,
+    );
+    log.table([["Path", file]]);
     if (!opts.follow) return;
   } else {
     if (text) process.stdout.write(`${text}\n`);

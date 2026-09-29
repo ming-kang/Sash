@@ -20,6 +20,7 @@ describe("update command cancellation", () => {
   let releaseUpdate: (() => void) | undefined;
   let updateResponse: Record<string, unknown> = { version: "v1.19.31" };
   let progressResponse: unknown = null;
+  let refuseCancellation = false;
 
   beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-update-cancel-"));
@@ -27,13 +28,18 @@ describe("update command cancellation", () => {
     process.env.SASH_HOME = root;
     const layout = sashLayout(root);
     requests = [];
+    refuseCancellation = false;
     const lease = await acquireStateLock(layout.daemonLeaseFile, { purpose: "test daemon" });
     releaseLease = () => lease.release();
     server = http.createServer(async (req, res) => {
       requests.push({ method: req.method ?? "", url: req.url ?? "" });
       if (req.method === "DELETE" && req.url === "/sash/core/update") {
-        res.writeHead(204);
-        res.end();
+        res.writeHead(refuseCancellation ? 409 : 204, { "content-type": "application/json" });
+        res.end(
+          refuseCancellation
+            ? JSON.stringify({ error: { code: "conflict", message: "Cancellation refused" } })
+            : undefined,
+        );
         return;
       }
       if (req.method === "POST" && req.url === "/sash/core/update") {
@@ -92,7 +98,7 @@ describe("update command cancellation", () => {
       requests.filter((request) => request.method === "DELETE"),
       [{ method: "DELETE", url: "/sash/core/update" }],
     );
-    assert.ok(output.some((line) => line.includes("Core download cancelled")));
+    assert.ok(output.some((line) => line.includes("Core Download Cancelled")));
   });
 
   it("reports one machine-readable result for --cancel --json", async () => {
@@ -122,7 +128,7 @@ describe("update command cancellation", () => {
     t.mock.method(console, "log", (...args: unknown[]) => output.push(args.map(String).join(" ")));
     await runUpdate({});
     assert.ok(output.some((line) => line.includes("Core v1.19.31 is up to date")));
-    assert.ok(!output.some((line) => line.includes("Core updated to")));
+    assert.ok(!output.some((line) => line.includes("Core Updated to")));
   });
 
   it("cancels the download and exits 130 when Ctrl+C interrupts an update", async (t) => {
@@ -156,8 +162,30 @@ describe("update command cancellation", () => {
       ),
       `expected a cancel request: ${JSON.stringify(requests)}`,
     );
-    assert.ok(errors.some((line) => line.includes("Cancelling the Core download")));
-    assert.ok(output.some((line) => line.includes("Core download cancelled")));
+    assert.ok(errors.some((line) => line.includes("Cancelling Core Download")));
+    assert.ok(output.some((line) => line.includes("Core Download Cancelled")));
+  });
+
+  it("does not claim cancellation succeeded when Sash refuses it", async (t) => {
+    refuseCancellation = true;
+    const output: string[] = [];
+    const warnings: string[] = [];
+    t.mock.method(console, "log", (line: string) => output.push(line));
+    t.mock.method(console, "warn", (line: string) => warnings.push(line));
+    updateGate = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    progressResponse = { stage: "downloading" };
+    const previousExit = process.exitCode;
+    t.after(() => {
+      process.exitCode = previousExit;
+    });
+    const updating = runUpdate({});
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    process.emit("SIGINT");
+    await updating;
+    assert.ok(warnings.some((line) => line.includes("Cancellation refused")));
+    assert.ok(!output.some((line) => line.includes("Core Download Cancelled")));
   });
 
   it("keeps a plain interrupt when no Core download is running", async (t) => {
@@ -182,7 +210,7 @@ describe("update command cancellation", () => {
       `expected no cancel request: ${JSON.stringify(requests)}`,
     );
     assert.equal(
-      errors.some((line) => line.includes("Cancelling the Core download")),
+      errors.some((line) => line.includes("Cancelling Core Download")),
       false,
     );
   });

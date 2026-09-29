@@ -1,9 +1,9 @@
 import type { AutostartStatus } from "../autostart/contract.js";
 import { AutostartService } from "../autostart/service.js";
 import { commandOutput } from "../cli-output.js";
+import { autoStartValue, printAutoStartWarnings } from "../cli-status.js";
 import { setRuntimeAutostart } from "../daemon-session.js";
 import { log } from "../log.js";
-import { formatAutostart } from "../status.js";
 import { runtimeContext } from "./shared.js";
 
 export type AutoMode = "on" | "off" | "status";
@@ -33,7 +33,8 @@ export async function runAuto(
       return status;
     },
     (status) => {
-      log.kv("start at login", formatAutostart(status));
+      log.table([["Auto Start", autoStartValue(status)]]);
+      printAutoStartWarnings(status);
     },
   );
 }

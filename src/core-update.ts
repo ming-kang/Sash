@@ -342,20 +342,20 @@ export async function checkCoreUpdate(
 }
 
 const STAGE_TEXT: Record<CoreUpdateStage, string> = {
-  checking: "Checking Core installation",
-  resolving: "Checking the Core release",
-  downloading: "Downloading Core",
-  extracting: "Extracting Core",
-  verifying: "Verifying the Core executable",
-  validating: "Validating the runtime configuration",
-  waiting: "Waiting for pending operations",
-  installing: "Installing and verifying Core; restoring runtime state",
+  checking: "Checking Installation",
+  resolving: "Checking Release",
+  downloading: "Downloading",
+  extracting: "Extracting",
+  verifying: "Checking Executable",
+  validating: "Checking Configuration",
+  waiting: "Waiting for Other Operations",
+  installing: "Installing and Checking Core",
 };
 
 export function coreUpdateProgressText(progress: CoreUpdateProgress): string {
-  const target = progress.target ? ` (${progress.target})` : "";
+  const target = progress.target ? ` · ${progress.target}` : "";
   const bytes = progress.downloading
-    ? `: ${(progress.downloaded / 1048576).toFixed(1)}${progress.total ? ` / ${(progress.total / 1048576).toFixed(1)}` : ""} MiB`
+    ? ` · ${(progress.downloaded / 1048576).toFixed(1)}${progress.total ? ` / ${(progress.total / 1048576).toFixed(1)}` : ""} MiB`
     : "";
   const note = progress.note ? ` · ${progress.note}` : "";
   return `${STAGE_TEXT[progress.stage]}${target}${bytes}${note}`;
