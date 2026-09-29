@@ -96,6 +96,23 @@ describe("WebAuthManager", () => {
     assert.equal(readSeeds(file)[0]?.expiresAt, late + WEB_SESSION_TTL_MS);
   });
 
+  it("persists frequent activity across more than one original session lifetime", (t) => {
+    const parent = fs.realpathSync(os.tmpdir());
+    const file = tempSessionsFile(parent, "sash-web-auth-active-");
+    t.after(() => {
+      assert.equal(path.dirname(path.dirname(fs.realpathSync(file))), parent);
+      fs.rmSync(path.dirname(file), { recursive: true, force: true });
+    });
+    const start = Date.now();
+    const auth = new WebAuthManager(file);
+    const token = auth.redeemBootstrap(auth.createBootstrap(start).token, start);
+    assert.ok(token);
+    for (let hour = 1; hour <= 13; hour++)
+      assert.equal(auth.isSession(token, start + hour * 3_600_000), true);
+    t.mock.method(Date, "now", () => start + 13 * 3_600_000);
+    assert.equal(new WebAuthManager(file).isSession(token), true);
+  });
+
   it("tolerates a missing or unreadable session file", (t) => {
     const parent = fs.realpathSync(os.tmpdir());
     const file = tempSessionsFile(parent, "sash-web-auth-unreadable-");

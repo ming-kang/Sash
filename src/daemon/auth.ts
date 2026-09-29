@@ -40,6 +40,7 @@ function hashToken(token: string): string {
 export class WebAuthManager {
   private readonly pendingBootstraps = new Map<string, number>();
   private readonly sessions = new Map<string, number>();
+  private persistedSessions = new Map<string, number>();
 
   constructor(private readonly sessionsFile?: string) {
     if (!sessionsFile) return;
@@ -50,6 +51,7 @@ export class WebAuthManager {
       for (const seed of parseWebSessionSeeds(JSON.parse(text) as unknown)) {
         if (seed.expiresAt > now) this.setSession(seed.hash, seed.expiresAt);
       }
+      this.persistedSessions = new Map(this.sessions);
     } catch {}
   }
 
@@ -63,6 +65,7 @@ export class WebAuthManager {
     }));
     try {
       atomicWriteFileSync(this.sessionsFile, `${JSON.stringify({ seeds })}\n`, 0o600);
+      this.persistedSessions = new Map(this.sessions);
     } catch {}
   }
 
@@ -110,7 +113,7 @@ export class WebAuthManager {
 
   private adoptSession(token: string, now: number): void {
     const hash = hashToken(token);
-    const stored = this.sessions.get(hash);
+    const stored = this.persistedSessions.get(hash);
     const expiresAt = now + WEB_SESSION_TTL_MS;
     this.setSession(hash, expiresAt);
     if (stored === undefined || expiresAt - stored > WEB_SESSION_TTL_MS / 2) this.persist(now);
