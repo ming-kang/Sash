@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { promisify } from "node:util";
 import {
   acquireStateLock,
   type StateLockRecord,
@@ -52,6 +54,49 @@ describe("state locks", () => {
     } finally {
       lease.release();
     }
+  });
+
+  it("keeps independent processes mutually exclusive after a dead owner", async () => {
+    writeLock({ pid: 2_147_483_647, token: "dead", purpose: "interrupted owner" });
+    const critical = path.join(tmpDir, "critical");
+    const count = path.join(tmpDir, "count");
+    fs.writeFileSync(count, "0");
+    const script = `
+      import fs from 'node:fs';
+      import { acquireStateLock } from ${JSON.stringify(new URL("./state-lock.ts", import.meta.url).href)};
+      for (let i = 0; i < 12; i++) {
+        const lease = await acquireStateLock(${JSON.stringify(lockFile)}, { purpose: 'contender', timeoutMs: 15000, pollMs: 2 });
+        const fd = fs.openSync(${JSON.stringify(critical)}, 'wx');
+        try {
+          const value = Number(fs.readFileSync(${JSON.stringify(count)}, 'utf8'));
+          await new Promise(resolve => setTimeout(resolve, 3));
+          fs.writeFileSync(${JSON.stringify(count)}, String(value + 1));
+        } finally {
+          fs.closeSync(fd);
+          fs.unlinkSync(${JSON.stringify(critical)});
+          lease.release();
+        }
+      }
+    `;
+    const results = await Promise.allSettled(
+      Array.from({ length: 4 }, () =>
+        promisify(execFile)(
+          process.execPath,
+          ["--import", "tsx", "--input-type=module", "-e", script],
+          {
+            windowsHide: true,
+            env: { ...process.env, SASH_HOME: tmpDir },
+          },
+        ),
+      ),
+    );
+    for (const result of results)
+      assert.equal(
+        result.status,
+        "fulfilled",
+        result.status === "rejected" ? String(result.reason) : "",
+      );
+    assert.equal(fs.readFileSync(count, "utf8"), "48");
   });
 
   it("reclaims a lock held by a dead owner", async () => {
@@ -146,6 +191,10 @@ describe("state locks", () => {
   it("serializes queued mutations and releases the cross-process lock afterward", async () => {
     const queue = new StateMutationQueue(lockFile);
     const events: string[] = [];
+    let enterFirst!: () => void;
+    const enteredFirst = new Promise<void>((resolve) => {
+      enterFirst = resolve;
+    });
     let releaseFirst: (() => void) | undefined;
     const firstGate = new Promise<void>((resolve) => {
       releaseFirst = resolve;
@@ -153,6 +202,7 @@ describe("state locks", () => {
 
     const first = queue.run("first mutation", async () => {
       events.push("first:start");
+      enterFirst();
       await firstGate;
       events.push("first:end");
     });
@@ -160,7 +210,7 @@ describe("state locks", () => {
       events.push("second");
     });
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await enteredFirst;
     assert.deepEqual(events, ["first:start"]);
     releaseFirst?.();
     await Promise.all([first, second]);

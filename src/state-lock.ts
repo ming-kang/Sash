@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { errnoCode, errorMessage } from "./error-utils.js";
+import { atomicWriteFile } from "./fs-atomic.js";
 import { isProcessAlive } from "./process.js";
 
 export interface StateLockRecord {
@@ -66,62 +67,32 @@ export function readStateLockRecord(file: string): StateLockRecord | undefined {
   return readLockRecord(file);
 }
 
-function writeLockRecord(file: string, record: StateLockRecord): boolean {
-  let fd: number;
-  try {
-    fd = fs.openSync(file, "wx", 0o600);
-  } catch (error) {
-    if (errnoCode(error) === "EEXIST") return false;
-    throw lockError(file, `could not be created (${errorMessage(error)})`);
-  }
-  try {
-    fs.writeFileSync(fd, `${JSON.stringify(record)}\n`, "utf8");
-  } finally {
-    fs.closeSync(fd);
-  }
-  return true;
+interface Contender {
+  name: string;
+  ticket: bigint | null;
 }
 
-function releaseLock(file: string, record: { token: string }): void {
-  const current = readLockRecord(file);
-  if (!current || current.token !== record.token) return;
-  try {
-    fs.unlinkSync(file);
-  } catch (error) {
-    if (errnoCode(error) !== "ENOENT")
-      throw lockError(file, `could not be released (${errorMessage(error)})`, current);
-  }
-}
-
-function createLease(file: string, record: StateLockRecord): StateLockLease {
-  return { file, record, release: () => releaseLock(file, record) };
-}
-
-/** Renaming the lock away is exclusive: a contender either moves it first or sees ENOENT. */
-function reclaimLock(file: string): boolean {
-  const current = readLockRecord(file);
-  if (current) {
-    if (isProcessAlive(current.pid)) return false;
-  } else {
-    let ageMs: number;
-    try {
-      ageMs = Date.now() - fs.statSync(file).mtimeMs;
-    } catch (error) {
-      if (errnoCode(error) === "ENOENT") return true;
-      throw lockError(file, `could not be inspected (${errorMessage(error)})`);
+/** Each contender owns an immutable name. Cleanup never targets a successor's file. */
+function contenders(directory: string): Contender[] {
+  const result: Contender[] = [];
+  for (const name of fs.readdirSync(directory)) {
+    const match = /^([1-9]\d*)\.[a-f0-9]{48}$/.exec(name);
+    if (!match) continue;
+    const candidate = path.join(directory, name);
+    if (!isProcessAlive(Number(match[1]))) {
+      try {
+        fs.unlinkSync(candidate);
+      } catch {}
+      continue;
     }
-    if (ageMs < WRITE_GRACE_MS) return false;
+    try {
+      const value = fs.readFileSync(candidate, "utf8").trim();
+      result.push({ name, ticket: /^[1-9]\d{0,30}$/.test(value) ? BigInt(value) : null });
+    } catch (error) {
+      if (errnoCode(error) !== "ENOENT") result.push({ name, ticket: null });
+    }
   }
-  const stale = `${file}.stale.${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
-  try {
-    fs.renameSync(file, stale);
-  } catch (error) {
-    return errnoCode(error) === "ENOENT";
-  }
-  try {
-    fs.unlinkSync(stale);
-  } catch {}
-  return true;
+  return result;
 }
 
 export async function acquireStateLock(
@@ -130,29 +101,65 @@ export async function acquireStateLock(
 ): Promise<StateLockLease> {
   const purpose = options.purpose?.trim();
   if (!purpose) throw lockError(file, "requires a non-empty purpose");
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const deadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
+  const directory = `${file}.contenders`;
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const record = { pid: process.pid, token: crypto.randomBytes(24).toString("hex"), purpose };
+  const name = `${record.pid}.${record.token}`;
+  const candidate = path.join(directory, name);
+  // Lamport's bakery protocol: publish "choosing" before reading other tickets,
+  // then publish a ticket before checking priority. A later arrival sees ours.
+  fs.writeFileSync(candidate, "", { flag: "wx", mode: 0o600 });
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-  } catch (error) {
-    throw lockError(file, `parent directory could not be created (${errorMessage(error)})`);
-  }
-  const deadline = Date.now() + timeoutMs;
-
-  for (;;) {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const record: StateLockRecord = {
-        pid: process.pid,
-        token: crypto.randomBytes(24).toString("hex"),
-        purpose,
-      };
-      if (writeLockRecord(file, record)) return createLease(file, record);
-      if (!reclaimLock(file)) break;
+    const ticket =
+      contenders(directory).reduce(
+        (max, entry) => (entry.ticket !== null && entry.ticket > max ? entry.ticket : max),
+        0n,
+      ) + 1n;
+    await atomicWriteFile(candidate, String(ticket));
+    for (;;) {
+      const ahead = contenders(directory).some(
+        (entry) =>
+          entry.name !== name &&
+          (entry.ticket === null ||
+            entry.ticket < ticket ||
+            (entry.ticket === ticket && entry.name < name)),
+      );
+      const owner = readLockRecord(file);
+      let legacyBusy = Boolean(owner && isProcessAlive(owner.pid));
+      if (!owner) {
+        try {
+          legacyBusy = Date.now() - fs.statSync(file).mtimeMs < WRITE_GRACE_MS;
+        } catch (error) {
+          if (errnoCode(error) !== "ENOENT") throw error;
+        }
+      }
+      if (!ahead && !legacyBusy) {
+        await atomicWriteFile(file, `${JSON.stringify(record)}\n`);
+        let released = false;
+        return {
+          file,
+          record,
+          release: () => {
+            if (released) return;
+            // Keep our ticket until the diagnostic record has been cleared, so
+            // no successor can publish between the ownership check and unlink.
+            if (readLockRecord(file)?.token === record.token) fs.unlinkSync(file);
+            fs.rmSync(candidate, { force: true });
+            released = true;
+          },
+        };
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw lockError(file, "is busy", owner);
+      await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
     }
-    const owner = readLockRecord(file);
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) throw lockError(file, "is busy", owner);
-    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
+  } catch (error) {
+    try {
+      fs.unlinkSync(candidate);
+    } catch {}
+    throw new Error(errorMessage(error), { cause: error });
   }
 }
 
