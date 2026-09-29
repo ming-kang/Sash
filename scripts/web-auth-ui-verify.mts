@@ -234,7 +234,7 @@ try {
             await page.goto(`${origin}/ui/#/settings`);
             await page.locator(".settings-grid").waitFor();
             assert.equal(await page.getByRole("switch", { name: "Allow LAN Connections", exact: true }).count(), 1);
-            assert.equal(await page.getByRole("switch", { name: "Start at Login" }).count(), 1);
+            assert.equal(await page.getByRole("switch", { name: "Auto Start" }).count(), 1);
             assert.equal(await page.getByRole("switch", { name: /TUN/ }).count(), 0);
             await capture(page, `${name}-settings`);
             await page.goto(`${origin}/ui/#/`);

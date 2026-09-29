@@ -28,7 +28,7 @@ describe("core update progress text", () => {
     });
     assert.equal(
       coreUpdateText.value,
-      "Downloading Core (v2.0.0): 1.0 / 2.0 MiB · proxy 127.0.0.1:7890 refused connection — retrying without proxy",
+      "Downloading (v2.0.0): 1.0 / 2.0 MiB · proxy 127.0.0.1:7890 refused connection — retrying without proxy",
     );
   });
 
@@ -45,7 +45,7 @@ describe("core update progress text", () => {
         total: null,
       },
     });
-    assert.equal(coreUpdateText.value, "正在验证运行配置");
+    assert.equal(coreUpdateText.value, "正在检查配置");
     adoptDaemonStatus({ ...testStatus(), coreUpdate: null });
     assert.equal(coreUpdateText.value, "");
   });
