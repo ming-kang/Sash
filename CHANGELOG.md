@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-09-29
+
+### Changed
+
+- `sash` and `sash status` show six aligned rows for runtime, proxy port, Windows system proxy, WebUI, start at login and data folder. `status --verbose` retains profile, version, download transport and path details; warnings remain visible in the summary.
+- CLI help, profile lists, diagnostics, progress and command results use concise text without decorative prefixes. Help explains configuration reloads and automatic profile application. JSON output and exit meanings are unchanged.
+- PowerShell completion includes `status --verbose` and `upgrade --no-restart`. Dashboard copy uses the same concepts and no longer suggests applying every selected profile manually.
+
+### Fixed
+
+- Interrupting a Core update no longer prints a successful cancellation after Sash refuses the cancellation request. The failure remains visible and the command retains its existing interruption exit code and JSON payload.
+
 ## [0.3.4] - 2026-09-29
 
 ### Fixed
