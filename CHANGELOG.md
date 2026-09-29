@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-09-29
+
+### Fixed
+
+- Concurrent recovery of an abandoned instance lock no longer removes a new owner's lock. Process termination also verifies the executable path asynchronously before signaling.
+- Status responses no longer expose credentials embedded in environment proxy URLs.
+- A failed Sash upgrade restores a previously running Core after rolling back the package.
+- Frequent dashboard activity now persists session renewals, so active sessions survive Sash restarts beyond their original expiry.
+- Responses from a replaced Core can no longer repopulate cleared dashboard resources or their errors.
+- Maintenance recognizes abandoned Core staging directories left after an interrupted download.
+- Enabling start at login checks that the Windows script engine can execute before publishing the registration.
+
+### Changed
+
+- Profile parsing and generation run in a worker thread and reuse the most recently parsed source. Online profile, settings and core config writes use asynchronous atomic publication.
+- Core preflight runs outside the state mutation queue. Publication rejects superseded candidates, and stopping Core cancels a pending reload without treating cancellation as configuration rejection.
+- Background start-at-login observations run at most every thirty seconds instead of on every status or download-progress event. Explicit inspections and changes remain immediate.
+
 ## [0.3.3] - 2026-09-26
 
 ### Fixed
