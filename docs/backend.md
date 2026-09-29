@@ -20,7 +20,7 @@ Sash runs one background process per data folder. The CLI and dashboard use its 
 | Desktop integration | [sysproxy/manager.ts](../src/sysproxy/manager.ts), [autostart/](../src/autostart/) | Windows proxy restoration and start at login |
 | Observation | [events.ts](../src/daemon/events.ts), [doctor.ts](../src/doctor.ts) | Shared status events and independent diagnostic checks |
 
-CLI discovery uses the running instance's observed port. Process locks coordinate instance startup and per-user Windows operations; ordinary application writes use the in-memory queue.
+CLI discovery uses the running instance's observed port. Process locks coordinate instance startup and per-user Windows operations; ordinary application writes use the in-memory queue. Lock contenders use unique bakery tickets, so recovery of a dead owner cannot remove a successor's lock.
 
 ## Saved state and profiles
 
@@ -28,7 +28,7 @@ CLI discovery uses the running instance's observed port. Process locks coordinat
 
 Saving a profile writes the new source file before committing its reference; deleting commits removal before cleaning up files; identical content retains its revision. Editor saves include the revision read on open; settings saves can include `expectedRevision`. Stale edits return `409`.
 
-Profile reads return raw text, so damaged YAML can be opened for repair. Import, save, activation and Apply parse YAML when needed; the document must be an object. Core's pre-flight check decides whether the generated configuration is usable. State is capped at 2 MiB and each profile at 8 MiB.
+Profile reads return raw text, so damaged YAML can be opened for repair. A worker parses and renders profile YAML, retaining only the most recently parsed source and exiting after thirty idle seconds. The document must be an object. Core's pre-flight check decides whether the generated configuration is usable. State is capped at 2 MiB and each profile at 8 MiB. Online settings, profile and core config writes use asynchronous atomic publication.
 
 Remote updates share one in-flight download per profile. Scheduled failures back off from 15 minutes to one day; manual updates bypass that delay. Maintenance removes recognized, unreferenced generated files after a 24-hour grace period.
 
@@ -47,7 +47,7 @@ Remote updates share one in-flight download per profile. Scheduled failures back
 
 Apply runs in this order:
 
-1. Generate a candidate and run Core's configuration check.
+1. Generate a candidate and run Core's configuration check outside the state mutation queue. Before applying it, check that its profile revision, listener settings and runtime still match; unrelated metadata edits do not invalidate the candidate.
 2. Reload the running Core when only the profile changed: atomically publish the core config, then ask Core to reload it through `PUT /configs`. Core swaps proxies, rules and DNS in place, so established connections keep their current outbound and only new connections wait for the reload to finish.
 3. Otherwise restart: restore the prior system proxy, stop the verified Core and check that its controller port is free, publish the core config, start Core and wait for its controller to report the expected version, then apply the saved system-proxy preference to the running proxy port.
 
@@ -57,7 +57,7 @@ Validation or proxy-restoration failure leaves the current Core running; a later
 
 Core downloads its own geodata during the configuration check and ignores `HTTP_PROXY`. A geodata failure triggers one retry with mirror `geox-url` values, and Sash applies that retried configuration. See [troubleshooting](./usage.md#status-and-troubleshooting) if the retry fails.
 
-Stopping Core cancels its preparation work. Full shutdown also cancels profile downloads, rejects new changes and drains active work before restoring the proxy and stopping Core. Cleanup failure leaves Sash available for retry. Unexpected Core exits trigger bounded proxy-restoration retries.
+Stopping Core cancels its preparation work and any pending reload request. A cancelled reload has an unknown outcome, so its candidate stays on disk until the queued stop finishes. Full shutdown also cancels profile downloads, rejects new changes and drains active work before restoring the proxy and stopping Core. Cleanup failure leaves Sash available for retry. Unexpected Core exits trigger bounded proxy-restoration retries.
 
 ## Updates
 
