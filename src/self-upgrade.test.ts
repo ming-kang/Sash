@@ -464,6 +464,27 @@ describe("Sash upgrade sequence", () => {
     assert.deepEqual(calls, ["install 0.2.0", "stop", "start", "install 0.1.7", "start"]);
   });
 
+  it("restores a previously running Core after rolling back Sash", async (t) => {
+    const calls: string[] = [];
+    await assert.rejects(
+      executeSashUpgrade(
+        installation(t),
+        target,
+        {},
+        recorder(true, calls, { failStart: 1, coreRunning: true }),
+      ),
+      /rolled back/,
+    );
+    assert.deepEqual(calls, [
+      "install 0.2.0",
+      "stop",
+      "start",
+      "install 0.1.7",
+      "start",
+      "startCore",
+    ]);
+  });
+
   it("reports a failed rollback with the manual recovery command", async (t) => {
     const calls: string[] = [];
     await assert.rejects(

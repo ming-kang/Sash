@@ -377,6 +377,7 @@ async function runSashUpgradeSequence(
       options,
       deps,
       context,
+      coreWasRunning,
     );
   }
 
@@ -420,6 +421,7 @@ async function explainUpgradeStartFailure(
   options: { json?: boolean },
   deps: SashUpgradeDeps,
   context: RuntimeContext,
+  coreWasRunning: boolean,
 ): Promise<Error> {
   const reason = errorMessage(error);
   if (!previousVersion) {
@@ -427,7 +429,9 @@ async function explainUpgradeStartFailure(
   }
   try {
     await (deps.install ?? runNpmInstall)(installation, previousVersion, options);
-    await (deps.start ?? ensureDaemonSession)(context);
+    const restored = await (deps.start ?? ensureDaemonSession)(context);
+    if (coreWasRunning)
+      await (deps.startCore ? deps.startCore(restored) : restored.client.startCore());
     return new Error(
       `the upgraded Sash did not start: ${reason} — rolled back to Sash ${previousVersion}`,
       { cause: error },
