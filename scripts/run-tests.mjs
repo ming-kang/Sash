@@ -41,19 +41,26 @@ const noProxy = [...new Set(noProxyEntries)].join(",");
 
 const tempRoot = realpathSync(os.tmpdir());
 const isolation = mkdtempSync(path.join(tempRoot, "sash-test-run-"));
-const result = spawnSync(process.execPath, ["--import", "tsx", "--test", ...selected], {
-  stdio: "inherit",
-  // Local fixtures must never be sent through a developer's configured proxy
-  // (which may itself be a running Sash/Core instance).
-  env: {
-    ...process.env,
-    NO_PROXY: noProxy,
-    no_proxy: noProxy,
-    SASH_HOME: path.join(isolation, "data"),
-    LOCALAPPDATA: path.join(isolation, "local"),
-    XDG_STATE_HOME: path.join(isolation, "xdg-state"),
+// Windows integration tests also launch system helpers and configuration workers.
+// Limit file concurrency so their startup does not exhaust the CI runner's budgets.
+const concurrency = process.platform === "win32" ? ["--test-concurrency=2"] : [];
+const result = spawnSync(
+  process.execPath,
+  ["--import", "tsx", "--test", ...concurrency, ...selected],
+  {
+    stdio: "inherit",
+    // Local fixtures must never be sent through a developer's configured proxy
+    // (which may itself be a running Sash/Core instance).
+    env: {
+      ...process.env,
+      NO_PROXY: noProxy,
+      no_proxy: noProxy,
+      SASH_HOME: path.join(isolation, "data"),
+      LOCALAPPDATA: path.join(isolation, "local"),
+      XDG_STATE_HOME: path.join(isolation, "xdg-state"),
+    },
   },
-});
+);
 
 if (path.dirname(realpathSync(isolation)).toLowerCase() !== tempRoot.toLowerCase()) {
   throw new Error("Test isolation directory escaped its temporary parent");
