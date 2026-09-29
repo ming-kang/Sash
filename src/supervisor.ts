@@ -8,10 +8,10 @@ import { durableRenameSync } from "./fs-atomic.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
 import { MihomoApi } from "./mihomo-api.js";
 import type { SashLayout } from "./paths.js";
-import type { ProcessIdentity } from "./process.js";
+import type { ProcessIdentity, ProcessIdentityVerifier } from "./process.js";
 import {
   buildSanitizedEnv,
-  classifyProcessIdentity,
+  classifyProcessIdentityAsync,
   clearPidRecord,
   isProcessAlive,
   killProcessGracefully,
@@ -42,7 +42,7 @@ export interface CoreSupervisorOptions {
   waitHealthyMs?: number;
   isAliveFn?: typeof isProcessAlive;
   killFn?: typeof killProcessGracefully;
-  classifyIdentityFn?: typeof classifyProcessIdentity;
+  classifyIdentityFn?: ProcessIdentityVerifier;
   onExit?: (code: number | null, signal: NodeJS.Signals | null) => Promise<void> | void;
 }
 
@@ -91,7 +91,7 @@ export class CoreSupervisor {
   private readonly waitHealthyMs: number;
   private readonly isAlive: typeof isProcessAlive;
   private readonly kill: typeof killProcessGracefully;
-  private readonly classifyIdentity: typeof classifyProcessIdentity;
+  private readonly classifyIdentity: ProcessIdentityVerifier;
   private readonly onExitCallback?: (
     code: number | null,
     signal: NodeJS.Signals | null,
@@ -103,16 +103,18 @@ export class CoreSupervisor {
     this.waitHealthyMs = opts.waitHealthyMs ?? 10_000;
     this.isAlive = opts.isAliveFn ?? isProcessAlive;
     this.kill = opts.killFn ?? killProcessGracefully;
-    this.classifyIdentity = opts.classifyIdentityFn ?? classifyProcessIdentity;
+    this.classifyIdentity = opts.classifyIdentityFn ?? classifyProcessIdentityAsync;
     this.onExitCallback = opts.onExit;
     this.spawnFn = opts.spawnFn ?? this.defaultSpawn.bind(this);
   }
 
-  private ownedChildIdentity(child: ChildProcess): ProcessIdentity {
+  private async ownedChildIdentity(child: ChildProcess): Promise<ProcessIdentity> {
     if (this.child !== child) return "mismatch";
     if (child.exitCode !== null && child.exitCode !== undefined) return "mismatch";
     if (child.signalCode !== null && child.signalCode !== undefined) return "mismatch";
-    return child.pid && this.isAlive(child.pid) ? "match" : "mismatch";
+    if (!child.pid || !this.isAlive(child.pid)) return "mismatch";
+    const identity = await this.classifyIdentity(child.pid, this.layout.coreExe);
+    return this.child === child && this.isAlive(child.pid) ? identity : "mismatch";
   }
 
   private defaultSpawn(layout: SashLayout, _settings: SashSettings): ChildProcess {
@@ -345,7 +347,7 @@ export class CoreSupervisor {
       return;
     }
 
-    const identity = this.classifyIdentity(record.pid, this.layout.coreExe);
+    const identity = await this.classifyIdentity(record.pid, this.layout.coreExe);
     if (identity === "mismatch") {
       clearPidRecord(this.layout.pidFile);
       return;

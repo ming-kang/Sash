@@ -10,6 +10,7 @@ import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-fo
 import { type SashLayout, sashLayout } from "./paths.js";
 import {
   buildSanitizedEnv,
+  classifyProcessIdentityAsync,
   githubTokenEnv,
   isProcessAlive,
   killProcessGracefully,
@@ -230,11 +231,11 @@ async function spawnDaemonUnlocked(
   // termination is positively confirmed by the owned child handle.
   const terminated = await killProcessGracefully(pid, {
     timeoutMs: 3000,
-    verify: () =>
+    verify: async () =>
       child.pid === pid &&
       (child.exitCode === null || child.exitCode === undefined) &&
       (child.signalCode === null || child.signalCode === undefined)
-        ? "match"
+        ? classifyProcessIdentityAsync(pid, process.execPath)
         : "mismatch",
   });
   const cleanup = terminated

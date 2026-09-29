@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { mock } from "node:test";
 import { sashLayout } from "./paths.js";
-import { readPidRecord, writePidRecord } from "./process.js";
+import { classifyProcessIdentityAsync, readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import { CORE_LOG_ROTATE_BYTES, CoreSupervisor, rotateCoreLogs } from "./supervisor.js";
 
@@ -48,6 +48,7 @@ test("restart: stale exit event from the replaced core does not clobber the new 
     layout,
     settings: () => settings,
     spawnFn,
+    classifyIdentityFn: (pid) => classifyProcessIdentityAsync(pid, process.execPath),
     waitHealthyMs: 8000,
     onExit: () => {
       exitCalls += 1;
@@ -118,7 +119,15 @@ test("stop preserves Core ownership when termination cannot be confirmed", async
     settings: () => settings,
     spawnFn: () => fakeChild,
     isAliveFn: (pid) => pid === fakeChild.pid,
-    killFn: async () => false,
+    classifyIdentityFn: async (pid, exe) => {
+      assert.equal(pid, fakeChild.pid);
+      assert.equal(exe, layout.coreExe);
+      return "unknown" as const;
+    },
+    killFn: async (_pid, options) => {
+      assert.equal(await options.verify(), "unknown");
+      return false;
+    },
   });
 
   try {

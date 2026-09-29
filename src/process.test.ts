@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import {
   buildSanitizedEnv,
+  classifyProcessIdentityAsync,
   clearPidRecord,
   findExecutableOnPath,
   isProcessAlive,
@@ -31,6 +32,24 @@ describe("process utilities", () => {
   });
 
   describe("isProcessAlive", () => {
+    it("checks executable identity asynchronously and rejects an unrelated path", async () => {
+      let advanced = false;
+      const identity = classifyProcessIdentityAsync(process.pid, process.execPath);
+      await new Promise<void>((resolve) =>
+        setImmediate(() => {
+          advanced = true;
+          resolve();
+        }),
+      );
+      assert.equal(await identity, "match");
+      assert.equal(advanced, true);
+      assert.equal(
+        await classifyProcessIdentityAsync(process.pid, path.join(tmpDir, "other.exe")),
+        "mismatch",
+      );
+      assert.equal(await classifyProcessIdentityAsync(-1, process.execPath), "mismatch");
+    });
+
     it("reports true for the current process", () => {
       assert.equal(isProcessAlive(process.pid), true);
     });

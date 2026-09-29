@@ -10,6 +10,10 @@ export interface PidRecord {
 }
 
 export type ProcessIdentity = "match" | "mismatch" | "unknown";
+export type ProcessIdentityVerifier = (
+  pid: number,
+  expectedExe: string,
+) => ProcessIdentity | Promise<ProcessIdentity>;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -155,6 +159,46 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
     return "unknown";
   }
 
+  return "unknown";
+}
+
+/** OS identity queries must not block the local API while a process is stopping. */
+export async function classifyProcessIdentityAsync(
+  pid: number,
+  expectedExe: string,
+): Promise<ProcessIdentity> {
+  if (!isProcessAlive(pid)) return "mismatch";
+  if (!expectedExe) return "unknown";
+  try {
+    if (process.platform === "linux")
+      return exePathsMatch(await fs.promises.readlink(`/proc/${pid}/exe`), expectedExe)
+        ? "match"
+        : "mismatch";
+    if (process.platform === "darwin")
+      return classifyDarwinComm(
+        await runSanitizedCommandAsync("/bin/ps", ["-ww", "-p", String(pid), "-o", "comm="], {
+          timeoutMs: 3000,
+        }),
+        expectedExe,
+      );
+    if (process.platform === "win32") {
+      const shell =
+        findExecutableOnPath("pwsh.exe") ??
+        windowsSystemExecutable(path.join("WindowsPowerShell", "v1.0", "powershell.exe"));
+      const script = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $p = Get-Process -Id ${pid} -ErrorAction Stop; if ($p.Path) { [Console]::Out.Write($p.Path) }`;
+      const observed = (
+        await runSanitizedCommandAsync(shell, [
+          "-NoProfile",
+          "-NonInteractive",
+          "-EncodedCommand",
+          Buffer.from(script, "utf16le").toString("base64"),
+        ])
+      ).trim();
+      return observed ? (exePathsMatch(observed, expectedExe) ? "match" : "mismatch") : "unknown";
+    }
+  } catch {
+    return isProcessAlive(pid) ? "unknown" : "mismatch";
+  }
   return "unknown";
 }
 
