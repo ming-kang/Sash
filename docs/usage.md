@@ -23,7 +23,7 @@ Run `sash <command> --help` for all options. Bare `sash` reads status once.
 | `sash stop` | Restore the prior proxy and stop Sash and Core |
 | `sash stop --core` | Stop Core and restore the proxy; keep the dashboard open |
 | `sash web [--no-open]` | Open and authorize the dashboard; `--no-open` only prints its address |
-| `sash status [--json] [--watch] [--delay NAME]` | Inspect Sash; follow changes or test one outbound |
+| `sash status [--verbose] [--json] [--watch] [--delay NAME]` | Read the summary or details; follow changes or test one outbound |
 | `sash doctor [--json]` | Check installation, files, ports and Windows integration |
 | `sash update [tag] [--check] [--cancel] [--json]` | Install, check or cancel a Core release download |
 | `sash upgrade [version] [--check] [--no-restart] [--json]` | Update the Sash package through npm |
@@ -140,7 +140,7 @@ Downloads leave through the first of these that applies:
 2. Sash's own Core, when it is running — the usual fast path, and the reason a variable set after Sash started still takes effect.
 3. A direct connection to GitHub, then the release mirrors (`ghfast.top`, `gh-proxy.com`).
 
-Sash reads the proxy variables once, when it starts. A variable set in a later terminal reaches `sash update --check` and `sash doctor`, which run in that terminal, but not the download itself — which is why a running Core is preferred over them. Pointing a proxy variable at Sash's own proxy port works while Core runs; when Core is stopped, Sash warns that the port refused the connection and retries directly once. `sash status` prints the transport in use on the `download proxy` line.
+Sash reads the proxy variables once, when it starts. A variable set in a later terminal reaches `sash update --check` and `sash doctor`, which run in that terminal, but not the download itself — which is why a running Core is preferred over them. Pointing a proxy variable at Sash's own proxy port works while Core runs; when Core is stopped, Sash warns that the port refused the connection and retries directly once. `sash status --verbose` prints the transport in use on the `Download Via` line.
 
 `SASH_CORE_VERSION` pins the release tag (for example `v1.19.30`) and skips the latest-release lookup; asset metadata and its SHA-256 digest still come from the release API, so verification is unchanged. When the release API is unreachable, Sash falls back to the bootstrap manifest packaged with this release, which recorded the pinned tag's metadata and digests at publish time. A pin for any other tag still needs the release API.
 
@@ -175,7 +175,22 @@ With `--json`, npm output goes to stderr. `--check --json` prints an inspection 
 
 Start with `sash doctor` for installation problems. It reads saved state, files and runtime observations independently, and checks whether stopped listener ports are available.
 
-`sash status --watch` follows changes and reconnects after Sash restarts, and waits for a stopped instance without starting it. `--watch --json` emits one status object per line when observations change.
+Bare `sash` and `sash status` show the same six-row summary:
+
+```text
+Status        Sash & Core Running
+Proxy Port    127.0.0.1:7890
+System Proxy  Off
+WebUI         127.0.0.1:19090
+Auto Start    On
+Data Folder   C:\Users\YourName\AppData\Local\Sash
+```
+
+The addresses and folder above are examples. `Proxy Port` shows `Off` when Core is stopped; unobserved or unhealthy endpoints are not presented as available. `System Proxy` reports the observed Windows setting. A mismatch with Sash's saved preference produces a warning. Turning Sash's system proxy setting off restores the previous Windows settings, which may themselves enable another proxy. `Auto Start` means start at login; damaged, disabled or unreadable registrations retain their specific state and advice.
+
+Use `sash status --verbose` for the selected profile, installed/running versions, download transport, local API and core config path. Version mismatches, failed login startup and observation errors remain visible without `--verbose`. `--json` retains the complete existing schema regardless of verbosity.
+
+`sash status --watch` follows changes and reconnects after Sash restarts, and waits for a stopped instance without starting it. `--watch --json` emits one status object per line when observations change. Human-readable output redraws in a terminal and includes snapshot timestamps when piped.
 
 Latency testing is explicit:
 

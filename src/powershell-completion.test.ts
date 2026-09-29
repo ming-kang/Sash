@@ -19,6 +19,8 @@ it("completes commands, enums and contextual options in PowerShell without execu
     { input: "sash st", expected: ["start", "stop", "status"] },
     { input: "sash up", expected: ["update", "upgrade"] },
     { input: "sash status --d", expected: ["--delay"] },
+    { input: "sash status --v", expected: ["--verbose"] },
+    { input: "sash upgrade --n", expected: ["--no-restart"] },
     { input: "sash.ps1 status --w", expected: ["--watch"] },
     { input: "sash.cmd upgrade --c", expected: ["--check"] },
     { input: "sash auto o", expected: ["on", "off"] },

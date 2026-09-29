@@ -6,7 +6,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
     $commands = [ordered]@{
         start = 'Start Sash and Core'
         stop = 'Stop Sash and restore the prior proxy'
-        restart = 'Apply saved configuration and restart Core'
+        restart = 'Apply the saved configuration to Core'
         auto = 'Inspect or set start at login'
         status = 'Observe runtime state'
         doctor = 'Check installation and runtime diagnostics'
@@ -16,13 +16,13 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         logs = 'Read runtime logs'
         update = 'Update Core'
         upgrade = 'Upgrade Sash through npm and restart it'
-        web = 'Open the dashboard'
+        web = 'Open WebUI'
         version = 'Print the Sash version'
         help = 'Show command help'
     }
     $profiles = [ordered]@{
         list = 'List saved profiles'
-        use = 'Select an exact profile ID or name for the next Apply'
+        use = 'Select a profile by ID or exact name'
         add = 'Download and save a remote profile'
         update = 'Update saved remote profiles'
         rename = 'Rename a saved profile'
@@ -33,7 +33,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         '' = @('-v', '--version')
         stop = @('--core')
         auto = @('--json')
-        status = @('--json', '--watch', '--delay')
+        status = @('--json', '--watch', '--delay', '--verbose')
         doctor = @('--json')
         'profile list' = @('--json')
         'profile use' = @('--default', '--json')
@@ -45,7 +45,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         mode = @('--json')
         logs = @('-n', '--lines', '-f', '--follow', '--errors', '--daemon', '--startup')
         update = @('--check', '--cancel', '--json')
-        upgrade = @('--check', '--json')
+        upgrade = @('--check', '--no-restart', '--json')
         web = @('--no-open')
     }
     $descriptions = @{
@@ -53,11 +53,13 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         '--help' = 'Show command help'
         '--core' = 'Stop Core and keep Sash available'
         '--json' = 'Output machine-readable JSON'
+        '--verbose' = 'Show profile, versions, download transport and paths'
+        '--no-restart' = 'Install without restarting Sash'
         '--watch' = 'Watch status changes; JSON uses one snapshot per line'
         '--delay' = 'Test an exact node or group name; watch samples every 30 seconds'
         '--default' = 'Select the built-in configuration'
         '--name' = 'Set the saved profile display name'
-        '--use' = 'Select the new profile for the next Apply'
+        '--use' = 'Select the profile after saving'
         '--all' = 'Update every remote profile'
         '--lines' = 'Number of log lines to print'
         '--follow' = 'Follow appended log output'
@@ -66,7 +68,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         '--startup' = 'Read login startup diagnostics'
         '--check' = 'Check the release without installing or starting Sash'
         '--cancel' = 'Cancel the Core download in progress'
-        '--no-open' = 'Print the dashboard address without opening a browser'
+        '--no-open' = 'Print the WebUI URL without authorizing a browser'
     }
     $aliases = @{ '-v' = '--version'; '-h' = '--help'; '-n' = '--lines'; '-f' = '--follow' }
     $valueFlags = @('--delay', '--name', '--lines')
