@@ -11,6 +11,23 @@ describe("daemon server", () => {
   const h = useDaemonTestHarness();
 
   describe("GET /sash/status", () => {
+    it("never publishes proxy URL credentials, including to authenticated clients", async (t) => {
+      const previous = process.env.HTTPS_PROXY;
+      process.env.HTTPS_PROXY = "http://fixture-user:fixture-password@127.0.0.1:19876";
+      t.after(() => {
+        if (previous === undefined) delete process.env.HTTPS_PROXY;
+        else process.env.HTTPS_PROXY = previous;
+      });
+      await h.startServer();
+      for (const token of ["", h.settings.daemonSecret]) {
+        const response = await h.apiRequest("/sash/daemon/status", { token });
+        assert.equal(response.statusCode, 200);
+        const text = JSON.stringify(response.data);
+        assert.ok(!text.includes("fixture-user") && !text.includes("fixture-password"));
+        assert.ok(text.includes("127.0.0.1:19876"));
+      }
+    });
+
     it("returns daemon, core, system proxy, and canonical installed version", async () => {
       await h.startServer();
       writeInstallRecord(

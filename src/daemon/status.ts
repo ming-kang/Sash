@@ -37,9 +37,22 @@ export async function readDaemonStatus(
   if (core.running && (!ownership || !ctx.supervisor.ownsCore(ownership)))
     core = { running: false };
   const applied = ctx.lifecycle.configuration();
+  const transport = ctx.core.downloadTransport();
+  if (transport) {
+    try {
+      const address = new URL(transport.uri);
+      if (address.username || address.password) {
+        address.username = "";
+        address.password = "";
+        transport.uri = address.href;
+      }
+    } catch {
+      transport.uri = "";
+    }
+  }
   const status: DaemonStatus = {
     coreUpdate: ctx.core.progress,
-    downloadTransport: ctx.core.downloadTransport(),
+    downloadTransport: transport,
     daemon: {
       pid: process.pid,
       bootId: ctx.token,
