@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { type SashState, type SashStateStore, StateConflictError } from "./app-state.js";
 import { errorDetail, errorMessage } from "./error-utils.js";
-import { atomicWriteFileSync, durableRemoveFileSync } from "./fs-atomic.js";
+import { atomicWriteFile, durableRemoveFile } from "./fs-atomic.js";
 import {
   buildDefaultConfig,
   fetchSubscriptionProfile,
@@ -13,12 +13,12 @@ import {
 } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import { pruneProfileFiles } from "./profile-cleanup.js";
+import { parseProfileOffThread, renderProfileOffThread } from "./profile-work.js";
 import {
   getActiveProfile,
   MAX_PROFILE_INTERVAL_HOURS,
   type ProfileMeta,
   type ProfilesIndex,
-  parseProfileText,
   profileFilePath,
   profileNameFromUrl,
 } from "./profiles.js";
@@ -67,9 +67,9 @@ export interface ProfileUpdateAllResult {
   applied: boolean;
 }
 
-function profileInput(content: string): Record<string, unknown> {
+async function profileInput(content: string): Promise<Record<string, unknown>> {
   try {
-    return parseProfileText(content);
+    return await parseProfileOffThread(content);
   } catch (error) {
     throw new ProfileInputError(errorMessage(error));
   }
@@ -107,13 +107,14 @@ export function profileDueForUpdate(profile: ProfileMeta, nowMs = Date.now()): b
   return nowMs >= dueAt;
 }
 
-export function renderActiveConfig(state: SashState, layout: SashLayout): GeneratedConfig {
+export async function renderActiveConfig(
+  state: SashState,
+  layout: SashLayout,
+): Promise<GeneratedConfig> {
   const active = getActiveProfile(state.profiles);
-  return renderConfig(
-    active ? parseProfileText(readProfileText(layout, active)) : buildDefaultConfig(),
-    state.settings,
-    active ? "subscription" : "default",
-  );
+  return active
+    ? renderProfileOffThread(readProfileText(layout, active), state.settings)
+    : renderConfig(buildDefaultConfig(), state.settings, "default");
 }
 
 function validName(name: string): string {
@@ -182,12 +183,24 @@ export class ProfileService {
     return (await this.options.reconcileRuntime?.()) ?? false;
   }
 
+  private async commitProfile<T extends { profile: ProfileMeta }>(
+    action: () => Promise<T>,
+  ): Promise<T & { applied: boolean }> {
+    const result = await this.options.commit(action);
+    const active = this.active();
+    const applied =
+      active?.id === result.profile.id && active.revision === result.profile.revision
+        ? await this.reconcileRuntime()
+        : false;
+    return { ...result, applied };
+  }
+
   private async publishSource(
     index: ProfilesIndex,
     profile: ProfileMeta,
     text: string,
     select: boolean,
-  ): Promise<{ profile: ProfileMeta; applied: boolean }> {
+  ): Promise<ProfileMeta> {
     const state = this.options.state.snapshot();
     const previous = index.profiles.find((item) => item.id === profile.id);
     let unchanged = false;
@@ -203,24 +216,25 @@ export class ProfileService {
         revision += 1;
     const next = { ...profile, revision };
     const file = profileFilePath(this.options.layout, next.id, next.revision);
-    if (!unchanged) atomicWriteFileSync(file, text);
+    if (!unchanged) await atomicWriteFile(file, text);
     const profiles = previous
       ? index.profiles.map((item) => (item.id === next.id ? next : item))
       : [...index.profiles, next];
-    this.options.state.commit({
+    await this.options.state.commitAsync({
       ...state,
       profiles: { activeId: select ? next.id : index.activeId, profiles },
     });
     if (previous && previous.revision !== next.revision) {
       // Core consumes a separate generated config; it never holds a profile source open.
       try {
-        durableRemoveFileSync(profileFilePath(this.options.layout, previous.id, previous.revision));
+        await durableRemoveFile(
+          profileFilePath(this.options.layout, previous.id, previous.revision),
+        );
       } catch {
         /* A failed cleanup leaves an unreferenced source; the committed state is complete. */
       }
     }
-    const applied = select || index.activeId === next.id ? await this.reconcileRuntime() : false;
-    return { profile: next, applied };
+    return next;
   }
 
   private fetchedMeta(
@@ -257,7 +271,7 @@ export class ProfileService {
     const known = this.list().profiles.find((profile) => profile.url === normalized);
     const attemptedAt = new Date().toISOString();
     const fetched = await this.fetch(normalized);
-    return this.options.commit(async () => {
+    return this.commitProfile(async () => {
       const index = this.list();
       const now = new Date().toISOString();
       const existing = known ? this.recheck(index, known) : undefined;
@@ -273,24 +287,24 @@ export class ProfileService {
         updatedAt: now,
       };
       const activated = opts.activate === true || index.activeId === null;
-      const { profile, applied } = await this.publishSource(
+      const profile = await this.publishSource(
         index,
         this.fetchedMeta(base, fetched, attemptedAt),
         fetched.yamlText,
         activated,
       );
-      return { profile, activated, applied };
+      return { profile, activated };
     });
   }
 
   async importLocal(name: string, content: string): Promise<ProfileActionResult> {
-    profileInput(content);
+    await profileInput(content);
     const displayName = validName(name);
-    return this.options.commit(async () => {
+    return this.commitProfile(async () => {
       const index = this.list();
       const now = new Date().toISOString();
       const activated = index.activeId === null;
-      const { profile, applied } = await this.publishSource(
+      const profile = await this.publishSource(
         index,
         {
           id: allocateProfileId(index, this.options.layout),
@@ -304,7 +318,7 @@ export class ProfileService {
         content,
         activated,
       );
-      return { profile, activated, applied };
+      return { profile, activated };
     });
   }
 
@@ -318,15 +332,15 @@ export class ProfileService {
   }
 
   async writeContent(id: string, content: string, revision: number): Promise<ProfileUpdateResult> {
-    profileInput(content);
-    return this.options.commit(async () => {
+    await profileInput(content);
+    return this.commitProfile(async () => {
       const index = this.list();
       const before = this.requireProfile(index, id);
       if (before.revision !== revision)
         throw new StateConflictError(
           "Profile changed since the editor opened; reload before saving",
         );
-      const { profile, applied } = await this.publishSource(
+      const profile = await this.publishSource(
         index,
         {
           ...before,
@@ -338,24 +352,29 @@ export class ProfileService {
         content,
         false,
       );
-      return { profile, applied };
+      return { profile };
     });
   }
 
-  async activate(id: string | null): Promise<{ activeId: string | null; proxyCount: number }> {
-    return this.options.commit(async () => {
+  async activate(
+    id: string | null,
+  ): Promise<{ activeId: string | null; proxyCount: number; applied: boolean }> {
+    const before = id === null ? null : this.requireProfile(this.list(), id);
+    const doc = before ? await profileInput(readProfileText(this.options.layout, before)) : null;
+    await this.options.commit(async () => {
       const state = this.options.state.snapshot();
-      const profile = id === null ? null : this.requireProfile(state.profiles, id);
-      const doc = profile ? parseProfileText(readProfileText(this.options.layout, profile)) : null;
+      if (before) this.recheck(state.profiles, before);
       if (state.profiles.activeId !== id)
-        this.options.state.commit({ ...state, profiles: { ...state.profiles, activeId: id } });
-      const applied = await this.reconcileRuntime();
-      return {
-        activeId: id,
-        proxyCount: Array.isArray(doc?.proxies) ? doc.proxies.length : 0,
-        applied,
-      };
+        await this.options.state.commitAsync({
+          ...state,
+          profiles: { ...state.profiles, activeId: id },
+        });
     });
+    return {
+      activeId: id,
+      proxyCount: Array.isArray(doc?.proxies) ? doc.proxies.length : 0,
+      applied: await this.reconcileRuntime(),
+    };
   }
 
   update(id: string): Promise<ProfileUpdateResult> {
@@ -374,27 +393,27 @@ export class ProfileService {
     const attemptedAt = new Date().toISOString();
     try {
       const fetched = await this.fetch(before.url);
-      return await this.options.commit(async () => {
+      return await this.commitProfile(async () => {
         const index = this.list();
         const current = this.recheck(index, before);
-        const { profile, applied } = await this.publishSource(
+        const profile = await this.publishSource(
           index,
           this.fetchedMeta(current, fetched, attemptedAt),
           fetched.yamlText,
           false,
         );
-        return { profile, applied };
+        return { profile };
       });
     } catch (error) {
       if (error instanceof StateConflictError) throw error;
       await this.options
-        .commit(() => {
+        .commit(async () => {
           const state = this.options.state.snapshot();
           const current = state.profiles.profiles.find((profile) => profile.id === id);
           if (!current || current.revision !== before.revision || current.url !== before.url)
             return;
           const message = errorDetail(error);
-          this.options.state.commit({
+          await this.options.state.commitAsync({
             ...state,
             profiles: {
               ...state.profiles,
@@ -471,11 +490,11 @@ export class ProfileService {
   }
 
   async remove(id: string): Promise<{ wasActive: boolean; applied: boolean }> {
-    return this.options.commit(async () => {
+    const result = await this.options.commit(async () => {
       const state = this.options.state.snapshot();
       const profile = this.requireProfile(state.profiles, id);
       const wasActive = state.profiles.activeId === id;
-      this.options.state.commit({
+      await this.options.state.commitAsync({
         ...state,
         profiles: {
           activeId: wasActive ? null : state.profiles.activeId,
@@ -483,34 +502,38 @@ export class ProfileService {
         },
       });
       try {
-        durableRemoveFileSync(profileFilePath(this.options.layout, profile.id, profile.revision));
+        await durableRemoveFile(profileFilePath(this.options.layout, profile.id, profile.revision));
       } catch {
         /* State no longer references this file. */
       }
-      const applied = wasActive ? await this.reconcileRuntime() : false;
-      return { wasActive, applied };
+      return { wasActive };
     });
+    return { ...result, applied: result.wasActive ? await this.reconcileRuntime() : false };
   }
 
   async reorder(ids: readonly string[]): Promise<ProfilesIndex> {
-    return this.options.commit(() => {
+    return this.options.commit(async () => {
       const state = this.options.state.snapshot();
       if (ids.length !== state.profiles.profiles.length || new Set(ids).size !== ids.length)
         throw new ProfileInputError("Profile order must contain every profile exactly once");
       const profiles = ids.map((id) => this.requireProfile(state.profiles, id));
       if (profiles.every((profile, i) => profile.id === state.profiles.profiles[i]?.id))
         return state.profiles;
-      return this.options.state.commit({ ...state, profiles: { ...state.profiles, profiles } })
-        .profiles;
+      return (
+        await this.options.state.commitAsync({
+          ...state,
+          profiles: { ...state.profiles, profiles },
+        })
+      ).profiles;
     });
   }
 
   async rename(id: string, name: string): Promise<{ profile: ProfileMeta }> {
     const displayName = validName(name);
-    return this.options.commit(() => {
+    return this.options.commit(async () => {
       const state = this.options.state.snapshot();
       const profile = { ...this.requireProfile(state.profiles, id), name: displayName };
-      this.options.state.commit({
+      await this.options.state.commitAsync({
         ...state,
         profiles: {
           ...state.profiles,

@@ -7,7 +7,7 @@ import {
   recoverBinaryUnlockProbe,
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
-import { atomicWriteFileSync } from "./fs-atomic.js";
+import { atomicWriteFile } from "./fs-atomic.js";
 import { isRequestDeadlineError } from "./http.js";
 import { MihomoApi } from "./mihomo-api.js";
 import type { GeneratedConfig } from "./mihomo-config.js";
@@ -31,7 +31,7 @@ export interface RuntimeDelta {
 }
 export interface RuntimeLifecycleOptions {
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
-  reloadConfig?: (path: string) => Promise<void>;
+  reloadConfig?: (path: string, signal?: AbortSignal) => Promise<void>;
   layout: SashLayout;
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
@@ -130,7 +130,7 @@ export class RuntimeLifecycle {
     await this.stop();
     await this.requireVacantController();
     this.applied = undefined;
-    atomicWriteFileSync(this.options.layout.configFile, configuration.generated.yaml);
+    await atomicWriteFile(this.options.layout.configFile, configuration.generated.yaml);
     this.runtimeSettings = { ...configuration.settings };
     const result = await this.startCore();
     this.applied = configuration;
@@ -145,16 +145,24 @@ export class RuntimeLifecycle {
    * LAN binding, the controller) are not part of a reload, so callers fall
    * back to `apply` when those differ.
    */
-  async reload(configuration: RuntimeConfiguration): Promise<CoreStartResult> {
+  async reload(
+    configuration: RuntimeConfiguration,
+    signal?: AbortSignal,
+  ): Promise<CoreStartResult> {
+    signal?.throwIfAborted();
     const applied = this.applied;
     if (!applied) throw new Error("Core configuration is unknown; apply it with a restart");
-    atomicWriteFileSync(this.options.layout.configFile, configuration.generated.yaml);
+    await atomicWriteFile(this.options.layout.configFile, configuration.generated.yaml);
     const { controller, secret } = this.runtimeSettings;
     const reloadConfig =
-      this.options.reloadConfig ?? ((path) => new MihomoApi(controller, secret).reloadConfig(path));
+      this.options.reloadConfig ??
+      ((path, signal) => new MihomoApi(controller, secret).reloadConfig(path, signal));
     try {
-      await reloadConfig(this.options.layout.configFile);
+      await reloadConfig(this.options.layout.configFile, signal);
     } catch (error) {
+      // Cancellation, like a deadline, cannot prove the Core rejected the file.
+      // Keep the candidate on disk; the queued stop owns subsequent cleanup.
+      signal?.throwIfAborted();
       if (isRequestDeadlineError(error)) {
         // A spent budget says nothing about the outcome: the Core only answers
         // once it finished applying, so the new configuration may already be live.
@@ -168,7 +176,7 @@ export class RuntimeLifecycle {
       // The Core answered with a refusal, so it still runs the previous
       // configuration; keep the file telling the same story so a later restart
       // cannot pick up a rejected one.
-      atomicWriteFileSync(this.options.layout.configFile, applied.generated.yaml);
+      await atomicWriteFile(this.options.layout.configFile, applied.generated.yaml);
       throw error;
     }
     this.applied = configuration;
@@ -214,7 +222,7 @@ export class RuntimeLifecycle {
   ): Promise<CoreUpdateResult> {
     const wasRunning = this.options.supervisor.isRunning();
     if (!wasRunning) {
-      atomicWriteFileSync(this.options.layout.configFile, configuration.generated.yaml);
+      await atomicWriteFile(this.options.layout.configFile, configuration.generated.yaml);
       this.runtimeSettings = { ...configuration.settings };
     }
     return commitCoreUpdate({

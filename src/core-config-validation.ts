@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { atomicWriteFileSync } from "./fs-atomic.js";
+import { atomicWriteFile } from "./fs-atomic.js";
 import type { SashLayout } from "./paths.js";
 import { buildSanitizedEnv } from "./process.js";
 
@@ -167,7 +167,7 @@ export async function validateCoreConfig(
   const candidate = path.join(layout.tempDir, `config-validate-${crypto.randomUUID()}.yaml`);
   const geodataSnapshot = snapshotGeodataFiles(layout.root);
   try {
-    atomicWriteFileSync(candidate, yaml);
+    await atomicWriteFile(candidate, yaml);
     await (
       options.runner ??
       ((exe: string, args: string[], sig?: AbortSignal) =>

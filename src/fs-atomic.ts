@@ -129,3 +129,64 @@ function fsyncParentDirectory(dir: string): void {
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
+
+/** Online writes keep the same durability contract without sleeping on the event loop. */
+export async function atomicWriteFile(
+  target: string,
+  data: string | Buffer,
+  mode = 0o600,
+): Promise<void> {
+  const dir = path.dirname(target);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const tmp = path.join(
+    dir,
+    `.${path.basename(target)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`,
+  );
+  const handle = await fs.promises.open(tmp, "wx", mode);
+  try {
+    try {
+      await handle.writeFile(data);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await retryFileOperation(() => fs.promises.rename(tmp, target));
+    await syncDirectory(dir);
+  } catch (error) {
+    await fs.promises.rm(tmp, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function retryFileOperation(action: () => Promise<void>): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await action();
+      return;
+    } catch (error) {
+      const delay = DEFAULT_RETRY_DELAYS[attempt + 1];
+      if (delay === undefined || !shouldRetryFileError(error, process.platform)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function syncDirectory(dir: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const parent = await fs.promises.open(dir, "r");
+  try {
+    await parent.sync();
+  } finally {
+    await parent.close();
+  }
+}
+
+export async function durableRemoveFile(target: string): Promise<void> {
+  try {
+    await retryFileOperation(() => fs.promises.unlink(target));
+  } catch (error) {
+    if (errnoCode(error) === "ENOENT") return;
+    throw error;
+  }
+  await syncDirectory(path.dirname(target));
+}

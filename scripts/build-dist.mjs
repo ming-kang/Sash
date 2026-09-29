@@ -19,6 +19,7 @@ const entries = [
     launcher: "autostart-entry.js",
   },
   { source: "src/webui.ts", output: "webui.js" },
+  { source: "src/profile-worker.ts", output: "profile-worker.js" },
   { source: "src/sash-installation.ts", output: "sash-installation.js" },
 ];
 

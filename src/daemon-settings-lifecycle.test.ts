@@ -119,7 +119,7 @@ describe("save and apply API", () => {
     assert.equal(failed.settings.allowLan, true);
     assert.equal(failed.configuration.pending, true);
   });
-  it("keeps health responsive while Apply validates and serializes later settings writes", async () => {
+  it("allows settings writes during preflight and rejects the superseded candidate", async () => {
     const entered = deferred();
     const release = deferred();
     await h.startServer({
@@ -130,11 +130,14 @@ describe("save and apply API", () => {
     });
     const applying = h.apiRequest("/sash/core/start", { method: "POST" });
     await entered.promise;
-    const saved = h.apiRequest("/sash/settings", { method: "PATCH", body: { allowLan: true } });
+    const saved = await h.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { allowLan: true },
+    });
     assert.equal((await h.apiRequest("/sash/daemon/health")).statusCode, 200);
     release.resolve();
-    assert.equal((await applying).statusCode, 200);
-    assert.equal((await saved).statusCode, 200);
+    assert.equal((await applying).statusCode, 409);
+    assert.equal(saved.statusCode, 200);
     assert.equal((await status()).configuration.pending, true);
   });
 
@@ -156,6 +159,26 @@ describe("save and apply API", () => {
     assert.equal((await applying).statusCode, 409);
     assert.equal(core.starts, 0);
     assert.equal(core.running, false);
+  });
+
+  it("cancels a slow reload so stop does not wait for the reload deadline", async () => {
+    const entered = deferred();
+    await h.startMockCore((req, res) => {
+      if (req.method === "PUT" && req.url === "/configs") {
+        req.resume();
+        req.once("end", () => entered.resolve());
+      } else {
+        res.writeHead(204);
+        res.end();
+      }
+    });
+    await h.startServer();
+    assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
+    const applying = h.apiRequest("/sash/core/restart", { method: "POST" });
+    await entered.promise;
+    assert.equal((await h.apiRequest("/sash/core/stop", { method: "POST" })).statusCode, 204);
+    assert.equal((await applying).statusCode, 409);
+    assert.equal((await status()).core.running, false);
   });
 
   it("applies saved configuration when start was queued behind stop", async () => {

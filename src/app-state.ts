@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { errorMessage } from "./error-utils.js";
-import { atomicWriteFileSync } from "./fs-atomic.js";
+import { atomicWriteFile, atomicWriteFileSync } from "./fs-atomic.js";
 import { isPlainObject } from "./json-shape.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { type ProfilesIndex, parseProfilesIndex } from "./profiles.js";
@@ -151,16 +151,30 @@ export class SashStateStore {
     }
   }
 
-  commit(candidate: SashState): SashState {
+  private prepare(candidate: SashState): { next: SashState; text: string } {
     this.assertCurrent(candidate.revision);
     const next = freezeSnapshot(
       structuredClone({ ...candidate, revision: candidate.revision + 1 }),
     );
     const text = `${JSON.stringify(next, null, 2)}\n`;
     if (Buffer.byteLength(text) > MAX_STATE_BYTES) throw new Error("Sash state is too large");
+    return { next, text };
+  }
+
+  commit(candidate: SashState): SashState {
+    const { next, text } = this.prepare(candidate);
     atomicWriteFileSync(this.layout.settingsFile, text);
     this.state = next;
     this.publishBackup(text);
+    return next;
+  }
+
+  /** Called inside the daemon mutation queue; startup retains its synchronous path. */
+  async commitAsync(candidate: SashState): Promise<SashState> {
+    const { next, text } = this.prepare(candidate);
+    await atomicWriteFile(this.layout.settingsFile, text);
+    this.state = next;
+    await atomicWriteFile(this.layout.settingsBackupFile, text).catch(() => undefined);
     return next;
   }
 }

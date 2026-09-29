@@ -115,8 +115,8 @@ describe("saved settings", () => {
   });
   it("does not change OS state when durable preference publication fails", async () => {
     const f = fixture(true);
-    const rename = fs.renameSync;
-    mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+    const rename = fs.promises.rename;
+    mock.method(fs.promises, "rename", async (from: fs.PathLike, to: fs.PathLike) => {
       if (String(to) === f.layout.settingsFile)
         throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
       return rename(from, to);
@@ -137,7 +137,7 @@ describe("saved settings", () => {
   });
   it("can retry an already-saved proxy-off intent without another disk write", async () => {
     const f = fixture();
-    mock.method(fs, "renameSync", () => {
+    mock.method(fs.promises, "rename", async () => {
       throw new Error("unexpected state write");
     });
     await f.service.apply({ systemProxy: false });

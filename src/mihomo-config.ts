@@ -1,5 +1,6 @@
 import YAML from "yaml";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
+import { parseProfileOffThread } from "./profile-work.js";
 import type { SashSettings } from "./settings.js";
 
 export interface GeneratedConfig {
@@ -177,7 +178,7 @@ export async function fetchSubscriptionProfile(
     throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
   }
   const text = await res.text(PROFILE_DOWNLOAD_SIZE_LIMIT);
-  const doc = asCoreConfigDocument(YAML.parse(text));
+  const doc = await parseProfileOffThread(text);
   return {
     doc,
     yamlText: text,

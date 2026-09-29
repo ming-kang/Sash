@@ -62,6 +62,7 @@ const PROGRESS_NOTIFY_INTERVAL_MS = 250;
  */
 export class CoreControlService {
   private downloading = false;
+  private validationTail: Promise<void> = Promise.resolve();
   private progressValue: CoreUpdateProgress | null = null;
   private preparation = new AbortController();
   /** Identifies the running operation so a cancelled one cannot clear its successor. */
@@ -137,7 +138,24 @@ export class CoreControlService {
    * otherwise deadlock a fresh installation on such a network. Mirror attempts
    * get the geodata budget, not the plain configuration test's timeout.
    */
-  private async validateConfiguration(
+  private validateConfiguration(
+    configuration: RuntimeConfiguration,
+    executable: string,
+    signal: AbortSignal,
+    proxyUri?: string,
+  ): Promise<RuntimeConfiguration> {
+    const next = this.validationTail.then(() => {
+      signal.throwIfAborted();
+      return this.validateConfigurationNow(configuration, executable, signal, proxyUri);
+    });
+    this.validationTail = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  private async validateConfigurationNow(
     configuration: RuntimeConfiguration,
     executable: string,
     signal: AbortSignal,
@@ -210,11 +228,12 @@ export class CoreControlService {
     }
   }
 
-  private savedConfiguration(): RuntimeConfiguration {
-    const snapshot = this.options.state.snapshot();
+  private async savedConfiguration(
+    snapshot = this.options.state.snapshot(),
+  ): Promise<RuntimeConfiguration> {
     const profile = getActiveProfile(snapshot.profiles);
     return {
-      generated: renderActiveConfig(snapshot, this.options.layout),
+      generated: await renderActiveConfig(snapshot, this.options.layout),
       settings: snapshot.settings,
       profile: profile
         ? { id: profile.id, revision: profile.revision, name: profile.name, url: profile.url }
@@ -228,6 +247,18 @@ export class CoreControlService {
       throw new StateConflictError(
         "Core update recovery is pending; run sash stop, then sash start",
       );
+  }
+
+  private assertCurrentConfiguration(configuration: RuntimeConfiguration): void {
+    const saved = this.options.state.snapshot();
+    const active = getActiveProfile(saved.profiles);
+    if (
+      runtimeDelta(configuration, {
+        profile: active ? { id: active.id, revision: active.revision } : null,
+        settings: saved.settings,
+      }).pending
+    )
+      throw new StateConflictError("Saved configuration changed during preparation; retry Apply");
   }
 
   async update(version?: string, startAfterInstall = false): Promise<CoreUpdateResult> {
@@ -271,7 +302,7 @@ export class CoreControlService {
       const epoch = lifecycle.revision;
       const configuration = supervisor.isRunning()
         ? lifecycle.configuration()
-        : this.savedConfiguration();
+        : await this.savedConfiguration();
       if (!configuration) throw new Error("Running Core configuration is unknown");
       setStage("resolving");
       const release = await (this.options.resolveCoreReleaseFn ?? resolveCoreRelease)({
@@ -344,18 +375,15 @@ export class CoreControlService {
   }
 
   async apply(onlyIfStopped = false): Promise<CoreStartResult> {
-    const { layout, supervisor, lifecycle } = this.options;
+    const { layout, state, supervisor, lifecycle } = this.options;
     this.options.assertMutable();
     const { signal } = this.preparation;
     this.requireRecoveredInstall();
     signal.throwIfAborted();
-    const installedNow = !coreInstalled(layout);
-    const proxyUri = this.downloadTransport()?.uri;
-    if (installedNow) await this.update(undefined, true);
-    return this.options.commit(async () => {
-      signal.throwIfAborted();
-      this.requireRecoveredInstall();
-      if (installedNow) {
+    if (!coreInstalled(layout)) {
+      await this.update(undefined, true);
+      return this.options.commit(() => {
+        signal.throwIfAborted();
         const owner = supervisor.ownedCoreSnapshot();
         if (!owner) throw new Error("Core exited after installation");
         return {
@@ -364,17 +392,31 @@ export class CoreControlService {
           alreadyRunning: false,
           mixedPort: lifecycle.settings().mixedPort,
         };
-      }
-      if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
-      const configuration = this.savedConfiguration();
-      const validated = await this.validateConfiguration(
-        configuration,
-        layout.coreExe,
-        signal,
-        proxyUri,
-      );
+      });
+    }
+    // Capture after earlier lifecycle operations, but keep parsing, downloads
+    // and preflight out of the state mutation queue.
+    const plan = await this.options.commit(async () => {
       signal.throwIfAborted();
-      if (await this.canReload(validated)) return lifecycle.reload(validated);
+      this.requireRecoveredInstall();
+      if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
+      return { snapshot: state.snapshot(), epoch: lifecycle.revision };
+    });
+    if (!("snapshot" in plan)) return plan;
+    const validated = await this.validateConfiguration(
+      await this.savedConfiguration(plan.snapshot),
+      layout.coreExe,
+      signal,
+      this.downloadTransport()?.uri,
+    );
+    return this.options.commit(async () => {
+      signal.throwIfAborted();
+      this.requireRecoveredInstall();
+      if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
+      this.assertCurrentConfiguration(validated);
+      if (lifecycle.revision !== plan.epoch)
+        throw new StateConflictError("Core changed during preparation; retry Apply");
+      if (await this.canReload(validated)) return lifecycle.reload(validated, signal);
       return lifecycle.apply(validated);
     });
   }
@@ -397,6 +439,7 @@ export class CoreControlService {
     const { signal } = this.preparation;
     if (this.downloading || signal.aborted) return false;
     const state = this.options.state.snapshot();
+    const epoch = this.options.lifecycle.revision;
     const active = getActiveProfile(state.profiles);
     const delta = runtimeDelta(this.options.lifecycle.configuration(), {
       profile: active ? { id: active.id, revision: active.revision } : null,
@@ -407,12 +450,18 @@ export class CoreControlService {
     if (!core.running || !core.healthy) return false;
     try {
       const validated = await this.validateConfiguration(
-        this.savedConfiguration(),
+        await this.savedConfiguration(state),
         this.options.layout.coreExe,
         signal,
       );
-      await this.options.lifecycle.reload(validated);
-      return true;
+      return await this.options.commit(async () => {
+        signal.throwIfAborted();
+        this.assertCurrentConfiguration(validated);
+        if (this.options.lifecycle.revision !== epoch) return false;
+        if (!(await this.canReload(validated))) return false;
+        await this.options.lifecycle.reload(validated, signal);
+        return true;
+      });
     } catch (error) {
       // The state change itself already succeeded; a configuration the Core
       // refuses stays pending, and an explicit apply reports the reason.

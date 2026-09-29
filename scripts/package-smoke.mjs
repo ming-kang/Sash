@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -123,6 +124,7 @@ function assertPackedFiles(files) {
     "dist/daemon-entry.js",
     "dist/autostart-entry.js",
     "dist/webui.js",
+    "dist/profile-worker.js",
     "dist/sash-installation.js",
     "dist/ui/index.html",
     "dist/ui/.vite/manifest.json",
@@ -206,6 +208,7 @@ try {
     installDir,
     "--install-strategy=nested",
     "--omit=dev",
+    "--ignore-scripts",
     "--no-audit",
     "--no-fund",
     spec,
@@ -219,6 +222,23 @@ try {
   );
   assert.equal(fs.statSync(installedRoot).isDirectory(), true);
   assertNonEmptyFile(path.join(installedRoot, "dist", "ui", "index.html"));
+  const worker = new Worker(path.join(installedRoot, "dist", "profile-worker.js"), {
+    execArgv: [],
+    env: sanitizedEnv({ SASH_HOME: homeDir }),
+  });
+  try {
+    const parsed = new Promise((resolve, reject) => {
+      worker.once("message", resolve);
+      worker.once("error", reject);
+      worker.once("exit", (code) =>
+        reject(new Error(`Profile worker exited before responding (${code})`)),
+      );
+    });
+    worker.postMessage({ id: 1, text: "rules: ['MATCH,DIRECT']\n" });
+    assert.deepEqual(await parsed, { id: 1, value: { rules: ["MATCH,DIRECT"] } });
+  } finally {
+    await worker.terminate();
+  }
   const installedManifest = path.join(installedRoot, "dist", "bootstrap-manifest.json");
   if (fs.existsSync(installedManifest)) {
     const manifest = JSON.parse(fs.readFileSync(installedManifest, "utf8"));

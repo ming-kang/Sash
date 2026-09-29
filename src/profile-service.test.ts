@@ -63,6 +63,18 @@ describe("saved profiles", () => {
     assert.equal(fs.existsSync(layout.configFile), false);
   });
 
+  it("reconciles after releasing the publication queue", async () => {
+    const profiles = new ProfileService({
+      layout,
+      state,
+      commit: (action) => gate.mutate(action),
+      reconcileRuntime: () => gate.mutate(() => true),
+    });
+    const result = await profiles.importLocal("active", yamlA);
+    assert.equal(result.applied, true);
+    assert.equal(state.snapshot().profiles.activeId, result.profile.id);
+  });
+
   it("saves selection, rename, order, and deletion without touching the running config", async () => {
     const profiles = service();
     const a = (await profiles.importLocal("a", yamlA)).profile;
@@ -124,8 +136,8 @@ describe("saved profiles", () => {
     const profiles = service();
     const a = (await profiles.importLocal("a", yamlA)).profile;
     const before = fs.readFileSync(layout.settingsFile, "utf8");
-    const rename = fs.renameSync;
-    mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+    const rename = fs.promises.rename;
+    mock.method(fs.promises, "rename", async (from: fs.PathLike, to: fs.PathLike) => {
       if (String(to) === layout.settingsFile)
         throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
       return rename(from, to);

@@ -58,7 +58,7 @@ export class SettingsService {
         settings.mixedPort !== state.settings.mixedPort ||
         settings.allowLan !== state.settings.allowLan ||
         settings.systemProxy !== state.settings.systemProxy;
-      const saved = changed ? this.options.state.commit({ ...state, settings }) : state;
+      const saved = changed ? await this.options.state.commitAsync({ ...state, settings }) : state;
       if (patch.systemProxy !== undefined) {
         // Desired state stays visible on failure; the proxy journal retains the recovery data.
         await this.options.lifecycle.reconcileSystemProxy();
