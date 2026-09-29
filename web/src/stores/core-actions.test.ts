@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { testStatus } from "../../../src/testing/state.js";
+import { deferredValue, testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
 import type { ConnectionItem } from "../types/index.js";
 import {
@@ -8,10 +8,11 @@ import {
   closeConnection,
   normalizeConnections,
   refreshProxies,
+  refreshRules,
   selectGroupProxy,
   setProxies,
 } from "./core-actions.js";
-import { store } from "./state.js";
+import { resetCoreState, store } from "./state.js";
 
 function testConnection(id: string): ConnectionItem {
   return {
@@ -35,6 +36,23 @@ function testConnection(id: string): ConnectionItem {
 }
 
 describe("web Core actions", () => {
+  for (const fail of [false, true])
+    it(`ignores a replaced runtime's pending resource response (failure=${fail})`, async (t) => {
+      const original = { ...store };
+      t.after(() => Object.assign(store, original));
+      store.status = testStatus();
+      const response = deferredValue<Awaited<ReturnType<typeof api.getRules>>>();
+      t.mock.method(api, "getRules", () => response.promise);
+      const refreshing = refreshRules();
+      resetCoreState();
+      if (fail) response.reject(new Error("old runtime failed"));
+      else response.resolve({ rules: [{ type: "MATCH", payload: "", proxy: "old" }] });
+      await refreshing;
+      assert.deepEqual(store.rules, []);
+      assert.deepEqual(store.resourceLoaded, {});
+      assert.deepEqual(store.resourceErrors, {});
+    });
+
   it("reuses identical proxy snapshots but honors a local selection and a reset", async (t) => {
     const original = { ...store };
     t.after(() => Object.assign(store, original));

@@ -72,14 +72,17 @@ async function refreshResource<T>(
   adopt: (result: T) => void,
 ): Promise<void> {
   if (!isCoreHealthy(store.status)) return;
+  const generation = store.runtimeGeneration;
   try {
     const result = await fetch();
+    if (generation !== store.runtimeGeneration) return;
     adopt(result);
     store.resourceLoaded = { ...store.resourceLoaded, [resource]: true };
     const errors = { ...store.resourceErrors };
     delete errors[resource];
     store.resourceErrors = errors;
   } catch (error) {
+    if (generation !== store.runtimeGeneration) return;
     store.resourceErrors = {
       ...store.resourceErrors,
       [resource]: errorText(error).slice(0, 300),
