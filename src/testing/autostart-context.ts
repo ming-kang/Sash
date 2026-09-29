@@ -42,5 +42,9 @@ export function testAutostartContext(
   const ctx = autostartContext(options);
   fs.mkdirSync(path.dirname(ctx.entryPath), { recursive: true });
   fs.writeFileSync(ctx.entryPath, "// test entry\n");
+  const system = path.join(options.env?.SystemRoot ?? root, "System32");
+  fs.mkdirSync(system, { recursive: true });
+  for (const host of ["wscript.exe", "cscript.exe"])
+    fs.writeFileSync(path.join(system, host), "fixture host");
   return { root, options, ctx };
 }

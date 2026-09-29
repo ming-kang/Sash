@@ -10,6 +10,19 @@ import {
 import { windowsAutostart, windowsLauncherContents } from "./windows.js";
 
 describe("Windows login startup", () => {
+  it("does not register startup when the script engine is disabled", async (t) => {
+    const registration: FakeWindowsRegistration = { command: null, approval: null };
+    const run = fakeWindowsRegistryRun(registration);
+    const { ctx } = testAutostartContext(t, "win32", async (command, args, env) =>
+      args[0] === "//B"
+        ? { code: 1, stdout: "", stderr: "Script host disabled" }
+        : run(command, args, env),
+    );
+    await assert.rejects(windowsAutostart(ctx).set(true), /Enable Windows Script Host/);
+    assert.equal(registration.command, null);
+    assert.deepEqual(fs.readdirSync(ctx.controlDir), []);
+  });
+
   it("registers a hidden Unicode launcher, observes OS suppression, repairs, and removes it", async (t) => {
     const registration: FakeWindowsRegistration = { command: null, approval: null };
     const { ctx } = testAutostartContext(t, "win32", fakeWindowsRegistryRun(registration));

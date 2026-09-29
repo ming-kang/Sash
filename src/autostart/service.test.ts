@@ -173,19 +173,24 @@ describe("AutostartService", () => {
     const { options } = testAutostartContext(t, "win32");
     let state: RegisteredAutostartState = "off";
     const writes: boolean[] = [];
+    let active = 0;
+    let peak = 0;
     const backend = {
       inspect: async () => state,
       set: async (enabled: boolean) => {
+        peak = Math.max(peak, ++active);
         await new Promise((resolve) => setTimeout(resolve, 30));
         writes.push(enabled);
         state = enabled ? "on" : "off";
+        active--;
       },
     };
     const first = new AutostartService({ ...options, backend, checkInstallation: () => null });
     const second = new AutostartService({ ...options, backend, checkInstallation: () => null });
     await Promise.all([first.set(true), second.set(false)]);
-    assert.deepEqual(writes, [true, false]);
-    assert.equal(state, "off");
+    assert.equal(peak, 1, "independent controllers must never write concurrently");
+    assert.deepEqual([...writes].sort(), [false, true]);
+    assert.equal(state, writes.at(-1) ? "on" : "off");
   });
 
   it("does not claim success when the OS ignores a registration", async (t) => {

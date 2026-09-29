@@ -5,9 +5,13 @@ import { sendError } from "./http.js";
 import { readDaemonStatus } from "./status.js";
 
 export function createEventObserver(context: () => DaemonContext) {
+  let nextAutostartInspection = 0;
   return async () => {
     const ctx = context();
-    void ctx.autostart.inspect();
+    if (Date.now() >= nextAutostartInspection) {
+      nextAutostartInspection = Date.now() + 30_000;
+      void ctx.autostart.inspect().catch(() => undefined);
+    }
     return { status: await readDaemonStatus(ctx), autostart: ctx.autostart.current() };
   };
 }

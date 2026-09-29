@@ -11,6 +11,36 @@ import { deferredValue, FakeCoreSupervisor, testStatus } from "./testing/state.j
 
 const harness = useDaemonTestHarness();
 
+it("reuses completed desktop observations during repeated state notifications", async (t) => {
+  let checks = 0;
+  await harness.startServer({
+    autostart: {
+      backend: {
+        inspect: async () => {
+          checks++;
+          return "off";
+        },
+        set: async () => {},
+      },
+      checkInstallation: () => null,
+    },
+  });
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const events = createDaemonClient(harness.boundPort, harness.settings.daemonSecret).events(
+    controller.signal,
+  );
+  await events.next();
+  for (const allowLan of [true, false, true]) {
+    await harness.apiRequest("/sash/settings", { method: "PATCH", body: { allowLan } });
+    let event = (await events.next()).value;
+    while (event && event.status.settings.allowLan !== allowLan)
+      event = (await events.next()).value;
+  }
+  assert.equal(checks, 1);
+  await events.return(undefined);
+});
+
 it("keeps runtime events flowing while one desktop inspection is pending", async (t) => {
   const backendInspection = deferredValue<"off" | "on">();
   let checks = 0;

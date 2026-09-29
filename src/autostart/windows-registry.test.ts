@@ -198,6 +198,8 @@ it("executes the Windows registry scripts in a disposable, non-startup registry 
   const realApproval =
     "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
   const { ctx } = testAutostartContext(t, "win32", async (_command, args, env) => {
+    if (args[0] === "//B")
+      return runAutostartCommand(windowsSystemExecutable("cscript.exe"), args, realEnv(env));
     if (args[0] === "query") {
       const queried = args[1];
       assert.ok(queried, "Missing registry query key");

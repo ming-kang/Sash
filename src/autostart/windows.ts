@@ -1,5 +1,7 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { atomicWriteFile } from "../fs-atomic.js";
 import { pathsEqual } from "../sash-installation.js";
 import {
   type AutostartBackend,
@@ -53,6 +55,7 @@ export function windowsAutostart(ctx: AutostartContext): AutostartBackend {
       const target = parseWindowsLauncher(readRegistration(file));
       if (
         !launcherFilesExist(ctx) ||
+        !fs.existsSync(windowsSystemPath(ctx, "wscript.exe")) ||
         registration.command.toLowerCase() !== launcherCommand().toLowerCase() ||
         !target ||
         !sameTargetPath(target.nodePath, ctx.nodePath) ||
@@ -65,6 +68,23 @@ export function windowsAutostart(ctx: AutostartContext): AutostartBackend {
     },
     async set(enabled) {
       if (enabled) {
+        // Verify the script engine before registering a launcher Windows cannot
+        // execute. This probe never starts Sash or changes the login registration.
+        const probe = path.join(ctx.controlDir, `launcher-check-${crypto.randomUUID()}.vbs`);
+        try {
+          await atomicWriteFile(probe, 'WScript.StdOut.Write "sash-launcher-ready"\r\n');
+          const result = await ctx.run(windowsSystemPath(ctx, "cscript.exe"), [
+            "//B",
+            "//Nologo",
+            probe,
+          ]);
+          if (result.code !== 0 || result.stdout.trim() !== "sash-launcher-ready")
+            throw new Error(
+              "Windows Script Host could not run VBScript. Enable Windows Script Host and the VBScript component, then retry start at login.",
+            );
+        } finally {
+          await fs.promises.rm(probe, { force: true });
+        }
         await registerFile(file, contents(), () => setWindowsRegistration(ctx, launcherCommand()));
       } else {
         // Explicit off never depends on a readable/current launcher or an inspection.

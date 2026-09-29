@@ -24,6 +24,7 @@ export function fakeWindowsRegistryRun(
     assert.equal(env.GITHUB_TOKEN, undefined);
     assert.equal(env.NPM_TOKEN, undefined);
     assert.equal(env.npm_config_userconfig, undefined);
+    if (args[0] === "//B") return { code: 0, stdout: "sash-launcher-ready\r\n", stderr: "" };
     if (args[0] === "query") {
       const key = args[1];
       assert.ok(key === RUN_KEY || key === APPROVAL_KEY, `Unexpected registry query: ${key}`);

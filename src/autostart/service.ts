@@ -13,6 +13,7 @@ import {
 import type { AutostartStatus } from "./contract.js";
 import { PENDING_AUTOSTART_STATUS } from "./contract.js";
 import { windowsAutostart } from "./windows.js";
+import { windowsSystemPath } from "./windows-registry.js";
 
 const INSTALL_HINT = "needs a global installation — run npm install -g @astralyn/sash to enable it";
 
@@ -23,6 +24,9 @@ export function installationIssue(ctx: AutostartContext): string | null {
     assertAbsolutePath(ctx.entryPath);
     if (inspectInstallation(ctx).kind !== "npm-global" || !fs.statSync(ctx.entryPath).isFile())
       return INSTALL_HINT;
+    for (const host of ["wscript.exe", "cscript.exe"])
+      if (!fs.existsSync(windowsSystemPath(ctx, host)))
+        return "Windows Script Host is missing — restore the Windows scripting components before enabling start at login";
     return null;
   } catch {
     return INSTALL_HINT;
