@@ -18,44 +18,36 @@ const APPROVAL_KEY =
 const APPROVAL_HEADER =
   "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
 
-it("parses a REG_SZ value whose data contains spaces and Unicode", () => {
-  const data = '"C:\\Sash\\wscript.exe" //B //Nologo "C:\\Sash 数据\\start.vbs" 备注';
-  const output = `\r\n${RUN_HEADER}\r\n    Sash    REG_SZ    ${data}\r\n\r\n`;
-  assert.deepEqual(parseWindowsRegistryValue(output, RUN_KEY, "Sash"), {
-    type: "REG_SZ",
-    data,
-  });
-});
-
-it("preserves four-space runs inside REG_SZ data", () => {
-  const output = `\r\n${RUN_HEADER}\r\n    Sash    REG_SZ    alpha    beta     gamma\r\n`;
-  assert.deepEqual(parseWindowsRegistryValue(output, RUN_KEY, "Sash"), {
-    type: "REG_SZ",
-    data: "alpha    beta     gamma",
-  });
-});
-
-it("parses an empty REG_SZ value and the abbreviated HKCU header form", () => {
-  const output = `${RUN_KEY}\r\n    Sash    REG_SZ    \r\n\r\n`;
-  assert.deepEqual(parseWindowsRegistryValue(output, RUN_KEY, "Sash"), {
-    type: "REG_SZ",
-    data: "",
-  });
-});
-
-it("parses a 12-byte REG_BINARY value into a Buffer", () => {
-  const output = `\r\n${APPROVAL_HEADER}\r\n    Sash    REG_BINARY    060000000000000000000000\r\n\r\n`;
-  const value = parseWindowsRegistryValue(output, APPROVAL_KEY, "Sash");
-  assert.equal(value.type, "REG_BINARY");
-  assert.deepEqual(value.data, Buffer.from([6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
-});
-
-it("parses unexpected value types without failing so callers can reject them", () => {
-  const output = `\r\n${RUN_HEADER}\r\n    Sash    REG_DWORD    0x1\r\n\r\n`;
-  assert.deepEqual(parseWindowsRegistryValue(output, RUN_KEY, "Sash"), {
-    type: "REG_DWORD",
-    data: "0x1",
-  });
+it("parses REG_SZ and REG_BINARY values, preserving data exactly", () => {
+  const cases: Array<[string, string, unknown]> = [
+    [
+      `\r\n${RUN_HEADER}\r\n    Sash    REG_SZ    "C:\\Sash\\wscript.exe" //B //Nologo "C:\\Sash 数据\\start.vbs" 备注\r\n\r\n`,
+      RUN_KEY,
+      {
+        type: "REG_SZ",
+        data: '"C:\\Sash\\wscript.exe" //B //Nologo "C:\\Sash 数据\\start.vbs" 备注',
+      },
+    ],
+    [
+      `\r\n${RUN_HEADER}\r\n    Sash    REG_SZ    alpha    beta     gamma\r\n`,
+      RUN_KEY,
+      { type: "REG_SZ", data: "alpha    beta     gamma" },
+    ],
+    [`${RUN_KEY}\r\n    Sash    REG_SZ    \r\n\r\n`, RUN_KEY, { type: "REG_SZ", data: "" }],
+    [
+      `\r\n${APPROVAL_HEADER}\r\n    Sash    REG_BINARY    060000000000000000000000\r\n\r\n`,
+      APPROVAL_KEY,
+      { type: "REG_BINARY", data: Buffer.from([6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) },
+    ],
+    // Unexpected types survive parsing so callers can reject them.
+    [
+      `\r\n${RUN_HEADER}\r\n    Sash    REG_DWORD    0x1\r\n\r\n`,
+      RUN_KEY,
+      { type: "REG_DWORD", data: "0x1" },
+    ],
+  ];
+  for (const [output, key, expected] of cases)
+    assert.deepEqual(parseWindowsRegistryValue(output, key, "Sash"), expected);
 });
 
 it("rejects malformed registry query output", () => {
@@ -81,60 +73,48 @@ it("rejects malformed registry query output", () => {
 });
 
 it("falls back to the PowerShell inspection when reg.exe output is lossy", async (t) => {
-  let encodedCommands = 0;
-  const { ctx } = testAutostartContext(t, "win32", async (_command, args) => {
-    if (args[0] === "query") {
-      const header = (args[1] ?? "").replace(/^HKCU/, "HKEY_CURRENT_USER");
-      if (args[1] === RUN_KEY) {
-        return {
-          code: 0,
-          stdout: `\r\n${header}\r\n    Sash    REG_SZ    C:\\Users\\\uFFFD\uFFFD\uFFFD\\start.vbs\r\n\r\n`,
-          stderr: "",
-        };
+  // reg.exe cannot represent every Unicode code point; both replacement characters
+  // and question marks mark output that must not be trusted.
+  const cases = [
+    [
+      "replacement characters",
+      "C:\\Users\\\uFFFD\uFFFD\uFFFD\\start.vbs",
+      "C:\\Users\\张三\\start.vbs",
+    ],
+    ["question marks", "C:\\Users\\??\\start.vbs", null],
+  ] as const;
+  for (const [label, lossy, decoded] of cases) {
+    let encodedCommands = 0;
+    const { ctx } = testAutostartContext(t, "win32", async (_command, args) => {
+      if (args[0] === "query") {
+        const header = (args[1] ?? "").replace(/^HKCU/, "HKEY_CURRENT_USER");
+        if (args[1] === RUN_KEY) {
+          return {
+            code: 0,
+            stdout: `\r\n${header}\r\n    Sash    REG_SZ    ${lossy}\r\n\r\n`,
+            stderr: "",
+          };
+        }
+        return { code: 1, stdout: "", stderr: "not found" };
       }
-      return { code: 1, stdout: "", stderr: "not found" };
-    }
-    encodedCommands++;
-    assert.equal(args[2], "-EncodedCommand");
-    return {
-      code: 0,
-      stdout: JSON.stringify({
-        run: Buffer.from("C:\\Users\\张三\\start.vbs").toString("base64"),
-        approval: null,
-      }),
-      stderr: "",
-    };
-  });
-  assert.deepEqual(await readWindowsRegistration(ctx), {
-    command: "C:\\Users\\张三\\start.vbs",
-    disabled: false,
-  });
-  assert.equal(encodedCommands, 1);
-});
-
-it("treats question marks as lossy data and falls back as well", async (t) => {
-  let encodedCommands = 0;
-  const { ctx } = testAutostartContext(t, "win32", async (_command, args) => {
-    if (args[0] === "query") {
-      const header = (args[1] ?? "").replace(/^HKCU/, "HKEY_CURRENT_USER");
-      if (args[1] === RUN_KEY) {
-        return {
-          code: 0,
-          stdout: `\r\n${header}\r\n    Sash    REG_SZ    C:\\Users\\??\\start.vbs\r\n\r\n`,
-          stderr: "",
-        };
-      }
-      return { code: 1, stdout: "", stderr: "not found" };
-    }
-    encodedCommands++;
-    return {
-      code: 0,
-      stdout: JSON.stringify({ run: null, approval: null }),
-      stderr: "",
-    };
-  });
-  assert.deepEqual(await readWindowsRegistration(ctx), { command: null, disabled: false });
-  assert.equal(encodedCommands, 1);
+      encodedCommands++;
+      assert.equal(args[2], "-EncodedCommand");
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          run: decoded === null ? null : Buffer.from(decoded).toString("base64"),
+          approval: null,
+        }),
+        stderr: "",
+      };
+    });
+    assert.deepEqual(
+      await readWindowsRegistration(ctx),
+      { command: decoded, disabled: false },
+      label,
+    );
+    assert.equal(encodedCommands, 1, label);
+  }
 });
 
 it("reads reg.exe output directly when it decodes losslessly", async (t) => {

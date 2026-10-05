@@ -37,7 +37,6 @@ it("reads an empty stopped profile library without initializing data", async () 
     });
     assert.equal(fs.existsSync(layout.root), false);
   } finally {
-    assert.equal(path.dirname(fs.realpathSync(root)), parent);
     await fs.promises.rm(root, { recursive: true, force: true });
   }
 });

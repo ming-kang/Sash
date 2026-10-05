@@ -52,7 +52,6 @@ for (const target of ["v1.0.0", "v2.0.0"]) {
       agent.assertNoPendingInterceptors();
     } finally {
       await agent.close();
-      assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
       await fs.promises.rm(root, { recursive: true, force: true });
     }
   });

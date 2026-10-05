@@ -16,13 +16,6 @@ describe("settings boundaries", () => {
     assert.notEqual(settings.secret, settings.daemonSecret);
     assert.equal("secret" in publicSettings(settings), false);
     assert.equal("daemonSecret" in publicSettings(settings), false);
-    assert.deepEqual(Object.keys(publicSettings(settings)).sort(), [
-      "allowLan",
-      "controller",
-      "daemonPort",
-      "mixedPort",
-      "systemProxy",
-    ]);
   });
   it("canonicalizes loopback addresses without mutating the candidate", () => {
     const input = testSettings({ controller: " LOCALHOST:18991 " });

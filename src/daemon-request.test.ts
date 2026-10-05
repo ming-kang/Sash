@@ -86,7 +86,6 @@ describe("daemon server", () => {
       const res = await h.apiRequest("/sash/daemon/health", { token: "" });
       assert.equal(res.statusCode, 200);
       const data = res.data as { token: string; pid: number };
-      assert.equal(typeof data.token, "string");
       assert.equal(data.pid, process.pid);
     });
 

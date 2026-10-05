@@ -116,10 +116,6 @@ ConvertTo-Json -InputObject @($results) -Depth 4 -Compress
     assert.equal(fs.existsSync(marker), false, "completion must not execute expressions or Sash");
     assert.equal(fs.existsSync(path.join(root, "data")), false);
   } finally {
-    assert.equal(
-      path.dirname(await fs.promises.realpath(root)).toLowerCase(),
-      (await fs.promises.realpath(os.tmpdir())).toLowerCase(),
-    );
     await fs.promises.rm(root, { recursive: true, force: true });
   }
 });

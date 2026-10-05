@@ -54,7 +54,6 @@ function fixture() {
     inspectProxyConnections: async () => ({ supported: true as const, additionalRecords: 0 }),
     probeReachability: async () => true,
     cleanup: async () => {
-      assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
       await fs.promises.rm(root, { recursive: true, force: true });
     },
   };

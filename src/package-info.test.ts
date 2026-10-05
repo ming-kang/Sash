@@ -48,7 +48,6 @@ it("verifies package identity and the full Node engine range", () => {
 it("bounds package metadata reads and does not initialize application state", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-package-info-test-"));
   t.after(() => {
-    assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
     fs.rmSync(root, { recursive: true, force: true });
   });
   const file = path.join(root, "package.json");

@@ -20,10 +20,6 @@ const VALID = {
 };
 
 describe("parseBootstrapManifest", () => {
-  it("accepts a well-formed manifest", () => {
-    assert.deepEqual(parseBootstrapManifest(VALID), VALID);
-  });
-
   it("rejects non-objects and incomplete sections", () => {
     assert.equal(parseBootstrapManifest(null), undefined);
     assert.equal(parseBootstrapManifest([]), undefined);

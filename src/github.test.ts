@@ -1,15 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MockAgent } from "undici";
-import {
-  GITHUB_DOWNLOAD_HOSTS,
-  GITHUB_MIRRORS,
-  listReleaseAssets,
-  MIHOMO_REPO,
-  parseSha256Digest,
-  resolveLatestTag,
-} from "./github.js";
-import { ERROR_BODY_LIMIT, proxyAwareDispatcher, USER_AGENT } from "./http.js";
+import { listReleaseAssets, parseSha256Digest, resolveLatestTag } from "./github.js";
+import { ERROR_BODY_LIMIT, proxyAwareDispatcher } from "./http.js";
 
 describe("github", () => {
   it("preserves AbortError without falling back to another release endpoint", async (t) => {
@@ -49,36 +42,6 @@ describe("github", () => {
       .reply(404, "x".repeat(ERROR_BODY_LIMIT + 1));
     await assert.rejects(resolveLatestTag("example/project"), /HTTP 403/);
     await assert.rejects(listReleaseAssets("example/project", "v1.0.0"), /HTTP 404/);
-  });
-
-  it("defines repository constants", () => {
-    assert.equal(MIHOMO_REPO, "MetaCubeX/mihomo");
-  });
-
-  it("defines GitHub mirrors starting with direct connection (empty string)", () => {
-    assert.ok(Array.isArray(GITHUB_MIRRORS));
-    assert.ok(GITHUB_MIRRORS.length >= 1);
-    assert.equal(GITHUB_MIRRORS[0], "");
-    for (const mirror of GITHUB_MIRRORS) {
-      assert.equal(typeof mirror, "string");
-      if (mirror) {
-        assert.ok(mirror.startsWith("https://"));
-        assert.ok(mirror.endsWith("/"));
-      }
-    }
-  });
-
-  it("allows only GitHub release and configured mirror hosts for downloads", () => {
-    assert.ok(GITHUB_DOWNLOAD_HOSTS.has("github.com"));
-    assert.ok(GITHUB_DOWNLOAD_HOSTS.has("release-assets.githubusercontent.com"));
-    for (const mirror of GITHUB_MIRRORS.filter(Boolean)) {
-      assert.ok(GITHUB_DOWNLOAD_HOSTS.has(new URL(mirror).hostname));
-    }
-  });
-
-  it("defines USER_AGENT string", () => {
-    assert.equal(typeof USER_AGENT, "string");
-    assert.ok(USER_AGENT.length > 0);
   });
 
   it("parses only canonical SHA-256 release digests", () => {

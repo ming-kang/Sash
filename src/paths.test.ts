@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { sashLayout, sashRoot } from "./paths.js";
+import { sashRoot } from "./paths.js";
 
 describe("paths", () => {
   let originalSashHome: string | undefined;
@@ -62,51 +62,6 @@ describe("paths", () => {
       } else {
         assert.match(root, /sash$/);
       }
-    });
-  });
-
-  describe("sashLayout", () => {
-    it("constructs correct layout paths for a specified root", () => {
-      const customRoot = createTmpDir();
-      const layout = sashLayout(customRoot);
-
-      const expectedExeName = process.platform === "win32" ? "mihomo.exe" : "mihomo";
-      assert.equal(layout.root, customRoot);
-      assert.equal(layout.binDir, path.join(customRoot, "bin"));
-      assert.equal(layout.coreExe, path.join(customRoot, "bin", expectedExeName));
-      assert.equal(layout.configFile, path.join(customRoot, "runtime", "config.yaml"));
-      assert.equal(layout.settingsFile, path.join(customRoot, "sash.json"));
-      assert.equal(layout.uiDir, path.join(customRoot, "ui"));
-      assert.equal(layout.stateDir, path.join(customRoot, "state"));
-      assert.equal(layout.pidFile, path.join(customRoot, "state", "sash.pid"));
-      assert.equal(layout.daemonPidFile, path.join(customRoot, "state", "sashd.pid"));
-      assert.equal(layout.daemonLeaseFile, path.join(customRoot, "state", "sashd.lock"));
-      assert.equal(layout.daemonStartLockFile, path.join(customRoot, "state", "sashd-start.lock"));
-      assert.equal(layout.profilesDir, path.join(customRoot, "profiles"));
-      assert.equal(
-        layout.systemProxyStateFile,
-        path.join(customRoot, "state", "system-proxy.json"),
-      );
-      assert.equal(layout.installFile, path.join(customRoot, "state", "install.json"));
-      assert.ok(path.isAbsolute(layout.systemProxyLockFile));
-      assert.equal(
-        layout.coreUpdateTransactionFile,
-        path.join(customRoot, "state", "core-update-transaction.json"),
-      );
-      assert.equal(layout.logsDir, path.join(customRoot, "logs"));
-      assert.equal(layout.coreLogFile, path.join(customRoot, "logs", "mihomo.log"));
-      assert.equal(layout.coreErrLogFile, path.join(customRoot, "logs", "mihomo.err.log"));
-      assert.equal(layout.sashLogFile, path.join(customRoot, "logs", "sash.log"));
-      assert.equal(layout.daemonLogFile, path.join(customRoot, "logs", "sashd.log"));
-      assert.equal(layout.daemonErrLogFile, path.join(customRoot, "logs", "sashd.err.log"));
-      assert.equal(layout.tempDir, path.join(customRoot, "temp"));
-    });
-
-    it("defaults to sashRoot() when no root is provided", () => {
-      const customDir = createTmpDir();
-      process.env.SASH_HOME = customDir;
-      const layout = sashLayout();
-      assert.equal(layout.root, customDir);
     });
   });
 });

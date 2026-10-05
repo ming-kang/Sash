@@ -12,10 +12,6 @@ import { createTestState, testProfile } from "./testing/state.js";
 it("cleans only old generated files and preserves referenced, recent, foreign and active temporary data", async (t) => {
   const isolation = await fs.promises.mkdtemp(path.join(os.tmpdir(), "sash-prune-"));
   t.after(async () => {
-    assert.equal(
-      path.dirname(await fs.promises.realpath(isolation)).toLowerCase(),
-      (await fs.promises.realpath(os.tmpdir())).toLowerCase(),
-    );
     await fs.promises.rm(isolation, { recursive: true, force: true });
   });
   const layout = sashLayout(path.join(isolation, "data"));

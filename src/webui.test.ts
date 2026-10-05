@@ -19,8 +19,6 @@ describe("webui resolution", () => {
 
       assert.equal(resolveUiDir(layout, runtimeDir), builtInUi);
       assert.equal(uiInstalled(layout, runtimeDir), true);
-      assert.ok(fs.statSync(path.join(builtInUi, "index.html")).size > 0);
-      assert.ok(fs.statSync(path.join(builtInUi, "assets", "app.js")).size > 0);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

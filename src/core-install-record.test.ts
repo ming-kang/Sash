@@ -38,6 +38,9 @@ describe("Core install record codec", () => {
   });
 
   it("reads leniently and reports one canonical committed record", () => {
+    assert.equal(readInstallRecord(layout), undefined);
+    assert.equal(currentCoreVersion(layout), "");
+
     fs.mkdirSync(path.dirname(layout.installFile), { recursive: true });
     fs.writeFileSync(
       layout.installFile,
@@ -57,6 +60,10 @@ describe("Core install record codec", () => {
 
     writeInstallRecord({ coreVersion: "v1.2.4" }, layout);
     assert.deepEqual(readInstallRecord(layout), { coreVersion: "v1.2.4" });
+
+    fs.rmSync(layout.installFile, { force: true });
+    assert.equal(readInstallRecord(layout), undefined);
+    assert.equal(currentCoreVersion(layout), "");
   });
 
   it("re-reads on every call, so a same-mtime rewrite is never stale", () => {
@@ -89,17 +96,5 @@ describe("Core install record codec", () => {
 
     writeInstallRecord({ coreVersion: "v3.0.0" }, layout);
     assert.deepEqual(readInstallRecord(layout), { coreVersion: "v3.0.0" });
-  });
-
-  it("handles missing file gracefully", () => {
-    assert.equal(readInstallRecord(layout), undefined);
-    assert.equal(currentCoreVersion(layout), "");
-
-    writeInstallRecord({ coreVersion: "v1.0.0" }, layout);
-    assert.deepEqual(readInstallRecord(layout), { coreVersion: "v1.0.0" });
-
-    fs.rmSync(layout.installFile, { force: true });
-    assert.equal(readInstallRecord(layout), undefined);
-    assert.equal(currentCoreVersion(layout), "");
   });
 });

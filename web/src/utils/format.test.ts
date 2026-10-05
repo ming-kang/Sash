@@ -23,7 +23,7 @@ afterEach(() => {
   Date.now = realNow;
 });
 
-describe("formatBytes", () => {
+describe("byte formatting", () => {
   const cases: Array<[number, string]> = [
     [0, "0 B"],
     [-1, "0 B"],
@@ -45,23 +45,16 @@ describe("formatBytes", () => {
     [1024 ** 4, "1.0 TB"],
     [1024 ** 5, "1024 TB"],
   ];
-  for (const [input, expected] of cases) {
-    it(`formats ${input} as "${expected}"`, () => {
+  it("formats byte counts with and without the per-second suffix", () => {
+    for (const [input, expected] of cases) {
       assert.equal(formatBytes(input), expected);
-    });
-  }
-});
-
-describe("formatSpeed", () => {
-  it("appends the per-second suffix", () => {
-    assert.equal(formatSpeed(0), "0 B/s");
-    assert.equal(formatSpeed(1024), "1.0 KB/s");
-    assert.equal(formatSpeed(5.5 * 1024 ** 2), "5.5 MB/s");
+      assert.equal(formatSpeed(input), expected === "0 B" ? "0 B/s" : `${expected}/s`);
+    }
   });
 });
 
-describe("formatDuration", () => {
-  const cases: Array<[string | undefined, string]> = [
+describe("relative time formatting", () => {
+  const durations: Array<[string | undefined, string]> = [
     [undefined, "-"],
     ["", "-"],
     ["not-a-date", "-"],
@@ -75,15 +68,7 @@ describe("formatDuration", () => {
     [iso(NOW - (3 * 86_400 + 5 * 3600) * 1000), "3d 5h"],
     [iso(NOW + 60_000), "0s"],
   ];
-  for (const [input, expected] of cases) {
-    it(`formats ${input ?? "undefined"} as "${expected}"`, () => {
-      assert.equal(formatDuration(input), expected);
-    });
-  }
-});
-
-describe("formatAgo", () => {
-  const cases: Array<[string, string]> = [
+  const ago: Array<[string, string]> = [
     ["not-a-date", "-"],
     [iso(0), "-"],
     [iso(NOW), "just now"],
@@ -99,30 +84,24 @@ describe("formatAgo", () => {
     [iso(NOW - 364 * 86_400_000), "1 y ago"],
     [iso(NOW - 800 * 86_400_000), "2 y ago"],
   ];
-  for (const [input, expected] of cases) {
-    it(`formats ${input} as "${expected}"`, () => {
-      assert.equal(formatAgo(input), expected);
-    });
-  }
+  it("renders durations and relative timestamps", () => {
+    for (const [input, expected] of durations) assert.equal(formatDuration(input), expected);
+    for (const [input, expected] of ago) assert.equal(formatAgo(input), expected);
+  });
 });
 
-describe("formatTime", () => {
-  it("pads each clock component", () => {
+describe("clock formatting", () => {
+  it("pads each clock component and defaults to the current wall clock", () => {
     assert.equal(formatTime(new Date(2026, 0, 2, 3, 4, 5)), "03:04:05");
     assert.equal(formatTime(new Date(2026, 11, 31, 23, 59, 58)), "23:59:58");
-  });
-  it("defaults to the current wall clock", () => {
     assert.match(formatTime(), /^\d{2}:\d{2}:\d{2}$/);
   });
-});
 
-describe("formatDate", () => {
   it("formats epoch seconds as a padded local date", () => {
     const p = (n: number) => String(n).padStart(2, "0");
     for (const sec of [0, 1_000_000_000, 1_782_475_200]) {
       const d = new Date(sec * 1000);
       assert.equal(formatDate(sec), `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
-      assert.match(formatDate(sec), /^\d{4}-\d{2}-\d{2}$/);
     }
   });
 });
@@ -138,9 +117,7 @@ describe("delayLevel", () => {
     [800, "bad"],
     [5000, "bad"],
   ];
-  for (const [input, expected] of cases) {
-    it(`classifies ${input}ms as "${expected}"`, () => {
-      assert.equal(delayLevel(input), expected);
-    });
-  }
+  it("classifies measurements by threshold", () => {
+    for (const [input, expected] of cases) assert.equal(delayLevel(input), expected);
+  });
 });

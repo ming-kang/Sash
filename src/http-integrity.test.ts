@@ -36,7 +36,6 @@ it("authenticates the streamed SHA-256, removes mismatches and keeps archives pr
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    assert.equal(path.dirname(fs.realpathSync(root)), parent);
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

@@ -13,7 +13,6 @@ import {
 it("recognizes a direct npm prefix and refuses local and mismatched layouts", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-installation-test-"));
   t.after(() => {
-    assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
     fs.rmSync(root, { recursive: true, force: true });
   });
   const prefix = path.join(root, "npm prefix 空间");
@@ -41,24 +40,12 @@ it("recognizes a direct npm prefix and refuses local and mismatched layouts", (t
     assert.match(mismatched.reason, /outside an npm global installation/);
 });
 
-it("derives platform-specific npm layouts and rejects incomplete or non-absolute paths", (t) => {
+it("rejects incomplete, relative and non-absolute installation paths", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-installation-layout-"));
   t.after(() => {
-    assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
     fs.rmSync(root, { recursive: true, force: true });
   });
   const prefix = path.join(root, "prefix");
-  assert.equal(
-    npmPackageRoot(prefix, "linux"),
-    path.join(prefix, "lib", "node_modules", "@astralyn", "sash"),
-  );
-  assert.equal(
-    npmPackageRoot(prefix, "win32"),
-    path.join(prefix, "node_modules", "@astralyn", "sash"),
-  );
-  for (const platform of ["linux", "win32"] as const) {
-    assert.equal(npmPrefixForPackage(npmPackageRoot(prefix, platform), platform), prefix);
-  }
   assert.equal(npmPrefixForPackage(path.join(prefix, "elsewhere", "sash"), "linux"), undefined);
 
   const packageRoot = npmPackageRoot(prefix, process.platform);

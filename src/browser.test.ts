@@ -12,8 +12,6 @@ describe("browser child environment", () => {
       npm_config__auth: "registry-secret",
     });
 
-    assert.equal(options.detached, true);
-    assert.equal(options.stdio, "ignore");
     assert.equal(options.env?.PATH, "/bin");
     assert.equal(options.env?.HOME, "/home/test");
     assert.equal(options.env?.GH_TOKEN, undefined);

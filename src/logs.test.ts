@@ -141,7 +141,6 @@ describe("followLogFile", () => {
         output.mock.restore();
         if (previousHome === undefined) delete process.env.SASH_HOME;
         else process.env.SASH_HOME = previousHome;
-        assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
         await fs.promises.rm(root, { recursive: true, force: true });
       }
     });
@@ -194,7 +193,6 @@ describe("followLogFile", () => {
           true,
         );
       await closed;
-      assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
       await fs.promises.rm(root, { recursive: true, force: true });
     }
   });

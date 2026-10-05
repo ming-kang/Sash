@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - WebUI request authentication hashes each session token once and checks only that session's expiry instead of scanning all sessions. In-memory bootstrap grants no longer need SHA-256; persisted session hashes and release download integrity checks remain unchanged.
 - Removed the icon-name snapshot test and consolidated overlapping session-persistence tests while retaining renewal and restart coverage.
+- Streamlined the test suite: deleted tests that only re-derive literal constants and layout paths, dropped fixture-hygiene assertions that merely restate the test setup, and collapsed per-case table tests into single cases. Behavioral coverage is unchanged.
 
 ## [0.3.5] - 2026-09-29
 

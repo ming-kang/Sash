@@ -130,7 +130,6 @@ describe("profile and runtime CLI controls", () => {
     release();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    assert.equal(path.dirname(fs.realpathSync(root)), parent);
     await fs.promises.rm(root, { recursive: true, force: true });
   });
 

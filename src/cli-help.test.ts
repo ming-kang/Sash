@@ -9,7 +9,6 @@ it("documents every command without starting Sash or initializing application st
   const parent = fs.realpathSync(os.tmpdir());
   const root = fs.mkdtempSync(path.join(parent, "sash-help-copy-"));
   t.after(() => {
-    assert.equal(path.dirname(fs.realpathSync(root)), parent);
     fs.rmSync(root, { recursive: true, force: true });
   });
   const commands = [

@@ -15,10 +15,6 @@ it("requires a nonempty regular Core file", () => {
     assert.throws(() => assertCoreBinaryFile(file), /nonempty/);
     assert.throws(() => assertCoreBinaryFile(root), /regular file/);
   } finally {
-    assert.equal(
-      path.dirname(fs.realpathSync.native(root)).toLowerCase(),
-      fs.realpathSync.native(os.tmpdir()).toLowerCase(),
-    );
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

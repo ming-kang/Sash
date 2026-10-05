@@ -46,14 +46,9 @@ describe("MihomoApi", () => {
     }
   });
 
-  it("normalizes controller URL without protocol", () => {
-    const api = new MihomoApi("127.0.0.1:9090", "secret");
-    assert.equal(api.baseUrl, "http://127.0.0.1:9090");
-  });
-
-  it("falls back to default controller if empty", () => {
-    const api = new MihomoApi("", "");
-    assert.equal(api.baseUrl, "http://127.0.0.1:9090");
+  it("normalizes controller URLs and falls back to the default controller", () => {
+    for (const input of ["127.0.0.1:9090", ""])
+      assert.equal(new MihomoApi(input, "secret").baseUrl, "http://127.0.0.1:9090");
   });
 
   it("rejects non-loopback controllers before sending credentials", () => {

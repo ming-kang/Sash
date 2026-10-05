@@ -23,7 +23,6 @@ function tempRoot(t: TestContext, label: string): string {
   const parent = fs.realpathSync(os.tmpdir());
   const root = fs.mkdtempSync(path.join(parent, label));
   t.after(() => {
-    assert.equal(path.dirname(fs.realpathSync(root)), parent);
     fs.rmSync(root, { recursive: true, force: true });
   });
   return root;
