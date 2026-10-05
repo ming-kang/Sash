@@ -75,28 +75,7 @@ describe("WebAuthManager", () => {
     assert.equal(new WebAuthManager(file).isSession(session, now), false);
   });
 
-  it("persists a session once its deadline slides past half the lifetime", (t) => {
-    const parent = fs.realpathSync(os.tmpdir());
-    const file = tempSessionsFile(parent, "sash-web-auth-persist-");
-    t.after(() => {
-      assert.equal(path.dirname(path.dirname(fs.realpathSync(file))), parent);
-      fs.rmSync(path.dirname(fs.realpathSync(file)), { recursive: true, force: true });
-    });
-    const now = Date.now();
-    const auth = new WebAuthManager(file);
-    const session = auth.redeemBootstrap(auth.createBootstrap(now).token, now);
-    assert.ok(session);
-    assert.equal(readSeeds(file)[0]?.expiresAt, now + WEB_SESSION_TTL_MS);
-
-    assert.equal(auth.isSession(session, now + WEB_SESSION_TTL_MS / 3), true);
-    assert.equal(readSeeds(file)[0]?.expiresAt, now + WEB_SESSION_TTL_MS);
-
-    const late = now + WEB_SESSION_TTL_MS * 0.9;
-    assert.equal(auth.isSession(session, late), true);
-    assert.equal(readSeeds(file)[0]?.expiresAt, late + WEB_SESSION_TTL_MS);
-  });
-
-  it("persists frequent activity across more than one original session lifetime", (t) => {
+  it("batches renewal writes and persists activity beyond the original lifetime", (t) => {
     const parent = fs.realpathSync(os.tmpdir());
     const file = tempSessionsFile(parent, "sash-web-auth-active-");
     t.after(() => {
@@ -107,8 +86,13 @@ describe("WebAuthManager", () => {
     const auth = new WebAuthManager(file);
     const token = auth.redeemBootstrap(auth.createBootstrap(start).token, start);
     assert.ok(token);
-    for (let hour = 1; hour <= 13; hour++)
+    for (let hour = 1; hour <= 13; hour++) {
       assert.equal(auth.isSession(token, start + hour * 3_600_000), true);
+      assert.equal(
+        readSeeds(file)[0]?.expiresAt,
+        start + WEB_SESSION_TTL_MS + (hour >= 7 ? 7 * 3_600_000 : 0),
+      );
+    }
     t.mock.method(Date, "now", () => start + 13 * 3_600_000);
     assert.equal(new WebAuthManager(file).isSession(token), true);
   });

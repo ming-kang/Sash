@@ -33,7 +33,7 @@ function parseWebSessionSeeds(value: unknown): WebSessionSeed[] {
 }
 
 function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
+  return crypto.hash("sha256", token);
 }
 
 /** In-memory credentials; session hashes persist only to survive a daemon restart. */
@@ -78,26 +78,31 @@ export class WebAuthManager {
     }
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAtMs = now + WEB_BOOTSTRAP_TTL_MS;
-    this.pendingBootstraps.set(hashToken(token), expiresAtMs);
+    this.pendingBootstraps.set(token, expiresAtMs);
     return { token, expiresAt: new Date(expiresAtMs).toISOString() };
   }
 
   redeemBootstrap(token: string, now = Date.now()): string | null {
     this.sweepExpired(now);
     if (!token) return null;
-    const key = hashToken(token);
-    const expiresAt = this.pendingBootstraps.get(key);
+    const expiresAt = this.pendingBootstraps.get(token);
     if (expiresAt === undefined || expiresAt <= now) return null;
-    this.pendingBootstraps.delete(key);
+    this.pendingBootstraps.delete(token);
     const session = crypto.randomBytes(32).toString("hex");
-    this.adoptSession(session, now);
+    this.adoptSession(hashToken(session), now);
     return session;
   }
 
   isSession(token: string, now = Date.now()): boolean {
-    this.sweepExpired(now);
-    if (!token || !this.sessions.has(hashToken(token))) return false;
-    this.adoptSession(token, now);
+    if (!token) return false;
+    const hash = hashToken(token);
+    const expiresAt = this.sessions.get(hash);
+    if (expiresAt === undefined) return false;
+    if (expiresAt <= now) {
+      this.sessions.delete(hash);
+      return false;
+    }
+    this.adoptSession(hash, now);
     return true;
   }
 
@@ -111,8 +116,7 @@ export class WebAuthManager {
     this.sessions.set(hash, expiresAt);
   }
 
-  private adoptSession(token: string, now: number): void {
-    const hash = hashToken(token);
+  private adoptSession(hash: string, now: number): void {
     const stored = this.persistedSessions.get(hash);
     const expiresAt = now + WEB_SESSION_TTL_MS;
     this.setSession(hash, expiresAt);
