@@ -149,6 +149,29 @@ async function exercise(fixture, label) {
   );
   assert.notEqual(await chart.getAttribute("d"), flat, "reconnect preserves the prior peak");
 
+  const beforeBackground = await chart.getAttribute("d");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(50);
+  reconnected.send(JSON.stringify({ up: 800, down: 7000 }));
+  await page.waitForFunction(
+    (before) =>
+      document
+        .querySelector(".traffic-chart path[stroke='var(--chart-down)']")
+        .getAttribute("d") !== before,
+    beforeBackground,
+  );
+  const backgroundHistory = await chart.getAttribute("d");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(50);
+  assert.equal(fixture.trafficSockets.at(-1), reconnected, "visibility keeps the traffic socket");
+  assert.equal(await chart.getAttribute("d"), backgroundHistory, "visibility preserves the chart");
+
   await go("Connections");
   await page.locator(".connection-row").first().waitFor();
   const minimumContrast = await checkContrast(page);

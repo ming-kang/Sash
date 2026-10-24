@@ -276,7 +276,7 @@ async function selectNode(group: string, name: string): Promise<void> {
   min-height: 82px;
   align-items: center;
   gap: 13px;
-  padding: 13px 15px 13px 20px;
+  padding: 13px 15px 13px 24px;
   overflow: hidden;
   background: var(--selection-soft);
   border: 1px solid var(--selection-border);
@@ -284,12 +284,13 @@ async function selectNode(group: string, name: string): Promise<void> {
 }
 .direct-indicator {
   position: absolute;
-  top: 5px;
-  bottom: 5px;
-  left: 0;
-  width: 5px;
-  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  top: 50%;
+  left: 9px;
+  width: 2px;
+  height: 32px;
+  border-radius: var(--radius-full);
   background: var(--selection);
+  transform: translateY(-50%);
 }
 .direct-copy {
   display: flex;
@@ -308,9 +309,12 @@ async function selectNode(group: string, name: string): Promise<void> {
   font-size: 14px;
 }
 .direct-current {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg-card) 52%, transparent);
   color: var(--selection);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 650;
 }
 .direct-hint {
   margin-top: 10px;

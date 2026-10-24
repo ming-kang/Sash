@@ -16,6 +16,7 @@ The Vue 3 / Vite dashboard lives in `web/src/`, builds to `dist/ui/` and is serv
 | [profile-actions.ts](../web/src/stores/profile-actions.ts) | Save profiles and refresh metadata |
 | [core-actions.ts](../web/src/stores/core-actions.ts) | Load Core resources and control mode, nodes and connections |
 | [runtime-events.ts](../web/src/stores/runtime-events.ts) | Subscribe to status and schedule resource refreshes |
+| [traffic-events.ts](../web/src/stores/traffic-events.ts) | Own the runtime-scoped traffic WebSocket |
 | [telemetry.ts](../web/src/stores/telemetry.ts) | Keep traffic history and bounded log batches |
 | [api/](../web/src/api/) | Authorize the tab and transport requests and streams |
 
@@ -35,7 +36,7 @@ Sash status arrives through authenticated SSE at `/sash/events`; a connection st
 | Profiles / Settings | Saved metadata; no periodic Core table reads |
 | Logs | Log stream while visible |
 
-Page entry loads the relevant resources immediately. Saving a profile refreshes metadata and applies it to the running Core; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket for visible consumers; traffic and log streams pause when hidden or when the session/Core is unavailable.
+Page entry loads the relevant resources immediately. Saving a profile refreshes metadata and applies it to the running Core; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket scoped to the authorized, healthy Core runtime and keeps appending history while the tab is hidden. Logs still pause when hidden; both streams stop when the session or Core is unavailable. A traffic disconnect clears the displayed rate without immediately erasing recent history.
 
 Unchanged proxy data retains its references. Lists use memoization, pagination or content visibility where useful. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand.
 

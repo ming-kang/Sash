@@ -66,12 +66,11 @@ import { t } from "./i18n/index.js";
 import { currentRoute } from "./router.js";
 import {
   addLog,
-  addTraffic,
   coreSnapshotError,
   isCoreReady,
-  resetTraffic,
   runtimeNotice,
   startRuntimeEvents,
+  startTrafficEvents,
   store,
 } from "./stores/index.js";
 import OverviewView from "./views/OverviewView.vue";
@@ -88,9 +87,8 @@ const RulesView = asyncView(() => import("./views/RulesView.vue"));
 const SettingsView = asyncView(() => import("./views/SettingsView.vue"));
 
 let stopRuntime: (() => void) | null = null;
-let unsubTraffic: (() => void) | null = null;
+let stopTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
-let trafficGapTimer: number | null = null;
 const visible = ref(!document.hidden);
 const pageContainer = ref<HTMLElement | null>(null);
 const updateVisibility = () => { visible.value = !document.hidden; };
@@ -118,43 +116,10 @@ function handleScrollCapture(event: Event): void {
   );
 }
 
-function stopStreams(): void {
-  unsubTraffic?.();
+function stopLogs(): void {
   unsubLogs?.();
-  unsubTraffic = null;
   unsubLogs = null;
-  if (trafficGapTimer !== null) window.clearTimeout(trafficGapTimer);
-  trafficGapTimer = null;
-  resetTraffic();
 }
-
-watch(
-  () =>
-    visible.value && store.daemonOnline && isCoreReady.value && sessionReady.value
-      ? store.runtimeGeneration
-      : null,
-  (generation) => {
-    stopStreams();
-    if (generation === null) return;
-    unsubTraffic = api.connectTraffic(
-      (message) => {
-        if (generation !== store.runtimeGeneration) return;
-        if (trafficGapTimer !== null) window.clearTimeout(trafficGapTimer);
-        trafficGapTimer = null;
-        addTraffic(message, generation);
-      },
-      () => {
-        if (generation !== store.runtimeGeneration || trafficGapTimer !== null) return;
-        // Keep one reconnect interval of history, but never display a stale rate.
-        store.traffic = { ...store.traffic, up: 0, down: 0 };
-        trafficGapTimer = window.setTimeout(() => {
-          trafficGapTimer = null;
-          if (generation === store.runtimeGeneration) resetTraffic();
-        }, 5000);
-      },
-    );
-  },
-);
 
 watch(
   () =>
@@ -174,6 +139,7 @@ watch(
 
 onMounted(() => {
   document.addEventListener("visibilitychange", updateVisibility);
+  stopTraffic = startTrafficEvents();
   stopRuntime = startRuntimeEvents();
   window.addEventListener("scroll", handleScrollCapture, { capture: true, passive: true });
 });
@@ -181,7 +147,8 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener("visibilitychange", updateVisibility);
   stopRuntime?.();
-  stopStreams();
+  stopTraffic?.();
+  stopLogs();
   window.removeEventListener("scroll", handleScrollCapture, { capture: true });
 });
 </script>

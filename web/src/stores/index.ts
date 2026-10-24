@@ -47,3 +47,4 @@ export {
 } from "./state.js";
 export { addLog, addTraffic, clearLogs, flushLogs } from "./telemetry.js";
 export { dismissToast, pushToast, toast } from "./toast.js";
+export { startTrafficEvents } from "./traffic-events.js";

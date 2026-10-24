@@ -237,7 +237,7 @@ const visibleMembers = computed(() => {
 .pgroup-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 .node-card {
   content-visibility: auto;
@@ -262,6 +262,7 @@ const visibleMembers = computed(() => {
 .node-card:hover {
   border-color: var(--border-strong);
   background: var(--bg-hover);
+  box-shadow: var(--shadow-card-hover);
 }
 .node-card.selected,
 .node-card.selected:hover {

@@ -176,9 +176,11 @@ const usagePct = computed(() => {
 }
 .profile-card::before {
   position: absolute;
-  inset: 12px auto 12px 0;
-  width: 3px;
-  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  top: 19px;
+  left: 7px;
+  width: 2px;
+  height: 26px;
+  border-radius: var(--radius-full);
   content: "";
   background: var(--selection);
   opacity: 0;
@@ -187,11 +189,11 @@ const usagePct = computed(() => {
 }
 .profile-card:hover {
   border-color: var(--border-strong);
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-card-hover);
 }
 .profile-card.active {
   cursor: default;
-  background: var(--bg-card);
+  background: color-mix(in srgb, var(--selection-soft) 38%, var(--bg-card));
   border-color: var(--selection-border);
 }
 .profile-card.active::before {

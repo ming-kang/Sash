@@ -82,7 +82,7 @@
       <TrafficChart
         :down="store.traffic.historyDown"
         :up="store.traffic.historyUp"
-        :height="86"
+        :height="104"
         :label="t('overview.trafficTitle')"
       />
       <div class="traffic-totals">
@@ -153,7 +153,7 @@ async function refreshActiveProfile(): Promise<void> {
   box-shadow: var(--shadow-card);
 }
 .traffic-compact {
-  padding: 16px;
+  padding: 18px;
 }
 .pane-section-heading {
   display: flex;
@@ -254,31 +254,55 @@ async function refreshActiveProfile(): Promise<void> {
   flex-shrink: 0;
   gap: 6px;
   color: var(--success);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.live-state .dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: 0 0 0 3px var(--success-soft);
 }
 .traffic-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: 16px;
+  margin: 2px 0 8px;
 }
 .traffic-metric {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 3px;
-  padding: 8px 10px;
-  background: var(--bg-inset);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  padding: 4px 0 8px;
   color: var(--text-muted);
   font-size: 12px;
 }
+.traffic-metric + .traffic-metric {
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+.traffic-metric > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.traffic-metric > span::before {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--chart-down);
+  content: "";
+}
+.traffic-metric + .traffic-metric > span::before {
+  background: var(--chart-up);
+}
 .traffic-metric strong {
   overflow: hidden;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
+  letter-spacing: -0.025em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -293,9 +317,9 @@ async function refreshActiveProfile(): Promise<void> {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 3px 10px;
-  margin-top: 5px;
+  margin-top: 8px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 .traffic-totals strong {
   color: var(--text-secondary);

@@ -81,34 +81,27 @@ function iconFor(kind: ToastItem["kind"]): string {
   color: var(--text-primary);
   font-size: 14px;
 }
-.toast::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--info);
-  content: "";
-}
-.toast-success::before {
-  background: var(--success);
-}
-.toast-warning::before {
-  background: var(--warning);
-}
-.toast-error::before {
-  background: var(--danger);
-}
 .toast-icon {
   display: flex;
-  margin-top: 1px;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  margin-top: -3px;
   flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--info-soft);
 }
 .toast-success .toast-icon {
+  background: var(--success-soft);
   color: var(--success);
 }
 .toast-warning .toast-icon {
+  background: var(--warning-soft);
   color: var(--warning);
 }
 .toast-error .toast-icon {
+  background: var(--danger-soft);
   color: var(--danger);
 }
 .toast-info .toast-icon {
@@ -151,6 +144,7 @@ function iconFor(kind: ToastItem["kind"]): string {
   left: 0;
   height: 2px;
   background: var(--info);
+  opacity: 0.55;
   animation-name: toast-progress;
   animation-timing-function: linear;
   animation-fill-mode: forwards;

@@ -9,11 +9,11 @@
   >
     <defs>
       <linearGradient :id="downGradientId" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="var(--chart-down)" stop-opacity="0.12" />
+        <stop offset="0%" stop-color="var(--chart-down)" stop-opacity="0.2" />
         <stop offset="100%" stop-color="var(--chart-down)" stop-opacity="0" />
       </linearGradient>
       <linearGradient :id="upGradientId" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="var(--chart-up)" stop-opacity="0.1" />
+        <stop offset="0%" stop-color="var(--chart-up)" stop-opacity="0.16" />
         <stop offset="100%" stop-color="var(--chart-up)" stop-opacity="0" />
       </linearGradient>
     </defs>
@@ -36,16 +36,18 @@
       :d="downLinePath"
       fill="none"
       stroke="var(--chart-down)"
-      stroke-width="1.6"
+      stroke-width="1.8"
       stroke-linecap="round"
+      stroke-linejoin="round"
       vector-effect="non-scaling-stroke"
     />
     <path
       :d="upLinePath"
       fill="none"
       stroke="var(--chart-up)"
-      stroke-width="1.6"
+      stroke-width="1.8"
       stroke-linecap="round"
+      stroke-linejoin="round"
       vector-effect="non-scaling-stroke"
     />
   </svg>

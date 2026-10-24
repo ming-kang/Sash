@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-10-24
+
+### Changed
+
+- Refined the WebUI with a quieter ink-and-teal palette, warmer neutral surfaces, softer layered card shadows, more consistent corner radii, and subtler selection and toast indicators. Overview traffic metrics and charts now have a clearer visual hierarchy. Dark mode uses softer mid-tone slate surfaces rather than near-black backgrounds.
+
+### Fixed
+
+- Overview traffic history now continues across browser tab and app focus changes. The traffic stream follows the Core runtime rather than page visibility, so returning to Sash no longer disconnects the stream or restarts the chart.
+
 ## [0.3.6] - 2026-10-24
 
 ### Changed
