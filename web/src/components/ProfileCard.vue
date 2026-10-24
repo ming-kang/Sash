@@ -24,6 +24,9 @@
     >
       <div class="profile-name-row">
         <span class="profile-name" :title="profile.name">{{ profile.name }}</span>
+        <span v-if="isActive" class="badge badge-success profile-active">
+          {{ t('profiles.active') }}
+        </span>
       </div>
       <div class="profile-source" :title="`${sourceLabel} · ${updatedLabel}`">
         {{ sourceLabel }} · {{ updatedLabel }}
@@ -53,7 +56,7 @@
         <span class="profile-error-text">{{ profile.lastError }}</span>
       </div>
     </div>
-    <div class="profile-actions">
+    <div class="profile-actions" @click="emit('select', profile)">
       <button
         type="button"
         class="icon-btn"
@@ -62,7 +65,7 @@
         :disabled="isBusy"
         @click.stop="emit('rename', profile)"
       >
-        <Icon name="pencil" :size="14" />
+        <Icon name="pencil" :size="15" />
       </button>
       <button
         type="button"
@@ -72,7 +75,7 @@
         :disabled="isBusy"
         @click.stop="emit('edit', profile)"
       >
-        <Icon name="code" :size="14" />
+        <Icon name="code" :size="15" />
       </button>
       <button
         v-if="profile.url"
@@ -83,7 +86,7 @@
         :disabled="isBusy || isUpdating"
         @click.stop="emit('update', profile)"
       >
-        <Icon name="refresh" :size="14" :class="{ spin: isUpdating }" />
+        <Icon name="refresh" :size="15" :class="{ spin: isUpdating }" />
       </button>
       <button
         type="button"
@@ -93,7 +96,7 @@
         :disabled="isBusy"
         @click.stop="emit('remove', profile)"
       >
-        <Icon name="trash" :size="14" />
+        <Icon name="trash" :size="15" />
       </button>
     </div>
   </article>
@@ -101,10 +104,10 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import Icon from "./Icon.vue";
 import { t } from "../i18n/index.js";
 import type { ProfileMeta } from "../types/index.js";
 import { formatAgo, formatBytes, formatDate } from "../utils/format.js";
+import Icon from "./Icon.vue";
 
 const props = defineProps<{
   profile: ProfileMeta;
@@ -158,51 +161,57 @@ const usagePct = computed(() => {
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 72px;
+  min-height: 126px;
+  flex-direction: column;
   overflow: hidden;
   cursor: pointer;
-  background: var(--bg-panel);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   transition:
     background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard);
+    border-color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
 }
 .profile-card::before {
   position: absolute;
-  inset: 2px auto 2px 0;
-  width: 4px;
+  inset: 12px auto 12px 0;
+  width: 3px;
   border-radius: 0 var(--radius-full) var(--radius-full) 0;
   content: "";
-  background: var(--border-strong);
+  background: var(--selection);
+  opacity: 0;
   pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease-standard);
 }
 .profile-card:hover {
-  background: var(--bg-hover);
-  border-color: var(--border);
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
 }
 .profile-card.active {
   cursor: default;
-  background: var(--bg-panel);
-  border-color: transparent;
+  background: var(--bg-card);
+  border-color: var(--selection-border);
 }
 .profile-card.active::before {
-  background: var(--selection);
+  opacity: 1;
 }
 .profile-card.busy {
   cursor: wait;
 }
 .profile-card-main {
-  flex: 1;
+  width: 100%;
   min-width: 0;
-  padding: 10px 8px 10px 15px;
-  border-radius: var(--radius-sm);
+  flex: 1;
+  padding: 15px 16px 14px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   outline: none;
   user-select: none;
   -webkit-touch-callout: none;
 }
 .profile-card-main:focus-visible {
-  box-shadow: inset 0 0 0 3px var(--accent-ring);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .profile-card.profile-chosen {
   border-color: var(--accent);
@@ -213,51 +222,56 @@ const usagePct = computed(() => {
 }
 .profile-card.profile-drag-ghost {
   box-shadow: var(--shadow-pop);
-  opacity: 0.95 !important;
+  opacity: 0.96 !important;
   pointer-events: none;
   cursor: grabbing;
 }
 .profile-name-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
   min-width: 0;
-  margin-right: 140px;
+  min-height: 23px;
+  align-items: center;
+  gap: 10px;
 }
 .profile-name {
+  min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.profile-active {
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .profile-source {
-  margin-top: 4px;
+  margin-top: 5px;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .profile-usage {
-  margin-top: 7px;
+  margin-top: 13px;
 }
 .usage-nums {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 12px;
 }
 .usage-expire {
   color: var(--text-muted);
 }
 .usage-bar {
-  height: 4px;
-  margin-top: 6px;
+  height: 5px;
+  margin-top: 7px;
   overflow: hidden;
-  background: var(--border);
+  background: var(--bg-inset);
   border-radius: var(--radius-full);
 }
 .usage-fill {
@@ -274,9 +288,9 @@ const usagePct = computed(() => {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  margin-top: 10px;
+  margin-top: 12px;
   color: var(--danger);
-  font-size: 14px;
+  font-size: 12px;
 }
 .profile-error-text {
   overflow: hidden;
@@ -284,16 +298,20 @@ const usagePct = computed(() => {
   white-space: nowrap;
 }
 .profile-actions {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   display: flex;
+  min-height: 43px;
+  align-items: center;
   flex-shrink: 0;
+  justify-content: flex-end;
   gap: 3px;
+  margin-top: auto;
+  padding: 5px 9px;
+  background: var(--bg-inset);
+  border-top: 1px solid var(--border);
 }
 .profile-actions .icon-btn {
-  width: 31px;
-  height: 31px;
+  width: 32px;
+  height: 32px;
 }
 .danger-hover:hover:not(:disabled) {
   color: var(--danger);
@@ -304,29 +322,26 @@ const usagePct = computed(() => {
 }
 
 @media (max-width: 760px) {
-  .profile-name-row {
-    margin-right: 172px;
-  }
   .profile-actions .icon-btn {
     width: 40px;
     height: 40px;
+  }
+  .profile-actions {
+    min-height: 51px;
   }
 }
 
 @media (max-width: 480px) {
   .profile-card-main {
-    padding: 14px 8px 14px 15px;
-  }
-  .profile-name-row {
-    margin-right: 164px;
+    padding: 15px 14px 13px;
   }
   .usage-nums {
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
   }
   .profile-actions .icon-btn {
-    width: 38px;
-    height: 38px;
+    width: 40px;
+    height: 40px;
   }
 }
 </style>

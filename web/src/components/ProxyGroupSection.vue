@@ -7,9 +7,14 @@
         :aria-expanded="!collapsed"
         @click="emit('toggle-collapse')"
       >
+        <Icon
+          name="chevron-down"
+          :size="16"
+          class="pgroup-chevron"
+          :class="{ collapsed }"
+        />
         <span class="pgroup-name">{{ group }}</span>
         <span class="pgroup-type">{{ typeBadge }}</span>
-        <span class="pgroup-now" :title="current">{{ current }}</span>
       </button>
       <button
         type="button"
@@ -44,16 +49,6 @@
       >
         <Icon :name="testing ? 'loader' : 'zap'" :size="15" :class="{ spin: testing }" />
       </button>
-      <button
-        type="button"
-        class="icon-btn group-action"
-        :title="t('proxies.toggleGroup')"
-        :aria-label="`${t('proxies.toggleGroup')}: ${group}`"
-        :aria-expanded="!collapsed"
-        @click.stop="emit('toggle-collapse')"
-      >
-        <Icon :name="collapsed ? 'eye-off' : 'eye'" :size="15" />
-      </button>
     </div>
     <div v-if="!collapsed" class="pgroup-grid">
       <article
@@ -73,6 +68,7 @@
         >
           <div class="node-top">
             <span class="node-name" :title="member.name">{{ member.name }}</span>
+            <Icon v-if="member.selected" name="check-circle" :size="14" class="node-selected" />
             <Icon v-if="member.pending" name="loader" :size="12" class="spin node-pending" />
           </div>
           <div class="node-sub">
@@ -129,7 +125,7 @@ const emit = defineEmits<{
 
 const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
 const current = computed(() => store.proxies[props.group]?.now ?? "");
-const typeBadge = computed(() => (store.proxies[props.group]?.type ?? "S").charAt(0));
+const typeBadge = computed(() => store.proxies[props.group]?.type ?? "Selector");
 const sortByLatency = ref(false);
 const hasDelays = computed(() => props.members.some((name) => proxyDelay(name) !== undefined));
 
@@ -164,53 +160,62 @@ const visibleMembers = computed(() => {
 }
 .pgroup-head {
   display: flex;
-  min-height: 36px;
+  min-height: 38px;
   align-items: center;
-  gap: 9px;
+  gap: 4px;
   min-width: 0;
-  margin-bottom: 7px;
+  margin-bottom: 9px;
   user-select: none;
 }
 .pgroup-toggle {
   display: flex;
   min-width: 0;
+  min-height: 34px;
   flex: 1;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
+  margin-left: -5px;
+  padding: 0 6px;
   border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+.pgroup-toggle:hover {
+  background: var(--bg-hover);
+}
+.pgroup-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--motion-normal) var(--ease-standard);
+}
+.pgroup-chevron.collapsed {
+  transform: rotate(-90deg);
 }
 .pgroup-name {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 20px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pgroup-type {
   display: inline-flex;
-  width: 18px;
-  height: 18px;
+  min-height: 20px;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border-radius: var(--radius-xs);
-  background: var(--selection);
-  color: var(--text-inverse);
-  font-size: 12px;
-  font-weight: 650;
-}
-.pgroup-now {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 .group-test {
   color: var(--text-secondary);
@@ -231,8 +236,8 @@ const visibleMembers = computed(() => {
 
 .pgroup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-  gap: 8px 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 10px;
 }
 .node-card {
   content-visibility: auto;
@@ -241,46 +246,35 @@ const visibleMembers = computed(() => {
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 58px;
+  min-height: 64px;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
   color: inherit;
   transition:
     background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard);
-}
-.node-card::before {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: 0;
-  width: 4px;
-  border-radius: 0 var(--radius-full) var(--radius-full) 0;
-  background: var(--border-strong);
-  content: "";
-  transition: background var(--motion-fast) var(--ease-standard);
+    border-color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
 }
 .node-card:hover {
-  border-color: transparent;
+  border-color: var(--border-strong);
   background: var(--bg-hover);
 }
-.node-card.selected {
-  border-color: transparent;
-  background: var(--bg-panel);
-}
-.node-card.selected::before {
-  background: var(--selection);
+.node-card.selected,
+.node-card.selected:hover {
+  border-color: var(--selection-border);
+  background: var(--selection-soft);
 }
 .node-main {
   display: flex;
   min-width: 0;
-  min-height: 56px;
+  min-height: 62px;
   flex-direction: column;
   justify-content: space-between;
-  padding: 8px 12px 4px 14px;
+  padding: 10px 12px 5px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -309,38 +303,44 @@ const visibleMembers = computed(() => {
   flex-shrink: 0;
   color: var(--accent);
 }
+.node-selected {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--selection);
+}
 .node-name {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 550;
   line-height: 1.4;
   white-space: normal;
 }
 .node-delay {
   position: absolute;
-  right: 12px;
-  bottom: 4px;
+  right: 9px;
+  bottom: 5px;
   display: inline-flex;
-  min-width: 62px;
-  min-height: 30px;
+  min-width: 60px;
+  min-height: 28px;
   align-items: center;
   justify-content: flex-end;
   align-self: center;
   gap: 4px;
-  padding: 5px 0 5px 8px;
+  padding: 4px 6px;
   border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 550;
   line-height: 1;
   cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
 }
 .node-delay:hover:not(:disabled) {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  background: var(--bg-inset);
 }
 .node-delay.testing {
   justify-content: center;
@@ -370,11 +370,11 @@ const visibleMembers = computed(() => {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  min-height: 30px;
-  margin-top: 2px;
-  padding-right: 78px;
+  min-height: 28px;
+  margin-top: 3px;
+  padding-right: 70px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 .node-meta {
   min-width: 0;
@@ -405,13 +405,14 @@ const visibleMembers = computed(() => {
 }
 
 @media (max-width: 760px) {
+  .group-action,
   .group-test,
   .node-delay {
     min-width: 40px;
     min-height: 40px;
   }
   .pgroup-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   }
   .node-sub {
     min-height: 40px;
@@ -422,10 +423,7 @@ const visibleMembers = computed(() => {
   .pgroup {
     margin-bottom: 25px;
   }
-  .pgroup-name {
-    font-size: 20px;
-  }
-  .pgroup-now {
+  .pgroup-type {
     display: none;
   }
   .pgroup-grid {

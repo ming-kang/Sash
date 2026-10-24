@@ -69,8 +69,8 @@ export function useProfileOrder(
       if (!element) return;
       sortable = new Sortable(element, {
         draggable: ".profile-card",
-        handle: ".profile-card-main",
-        filter: ".profile-actions",
+        handle: ".profile-card",
+        filter: ".profile-actions button",
         preventOnFilter: false,
         disabled: disabled.value || saving.value,
         delay: 400,

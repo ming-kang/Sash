@@ -3,6 +3,7 @@ export const zh = {
     coreRunning: "核心运行中",
     coreStopped: "核心已停止",
     navigation: "主导航",
+    tagline: "开发者网络工具箱",
   },
   nav: {
     overview: "概览",
@@ -14,14 +15,13 @@ export const zh = {
   },
   page: {
     overview: { title: "概览", desc: "实时流量、出站模式与核心状态" },
+    profiles: { title: "配置", desc: "管理订阅与本地配置，选择后立即应用" },
     logs: { title: "日志" },
     connections: { title: "连接" },
     rules: { title: "规则", desc: "当前生效的分流规则" },
     settings: { title: "设置", desc: "界面、网络监听与核心控制" },
   },
   common: {
-    on: "开",
-    off: "关",
     save: "保存",
     cancel: "取消",
     confirm: "确认",
@@ -102,7 +102,6 @@ export const zh = {
     currentTag: "当前",
     filter: "过滤节点…",
     hideTimeout: "显示/隐藏超时节点",
-    toggleGroup: "展开/折叠策略组",
     directHint: "当前为直连模式，所有流量不经过代理节点",
     coreStopped: "核心未在运行",
     coreStoppedHint: "启动核心后，这里会显示策略组和节点",
@@ -153,6 +152,7 @@ export const zh = {
     modeLabel: "出站模式：{mode}",
   },
   profiles: {
+    active: "当前使用",
     downloadPlaceholder: "粘贴或输入订阅地址",
     invalidUrl: "请输入 http(s) 订阅地址",
     download: "下载",
@@ -173,7 +173,6 @@ export const zh = {
     localFile: "本地文件",
     neverUpdated: "从未更新",
     usageLabel: "订阅流量用量",
-    statGroups: "策略组",
     loading: "正在加载配置…",
     emptyTitle: "暂无配置",
     emptyHint: "从 URL 下载订阅，或导入本地 YAML 文件",

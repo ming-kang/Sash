@@ -19,7 +19,7 @@
 
       <button
         type="button"
-        class="btn btn-sm log-clear"
+        class="btn btn-sm btn-secondary log-clear"
         :disabled="store.logs.length === 0"
         @click="clearLogs"
       >
@@ -27,10 +27,12 @@
       </button>
       <button
         type="button"
-        class="btn btn-sm log-pause"
+        class="btn btn-sm btn-secondary log-pause"
+        :class="{ active: paused }"
         :aria-pressed="paused"
         @click="togglePaused"
       >
+        <Icon :name="paused ? 'play' : 'pause'" :size="13" />
         {{ paused ? t('logs.resume') : t('logs.pause') }}
       </button>
     </PageHeader>
@@ -153,21 +155,15 @@ onBeforeUnmount(() => {
   min-height: 34px;
   flex-shrink: 0;
 }
-.log-clear {
-  min-width: 70px;
-  background: var(--success);
-  color: var(--text-inverse);
-}
-.log-clear:hover:not(:disabled) {
-  background: var(--success-strong);
-}
+.log-clear,
 .log-pause {
   min-width: 70px;
-  background: var(--danger);
-  color: var(--text-inverse);
 }
-.log-pause:hover:not(:disabled) {
-  background: var(--danger-hover);
+.log-pause.active,
+.log-pause.active:hover:not(:disabled) {
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
+  color: var(--warning);
 }
 .log-pane {
   min-width: 0;
@@ -175,16 +171,21 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   contain: layout paint;
-  background: var(--bg-app);
-  font-size: 16px;
+  background: var(--bg-card);
+  font-size: 14px;
 }
 .log-pane:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 .log-empty {
-  padding: 14px 20px;
-  font-size: 16px;
+  display: flex;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  font-size: 14px;
+  text-align: center;
 }
 .log-line {
   display: grid;
@@ -212,25 +213,37 @@ onBeforeUnmount(() => {
 .log-payload {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-family: var(--font-sans);
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
 }
-.lv-info {
+.lv-info .log-icon {
   color: var(--success);
 }
-.lv-warning {
+.lv-warning .log-icon,
+.lv-warning .log-payload {
   color: var(--warning);
 }
-.lv-error {
+.lv-error .log-icon,
+.lv-error .log-payload {
   color: var(--danger);
 }
-.lv-debug {
+.lv-debug .log-icon,
+.lv-debug .log-payload {
   color: var(--log-debug);
 }
 
 @media (max-width: 899px) {
   .logs-view {
-    height: calc(100dvh - 40px - 62px - env(safe-area-inset-bottom, 0px) - 8px);
+    height: calc(100dvh - 210px - env(safe-area-inset-bottom, 0px));
+    min-height: 320px;
+  }
+  .logs-search,
+  .level-select,
+  .log-clear,
+  .log-pause {
+    min-height: 40px;
   }
 }
 
@@ -241,6 +254,12 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 480px) {
+  .logs-view {
+    height: calc(100dvh - 258px - env(safe-area-inset-bottom, 0px));
+  }
+  .logs-search {
+    flex-basis: 100%;
+  }
   .log-line {
     grid-template-columns: 14px minmax(0, 1fr);
   }

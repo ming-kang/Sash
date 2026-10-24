@@ -228,7 +228,14 @@ try {
             });
             assert.equal(allowed, 200);
             assert.equal(await page.getByRole("button", { name: /TUN/ }).count(), 0);
-            assert.equal(await page.locator(".toggle-switcher button").count(), 2);
+            assert.equal(
+              await page.getByRole("switch", { name: "System Proxy", exact: true }).count(),
+              1,
+            );
+            assert.equal(
+              await page.getByRole("switch", { name: "LAN Access", exact: true }).count(),
+              1,
+            );
             await capture(page, `${name}-authorized`);
 
             await page.goto(`${origin}/ui/#/settings`);

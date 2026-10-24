@@ -66,12 +66,15 @@ const process = computed(() => {
 
 <style scoped>
 .connection-row {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 54px;
   position: relative;
   display: flex;
-  min-height: 49px;
+  min-height: 54px;
   align-items: center;
-  padding: 5px 46px 5px 20px;
+  padding: 8px 48px 8px 20px;
   border-bottom: 1px solid var(--border);
+  transition: background var(--motion-fast) var(--ease-standard);
 }
 .connection-row:hover {
   background: var(--general-row-hover);
@@ -83,7 +86,8 @@ const process = computed(() => {
 .connection-host {
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 13px;
+  font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -92,56 +96,58 @@ const process = computed(() => {
   min-width: 0;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 3px;
+  margin-top: 5px;
 }
 .connection-tag {
   display: inline-flex;
   max-width: 320px;
-  min-height: 18px;
+  min-height: 19px;
   align-items: center;
-  padding: 1px 5px;
+  padding: 1px 6px;
   overflow: hidden;
-  border-radius: 3px;
-  color: var(--text-inverse);
-  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  font-size: 11px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tag-network {
-  background: var(--tag-network);
-}
-.tag-process {
-  background: var(--tag-process);
+  background: var(--info-soft);
+  border-color: var(--info-border);
+  color: var(--info);
 }
 .tag-chain {
-  background: var(--tag-chain);
-}
-.tag-rule {
-  background: var(--tag-rule);
-}
-.tag-time {
-  background: var(--tag-time);
+  background: var(--selection-soft);
+  border-color: var(--selection-border);
+  color: var(--selection);
 }
 .tag-traffic {
-  background: var(--tag-traffic);
+  background: var(--accent-soft);
+  border-color: var(--border-accent);
+  color: var(--accent);
 }
 .connection-close {
   position: absolute;
   top: 50%;
-  right: 20px;
+  right: 18px;
   display: flex;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-primary);
+  color: var(--text-muted);
   cursor: pointer;
   transform: translateY(-50%);
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
 }
 .connection-close:hover {
   background: var(--danger-soft);
@@ -150,11 +156,13 @@ const process = computed(() => {
 
 @media (max-width: 760px) {
   .connection-row {
-    padding-right: 40px;
+    padding-right: 48px;
     padding-left: 8px;
   }
   .connection-close {
-    right: 8px;
+    right: 4px;
+    width: 40px;
+    height: 40px;
   }
 }
 

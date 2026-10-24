@@ -61,8 +61,8 @@ function iconFor(kind: ToastItem["kind"]): string {
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: min(360px, calc(100vw - 32px));
+  gap: 10px;
+  width: min(380px, calc(100vw - 32px));
   margin-top: max(16px, env(safe-area-inset-top, 0px));
   pointer-events: none;
 }
@@ -70,16 +70,16 @@ function iconFor(kind: ToastItem["kind"]): string {
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 9px;
-  padding: 10px 12px 13px 14px;
+  gap: 10px;
+  padding: 12px 12px 14px 15px;
   overflow: hidden;
   pointer-events: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 14px;
 }
 .toast::before {
   position: absolute;

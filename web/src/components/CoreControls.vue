@@ -2,7 +2,7 @@
   <div class="core-controls">
     <button
       type="button"
-      class="btn btn-secondary btn-sm"
+      class="btn btn-primary btn-sm"
       :disabled="restarting || stopping || !store.status"
       @click="restartCore"
     >
@@ -64,5 +64,11 @@ const { restarting, stopping, cancellingUpdate, restartCore, stopCore, cancelCor
   gap: 8px;
   font-size: 12px;
   opacity: 0.75;
+}
+
+@media (max-width: 899px) {
+  .core-controls > .btn {
+    min-height: 38px;
+  }
 }
 </style>

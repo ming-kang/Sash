@@ -41,13 +41,13 @@ Unchanged proxy data retains its references. Lists use memoization, pagination o
 
 ## Views and controls
 
-[App.vue](../web/src/App.vue) owns navigation, the session gate, the pending-configuration bar and shared stream lifetime. Pages cover Overview, Profiles, Logs, Connections, Rules and Settings.
+[App.vue](../web/src/App.vue) owns the session gate, pending-configuration bar and shared stream lifetime. [AppSidebar.vue](../web/src/components/AppSidebar.vue) keeps primary navigation and a compact Core state; live traffic and uptime stay on Overview instead of being duplicated in the sidebar. Pages cover Overview, Profiles, Logs, Connections, Rules and Settings.
 
 [CoreControls.vue](../web/src/components/CoreControls.vue) shares start, stop and Apply behavior through [useCoreControl](../web/src/composables/core-runtime.ts). Applying a profile reloads the running Core and keeps established connections, so it no longer asks for confirmation; a proxy port or LAN change still restarts Core.
 
 Profiles shows the saved selection; Overview shows the configuration Core is using. The editor saves against the content revision read on open. Settings drafts stay local until Save and survive status refreshes. The system-proxy switch acts immediately and remains available for restoration when Core is stopped.
 
-Shared dialogs provide focus trapping, Escape handling and focus return. The dashboard supports Chinese/English, light/dark themes and mobile navigation.
+Shared dialogs provide focus trapping, Escape handling and focus return. The dashboard supports Chinese/English, light/dark themes and mobile navigation. Dense interface text uses system and monospace fonts; the bundled LXGW font is reserved for the Sash wordmark. Motion is brief and follows the system's reduced-motion preference.
 
 ## Authorization and transport
 

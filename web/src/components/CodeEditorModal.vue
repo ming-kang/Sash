@@ -168,6 +168,7 @@ onUnmounted(() => {
   display: flex;
   padding: 26px;
   background: var(--bg-scrim);
+  backdrop-filter: blur(3px);
 }
 .editor-dialog {
   display: flex;
@@ -177,7 +178,8 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-elevated);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
 }
 .editor-dialog-constrained {

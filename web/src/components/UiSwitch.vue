@@ -23,8 +23,8 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
 <style scoped>
 .switch {
   position: relative;
-  width: 34px;
-  height: 20px;
+  width: 38px;
+  height: 22px;
   flex-shrink: 0;
   padding: 0;
   border: 0;
@@ -33,7 +33,16 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
   cursor: pointer;
   transition:
     background var(--motion-normal) var(--ease-standard),
-    opacity var(--motion-fast) var(--ease-standard);
+    opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+.switch::before {
+  position: absolute;
+  inset: -11px -3px;
+  content: "";
+}
+.switch:active:not(:disabled) {
+  transform: scale(0.96);
 }
 .switch:hover:not(:disabled) {
   background: color-mix(in srgb, var(--switch-off) 84%, var(--text-primary));
@@ -52,8 +61,8 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: var(--radius-full);
   background: var(--switch-knob);
   box-shadow: var(--shadow-switch);
@@ -62,6 +71,6 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
     transform var(--motion-normal) var(--ease-spring);
 }
 .switch.on .knob {
-  transform: translateX(14px);
+  transform: translateX(16px);
 }
 </style>

@@ -1,25 +1,20 @@
 <template>
   <aside class="sidebar">
-    <div class="traffic-panel" aria-live="off">
-      <div class="traffic-row up" :title="t('overview.upload')">
-        <span class="traffic-arrow">↑</span>
-        <span class="traffic-number mono">{{ uploadSpeed.numberText }}</span>
-        <span class="traffic-unit mono">{{ uploadSpeed.unitText }}</span>
-      </div>
-      <div class="traffic-row down" :title="t('overview.download')">
-        <span class="traffic-arrow">↓</span>
-        <span class="traffic-number mono">{{ downloadSpeed.numberText }}</span>
-        <span class="traffic-unit mono">{{ downloadSpeed.unitText }}</span>
+    <div class="brand">
+      <img class="brand-mark" :src="'./assets/branding/sash-cat.png'" alt="" />
+      <div class="brand-copy">
+        <span class="brand-name">Sash</span>
+        <span class="brand-tagline">{{ t('app.tagline') }}</span>
       </div>
     </div>
 
     <nav class="side-nav" :aria-label="t('app.navigation')">
       <button
-        v-for="(item, index) in navItems"
+        v-for="item in navItems"
         :key="item.route"
         type="button"
         class="side-nav-item"
-        :class="navItemClasses(index)"
+        :class="{ active: currentRoute === item.route }"
         :aria-current="currentRoute === item.route ? 'page' : undefined"
         @click="navigate(item.route)"
       >
@@ -29,10 +24,10 @@
     </nav>
 
     <div class="side-foot">
-      <div class="runtime mono">{{ uptime }}</div>
       <div class="core-row" :title="coreTooltip">
         <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-muted'" />
-        <span class="core-label">
+        <span class="core-label">Core</span>
+        <span class="core-state">
           {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
         </span>
       </div>
@@ -41,33 +36,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed } from "vue";
 import { t } from "../i18n/index.js";
 import { currentRoute, navigate, type Route } from "../router.js";
 import { isCoreRunning, store } from "../stores/index.js";
 import Icon from "./Icon.vue";
-
-interface TrafficSpeedDisplay {
-  numberText: string;
-  unitText: string;
-}
-
-function formatTrafficSpeed(bytesPerSecond: number): TrafficSpeedDisplay {
-  const normalizedSpeed = Number.isFinite(bytesPerSecond) ? Math.max(0, bytesPerSecond) : 0;
-  const units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
-  if (normalizedSpeed < 1024) {
-    return { numberText: Math.round(normalizedSpeed).toString(), unitText: units[0] ?? "B/s" };
-  }
-
-  const unitIndex = Math.min(
-    Math.floor(Math.log(normalizedSpeed) / Math.log(1024)),
-    units.length - 1,
-  );
-  return {
-    numberText: (normalizedSpeed / 1024 ** unitIndex).toFixed(2),
-    unitText: units[unitIndex] ?? "B/s",
-  };
-}
 
 const navItems: Array<{ route: Route; icon: string }> = [
   { route: "overview", icon: "grid" },
@@ -78,70 +51,10 @@ const navItems: Array<{ route: Route; icon: string }> = [
   { route: "settings", icon: "settings" },
 ];
 
-function formatRuntimeClock(startedAt: string | undefined, currentTime: number): string {
-  if (!startedAt) return "00 : 00 : 00";
-  const startedAtMilliseconds = new Date(startedAt).getTime();
-  if (!Number.isFinite(startedAtMilliseconds)) return "00 : 00 : 00";
-
-  const totalSeconds = Math.max(0, Math.floor((currentTime - startedAtMilliseconds) / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const padTimePart = (value: number): string => value.toString().padStart(2, "0");
-  return `${padTimePart(hours)} : ${padTimePart(minutes)} : ${padTimePart(seconds)}`;
-}
-
-const currentTime = ref(Date.now());
-let clockTimer: number | null = null;
-
-const activeIndex = computed(() => navItems.findIndex((item) => item.route === currentRoute.value));
-const uploadSpeed = computed(() => formatTrafficSpeed(store.traffic.up));
-const downloadSpeed = computed(() => formatTrafficSpeed(store.traffic.down));
-const uptime = computed(() => formatRuntimeClock(store.status?.core.startedAt, currentTime.value));
 const coreTooltip = computed(() => {
   const status = isCoreRunning.value ? t("app.coreRunning") : t("app.coreStopped");
   return store.status?.core.pid ? `${status} · PID ${store.status.core.pid}` : status;
 });
-
-function startClock(): void {
-  if (clockTimer !== null || document.hidden) return;
-  clockTimer = window.setInterval(() => {
-    currentTime.value = Date.now();
-  }, 1000);
-}
-
-function stopClock(): void {
-  if (clockTimer === null) return;
-  window.clearInterval(clockTimer);
-  clockTimer = null;
-}
-
-function onVisibilityChange(): void {
-  if (document.hidden) {
-    stopClock();
-  } else {
-    currentTime.value = Date.now();
-    startClock();
-  }
-}
-
-onMounted(() => {
-  startClock();
-  document.addEventListener("visibilitychange", onVisibilityChange);
-});
-
-onUnmounted(() => {
-  stopClock();
-  document.removeEventListener("visibilitychange", onVisibilityChange);
-});
-
-function navItemClasses(index: number): Record<string, boolean> {
-  return {
-    active: activeIndex.value === index,
-    "before-active": activeIndex.value === index + 1,
-    "after-active": activeIndex.value === index - 1,
-  };
-}
 </script>
 
 <style scoped>
@@ -153,128 +66,121 @@ function navItemClasses(index: number): Record<string, boolean> {
   height: 100%;
   flex-shrink: 0;
   flex-direction: column;
+  padding: 0 12px 14px;
   overflow: hidden;
   background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
 }
-.traffic-panel {
+.brand {
   display: flex;
-  height: 80px;
+  min-height: 82px;
   align-items: center;
+  gap: 11px;
+  padding: 0 9px;
+}
+.brand-mark {
+  display: block;
+  width: 39px;
+  height: 39px;
   flex-shrink: 0;
-  flex-direction: column;
-  justify-content: center;
-  gap: 12px;
-  padding: 0;
-  background: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border);
+  object-fit: contain;
 }
-.traffic-row {
+.brand-copy {
   display: flex;
-  width: 100%;
-  align-items: baseline;
-  justify-content: center;
-  gap: 8px;
+  min-width: 0;
+  flex-direction: column;
+}
+.brand-name {
   color: var(--text-primary);
-  font-size: 14px;
-  line-height: 1;
+  font-family: var(--font-brand);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
 }
-.traffic-arrow {
-  font-size: 16px;
-}
-.traffic-number {
-  min-width: 44px;
+.brand-tagline {
+  margin-top: 3px;
   overflow: hidden;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.025em;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-.traffic-unit {
-  min-width: 30px;
-  overflow: hidden;
-  white-space: nowrap;
-  color: var(--text-secondary);
 }
 .side-nav {
   display: flex;
-  height: 360px;
-  flex-shrink: 0;
   flex-direction: column;
-  background: var(--bg-app);
-  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  padding-top: 12px;
 }
 .side-nav-item {
+  position: relative;
   display: flex;
-  min-height: 0;
-  flex: 1;
+  min-height: 44px;
   align-items: center;
-  justify-content: center;
-  padding: 0 18px;
+  gap: 11px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 0;
-  background: var(--bg-sidebar);
+  border-radius: var(--radius-md);
+  background: transparent;
   color: var(--menu-text);
   cursor: pointer;
-  font-size: 18px;
-  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
   transition:
-    background var(--motion-normal) var(--ease-standard),
-    color var(--motion-normal) var(--ease-standard);
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 .side-nav-item:hover {
+  background: var(--bg-hover);
   color: var(--text-primary);
+}
+.side-nav-item:active {
+  transform: scale(0.985);
 }
 .side-nav-item.active {
-  background: var(--bg-app);
-  color: var(--text-primary);
-}
-.side-nav-item.before-active {
-  border-bottom-right-radius: 10px;
-}
-.side-nav-item.after-active {
-  border-top-right-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 650;
 }
 .nav-icon {
-  display: none;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
 }
 .nav-label {
-  width: 100%;
+  min-width: 0;
   overflow: hidden;
-  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .side-foot {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  align-items: center;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 16px 12px 0;
-  background: var(--bg-sidebar);
-}
-.runtime {
-  width: 128px;
-  margin-bottom: 14px;
-  color: var(--text-primary);
-  font-size: 16px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  text-align: center;
-  white-space: nowrap;
+  margin-top: auto;
+  padding: 16px 2px 0;
 }
 .core-row {
   display: flex;
-  width: 100%;
-  height: 40px;
+  min-height: 40px;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  color: var(--text-primary);
-  font-size: 14px;
+  gap: 8px;
+  padding: 8px 11px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 .core-label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.core-state {
+  margin-left: auto;
   overflow: hidden;
+  color: var(--text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -284,9 +190,11 @@ function navItemClasses(index: number): Record<string, boolean> {
     position: static;
     width: 100%;
     height: 0;
+    padding: 0;
     overflow: visible;
+    border: 0;
   }
-  .traffic-panel,
+  .brand,
   .side-foot {
     display: none;
   }
@@ -297,35 +205,37 @@ function navItemClasses(index: number): Record<string, boolean> {
     left: 0;
     z-index: 40;
     display: grid;
-    height: calc(62px + env(safe-area-inset-bottom));
+    height: calc(66px + env(safe-area-inset-bottom));
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    padding: 5px 4px calc(5px + env(safe-area-inset-bottom));
-    background: var(--bg-sidebar);
+    gap: 2px;
+    padding: 5px 6px calc(5px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--bg-sidebar) 94%, transparent);
     border-top: 1px solid var(--border);
-    border-bottom: 0;
     box-shadow: var(--shadow-nav);
+    backdrop-filter: blur(16px);
   }
   .side-nav-item,
-  .side-nav-item.active,
-  .side-nav-item.before-active,
-  .side-nav-item.after-active {
+  .side-nav-item.active {
     min-height: 50px;
     justify-content: center;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
     padding: 4px 1px;
-    border-radius: 5px;
-    background: transparent;
-    font-size: 12px;
+    border-radius: var(--radius-md);
+    font-size: 11px;
+    text-align: center;
   }
   .side-nav-item.active {
-    background: var(--bg-active);
+    background: var(--accent-soft);
   }
-  .nav-icon {
-    display: flex;
+  .side-nav-item:active {
+    transform: none;
   }
   .nav-label {
-    font-size: 12px;
+    width: 100%;
+    font-size: clamp(9px, 2.65vw, 11px);
+    letter-spacing: -0.015em;
+    line-height: 1.2;
   }
 }
 </style>

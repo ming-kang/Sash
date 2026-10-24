@@ -1,17 +1,5 @@
 <template>
   <aside class="general-pane" :aria-label="t('overview.coreTitle')">
-    <div class="identity-row">
-      <span class="identity-mark" aria-hidden="true">
-        <img :src="'./assets/branding/sash-cat.png'" alt="" />
-      </span>
-      <div class="identity-copy">
-        <h2>Sash</h2>
-        <span class="identity-meta mono">
-          <template v-if="coreVersion">{{ coreVersion }}</template>
-        </span>
-      </div>
-    </div>
-
     <ModeControl :is-core-ready="isCoreReady" />
 
     <div class="general-list">
@@ -94,7 +82,7 @@
       <TrafficChart
         :down="store.traffic.historyDown"
         :up="store.traffic.historyUp"
-        :height="74"
+        :height="86"
         :label="t('overview.trafficTitle')"
       />
       <div class="traffic-totals">
@@ -113,7 +101,6 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { coreVersion } from "../composables/core-runtime.js";
 import { t } from "../i18n/index.js";
 import { navigate } from "../router.js";
 import {
@@ -160,83 +147,42 @@ async function refreshActiveProfile(): Promise<void> {
 .general-pane {
   min-width: 0;
   overflow: hidden;
-  background: var(--bg-panel);
-  border: 0;
-  border-radius: 5px;
-}
-.identity-row {
-  display: flex;
-  min-height: 88px;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 17px;
-  border-bottom: 1px solid var(--border);
-}
-.identity-mark {
-  display: block;
-  width: 62px;
-  height: 50px;
-  flex-shrink: 0;
-}
-.identity-mark img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.identity-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 3px;
-}
-.identity-copy h2 {
-  color: var(--general-title);
-  font-size: 26px;
-  font-weight: 400;
-  letter-spacing: -0.03em;
-  line-height: 1;
-}
-.identity-meta {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
 }
 .traffic-compact {
-  padding: 13px 16px 15px;
-  border-bottom: 1px solid var(--border);
+  padding: 16px;
 }
 .pane-section-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 11px;
+  margin-bottom: 12px;
 }
 .pane-section-heading h3 {
   color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 650;
 }
 .pane-section-heading p {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 12px;
 }
 .general-list {
-  background: var(--bg-app);
+  background: var(--bg-card);
   border-bottom: 1px solid var(--border);
 }
 .general-row {
   display: flex;
-  min-height: 47px;
+  min-height: 46px;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 7px 15px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   transition: background var(--motion-fast) var(--ease-standard);
 }
@@ -251,7 +197,7 @@ async function refreshActiveProfile(): Promise<void> {
   min-width: 0;
   flex-direction: column;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 14px;
 }
 .general-label small {
   margin-top: 1px;
@@ -264,22 +210,19 @@ async function refreshActiveProfile(): Promise<void> {
   align-items: center;
   justify-content: flex-end;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   text-align: right;
 }
-.general-toggle-value,
 .profile-value {
+  max-width: 58%;
   gap: 7px;
-}
-.profile-value {
-  max-width: 56%;
 }
 .general-link {
   min-width: 0;
   padding: 0 0 1px;
   overflow: hidden;
   border: 0;
-  border-bottom: 1px dashed var(--clickable-border);
+  border-bottom: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -292,8 +235,8 @@ async function refreshActiveProfile(): Promise<void> {
     color var(--motion-fast) var(--ease-standard);
 }
 .general-link:hover {
-  border-bottom-color: var(--text-primary);
-  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+  color: var(--accent);
 }
 .profile-name {
   overflow: hidden;
@@ -302,11 +245,8 @@ async function refreshActiveProfile(): Promise<void> {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.traffic-compact {
-  border-bottom: 0;
-}
 .traffic-heading {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .live-state {
   display: inline-flex;
@@ -316,8 +256,6 @@ async function refreshActiveProfile(): Promise<void> {
   color: var(--success);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 .traffic-metrics {
   display: grid;
@@ -329,17 +267,18 @@ async function refreshActiveProfile(): Promise<void> {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 8px;
-  background: var(--bg-elevated);
+  gap: 3px;
+  padding: 8px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   font-size: 12px;
 }
 .traffic-metric strong {
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -363,46 +302,7 @@ async function refreshActiveProfile(): Promise<void> {
   font-weight: 500;
 }
 
-@media (max-width: 820px) {
-  .general-pane {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .identity-row,
-  .mode-control {
-    border-bottom: 1px solid var(--border);
-  }
-  .mode-control {
-    border-left: 1px solid var(--border);
-  }
-  .general-list {
-    border-bottom: 0;
-  }
-  .traffic-compact {
-    border-left: 1px solid var(--border);
-  }
-}
-
-@media (max-width: 580px) {
-  .general-pane {
-    display: block;
-  }
-  .mode-control,
-  .traffic-compact {
-    border-left: 0;
-  }
-  .traffic-compact {
-    border-top: 1px solid var(--border);
-  }
-}
-
 @media (max-width: 420px) {
-  .mode-name {
-    display: none;
-  }
-  .mode-button {
-    min-height: 44px;
-  }
   .general-row {
     min-height: 52px;
     gap: 10px;

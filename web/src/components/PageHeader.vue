@@ -17,12 +17,12 @@ defineProps<{ title: string; desc?: string }>();
 <style scoped>
 .page-head {
   display: flex;
-  min-height: 80px;
+  min-height: 78px;
   align-items: center;
   justify-content: space-between;
   gap: 12px 24px;
-  margin: 0 calc(-1 * var(--page-gutter, 30px)) 16px;
-  padding: 8px var(--header-pad, max(var(--page-gutter, 30px), 20px));
+  margin: 0 calc(-1 * var(--page-gutter, 30px)) 18px;
+  padding: 10px var(--header-pad, max(var(--page-gutter, 30px), 20px));
   border-bottom: 1px solid var(--border);
 }
 .page-head-text {
@@ -30,16 +30,16 @@ defineProps<{ title: string; desc?: string }>();
 }
 .page-title {
   color: var(--text-primary);
-  font-size: clamp(19px, 1.55vw, 22px);
-  font-weight: 500;
-  letter-spacing: -0.015em;
+  font-size: clamp(20px, 1.55vw, 23px);
+  font-weight: 650;
+  letter-spacing: -0.025em;
   line-height: 1.2;
 }
 .page-desc {
   max-width: 720px;
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.45;
 }
 .page-head-actions {
@@ -57,8 +57,8 @@ defineProps<{ title: string; desc?: string }>();
     min-height: 0;
     align-items: flex-start;
     flex-direction: column;
-    gap: 11px;
-    padding: 16px var(--page-gutter, 16px) 14px;
+    gap: 12px;
+    padding: 18px var(--page-gutter, 16px) 16px;
   }
   .page-head-actions {
     width: 100%;

@@ -17,7 +17,7 @@
     <div class="autostart-actions">
       <button
         type="button"
-        class="btn btn-secondary btn-sm"
+        class="btn btn-ghost btn-sm"
         :disabled="busy || !owner"
         @click="refresh"
       >
@@ -90,7 +90,7 @@ async function save(enabled: boolean): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 6px 5px;
+  padding: 8px 6px;
 }
 .autostart-info {
   display: flex;
@@ -101,12 +101,13 @@ async function save(enabled: boolean): Promise<void> {
 }
 .autostart-desc {
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 14px;
+  font-weight: 550;
 }
 .autostart-state,
 .autostart-reason {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.4;
 }
 .autostart-actions {
@@ -114,7 +115,7 @@ async function save(enabled: boolean): Promise<void> {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  padding: 6px 5px;
+  padding: 4px 6px 2px;
 }
 @media (max-width: 760px) {
   .autostart-actions .btn {

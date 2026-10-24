@@ -39,7 +39,7 @@
       <div class="control-actions">
         <button
           type="button"
-          class="btn btn-sm btn-pause"
+          class="btn btn-sm btn-secondary btn-pause"
           :class="{ 'btn-paused': paused }"
           :aria-pressed="paused"
           @click="togglePause"
@@ -49,7 +49,7 @@
         </button>
         <button
           type="button"
-          class="btn btn-sm btn-danger"
+          class="btn btn-sm btn-danger-outline"
           :disabled="store.connections.length === 0"
           @click="closeAll"
         >
@@ -250,17 +250,25 @@ async function closeAll(): Promise<void> {
   flex: 1;
 }
 .connection-totals {
-  color: var(--text-primary);
-  font-size: 16px;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 12px;
   white-space: nowrap;
 }
 .connections-control {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
-  min-height: 44px;
+  min-height: 50px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 20px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-app);
 }
@@ -273,16 +281,16 @@ async function closeAll(): Promise<void> {
 .sort-label-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 28px;
+  gap: 5px;
+  height: 30px;
   padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  background: var(--bg-inset);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 550;
   line-height: 1;
   transition:
     background var(--motion-fast) var(--ease-standard),
@@ -293,34 +301,22 @@ async function closeAll(): Promise<void> {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.sort-label-btn.active {
-  background: var(--selection);
-  border-color: var(--selection);
-  color: var(--text-inverse);
-}
+.sort-label-btn.active,
 .sort-label-btn.active.reverse {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--text-inverse);
+  background: var(--accent-soft);
+  border-color: var(--border-accent);
+  color: var(--accent);
 }
 .control-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.btn-pause {
-  background: var(--pause-bg);
-  color: var(--text-inverse);
-}
-.btn-pause:hover:not(:disabled) {
-  background: var(--pause-bg-hover);
-}
-.btn-pause.btn-paused {
-  background: var(--selection);
-}
+.btn-pause.btn-paused,
 .btn-pause.btn-paused:hover:not(:disabled) {
-  background: var(--selection);
-  filter: brightness(0.92);
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
+  color: var(--warning);
 }
 .connection-list {
   min-height: 180px;
@@ -331,10 +327,13 @@ async function closeAll(): Promise<void> {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
-    padding: 8px 6px;
+    padding: 8px 12px;
   }
   .control-actions {
     justify-content: flex-end;
+  }
+  .control-actions .btn {
+    min-height: 40px;
   }
 }
 </style>

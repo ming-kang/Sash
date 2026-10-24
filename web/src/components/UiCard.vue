@@ -22,28 +22,33 @@ defineProps<{ title?: string; desc?: string }>();
 <style scoped>
 .ui-card {
   min-width: 0;
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
 }
 .ui-card-head {
   display: flex;
   min-height: 28px;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 5px;
+  padding: 16px 18px 10px;
 }
 .ui-card-heading {
   min-width: 0;
 }
 .ui-card-title {
   color: var(--text-primary);
-  font-size: 18px;
-  font-weight: 400;
+  font-size: 15px;
+  font-weight: 650;
   line-height: 1.4;
 }
 .ui-card-desc {
-  margin-top: 1px;
+  margin-top: 3px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.35;
 }
 .ui-card-actions {
@@ -55,17 +60,19 @@ defineProps<{ title?: string; desc?: string }>();
   gap: 7px;
 }
 .ui-card-body {
-  padding: 6px 10px;
-  background: var(--bg-panel);
-  border-radius: 3px;
+  padding: 0 14px 12px;
+  background: transparent;
 }
 
 @media (max-width: 520px) {
   .ui-card-head {
     flex-wrap: wrap;
   }
+  .ui-card-head {
+    padding: 15px 15px 9px;
+  }
   .ui-card-body {
-    padding: 6px 8px;
+    padding: 0 10px 10px;
   }
 }
 </style>

@@ -28,7 +28,7 @@ describe("core update progress text", () => {
     });
     assert.equal(
       coreUpdateText.value,
-      "Downloading (v2.0.0): 1.0 / 2.0 MiB · proxy 127.0.0.1:7890 refused connection — retrying without proxy",
+      "Downloading Core (v2.0.0): 1.0 / 2.0 MiB · proxy 127.0.0.1:7890 refused connection — retrying without proxy",
     );
   });
 

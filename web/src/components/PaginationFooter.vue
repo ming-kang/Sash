@@ -105,7 +105,12 @@ function jump(): void {
     flex-direction: column;
   }
   .pagination-actions .btn {
+    min-height: 40px;
     flex: 1;
+  }
+  .pagination-jump .btn,
+  .pagination-jump input {
+    min-height: 40px;
   }
   .pagination-jump {
     justify-content: flex-end;

@@ -251,9 +251,9 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 <style scoped>
 .settings-grid {
   display: grid;
-  width: min(1046px, 100%);
+  width: min(1080px, 100%);
   grid-template-columns: 1fr;
-  gap: 12px;
+  gap: 14px;
   margin: 0 auto;
 }
 .settings-card {
@@ -261,46 +261,40 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 }
 .preference-control {
   display: grid;
-  width: min(360px, 48%);
+  width: min(350px, 48%);
   grid-template-columns: repeat(3, minmax(0, 1fr));
   flex-shrink: 0;
-  gap: 0;
+  gap: 3px;
 }
 .language-control {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .preference-control .segmented-item {
-  min-height: 27px;
+  min-height: 30px;
   border: 0;
-  border-radius: 0;
-  font-size: 14px;
-}
-.preference-control .segmented-item:first-child {
-  border-radius: 5px 0 0 5px;
-}
-.preference-control .segmented-item:last-child {
-  border-radius: 0 5px 5px 0;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
 }
 
 .setting-row {
   display: flex;
-  min-height: 43px;
+  min-height: 52px;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 6px 5px;
-  border-bottom: 0;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
   transition: background var(--motion-fast) var(--ease-standard);
 }
 .setting-row:first-child {
-  margin-top: -2px;
+  margin-top: 0;
 }
 .setting-row:last-child {
   border-bottom: 0;
 }
 .setting-row:hover {
   background: var(--general-row-hover);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 .setting-info {
   display: flex;
@@ -310,14 +304,14 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 }
 .setting-name {
   color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 400;
+  font-size: 14px;
+  font-weight: 550;
 }
 .setting-desc {
   max-width: 630px;
   color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.45;
 }
 .setting-action {
   display: flex;
@@ -326,7 +320,7 @@ async function toggleAllowLan(next: boolean): Promise<void> {
   gap: 8px;
 }
 .port-input {
-  width: 96px;
+  width: 104px;
   font-family: var(--font-mono);
   appearance: textfield;
   -moz-appearance: textfield;
@@ -360,12 +354,12 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 .info-item {
   display: flex;
   min-width: 0;
-  min-height: 39px;
+  min-height: 43px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 5px;
-  border-bottom: 0;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
 }
 .info-item:last-child {
   border-bottom: 0;
@@ -373,13 +367,13 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 .info-item dt {
   flex-shrink: 0;
   color: var(--text-secondary);
-  font-size: 16px;
+  font-size: 13px;
 }
 .info-item dd {
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -394,7 +388,7 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 
 @media (max-width: 480px) {
   .settings-grid {
-    gap: 12px;
+    gap: 14px;
   }
   .preference-control {
     width: 100%;

@@ -12,43 +12,36 @@
         :disabled="store.operations.mode || !isCoreReady"
         @click="switchMode(mode.id)"
       >
-        <span class="mode-code">
-          <Icon v-if="pendingMode === mode.id" name="loader" :size="12" class="spin" />
-          <template v-else>{{ mode.id.toUpperCase() }}</template>
-        </span>
+        <Icon v-if="pendingMode === mode.id" name="loader" :size="13" class="spin" />
         <span class="mode-name">{{ mode.label }}</span>
       </button>
     </div>
-    <div class="mode-switcher toggle-switcher" role="group" :aria-label="t('overview.switchesTitle')">
-      <button
-        type="button"
-        class="mode-button toggle-button"
-        :class="{ active: isSysProxyOn }"
-        :aria-pressed="isSysProxyOn"
-        :disabled="!canToggleSystemProxy"
-        @click="toggleSystemProxy(!isSysProxyOn)"
-      >
+
+    <div class="network-switches">
+      <div class="network-toggle">
         <span class="toggle-name">{{ t('overview.sysProxyTitle') }}</span>
-        <span class="toggle-state">{{ isSysProxyOn ? t('common.on') : t('common.off') }}</span>
-      </button>
-      <button
-        type="button"
-        class="mode-button toggle-button"
-        :class="{ active: allowLanOn }"
-        :aria-pressed="allowLanOn"
-        :disabled="store.operations.networkSetting || !store.status"
-        @click="toggleAllowLan(!allowLanOn)"
-      >
+        <UiSwitch
+          :model-value="isSysProxyOn"
+          :label="t('overview.sysProxyTitle')"
+          :disabled="!canToggleSystemProxy"
+          @update:model-value="toggleSystemProxy"
+        />
+      </div>
+      <div class="network-toggle">
         <span class="toggle-name">{{ t('overview.lan') }}</span>
-        <span class="toggle-state">{{ allowLanOn ? t('common.on') : t('common.off') }}</span>
-      </button>
+        <UiSwitch
+          :model-value="allowLanOn"
+          :label="t('overview.lan')"
+          :disabled="store.operations.networkSetting || !store.status"
+          @update:model-value="toggleAllowLan"
+        />
+      </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import Icon from "./Icon.vue";
 import { t } from "../i18n/index.js";
 import {
   canToggleSystemProxy,
@@ -61,6 +54,8 @@ import {
   toast,
 } from "../stores/index.js";
 import type { RoutingMode } from "../types/index.js";
+import Icon from "./Icon.vue";
+import UiSwitch from "./UiSwitch.vue";
 
 const props = defineProps<{
   isCoreReady: boolean;
@@ -116,41 +111,48 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 
 <style scoped>
 .mode-control {
-  padding: 13px 17px;
-  background: var(--bg-app);
+  padding: 14px 16px;
+  background: var(--bg-card);
   border-bottom: 1px solid var(--border);
 }
 .mode-switcher {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 .mode-button {
   display: flex;
   min-width: 0;
-  min-height: 48px;
+  min-height: 36px;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 1px;
-  padding: 6px 4px;
-  border: 1px solid transparent;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 0;
   border-radius: var(--radius-sm);
   background: var(--mode-button-bg);
-  box-shadow: var(--shadow-card);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   transition:
     background var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
     color var(--motion-fast) var(--ease-standard),
-    opacity var(--motion-fast) var(--ease-standard);
+    opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 .mode-button:hover:not(:disabled) {
-  background: var(--bg-hover);
   color: var(--text-primary);
+}
+.mode-button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .mode-button.active {
   background: var(--mode-button-active-bg);
+  box-shadow: 0 1px 3px var(--accent-shadow);
   color: var(--mode-button-active-text);
 }
 .mode-button:disabled {
@@ -159,44 +161,38 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 }
 .mode-button.pending {
   opacity: 1;
-  color: var(--accent);
-}
-.mode-code {
-  display: inline-flex;
-  min-height: 15px;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.055em;
 }
 .mode-name {
   overflow: hidden;
   max-width: 100%;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.toggle-switcher {
+.network-switches {
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 13px;
-  padding-top: 13px;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+.network-toggle {
+  display: flex;
+  min-width: 0;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .toggle-name {
   overflow: hidden;
-  max-width: 100%;
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.toggle-state {
-  font-size: 12px;
-  opacity: 0.85;
-}
-.toggle-button.active .toggle-state {
-  color: inherit;
 }
 .spin {
   animation: rotate 0.9s linear infinite;

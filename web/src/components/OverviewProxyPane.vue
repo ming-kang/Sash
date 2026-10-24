@@ -19,9 +19,6 @@
           :placeholder="t('proxies.filter')"
         />
       </div>
-      <span v-if="store.mode === 'rule'" class="group-count">
-        {{ store.proxyGroups.length }} {{ t('profiles.statGroups') }}
-      </span>
     </header>
 
     <div v-if="!isCoreRunning" class="empty-panel">
@@ -226,16 +223,16 @@ async function selectNode(group: string, name: string): Promise<void> {
 <style scoped>
 .proxy-pane {
   min-width: 0;
-  padding-bottom: 20px;
+  padding-bottom: 24px;
 }
 .proxy-pane-head {
   display: flex;
-  min-height: 62px;
+  min-height: 64px;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 10px;
-  padding: 6px 2px 9px;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 4px 2px 13px;
   border-bottom: 1px solid var(--border);
 }
 .proxy-title-row {
@@ -245,37 +242,33 @@ async function selectNode(group: string, name: string): Promise<void> {
 }
 .proxy-pane-head h2 {
   color: var(--text-primary);
-  font-size: 20px;
-  font-weight: 500;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 .proxy-pane-head p {
-  margin-top: 5px;
+  margin-top: 4px;
   color: var(--text-muted);
-  font-size: 14px;
-}
-.group-count {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 .proxy-filter {
-  min-width: 140px;
-  max-width: 240px;
-  min-height: 30px;
-  flex: 1;
+  width: 240px;
+  min-width: 160px;
+  flex-shrink: 1;
 }
 .proxy-kind-heading {
-  margin: 15px 0 7px;
+  margin: 20px 0 9px;
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 .empty-panel {
   overflow: hidden;
+  background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 .direct-node {
   position: relative;
@@ -287,7 +280,7 @@ async function selectNode(group: string, name: string): Promise<void> {
   overflow: hidden;
   background: var(--selection-soft);
   border: 1px solid var(--selection-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }
 .direct-indicator {
   position: absolute;
@@ -334,9 +327,6 @@ async function selectNode(group: string, name: string): Promise<void> {
   .proxy-filter {
     width: 100%;
     max-width: none;
-  }
-  .group-count {
-    align-self: flex-end;
   }
 }
 </style>

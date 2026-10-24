@@ -90,12 +90,26 @@ onUnmounted(() => {
   justify-content: center;
   padding: 20px;
   background: var(--bg-scrim);
+  backdrop-filter: blur(3px);
+}
+.overlay.fade-enter-active .dialog {
+  animation: dialog-enter var(--motion-normal) var(--ease-spring);
+}
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 .dialog {
   width: min(420px, 100%);
-  padding: 20px 22px;
+  padding: 22px;
   background: var(--bg-elevated);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
 }
 .dialog-title {

@@ -23,15 +23,18 @@ let entered: (() => void) | undefined;
 let writes = 0;
 await h.startServer({
   autostart: {
-    inspect: async () => ({ ...state }),
-    set: async (enabled) => {
-      writes += 1;
-      entered?.();
-      await pending;
-      if (failWrite) throw new Error("Simulated startup registration failure");
-      state = { state: enabled ? "on" : "off", canEnable: true, reason: null };
-      return { ...state };
+    backend: {
+      inspect: async () => state.state,
+      set: async (enabled) => {
+        writes += 1;
+        entered?.();
+        await pending;
+        if (failWrite) throw new Error("Simulated startup registration failure");
+        state = { state: enabled ? "on" : "off", canEnable: true, reason: null };
+      },
     },
+    checkInstallation: () =>
+      state.canEnable ? null : (state.reason ?? "Simulated installation issue"),
   },
 });
 assert.ok(![7890, 9090, 19090].includes(h.boundPort));

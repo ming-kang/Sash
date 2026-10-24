@@ -127,7 +127,7 @@ async function exercise(fixture, label) {
   const peak = await chart.getAttribute("d");
   socket.close();
   await page.waitForFunction(
-    () => document.querySelector(".traffic-row.down .traffic-number").textContent === "0",
+    () => document.querySelector(".traffic-metric .down-value")?.textContent === "0 B/s",
   );
   assert.equal(await chart.getAttribute("d"), peak, "disconnect retains chart history");
   const reconnected = await new Promise((resolve, reject) => {

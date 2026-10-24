@@ -83,7 +83,12 @@ async function verify(engine: BrowserType, name: string) {
     await page.getByText("工作配置", { exact: true }).waitFor();
     await page.locator(".runtime-banner.unauthorized").waitFor({ state: "hidden" });
     await page.evaluate(() => document.fonts.ready);
-    const fonts = await page.evaluate(() => ({ family: getComputedStyle(document.body).fontFamily, loaded: [...document.fonts].filter((font) => font.family.includes("LXGW") && font.status === "loaded").length }));
+    const fonts = await page.evaluate(() => ({
+      family: getComputedStyle(document.querySelector(".brand-name") ?? document.body).fontFamily,
+      loaded: [...document.fonts].filter(
+        (font) => font.family.includes("LXGW") && font.status === "loaded",
+      ).length,
+    }));
     assert.match(fonts.family, /LXGW WenKai Lite/); assert.ok(fonts.loaded > 0);
     await page.screenshot({ path: path.join(outDir, `${name}-overview-light.png`) });
     await page.reload(); await page.getByText("工作配置", { exact: true }).waitFor();

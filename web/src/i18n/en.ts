@@ -5,6 +5,7 @@ export const en: Messages = {
     coreRunning: "Core running",
     coreStopped: "Core stopped",
     navigation: "Primary navigation",
+    tagline: "Network toolbox",
   },
   nav: {
     overview: "Overview",
@@ -16,14 +17,16 @@ export const en: Messages = {
   },
   page: {
     overview: { title: "Overview", desc: "Live traffic, outbound mode and core status" },
+    profiles: {
+      title: "Profiles",
+      desc: "Manage subscription and local profiles; selection applies immediately",
+    },
     logs: { title: "Logs" },
     connections: { title: "Connections" },
     rules: { title: "Rules", desc: "Routing rules currently in effect" },
     settings: { title: "Settings", desc: "Interface, network listeners and core control" },
   },
   common: {
-    on: "On",
-    off: "Off",
     save: "Save",
     cancel: "Cancel",
     confirm: "Confirm",
@@ -104,7 +107,6 @@ export const en: Messages = {
     currentTag: "current",
     filter: "Filter nodes…",
     hideTimeout: "Show/hide timed-out nodes",
-    toggleGroup: "Expand/collapse group",
     directHint: "Direct mode: all traffic bypasses proxy nodes",
     coreStopped: "Core is not running",
     coreStoppedHint: "Start the Core to see proxy groups and nodes",
@@ -155,6 +157,7 @@ export const en: Messages = {
     modeLabel: "Outbound mode: {mode}",
   },
   profiles: {
+    active: "Active",
     downloadPlaceholder: "Paste or enter a subscription URL",
     invalidUrl: "Enter an http(s) subscription URL",
     download: "Download",
@@ -175,7 +178,6 @@ export const en: Messages = {
     localFile: "local file",
     neverUpdated: "never updated",
     usageLabel: "Subscription traffic usage",
-    statGroups: "Proxy Groups",
     loading: "Loading profiles…",
     emptyTitle: "No profiles yet",
     emptyHint: "Download a subscription from a URL, or import a local YAML file",
@@ -230,7 +232,7 @@ export const en: Messages = {
   coreUpdate: {
     checking: "Checking Installation",
     resolving: "Checking Release",
-    downloading: "Downloading",
+    downloading: "Downloading Core",
     extracting: "Extracting",
     verifying: "Checking Executable",
     validating: "Checking Configuration",

@@ -28,17 +28,20 @@ defineProps<{ icon: string; title: string; hint?: string }>();
 }
 .empty-icon {
   display: inline-flex;
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   align-items: center;
   justify-content: center;
-  margin-bottom: 3px;
+  margin-bottom: 5px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   color: var(--text-muted);
 }
 .empty-title {
   color: var(--text-secondary);
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 550;
 }
 .empty-hint {
   max-width: 360px;

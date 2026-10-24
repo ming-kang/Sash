@@ -34,6 +34,7 @@
         </div>
 
         <div
+          ref="pageContainer"
           class="page-container"
           :class="`page-${sessionReady ? currentRoute : 'connect'}`"
         >
@@ -91,7 +92,14 @@ let unsubTraffic: (() => void) | null = null;
 let unsubLogs: (() => void) | null = null;
 let trafficGapTimer: number | null = null;
 const visible = ref(!document.hidden);
+const pageContainer = ref<HTMLElement | null>(null);
 const updateVisibility = () => { visible.value = !document.hidden; };
+
+watch(currentRoute, () => {
+  if (pageContainer.value) pageContainer.value.scrollTop = 0;
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+});
 
 const scrollIdleTimers = new WeakMap<Element, number>();
 
@@ -192,7 +200,7 @@ onUnmounted(() => {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 18px;
+  padding: 10px 24px;
   color: var(--warning);
   background: var(--warning-soft);
   border-bottom: 1px solid var(--warning-border);
@@ -223,7 +231,7 @@ onUnmounted(() => {
 }
 .runtime-banner {
   position: relative;
-  z-index: 15;
+  z-index: var(--z-banner);
   display: flex;
   flex-shrink: 0;
   min-height: 30px;
@@ -234,7 +242,7 @@ onUnmounted(() => {
   background: var(--danger-soft);
   border-bottom: 1px solid var(--danger-border);
   color: var(--danger);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   text-align: center;
 }
@@ -256,10 +264,10 @@ onUnmounted(() => {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 0 var(--page-gutter) 44px;
+  padding: 0 var(--page-gutter) 40px;
 }
 .page-container.page-overview {
-  --page-gutter: 34px;
+  --page-gutter: 30px;
 }
 @media (min-width: 821px) {
   .page-container.page-overview {
@@ -267,10 +275,6 @@ onUnmounted(() => {
     flex-direction: column;
     overflow: hidden;
   }
-}
-.page-container.page-profiles {
-  --page-gutter: 0px;
-  padding: 0;
 }
 .page-container.page-logs,
 .page-container.page-connections {

@@ -119,25 +119,19 @@ watch(
 
 <style scoped>
 .rule-search {
-  width: 260px;
+  width: 280px;
 }
 .rule-list {
-  border-right: 0;
-  border-left: 0;
-  border-radius: 0;
+  border-radius: var(--radius-lg);
 }
 .data-table th,
 .data-table td {
-  padding-top: 7px;
-  padding-bottom: 7px;
-  text-align: center;
-}
-.data-table th:not(:last-child),
-.data-table td:not(:last-child) {
-  border-right: 1px solid var(--border);
+  padding-top: 9px;
+  padding-bottom: 9px;
+  text-align: left;
 }
 .data-table .cell-truncate {
-  text-align: center;
+  text-align: left;
 }
 .idx {
   width: 56px;
@@ -150,6 +144,7 @@ watch(
   }
   .rule-search {
     width: min(260px, 100%);
+    min-height: 40px;
   }
   .rule-list {
     overflow: visible;
@@ -189,6 +184,9 @@ watch(
     text-align: left;
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+  .data-table td .badge {
+    justify-self: start;
   }
   .data-table td::before {
     content: attr(data-label);
