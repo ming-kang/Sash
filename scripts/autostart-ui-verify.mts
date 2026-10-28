@@ -145,6 +145,19 @@ try {
           await page.setViewportSize({ width, height: width < 500 ? 844 : 1000 });
           for (const theme of ["light", "dark"]) {
             await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+            const titleCovered = await page.evaluate(() => {
+              const title = document.querySelector(".page-head-text")?.getBoundingClientRect();
+              const pending = document.querySelector(".pending-config")?.getBoundingClientRect();
+              return Boolean(
+                title &&
+                  pending &&
+                  pending.left < title.right &&
+                  pending.right > title.left &&
+                  pending.top < title.bottom &&
+                  pending.bottom > title.top,
+              );
+            });
+            assert.equal(titleCovered, false, `${name}/${width}/${theme}: notification covers title`);
             await capture(page, name + "-settings-" + locale + "-" + width + "-" + theme);
           }
         }

@@ -1,33 +1,37 @@
 <template>
-  <UiCard :title="t('autostart.title')" class="autostart-card">
+  <UiCard class="autostart-card">
     <div class="autostart-row" :aria-busy="busy">
       <div class="autostart-info">
+        <span class="autostart-title">{{ t('autostart.title') }}</span>
         <span class="autostart-desc">{{ t('autostart.description') }}</span>
-        <span id="autostart-state" class="autostart-state" role="status">{{ stateText }}</span>
+        <span v-if="stateHint" class="autostart-state">{{ stateHint }}</span>
         <span v-if="status?.reason" class="autostart-reason">{{ status.reason }}</span>
+        <span id="autostart-state" class="sr-only" role="status">{{ stateText }}</span>
       </div>
-      <UiSwitch
-        :model-value="status?.state === 'on'"
-        :label="t('autostart.title')"
-        aria-describedby="autostart-state"
-        :disabled="switchDisabled"
-        @update:model-value="save"
-      />
+      <div class="autostart-actions">
+        <button
+          type="button"
+          class="icon-btn autostart-refresh"
+          :title="t('autostart.refresh')"
+          :aria-label="t('autostart.refresh')"
+          :disabled="busy || !owner"
+          @click="refresh"
+        >
+          <Icon name="refresh" :size="15" :class="{ spin: busy }" />
+        </button>
+        <UiSwitch
+          :model-value="status?.state === 'on'"
+          :label="t('autostart.title')"
+          aria-describedby="autostart-state"
+          :disabled="switchDisabled"
+          @update:model-value="save"
+        />
+      </div>
     </div>
-    <div class="autostart-actions">
+    <div v-if="canRemove" class="autostart-recovery">
       <button
         type="button"
         class="btn btn-ghost btn-sm"
-        :disabled="busy || !owner"
-        @click="refresh"
-      >
-        <Icon name="refresh" :size="14" :class="{ spin: busy }" />
-        {{ t('autostart.refresh') }}
-      </button>
-      <button
-        v-if="status && ['stale', 'disabled', 'unknown'].includes(status.state)"
-        type="button"
-        class="btn btn-secondary btn-sm"
         :disabled="busy || !owner"
         @click="save(false)"
       >
@@ -73,6 +77,12 @@ const stateText = computed(() => {
   };
   return labels[status.value.state];
 });
+const stateHint = computed(() =>
+  status.value?.state === "on" || status.value?.state === "off" ? null : stateText.value,
+);
+const canRemove = computed(
+  () => status.value && ["stale", "disabled", "unknown"].includes(status.value.state),
+);
 
 async function save(enabled: boolean): Promise<void> {
   try {
@@ -87,39 +97,70 @@ async function save(enabled: boolean): Promise<void> {
 .autostart-row {
   display: flex;
   min-width: 0;
+  min-height: 62px;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 8px 6px;
+  padding: 12px 6px 2px;
 }
 .autostart-info {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   overflow-wrap: anywhere;
 }
-.autostart-desc {
+.autostart-title {
   color: var(--text-primary);
   font-size: 14px;
   font-weight: 550;
 }
+.autostart-desc,
 .autostart-state,
 .autostart-reason {
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
+}
+.autostart-state {
+  color: var(--warning);
 }
 .autostart-actions {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+}
+.autostart-refresh {
+  width: 30px;
+  height: 30px;
+}
+.autostart-recovery {
+  display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 4px 6px 2px;
+  padding: 0 6px 6px;
 }
 @media (max-width: 760px) {
-  .autostart-actions .btn {
+  .autostart-refresh {
+    width: 40px;
+    height: 40px;
+  }
+  .autostart-recovery .btn {
     min-height: 40px;
+  }
+}
+@media (max-width: 480px) {
+  .autostart-row {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 8px 4px;
+  }
+  .autostart-actions {
+    gap: 4px;
+  }
+  .autostart-recovery {
+    padding-right: 8px;
+    padding-left: 8px;
   }
 }
 </style>

@@ -51,47 +51,53 @@
       </button>
     </div>
     <div v-if="!collapsed" class="pgroup-grid">
-      <article
-        v-for="member in visibleMembers"
-        :key="member.name"
-        v-memo="[member.name, member.selected, member.meta, member.udp, member.text, member.cls, member.testing, member.pending, busy, selectable, locale]"
-        class="node-card"
-        :class="{ selected: member.selected, static: !selectable }"
+      <div
+        v-for="batch in visibleMemberBatches"
+        :key="batch[0]?.name"
+        class="node-batch"
       >
-        <component
-          :is="selectable ? 'button' : 'div'"
-          class="node-main"
-          :type="selectable ? 'button' : undefined"
-          :aria-pressed="selectable ? member.selected : undefined"
-          :disabled="selectable ? busy : undefined"
-          @click="selectable && !busy && emit('select', member.name)"
+        <article
+          v-for="member in batch"
+          :key="member.name"
+          v-memo="[member.name, member.selected, member.meta, member.udp, member.text, member.cls, member.testing, member.pending, busy, selectable, testing, locale]"
+          class="node-card"
+          :class="{ selected: member.selected, static: !selectable }"
         >
-          <div class="node-top">
-            <span class="node-name" :title="member.name">{{ member.name }}</span>
-            <Icon v-if="member.selected" name="check-circle" :size="14" class="node-selected" />
-            <Icon v-if="member.pending" name="loader" :size="12" class="spin node-pending" />
-          </div>
-          <div class="node-sub">
-            <span class="node-meta">
-              {{ member.meta }}
-            </span>
-            <span class="node-badges">
-              <span v-if="member.udp" class="node-badge udp-tag">UDP</span>
-            </span>
-          </div>
-        </component>
-        <button
-          type="button"
-          class="node-delay"
-          :class="[member.cls, { testing: member.testing }]"
-          :aria-label="`${t('proxies.testNode', { name: member.name })}: ${member.text}`"
-          :disabled="member.testing"
-          @click="emit('test-node', member.name)"
-        >
-          <Icon v-if="member.testing" name="refresh" :size="11" class="delay-spinner" />
-          <template v-else>{{ member.text }}</template>
-        </button>
-      </article>
+          <component
+            :is="selectable ? 'button' : 'div'"
+            class="node-main"
+            :type="selectable ? 'button' : undefined"
+            :aria-pressed="selectable ? member.selected : undefined"
+            :disabled="selectable ? busy : undefined"
+            @click="selectable && !busy && emit('select', member.name)"
+          >
+            <div class="node-top">
+              <span class="node-name" :title="member.name">{{ member.name }}</span>
+              <Icon v-if="member.selected" name="check-circle" :size="14" class="node-selected" />
+              <Icon v-if="member.pending" name="loader" :size="12" class="spin node-pending" />
+            </div>
+            <div class="node-sub">
+              <span class="node-meta">
+                {{ member.meta }}
+              </span>
+              <span class="node-badges">
+                <span v-if="member.udp" class="node-badge udp-tag">UDP</span>
+              </span>
+            </div>
+          </component>
+          <button
+            type="button"
+            class="node-delay"
+            :class="[member.cls, { testing: member.testing }]"
+            :aria-label="`${t('proxies.testNode', { name: member.name })}: ${member.text}`"
+            :disabled="member.testing || testing"
+            @click="emit('test-node', member.name)"
+          >
+            <Icon v-if="member.testing" name="refresh" :size="11" class="delay-spinner" />
+            <span v-else class="node-delay-text">{{ member.text }}</span>
+          </button>
+        </article>
+      </div>
     </div>
   </section>
 </template>
@@ -140,7 +146,7 @@ const visibleMembers = computed(() => {
       meta: `${proxy?.type ?? ""}${groupTypes.has(proxy?.type ?? "") && proxy?.now ? ` · ${proxy.now}` : ""}`,
       udp: proxy?.udp ?? false,
       pending: props.pending === name,
-      testing: props.testing || (props.testingNodes?.has(name) ?? false),
+      testing: props.testingNodes?.has(name) ?? false,
       timeout: delay === 0,
       rank: typeof delay === "number" && delay > 0 ? delay : Number.POSITIVE_INFINITY,
       cls: delay === undefined ? "delay-none" : `delay-${level}`,
@@ -151,6 +157,15 @@ const visibleMembers = computed(() => {
   }).filter((member) => !props.hideTimeout || !member.timeout);
   // Stable sorting leaves equal, failed and untested entries in source order.
   return sortByLatency.value ? members.sort((a, b) => a.rank - b.rank) : members;
+});
+
+const NODE_BATCH_SIZE = 24;
+const visibleMemberBatches = computed(() => {
+  const batches = [];
+  for (let index = 0; index < visibleMembers.value.length; index += NODE_BATCH_SIZE) {
+    batches.push(visibleMembers.value.slice(index, index + NODE_BATCH_SIZE));
+  }
+  return batches;
 });
 </script>
 
@@ -239,9 +254,16 @@ const visibleMembers = computed(() => {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: 12px;
 }
-.node-card {
+.node-batch {
+  display: grid;
+  min-width: 0;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
   content-visibility: auto;
-  contain-intrinsic-block-size: auto 72px;
+  contain-intrinsic-block-size: auto 640px;
+}
+.node-card {
   position: relative;
   display: grid;
   width: 100%;
@@ -252,17 +274,14 @@ const visibleMembers = computed(() => {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-card);
-  box-shadow: var(--shadow-card);
   color: inherit;
   transition:
     background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard),
-    box-shadow var(--motion-fast) var(--ease-standard);
+    border-color var(--motion-fast) var(--ease-standard);
 }
 .node-card:hover {
   border-color: var(--border-strong);
   background: var(--bg-hover);
-  box-shadow: var(--shadow-card-hover);
 }
 .node-card.selected,
 .node-card.selected:hover {
@@ -324,21 +343,26 @@ const visibleMembers = computed(() => {
   bottom: 5px;
   display: inline-flex;
   min-width: 60px;
-  min-height: 28px;
+  height: 28px;
   align-items: center;
-  justify-content: flex-end;
-  align-self: center;
+  justify-content: center;
   gap: 4px;
-  padding: 4px 6px;
+  padding: 0 7px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   font-family: var(--font-mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   font-weight: 550;
   line-height: 1;
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-standard);
+}
+.node-delay-text {
+  display: block;
+  line-height: 1;
+  white-space: nowrap;
 }
 .node-delay:hover:not(:disabled) {
   background: var(--bg-inset);
@@ -347,8 +371,6 @@ const visibleMembers = computed(() => {
   justify-content: center;
   color: var(--accent);
   cursor: wait;
-}
-.node-delay:disabled {
   opacity: 0.72;
 }
 .delay-spinner {
@@ -391,13 +413,14 @@ const visibleMembers = computed(() => {
 }
 .node-badge {
   display: inline-flex;
-  min-height: 17px;
+  height: 18px;
   align-items: center;
-  padding: 0 4px;
+  justify-content: center;
+  padding: 0 5px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xs);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1;
 }
@@ -410,9 +433,12 @@ const visibleMembers = computed(() => {
   .group-test,
   .node-delay {
     min-width: 40px;
-    min-height: 40px;
   }
-  .pgroup-grid {
+  .node-delay {
+    height: 40px;
+  }
+  .pgroup-grid,
+  .node-batch {
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   }
   .node-sub {
@@ -427,15 +453,16 @@ const visibleMembers = computed(() => {
   .pgroup-type {
     display: none;
   }
-  .pgroup-grid {
+  .pgroup-grid,
+  .node-batch {
     grid-template-columns: 1fr;
+  }
+  .node-batch {
+    contain-intrinsic-block-size: auto 2100px;
   }
   .node-card,
   .node-main {
     min-height: 78px;
-  }
-  .node-card {
-    contain-intrinsic-block-size: auto 80px;
   }
 }
 </style>

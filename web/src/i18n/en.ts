@@ -5,7 +5,6 @@ export const en: Messages = {
     coreRunning: "Core running",
     coreStopped: "Core stopped",
     navigation: "Primary navigation",
-    tagline: "Network toolbox",
   },
   nav: {
     overview: "Overview",
@@ -192,7 +191,7 @@ export const en: Messages = {
   },
   autostart: {
     title: "Auto Start",
-    description: "Start Sash in the background when you sign in, using the current configuration",
+    description: "Run Sash in the background when you sign in",
     on: "On",
     off: "Off",
     stale: "Startup paths have changed. Enable again to repair them",

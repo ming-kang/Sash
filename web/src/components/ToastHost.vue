@@ -27,13 +27,6 @@
         >
           <Icon name="x" :size="12" />
         </button>
-        <span
-          v-if="item.duration > 0"
-          :key="item.count"
-          class="toast-progress"
-          :style="{ animationDuration: `${item.duration}ms` }"
-          aria-hidden="true"
-        />
       </div>
     </TransitionGroup>
   </div>
@@ -55,66 +48,66 @@ function iconFor(kind: ToastItem["kind"]): string {
 
 <style scoped>
 .toast-host {
-  position: absolute;
-  top: 100%;
-  right: max(16px, env(safe-area-inset-right, 0px));
-  z-index: var(--z-toast);
+  position: static;
   display: flex;
+  width: 100%;
   flex-direction: column;
-  gap: 10px;
-  width: min(380px, calc(100vw - 32px));
-  margin-top: max(16px, env(safe-area-inset-top, 0px));
+  gap: 8px;
   pointer-events: none;
 }
 .toast {
   position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 12px 14px 15px;
-  overflow: hidden;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 9px 9px 12px;
   pointer-events: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-pop);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
+}
+.toast-success {
+  border-color: var(--success-border);
+}
+.toast-warning {
+  border-color: var(--warning-border);
+}
+.toast-error {
+  border-color: var(--danger-border);
+}
+.toast-info {
+  border-color: var(--info-border);
 }
 .toast-icon {
   display: flex;
-  width: 26px;
-  height: 26px;
+  width: 18px;
+  height: 18px;
   align-items: center;
   justify-content: center;
-  margin-top: -3px;
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
-  background: var(--info-soft);
+  color: var(--info);
 }
 .toast-success .toast-icon {
-  background: var(--success-soft);
   color: var(--success);
 }
 .toast-warning .toast-icon {
-  background: var(--warning-soft);
   color: var(--warning);
 }
 .toast-error .toast-icon {
-  background: var(--danger-soft);
   color: var(--danger);
 }
-.toast-info .toast-icon {
-  color: var(--info);
-}
 .toast-text {
+  min-width: 0;
   flex: 1;
   line-height: 1.45;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .toast-count {
   flex-shrink: 0;
-  align-self: center;
   padding: 1px 6px;
   border-radius: var(--radius-full);
   background: var(--bg-inset);
@@ -125,59 +118,28 @@ function iconFor(kind: ToastItem["kind"]): string {
 }
 .toast-close {
   display: flex;
-  border: none;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: -3px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 2px;
-  border-radius: 4px;
-  flex-shrink: 0;
 }
 .toast-close:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.toast-progress {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--info);
-  opacity: 0.55;
-  animation-name: toast-progress;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-  transform-origin: left;
-}
-.toast-success .toast-progress {
-  background: var(--success);
-}
-.toast-warning .toast-progress {
-  background: var(--warning);
-}
-.toast:hover .toast-progress,
-.toast:focus-within .toast-progress {
-  animation-play-state: paused;
-}
-@keyframes toast-progress {
-  from {
-    transform: scaleX(1);
-  }
-  to {
-    transform: scaleX(0);
-  }
-}
 
 @media (max-width: 899px) {
   .toast-host {
-    position: fixed;
-    top: auto;
-    right: max(12px, env(safe-area-inset-right, 0px));
-    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-    left: max(12px, env(safe-area-inset-left, 0px));
-    width: auto;
-    margin-top: 0;
+    position: static;
+    width: 100%;
   }
 }
 
@@ -189,9 +151,6 @@ function iconFor(kind: ToastItem["kind"]): string {
   .toast-enter-from,
   .toast-leave-to {
     transform: none;
-  }
-  .toast-progress {
-    display: none;
   }
 }
 </style>

@@ -147,15 +147,19 @@
         <dl class="info-grid">
           <div class="info-item">
             <dt>{{ t('overview.daemonPort') }}</dt>
-            <dd class="mono">127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}</dd>
+            <dd class="mono" :title="`127.0.0.1:${store.status?.settings.daemonPort ?? 19090}`">
+              127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}
+            </dd>
           </div>
           <div class="info-item">
             <dt>{{ t('overview.controller') }}</dt>
-            <dd class="mono">{{ store.status?.settings.controller || '-' }}</dd>
+            <dd class="mono" :title="store.status?.settings.controller || '-'">
+              {{ store.status?.settings.controller || '-' }}
+            </dd>
           </div>
           <div class="info-item">
             <dt>{{ t('settings.coreVersion') }}</dt>
-            <dd class="mono">{{ coreVersion || '-' }}</dd>
+            <dd class="mono" :title="coreVersion || '-'">{{ coreVersion || '-' }}</dd>
           </div>
         </dl>
       </UiCard>
@@ -349,32 +353,40 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 
 .info-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 2px 0 4px;
 }
 .info-item {
   display: flex;
   min-width: 0;
-  min-height: 43px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 6px;
-  border-bottom: 1px solid var(--border);
+  min-height: 56px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 14px;
+  border-left: 1px solid var(--border);
+}
+.info-item:first-child {
+  padding-left: 6px;
+  border-left: 0;
 }
 .info-item:last-child {
-  border-bottom: 0;
+  padding-right: 6px;
 }
 .info-item dt {
-  flex-shrink: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .info-item dd {
+  width: 100%;
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 500;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -420,15 +432,29 @@ async function toggleAllowLan(next: boolean): Promise<void> {
   .setting-action .btn {
     min-height: 44px;
   }
-  .info-item {
-    min-height: 0;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 3px;
-    padding: 10px 8px;
+  .info-grid {
+    grid-template-columns: 1fr;
+    padding: 0;
+  }
+  .info-item,
+  .info-item:first-child,
+  .info-item:last-child {
+    min-height: 42px;
+    align-items: center;
+    justify-content: space-between;
+    flex-direction: row;
+    gap: 12px;
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+    border-left: 0;
+  }
+  .info-item:last-child {
+    border-bottom: 0;
   }
   .info-item dd {
-    width: 100%;
+    width: auto;
+    max-width: 65%;
+    text-align: right;
   }
 }
 </style>

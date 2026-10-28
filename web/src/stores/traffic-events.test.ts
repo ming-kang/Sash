@@ -74,7 +74,7 @@ afterEach(async () => {
 
 describe("traffic event subscription", () => {
   it("keeps one stream and appends history across tab visibility changes", async () => {
-    stopTraffic = startTrafficEvents();
+    stopTraffic = startTrafficEvents(0);
     assert.equal(sockets.length, 1);
     const socket = sockets[0];
     assert.ok(socket);
@@ -101,8 +101,39 @@ describe("traffic event subscription", () => {
     assert.equal(store.traffic.historyDown.at(-1), 2000);
   });
 
+  it("coalesces visible bursts and discards a pending rate on disconnect", async () => {
+    let disconnect = () => {};
+    api.connectTraffic = (onData, onDisconnect) => {
+      const socket: TrafficSocket = { send: onData, closed: false };
+      sockets.push(socket);
+      disconnect = () => onDisconnect?.();
+      return () => {
+        socket.closed = true;
+      };
+    };
+    stopTraffic = startTrafficEvents(20);
+    const socket = sockets[0];
+    assert.ok(socket);
+
+    socket.send({ up: 100, down: 1000 });
+    socket.send({ up: 200, down: 2000 });
+    socket.send({ up: 300, down: 3000 });
+    assert.equal(store.traffic.up, 0);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(store.traffic.up, 300);
+    assert.equal(store.traffic.historyUp.at(-1), 300);
+    assert.equal(store.traffic.historyUp.at(-2), 0);
+
+    socket.send({ up: 400, down: 4000 });
+    disconnect();
+    assert.equal(store.traffic.up, 0);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(store.traffic.up, 0);
+    assert.equal(store.traffic.historyUp.at(-1), 300);
+  });
+
   it("still releases the stream and history when the Core becomes unhealthy", async () => {
-    stopTraffic = startTrafficEvents();
+    stopTraffic = startTrafficEvents(0);
     const socket = sockets[0];
     assert.ok(socket);
     socket.send({ up: 100, down: 1000 });

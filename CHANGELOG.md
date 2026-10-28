@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-10-28
+
+### Changed
+
+- Improved WebUI responsiveness with batched off-screen node rendering and coalesced high-frequency traffic updates. Group latency tests now publish each result as it arrives, with bounded concurrency and the same timeout/failure handling as single-node tests.
+- Simplified the Sash wordmark, start-at-login control and runtime information layout. Restyled Toast and pending-configuration notifications as compact floating cards.
+
+### Fixed
+
+- Pending-configuration and Toast notifications no longer push page content when they appear or disappear. Latency values and UDP badges now share a consistent vertical centerline.
+
 ## [0.3.7] - 2026-10-24
 
 ### Changed

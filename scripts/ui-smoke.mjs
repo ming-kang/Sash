@@ -80,8 +80,11 @@ async function exercise(fixture, label) {
   await first.getByRole("button", { name: "Show/hide timed-out nodes" }).click();
   assert.equal(await first.getByText("Node timeout", { exact: true }).count(), 0);
   assert.equal(await first.getByText("Node failed", { exact: true }).count(), 1);
-  await fast.locator(".node-delay").click();
-  await fast.locator(".node-delay").filter({ hasText: "Failed" }).waitFor();
+  const failed = first
+    .locator(".node-card")
+    .filter({ has: page.getByText("Node failed", { exact: true }) });
+  await failed.locator(".node-delay").click();
+  await failed.locator(".node-delay").filter({ hasText: "Failed" }).waitFor();
   await page.locator(".toast-error").filter({ hasText: "Fixture connection refused" }).waitFor();
   await screenshot(page, `${label}-overview`);
   while (await page.locator(".toast-error").count()) {
@@ -94,14 +97,19 @@ async function exercise(fixture, label) {
   }
   await page.locator(".toast-success").waitFor({ state: "detached" });
   assert.equal(fixture.statusReads, 0, "connected WebUI receives status without polling");
+  const pageTitleTop = () =>
+    page.locator(".page-head").evaluate((element) => element.getBoundingClientRect().top);
+  const restingTitleTop = await pageTitleTop();
   fixture.status.configuration.pending = true;
   fixture.status.revisions.state++;
   fixture.events.publish();
   await page.locator(".pending-config").waitFor();
+  assert.equal(await pageTitleTop(), restingTitleTop, "pending Apply does not move the page");
   fixture.status.configuration.pending = false;
   fixture.status.revisions.state++;
   fixture.events.publish();
   await page.locator(".pending-config").waitFor({ state: "detached" });
+  assert.equal(await pageTitleTop(), restingTitleTop, "dismissing Apply does not move the page");
   const subscriptions = fixture.events.connections;
   const reconnecting = page.waitForRequest(
     (request) => new URL(request.url()).pathname === "/sash/events",

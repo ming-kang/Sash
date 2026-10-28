@@ -3,7 +3,6 @@ export const zh = {
     coreRunning: "核心运行中",
     coreStopped: "核心已停止",
     navigation: "主导航",
-    tagline: "开发者网络工具箱",
   },
   nav: {
     overview: "概览",
@@ -187,7 +186,7 @@ export const zh = {
   },
   autostart: {
     title: "登录自启",
-    description: "登录系统后在后台启动 Sash，沿用当前配置",
+    description: "登录系统后自动在后台运行 Sash",
     on: "开",
     off: "关",
     stale: "启动路径已变化，重新启用即可修复",

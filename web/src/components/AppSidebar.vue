@@ -2,10 +2,7 @@
   <aside class="sidebar">
     <div class="brand">
       <img class="brand-mark" :src="'./assets/branding/sash-cat.png'" alt="" />
-      <div class="brand-copy">
-        <span class="brand-name">Sash</span>
-        <span class="brand-tagline">{{ t('app.tagline') }}</span>
-      </div>
+      <span class="brand-name">Sash</span>
     </div>
 
     <nav class="side-nav" :aria-label="t('app.navigation')">
@@ -85,11 +82,6 @@ const coreTooltip = computed(() => {
   flex-shrink: 0;
   object-fit: contain;
 }
-.brand-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
 .brand-name {
   color: var(--text-primary);
   font-family: var(--font-brand);
@@ -97,15 +89,6 @@ const coreTooltip = computed(() => {
   font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1.15;
-}
-.brand-tagline {
-  margin-top: 3px;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 11px;
-  letter-spacing: 0.025em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .side-nav {
   display: flex;

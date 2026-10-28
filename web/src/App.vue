@@ -26,7 +26,8 @@
             class="pending-config"
             role="status"
           >
-            <span>{{ t('settings.pendingApply') }}</span>
+            <Icon name="warning" :size="16" />
+            <span class="pending-config-copy">{{ t('settings.pendingApply') }}</span>
             <CoreControls apply-only />
           </div>
 
@@ -155,23 +156,40 @@ onUnmounted(() => {
 
 <style scoped>
 .app-chrome {
-  position: relative;
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top, 0px));
+  right: max(24px, env(safe-area-inset-right, 0px));
+  z-index: var(--z-toast);
   display: flex;
-  flex-shrink: 0;
+  width: min(400px, calc(100% - 48px));
   flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
 }
 .pending-config {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 24px;
+  gap: 9px;
+  padding: 10px 11px 10px 13px;
+  pointer-events: auto;
   color: var(--warning);
-  background: var(--warning-soft);
-  border-bottom: 1px solid var(--warning-border);
-  font-size: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  font-size: 13px;
+}
+.pending-config > .sash-icon {
+  flex-shrink: 0;
+}
+.pending-config-copy {
+  min-width: 120px;
+  flex: 1;
+  color: var(--text-primary);
+  font-weight: 550;
+  line-height: 1.4;
 }
 .app-frame {
   width: 100%;
@@ -252,6 +270,14 @@ onUnmounted(() => {
 }
 
 @media (max-width: 899px) {
+  .app-chrome {
+    position: fixed;
+    top: auto;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    left: max(12px, env(safe-area-inset-left, 0px));
+    width: auto;
+  }
   .app-frame {
     height: auto;
     min-height: 100vh;

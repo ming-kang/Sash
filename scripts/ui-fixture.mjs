@@ -222,7 +222,13 @@ export async function fixturePage(browser, server, theme, viewport) {
             .map((name) => [name, name === "Node fast" ? 20 : name === "Node timeout" ? 0 : 300]),
         ),
       );
-    if (endpoint.endsWith("/delay")) return reply({ error: "Fixture connection refused" }, 503);
+    if (endpoint.endsWith("/delay")) {
+      const name = decodeURIComponent(
+        endpoint.slice("/core/api/proxies/".length, -"/delay".length),
+      );
+      if (name === "Node failed") return reply({ error: "Fixture connection refused" }, 503);
+      return reply({ delay: name === "Node fast" ? 20 : name === "Node timeout" ? 0 : 300 });
+    }
     if (endpoint === "/core/api/connections")
       return reply({
         connections,

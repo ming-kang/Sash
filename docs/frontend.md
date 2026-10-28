@@ -36,13 +36,13 @@ Sash status arrives through authenticated SSE at `/sash/events`; a connection st
 | Profiles / Settings | Saved metadata; no periodic Core table reads |
 | Logs | Log stream while visible |
 
-Page entry loads the relevant resources immediately. Saving a profile refreshes metadata and applies it to the running Core; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket scoped to the authorized, healthy Core runtime and keeps appending history while the tab is hidden. Logs still pause when hidden; both streams stop when the session or Core is unavailable. A traffic disconnect clears the displayed rate without immediately erasing recent history.
+Page entry loads the relevant resources immediately. Saving a profile refreshes metadata and applies it to the running Core; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket scoped to the authorized, healthy Core runtime and keeps appending history while the tab is hidden. Visible bursts are committed at most every 100ms, while hidden tabs retain every frame. Logs still pause when hidden; both streams stop when the session or Core is unavailable. A traffic disconnect cancels any pending rate and clears the displayed rate without immediately erasing recent history.
 
-Unchanged proxy data retains its references. Lists use memoization, pagination or content visibility where useful. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand.
+Unchanged proxy data retains its references. Lists use memoization, pagination or batched content visibility where useful; off-screen proxy nodes are skipped in groups of 24 rather than observed card by card. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand. Group latency checks run at most eight node requests concurrently and publish each result as it settles instead of waiting for the whole group.
 
 ## Views and controls
 
-[App.vue](../web/src/App.vue) owns the session gate, pending-configuration bar and shared stream lifetime. [AppSidebar.vue](../web/src/components/AppSidebar.vue) keeps primary navigation and a compact Core state; live traffic and uptime stay on Overview instead of being duplicated in the sidebar. Pages cover Overview, Profiles, Logs, Connections, Rules and Settings.
+[App.vue](../web/src/App.vue) owns the session gate, floating pending-configuration notification and shared stream lifetime. [AppSidebar.vue](../web/src/components/AppSidebar.vue) keeps primary navigation and a compact Core state; live traffic and uptime stay on Overview instead of being duplicated in the sidebar. Pages cover Overview, Profiles, Logs, Connections, Rules and Settings.
 
 [CoreControls.vue](../web/src/components/CoreControls.vue) shares start, stop and Apply behavior through [useCoreControl](../web/src/composables/core-runtime.ts). Applying a profile reloads the running Core and keeps established connections, so it no longer asks for confirmation; a proxy port or LAN change still restarts Core.
 

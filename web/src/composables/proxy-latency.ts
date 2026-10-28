@@ -1,53 +1,92 @@
 import { shallowRef } from "vue";
 import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
-import { errorText, store, toast, updateProxyDelay, updateProxyDelays } from "../stores/index.js";
+import { errorText, store, toast, updateProxyDelay } from "../stores/index.js";
 import type { ProxyDelay } from "../types/index.js";
+
+const GROUP_CONCURRENCY = 8;
+
+function isTimeout(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "TimeoutError" ||
+      /\b(timeout|timed out|deadline exceeded)\b/i.test(error.message))
+  );
+}
 
 export function useProxyLatency() {
   const testingGroups = shallowRef(new Set<string>());
   const testingNodes = shallowRef(new Set<string>());
 
+  function clearTestingNode(name: string): void {
+    const next = new Set(testingNodes.value);
+    next.delete(name);
+    testingNodes.value = next;
+  }
+
+  async function measure(
+    name: string,
+    generation: number,
+  ): Promise<{ delay: ProxyDelay; error?: unknown }> {
+    try {
+      const { delay } = await api.testProxyDelay(name);
+      if (!Number.isFinite(delay) || delay < 0) throw new Error(t("errors.latencyInvalid"));
+      updateProxyDelay(name, delay, generation);
+      return { delay };
+    } catch (error) {
+      const delay = isTimeout(error) ? 0 : "failed";
+      updateProxyDelay(name, delay, generation);
+      return { delay, error };
+    }
+  }
+
   async function testGroup(group: string): Promise<void> {
     if (testingGroups.value.has(group)) return;
+    const members = [...new Set(store.proxies[group]?.all ?? [])];
+    if (members.length === 0 || members.some((name) => testingNodes.value.has(name))) return;
     testingGroups.value = new Set(testingGroups.value).add(group);
+    testingNodes.value = new Set([...testingNodes.value, ...members]);
     const generation = store.runtimeGeneration;
+    const results: ProxyDelay[] = Array(members.length);
+    let cursor = 0;
+
+    async function worker(): Promise<void> {
+      while (cursor < members.length) {
+        const index = cursor++;
+        const name = members[index];
+        if (!name) continue;
+        const result = await measure(name, generation);
+        results[index] = result.delay;
+        clearTestingNode(name);
+      }
+    }
+
     try {
-      const delays = await api.testGroupDelay(group);
-      if (generation !== store.runtimeGeneration) return;
-      const members = store.proxies[group]?.all ?? Object.keys(delays);
-      const results = Object.fromEntries(
-        members.map((name): [string, ProxyDelay] => {
-          const delay = delays[name];
-          return [
-            name,
-            typeof delay === "number" && Number.isFinite(delay) && delay >= 0 ? delay : "failed",
-          ];
-        }),
+      await Promise.all(
+        Array.from({ length: Math.min(GROUP_CONCURRENCY, members.length) }, () => worker()),
       );
-      updateProxyDelays(results, generation);
-      const values = Object.values(results);
-      const timeouts = values.filter((delay) => delay === 0).length;
-      const failures = values.filter((delay) => delay === "failed").length;
+      if (generation !== store.runtimeGeneration) return;
+      const timeouts = results.filter((delay) => delay === 0).length;
+      const failures = results.filter((delay) => delay === "failed").length;
       if (timeouts || failures) {
         toast.warning(
           t("toast.testGroupPartial", {
             name: group,
-            n: values.length - timeouts - failures,
+            n: results.length - timeouts - failures,
             timeouts,
             failures,
           }),
         );
       } else {
-        toast.success(t("toast.testGroupOk", { name: group, n: values.length }));
+        toast.success(t("toast.testGroupOk", { name: group, n: results.length }));
       }
-    } catch (error) {
-      if (generation === store.runtimeGeneration)
-        toast.error(t("toast.failed", { msg: errorText(error) }));
     } finally {
-      const next = new Set(testingGroups.value);
-      next.delete(group);
-      testingGroups.value = next;
+      const nextNodes = new Set(testingNodes.value);
+      for (const name of members) nextNodes.delete(name);
+      testingNodes.value = nextNodes;
+      const nextGroups = new Set(testingGroups.value);
+      nextGroups.delete(group);
+      testingGroups.value = nextGroups;
     }
   }
 
@@ -60,28 +99,14 @@ export function useProxyLatency() {
     testingNodes.value = new Set(testingNodes.value).add(name);
     const generation = store.runtimeGeneration;
     try {
-      const { delay } = await api.testProxyDelay(name);
-      if (!Number.isFinite(delay) || delay < 0) throw new Error(t("errors.latencyInvalid"));
+      const result = await measure(name, generation);
       if (generation !== store.runtimeGeneration) return;
-      updateProxyDelay(name, delay, generation);
-      if (delay === 0) toast.warning(t("toast.testTimeout", { name }));
-      else toast.success(t("toast.testNodeDone", { name, delay }));
-    } catch (error) {
-      if (generation !== store.runtimeGeneration) return;
-      const timeout =
-        error instanceof Error &&
-        (error.name === "TimeoutError" ||
-          /\b(timeout|timed out|deadline exceeded)\b/i.test(error.message));
-      updateProxyDelay(name, timeout ? 0 : "failed", generation);
-      const text = timeout
-        ? t("toast.testTimeout", { name })
-        : t("toast.testFailed", { name, msg: errorText(error) });
-      if (timeout) toast.warning(text);
-      else toast.error(text);
+      if (result.delay === 0) toast.warning(t("toast.testTimeout", { name }));
+      else if (result.delay === "failed")
+        toast.error(t("toast.testFailed", { name, msg: errorText(result.error) }));
+      else toast.success(t("toast.testNodeDone", { name, delay: result.delay }));
     } finally {
-      const next = new Set(testingNodes.value);
-      next.delete(name);
-      testingNodes.value = next;
+      clearTestingNode(name);
     }
   }
 

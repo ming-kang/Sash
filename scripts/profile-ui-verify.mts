@@ -195,19 +195,40 @@ try {
             cards.map((card) => {
               const name = card.querySelector<HTMLElement>(".node-name");
               const delay = card.querySelector<HTMLElement>(".node-delay");
-              if (!name || !delay) throw new Error("Missing node fields");
+              const delayText = card.querySelector<HTMLElement>(".node-delay-text");
+              const udp = card.querySelector<HTMLElement>(".udp-tag");
+              if (!name || !delay || !delayText) throw new Error("Missing node fields");
+              const delayBox = delay.getBoundingClientRect();
+              const textBox = delayText.getBoundingClientRect();
+              const udpBox = udp?.getBoundingClientRect();
+              const visible = delayBox.width > 0 && textBox.height > 0;
               return {
                 fits: name.scrollWidth <= name.clientWidth + 1,
-                overlap:
-                  name.getBoundingClientRect().bottom > delay.getBoundingClientRect().top + 1,
+                overlap: name.getBoundingClientRect().bottom > delayBox.top + 1,
                 cardFits: card.scrollWidth <= card.clientWidth + 1,
+                visible,
+                delayCentered:
+                  !visible ||
+                  Math.abs((textBox.top + textBox.bottom - delayBox.top - delayBox.bottom) / 2) <= 1,
+                udpAligned:
+                  !visible ||
+                  !udpBox ||
+                  Math.abs((textBox.top + textBox.bottom - udpBox.top - udpBox.bottom) / 2) <= 1,
               };
             }),
           );
           assert.ok(
             geometry.length > 0 &&
-              geometry.every((item) => item.fits && item.cardFits && !item.overlap),
-            `${tag}/${width}/${theme}: clipped name or overlapping delay`,
+              geometry.some((item) => item.visible) &&
+              geometry.every(
+                (item) =>
+                  item.fits &&
+                  item.cardFits &&
+                  !item.overlap &&
+                  item.delayCentered &&
+                  item.udpAligned,
+              ),
+            `${tag}/${width}/${theme}: clipped, overlapping or misaligned node fields`,
           );
           await capture(page, `${tag}-nodes-${width}-${theme}`);
         }
