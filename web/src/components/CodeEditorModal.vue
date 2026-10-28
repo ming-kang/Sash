@@ -168,7 +168,6 @@ onUnmounted(() => {
   display: flex;
   padding: 26px;
   background: var(--bg-scrim);
-  backdrop-filter: blur(3px);
 }
 .editor-dialog {
   display: flex;

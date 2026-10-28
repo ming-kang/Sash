@@ -90,7 +90,6 @@ onUnmounted(() => {
   justify-content: center;
   padding: 20px;
   background: var(--bg-scrim);
-  backdrop-filter: blur(3px);
 }
 .overlay.fade-enter-active .dialog {
   animation: dialog-enter var(--motion-normal) var(--ease-spring);
