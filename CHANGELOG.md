@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-10-28
+
 ### Fixed
 
 - Removed full-screen backdrop blur from the profile/settings editor and confirmation dialogs, so typing and drag-selection no longer re-blur the viewport on every repaint.
