@@ -3,6 +3,10 @@ import type { AutostartStatus } from "../../../src/autostart/contract.js";
 import { api } from "../api/index.js";
 import { errorText } from "../stores/index.js";
 
+export function visibleAutostartReason(status: AutostartStatus | null): string | null {
+  return status && status.state !== "on" ? status.reason : null;
+}
+
 export function useAutostart(owner: Readonly<Ref<string | null>>) {
   const status = ref<AutostartStatus | null>(null);
   const loading = ref(false);

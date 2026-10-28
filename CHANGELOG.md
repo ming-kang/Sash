@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- The Settings page no longer flashes an installation hint in the Auto Start row while autostart is already enabled.
+
 ## [0.3.9] - 2026-10-28
 
 ### Fixed

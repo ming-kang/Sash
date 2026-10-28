@@ -5,7 +5,7 @@
         <span class="autostart-title">{{ t('autostart.title') }}</span>
         <span class="autostart-desc">{{ t('autostart.description') }}</span>
         <span v-if="stateHint" class="autostart-state">{{ stateHint }}</span>
-        <span v-if="status?.reason" class="autostart-reason">{{ status.reason }}</span>
+        <span v-if="reasonText" class="autostart-reason">{{ reasonText }}</span>
         <span id="autostart-state" class="sr-only" role="status">{{ stateText }}</span>
       </div>
       <div class="autostart-actions">
@@ -44,7 +44,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { sessionReady } from "../api/index.js";
-import { useAutostart } from "../composables/autostart.js";
+import { useAutostart, visibleAutostartReason } from "../composables/autostart.js";
 import { t } from "../i18n/index.js";
 import { errorText, store, toast } from "../stores/index.js";
 import Icon from "./Icon.vue";
@@ -80,6 +80,7 @@ const stateText = computed(() => {
 const stateHint = computed(() =>
   status.value?.state === "on" || status.value?.state === "off" ? null : stateText.value,
 );
+const reasonText = computed(() => visibleAutostartReason(status.value));
 const canRemove = computed(
   () => status.value && ["stale", "disabled", "unknown"].includes(status.value.state),
 );

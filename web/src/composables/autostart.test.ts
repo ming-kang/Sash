@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { effectScope, nextTick, ref } from "vue";
 import type { AutostartStatus } from "../../../src/autostart/contract.js";
 import { api } from "../api/index.js";
-import { useAutostart } from "./autostart.js";
+import { useAutostart, visibleAutostartReason } from "./autostart.js";
 
 const off: AutostartStatus = { state: "off", canEnable: true, reason: null };
 const on: AutostartStatus = { ...off, state: "on" };
@@ -17,6 +17,18 @@ function deferred<T>() {
 }
 
 describe("autostart UI observations", () => {
+  it("hides enablement reasons while autostart is already on", () => {
+    assert.equal(
+      visibleAutostartReason({ state: "on", canEnable: false, reason: "needs a global install" }),
+      null,
+    );
+    assert.equal(
+      visibleAutostartReason({ state: "stale", canEnable: false, reason: "repair the entry" }),
+      "repair the entry",
+    );
+    assert.equal(visibleAutostartReason(null), null);
+  });
+
   it("waits for a committed response and prevents overlapping switches", async (t) => {
     t.mock.method(api, "getAutostart", async () => off);
     const mutation = deferred<AutostartStatus>();
