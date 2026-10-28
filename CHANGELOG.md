@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Removed full-screen backdrop blur from the profile/settings editor and confirmation dialogs, so typing and drag-selection no longer re-blur the viewport on every repaint.
+- Page entry now fades without a vertical translate, preventing a temporary page scrollbar from shifting the Logs view horizontally.
+
 ## [0.3.8] - 2026-10-28
 
 ### Changed

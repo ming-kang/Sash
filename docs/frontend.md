@@ -38,7 +38,7 @@ Sash status arrives through authenticated SSE at `/sash/events`; a connection st
 
 Page entry loads the relevant resources immediately. Saving a profile refreshes metadata and applies it to the running Core; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket scoped to the authorized, healthy Core runtime and keeps appending history while the tab is hidden. Visible bursts are committed at most every 100ms, while hidden tabs retain every frame. Logs still pause when hidden; both streams stop when the session or Core is unavailable. A traffic disconnect cancels any pending rate and clears the displayed rate without immediately erasing recent history.
 
-Unchanged proxy data retains its references. Lists use memoization, pagination or batched content visibility where useful; off-screen proxy nodes are skipped in groups of 24 rather than observed card by card. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand. Group latency checks run at most eight node requests concurrently and publish each result as it settles instead of waiting for the whole group.
+Unchanged proxy data retains its references. Lists use memoization, pagination or batched content visibility where useful; off-screen proxy nodes are skipped in groups of 24 rather than observed card by card. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand. Full-screen interactive overlays avoid live `backdrop-filter`, and page-entry motion does not create scrollable overflow on 100%-height views. Group latency checks run at most eight node requests concurrently and publish each result as it settles instead of waiting for the whole group.
 
 ## Views and controls
 
