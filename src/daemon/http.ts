@@ -16,13 +16,8 @@ export class HttpError extends Error {
 
 export type JsonObject = Record<string, unknown>;
 
-/* Request-target parsing: one canonical pathname for authentication, routing
- * and upstream forwarding. */
-
 export interface ParsedDaemonRequestTarget {
-  /** WHATWG-canonical pathname; percent-encoded slash remains encoded. */
   pathname: string;
-  /** Pathname used for route matching, with trailing slashes removed. */
   routePathname: string;
   search: string;
   searchParams: URLSearchParams;
@@ -166,7 +161,6 @@ export async function parseJsonObjectBody(
   return body as JsonObject;
 }
 
-/** Same error envelope as HTTP responses, for socket rejects before an upgrade. */
 export function sendSocketError(
   socket: Duplex,
   statusCode: number,

@@ -197,7 +197,6 @@ export class MihomoApi {
     await response.discard();
   }
 
-  /** One explicit outbound probe; a group uses its current outbound, never all members. */
   async delay(name: string, signal?: AbortSignal): Promise<CoreDelayResult> {
     validateDelayTarget(name);
     signal?.throwIfAborted();

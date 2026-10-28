@@ -10,7 +10,6 @@ const ATOMIC_REVISION = /^\.[1-9]\d*\.yaml\.[1-9]\d*\.[a-f0-9]{12}\.tmp$/;
 const VALIDATION_FILE =
   /^\.?config-validate-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\.yaml(?:\.[1-9]\d*\.[a-f0-9]{12}\.tmp)?$/;
 
-/** Only known generated names, old regular files, and empty owned directories are removed. */
 export function pruneProfileFiles(
   layout: SashLayout,
   index: ProfilesIndex,

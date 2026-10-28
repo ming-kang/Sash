@@ -3,13 +3,11 @@ import type { DaemonStatus } from "./contracts.js";
 
 export interface DaemonEvent {
   schemaVersion: 1;
-  /** Monotonic for this daemon's stream; reconnect always delivers a complete snapshot. */
   sequence: number;
   status: DaemonStatus;
   autostart: AutostartStatus;
 }
 
-/** Events come from this installation's own daemon; only the protocol version is checked. */
 export function parseDaemonEvent(value: unknown): DaemonEvent {
   const event = value as DaemonEvent;
   if (event?.schemaVersion !== 1) throw new TypeError("Invalid Sash event");
@@ -18,7 +16,6 @@ export function parseDaemonEvent(value: unknown): DaemonEvent {
 
 const MAX_EVENT_CHARS = 4 * 1024 * 1024;
 
-/** Bounded incremental SSE decoding, including UTF-8 and CRLF split across chunks. */
 export async function* decodeDaemonEvents(
   body: AsyncIterable<Uint8Array>,
 ): AsyncGenerator<DaemonEvent> {

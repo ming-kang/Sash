@@ -6,7 +6,6 @@ import { addTraffic } from "./telemetry.js";
 
 const STALE_HISTORY_MS = 5000;
 
-/** Traffic belongs to the Core runtime, not to a visible route or browser tab. */
 export function startTrafficEvents(intervalMs = 100): () => void {
   let unsubscribe: (() => void) | null = null;
   let staleTimer: number | null = null;

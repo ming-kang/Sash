@@ -3,7 +3,6 @@ import { commandOutput } from "../cli-output.js";
 import { diagnoseSash } from "../doctor.js";
 import { log } from "../log.js";
 
-/** Human names for the machine-readable check ids that stay in `doctor --json`. */
 const CHECK_LABELS: Record<string, string> = {
   installation: "Installation",
   node: "Node",

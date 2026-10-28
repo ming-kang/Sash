@@ -6,7 +6,6 @@ import { sashLayout } from "../paths.js";
 
 export type { RuntimeContext } from "../daemon-session.js";
 
-/** Read-only CLI context; only the daemon initializes or publishes application state. */
 export function runtimeContext(): RuntimeContext {
   const layout = sashLayout();
   return { layout, settings: loadSettings(layout) };
@@ -19,7 +18,6 @@ export interface CoreUpdateInterrupt {
   restore(): void;
 }
 
-/** Ctrl+C cancels a Core download Sash is running; otherwise it would continue with no command left to stop it. */
 export function installCoreUpdateInterrupt(
   ctx: RuntimeContext = runtimeContext(),
 ): CoreUpdateInterrupt {

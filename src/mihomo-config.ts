@@ -30,12 +30,10 @@ export function asCoreConfigDocument(doc: unknown): Record<string, unknown> {
   return doc as Record<string, unknown>;
 }
 
-/** Traffic quota advertised by a subscription gateway (`subscription-userinfo`). */
 export interface SubscriptionUserinfo {
   upload: number;
   download: number;
   total: number;
-  /** Unix epoch seconds. */
   expire?: number;
 }
 
@@ -125,7 +123,6 @@ export const PROFILE_DOWNLOAD_SIZE_LIMIT = 8 * 1024 * 1024;
 const MAX_SUBSCRIPTION_REDIRECTS = 5;
 const PROFILE_FETCH_DEADLINE_MS = 30_000;
 
-/** Subscription redirects must stay on an absolute http(s) URL. */
 export function resolveSubscriptionRedirect(_initial: URL, current: URL, location: string): URL {
   const target = new URL(location, current);
   if (target.protocol !== "http:" && target.protocol !== "https:") {
@@ -227,7 +224,6 @@ export function withGeodataMirrors(generated: GeneratedConfig, mirrorIndex = 0):
   return { ...generated, yaml: YAML.stringify(doc, { indent: 2 }) };
 }
 
-/** Keys Sash always controls; user/subscription values for these are dropped. */
 const MANAGED_KEYS = new Set([
   "mixed-port",
   "port",

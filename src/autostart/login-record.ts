@@ -2,7 +2,6 @@ import fs from "node:fs";
 import { atomicWriteFileSync } from "../fs-atomic.js";
 import type { SashLayout } from "../paths.js";
 
-/** The last login-start outcome; the hidden launcher cannot report anything itself. */
 export interface LoginStartRecord {
   at: string;
   ok: boolean;
@@ -14,7 +13,6 @@ export function writeLoginStartRecord(layout: SashLayout, record: LoginStartReco
   atomicWriteFileSync(layout.loginStartFile, `${JSON.stringify(record)}\n`);
 }
 
-/** Lenient by design: an unreadable or unknown record reads as absent. */
 export function readLoginStartRecord(layout: SashLayout): LoginStartRecord | undefined {
   let value: unknown;
   try {

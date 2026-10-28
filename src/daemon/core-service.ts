@@ -37,7 +37,6 @@ export interface CoreControlServiceOptions {
   state: SashStateStore;
   supervisor: CoreSupervisor;
   lifecycle: RuntimeLifecycle;
-  /** The daemon mutation queue: state and lifecycle changes run through it. */
   commit: <T>(action: () => T | Promise<T>) => Promise<T>;
   assertMutable: () => void;
   onProgress: () => void;
@@ -65,7 +64,6 @@ export class CoreControlService {
   private validationTail: Promise<void> = Promise.resolve();
   private progressValue: CoreUpdateProgress | null = null;
   private preparation = new AbortController();
-  /** Identifies the running operation so a cancelled one cannot clear its successor. */
   private operation: { readonly id: number } | null = null;
   private nextOperationId = 0;
   private lastProgressNotify = 0;

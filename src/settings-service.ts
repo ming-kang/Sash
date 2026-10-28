@@ -33,7 +33,6 @@ export interface SettingsServiceOptions {
   supervisor: CoreSupervisor;
 }
 
-/** Saves preferences. Applying Core configuration is an explicit, separate operation. */
 export class SettingsService {
   constructor(private readonly options: SettingsServiceOptions) {}
 

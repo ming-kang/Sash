@@ -10,7 +10,6 @@ import { runSanitizedCommand, windowsSystemExecutable } from "./process.js";
 
 const BOOTSTRAP_DIRECTORY = /^web-bootstrap-(\d{13})-[a-f0-9]{16}$/;
 
-/** Expired handoffs can be removed without racing a browser still opening one. */
 export function removeStaleBootstrapFiles(root: string, now = Date.now()): void {
   let entries: fs.Dirent[];
   try {
@@ -54,7 +53,6 @@ function createPrivateDirectory(directory: string): void {
   });
 }
 
-/** Only the file URL reaches the launcher; the credential enters the URL fragment inside the browser, never process arguments or CLI output. */
 export function writeBootstrapFile(
   layout: SashLayout,
   opts: WebBootstrapInfo & { dashboardUrl: string },
@@ -116,7 +114,6 @@ export function writeBootstrapFile(
   return { filePath, fileUrl: pathToFileURL(filePath).href };
 }
 
-/** Delete only the known document and its empty directory, never recursively. */
 export function removeBootstrapFile(filePath: string): void {
   const directory = path.dirname(filePath);
   if (

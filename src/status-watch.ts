@@ -43,7 +43,6 @@ export interface StatusWatchOptions {
   fromEvent?: typeof collectEventStatus;
 }
 
-/** Read-only across stop/start and upgrades. Rediscovery never starts management. */
 export async function* watchRuntimeStatus(
   context: () => StatusObservationContext,
   options: StatusWatchOptions,

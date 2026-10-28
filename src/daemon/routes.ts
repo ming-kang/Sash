@@ -7,10 +7,6 @@ import { serveUiAsset, serveUiIndexOrRedirect } from "./static.js";
 
 const CORE_API_PREFIX = "/core/api";
 
-/**
- * The whole daemon HTTP surface, in matching order; the dispatch engine
- * lives in router.ts.
- */
 export function buildRoutes(): readonly RouteDef[] {
   return [
     ...sashApiRoutes(),

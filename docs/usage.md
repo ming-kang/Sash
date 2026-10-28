@@ -83,19 +83,7 @@ Add that line to `$PROFILE` for future sessions. From a source checkout, use `. 
 
 ## State format and data
 
-`sash.json` contains `{schemaVersion: 2, revision, settings, profiles}`. These keys live inside `settings`:
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `mixedPort` | `7890` | HTTP/SOCKS proxy port |
-| `allowLan` | `false` | Accept proxy traffic from other devices |
-| `systemProxy` | `false` | Saved Windows system-proxy preference |
-| `controller` | `127.0.0.1:9090` | Internal Core controller |
-| `daemonPort` | `19090` | Local API and dashboard port |
-| `secret` | random | Core controller credential |
-| `daemonSecret` | random | CLI credential |
-
-Edit addresses or credentials only while Sash is stopped, then start it again. All three ports must differ, the controller must use loopback and secrets must be nonblank.
+`sash.json` contains `{schemaVersion: 2, revision, settings, profiles}`. Edit addresses or credentials only while Sash is stopped. All three ports (`mixedPort`, `controller`, `daemonPort`) must differ, the controller must use loopback, and credentials must be nonblank.
 
 | Platform | Default data folder |
 | --- | --- |
@@ -103,19 +91,7 @@ Edit addresses or credentials only while Sash is stopped, then start it again. A
 | macOS | `~/Library/Application Support/Sash` |
 | Linux | `$XDG_DATA_HOME/sash` or `~/.local/share/sash` |
 
-An absolute `SASH_HOME` selects another folder. Use a local filesystem that supports atomic rename and hard links.
-
-| Path in the data folder | Contents |
-| --- | --- |
-| `sash.json`, `sash.json.bak` | Settings, saved profile selection and a recovery copy |
-| `profiles/<id>/<revision>.yaml` | Profile source text |
-| `runtime/config.yaml` | Generated core config |
-| `bin/` | Core executable and update backup |
-| `state/` | Process records, Core installation, proxy recovery and browser session hashes |
-| `logs/` | Core, Sash and login-startup logs |
-| `ui/` | Optional custom dashboard |
-
-Use the profile editor for source changes; Sash generates `runtime/config.yaml` when a configuration is applied. Maintenance cleans recognized orphan files after 24 hours. POSIX private state and logs use `0600`.
+An absolute `SASH_HOME` selects another folder. Use a local filesystem that supports atomic rename and hard links. Profile sources live under `profiles/`, generated core configs under `runtime/config.yaml`, binaries in `bin/`, runtime state in `state/`, and logs in `logs/`. Maintenance cleans recognized orphan files after 24 hours. POSIX private state and logs use `0600`.
 
 ## Updates
 
@@ -169,7 +145,7 @@ The default target is npm's `latest` release; pass an exact published version to
 
 npm installs **while Sash keeps running**, then Sash restarts to load the new package. A failed install leaves the running instance available. `--no-restart` keeps the current process running. Other instances sharing the package load it on their next start. For a manual upgrade, run `npm install -g @astralyn/sash` while Sash is running, then `sash stop && sash start`.
 
-With `--json`, npm output goes to stderr. `--check --json` prints an inspection report (`current`, `target`, `available`, `compatible`, `supported`, `installation`, `prefix`, `node`, `requiredNode`, `reason`). An install prints `{outcome: "upgraded", version, restarted}`; a no-op report carries `outcome` `current`, `unsupported` or `incompatible`; a failure prints `{outcome: "failed", error}`. A check, already-current version or successful install exits `0`; an unsupported/incompatible execution or failure exits `1`.
+With `--json`, npm output goes to stderr. `--check --json` outputs an inspection report; upgrades report outcome status and new version.
 
 ## Status and troubleshooting
 
@@ -201,31 +177,7 @@ sash status --delay "Proxy Group" --watch --json
 
 Use an exact node or group name. Core requests `https://www.gstatic.com/generate_204` with a five-second timeout; a group tests its selected outbound. Watch mode repeats 30 seconds after each result. Tests keep the current node, mode and saved configuration unchanged.
 
-JSON formats: `status --json` is `schemaVersion: 2` with runtime, endpoints, profile, proxy, startup, `complete` and `healthy` (unknown observations are `null`); `--delay` adds `delay: {name, url, timeoutMs, testedAt, state, delayMs, error}`. A Core download in progress adds `coreUpdate: {stage, startedAt, target, downloading, downloaded, total, note}`, and a reachable Sash adds `downloadProxy` describing the transport. `doctor --json` is `schemaVersion: 1` with `healthy`, `complete` and named `checks` carrying status and advice.
-
-Delay states are `pending`, `ok`, `timeout`, `failed`, `not_found` and `unavailable`. A failed or unavailable requested test sets `complete: false` and exit code `2`; `healthy` still describes Sash/Core health. Doctor check statuses are `ok`, `info`, `warning` and `error`.
-
-| Exit code | Meaning |
-| --- | --- |
-| `0` | Success or complete observation, including a known stopped state |
-| `1` | Command failure or a definite diagnostic fault |
-| `2` | Incomplete observation without a definite diagnostic fault |
-| `130` | Interrupted: a Core download was cancelled by Ctrl+C |
-
-| Problem | Next step |
-| --- | --- |
-| Pending configuration | Click Apply or run `sash restart` |
-| Apply/start failed | Read `sash logs --errors`, correct the profile and retry |
-| Geodata download failed | See the geodata paragraph below |
-| Proxy restoration blocked | Inspect Windows proxy/PAC settings and keep `state/system-proxy.json` for recovery |
-| Sash cannot confirm a process | Inspect `sash logs --daemon --errors` and run `sash doctor` |
-| Interrupted Core update | Restart Sash to run recovery; preserve backup files if recovery reports an error |
-| Core download in progress | `sash status` shows its stage; `sash update --cancel` or Ctrl+C abandons it |
-| Interrupted Sash upgrade | Finish `npm install -g @astralyn/sash@<version>` while the running instance stays available, then restart it |
-| Login startup failed | Read `sash auto status` and `sash logs --startup`; repair with `sash auto on` |
-| Shutdown failed | Resolve the reported proxy/Core problem and retry `sash stop` |
-| Proxy change absent in an app | Restart the affected app; if logs report notification failure, repair PowerShell availability |
-| Dashboard assets missing | Reinstall the package, or run `npm run build` in a source checkout |
+JSON formats: `status --json` is `schemaVersion: 2` with runtime, endpoints, profile, proxy, startup, `complete` and `healthy` (unknown observations are `null`); `--delay` adds probe details. A Core download in progress adds `coreUpdate`, and a reachable Sash adds `downloadProxy` describing the transport. `doctor --json` is `schemaVersion: 1` with `healthy`, `complete` and named `checks`.
 
 Core fetches geodata itself, ignoring `HTTP_PROXY`; Sash retries a failed fetch once through mirrors. If that also fails, provide a reachable `geox-url` in the profile or pre-seed the databases named by the error (`geoip.metadb`, `geosite.dat`, `country.mmdb` or `GeoLite2-ASN.mmdb`). A system-wide tunnel can also supply connectivity.
 

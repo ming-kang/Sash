@@ -2,7 +2,6 @@ import fs from "node:fs";
 import { errnoCode, errorMessage } from "../error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
 
-/** Do not follow a replaced launcher or read an unbounded registration file. */
 export function readRegistration(file: string): Buffer | undefined {
   try {
     const stat = fs.lstatSync(file);
@@ -30,7 +29,6 @@ export function readRegistration(file: string): Buffer | undefined {
   }
 }
 
-/** Restore the previous launcher, including a stale one, if OS registration fails. */
 export async function registerFile(
   file: string,
   contents: string | Buffer,

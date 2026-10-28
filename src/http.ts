@@ -73,7 +73,6 @@ export function envProxyUri(): string | undefined {
   return undefined;
 }
 
-/** The proxy a verified GitHub request leaves through; direct and mirror traffic report none. */
 export interface DownloadTransport {
   uri: string;
   source: "environment" | "core";
@@ -188,7 +187,6 @@ export interface ProxyFallbackContext {
   onProxyFallback?: ProxyFallbackListener;
 }
 
-/** Retries a request directly after a loopback proxy refusal, once. User-supplied URLs never opt in. */
 export async function retryDirectOnLoopbackRefusal<T>(
   error: unknown,
   context: ProxyFallbackContext,
@@ -231,7 +229,6 @@ export interface FetchOptions {
   headers?: Record<string, string>;
   direct?: boolean;
   proxyUri?: string;
-  /** A loopback proxy refusal warns and retries once direct; never set for user-supplied URLs. */
   onProxyFallback?: ProxyFallbackListener;
   method?: string;
   body?: string | Buffer;
@@ -287,7 +284,6 @@ function defaultAttempts(method: string): number {
   return RETRYABLE_METHODS.has(method.toUpperCase()) ? 4 : 1;
 }
 
-/** Non-download fetch with method-aware retries; the deadline covers body consumption too. */
 export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Promise<FetchResponse> {
   const method = (opts.method ?? "GET").toUpperCase();
   const attempts = opts.attempts ?? defaultAttempts(method);

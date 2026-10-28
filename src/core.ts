@@ -73,7 +73,6 @@ function toInstallRecord(value: unknown): InstallRecord {
   return { coreVersion: validateCoreReleaseTag(String(source?.coreVersion ?? "")) };
 }
 
-/** Lenient read: a malformed record reads as absent. */
 export function parseInstallRecord(value: unknown): InstallRecord | undefined {
   const source = value as Record<string, unknown> | null;
   if (typeof source?.coreVersion !== "string") return undefined;
@@ -115,7 +114,6 @@ function extractionLimiter(): Transform {
   });
 }
 
-/** Read archive entries only; Sash exclusively creates and owns the output file. */
 export async function extractCoreArchive(
   archivePath: string,
   assetName: string,
@@ -190,7 +188,6 @@ export interface CoreInstallOptions {
   signal?: AbortSignal;
   layout?: SashLayout;
   tag?: string;
-  /** Route GitHub traffic through this proxy instead of the environment proxy. */
   proxyUri?: string;
   /**
    * Release metadata the caller already resolved: the daemon compares versions
@@ -205,10 +202,8 @@ export interface CoreInstallOptions {
 export interface StagedCore {
   version: string;
   exe: string;
-  /** The private directory `exe` was staged into; the consumer removes it wholesale. */
   dir: string;
   assetName?: string;
-  /** "pinned" when staging used the packaged bootstrap manifest offline. */
   source?: "live" | "pinned";
 }
 
@@ -216,7 +211,6 @@ export interface CoreReleaseResolution {
   tag: string;
   assets: ReleaseAsset[];
   candidates: string[];
-  /** "pinned" when the metadata came from the packaged bootstrap manifest, not the live API. */
   source: "live" | "pinned";
 }
 
@@ -301,7 +295,6 @@ function explainCoreReleaseFailure(error: unknown): unknown {
   );
 }
 
-/** Preflight a staged build: a processor lacking the build's instruction set kills it with an illegal-instruction exit. */
 export async function coreBinaryRuns(exe: string): Promise<boolean> {
   try {
     const child = spawn(exe, ["-v"], {
@@ -387,7 +380,6 @@ export function coreInstalled(layout: SashLayout = sashLayout()): boolean {
   return isRegularFile(layout.coreExe) && readInstallRecord(layout) !== undefined;
 }
 
-/** Fail closed when binary and committed install metadata do not agree. */
 export function assertCoreInstallationConsistent(layout: SashLayout = sashLayout()): void {
   const binaryExists = pathEntryExists(layout.coreExe);
   const installRecordExists = pathEntryExists(layout.installFile);

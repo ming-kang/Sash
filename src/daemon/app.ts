@@ -50,7 +50,6 @@ export interface DaemonApp {
   token: string;
 }
 
-/** The daemon owns all application writes; CLI and WebUI use the same actions. */
 export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   const { layout } = deps;
   const packageRoot = deps.packageRoot ?? currentPackageRoot();

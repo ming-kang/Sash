@@ -17,7 +17,6 @@ import { windowsSystemPath } from "./windows-registry.js";
 
 const INSTALL_HINT = "needs a global installation — run npm install -g @astralyn/sash to enable it";
 
-/** Verify the package layout and its npm bin shim without invoking npm or changing it. */
 export function installationIssue(ctx: AutostartContext): string | null {
   try {
     for (const value of [ctx.nodePath, ctx.entryPath, ctx.dataDir]) assertLauncherValue(value);
@@ -36,14 +35,12 @@ export function installationIssue(ctx: AutostartContext): string | null {
 export interface AutostartController {
   inspect(): Promise<AutostartStatus>;
   set(enabled: boolean): Promise<AutostartStatus>;
-  /** The last observed status; before the first read it reports that observation is pending. */
   current(): AutostartStatus;
 }
 
 export interface AutostartServiceOptions extends AutostartOptions {
   backend?: AutostartBackend;
   checkInstallation?: (context: AutostartContext) => string | null;
-  /** Called when an observation or a mutation changes the published status. */
   onChange?: () => void;
 }
 
@@ -54,7 +51,6 @@ export class AutostartUnavailableError extends Error {
   }
 }
 
-/** One registration per OS user, serialized across daemon instances. */
 export class AutostartService implements AutostartController {
   private readonly context: AutostartContext;
   private readonly backend: AutostartBackend | undefined;
@@ -124,9 +120,7 @@ export class AutostartService implements AutostartController {
     if (!previous || JSON.stringify(previous) !== JSON.stringify(status)) {
       try {
         this.onChange?.();
-      } catch {
-        /* Observation must never affect a mutation result. */
-      }
+      } catch {}
     }
     return status;
   }

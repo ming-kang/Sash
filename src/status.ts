@@ -49,12 +49,9 @@ export interface CliObservedSystemProxy {
 
 export interface CliRuntimeStatus {
   schemaVersion: typeof CLI_STATUS_SCHEMA_VERSION;
-  /** Present only for an explicit status --delay request. */
   delay?: StatusDelayObservation;
-  /** Present only while the daemon stages or installs a Core binary. */
   coreUpdate?: CoreUpdateProgress;
   downloadProxy?: string;
-  /** The transport itself, not a description; diagnostics probe the real download path. */
   downloadTransport?: DownloadTransport;
   complete: boolean;
   healthy: boolean | null;
@@ -480,8 +477,6 @@ export async function collectRuntimeStatus(
     addError(errors, "the local API is unreachable");
   }
 
-  // No daemon status was read: Core facts are unobserved as null (unknown)
-  // while Sash runs and as false (definitive "no") once it is stopped.
   const observed: boolean | null = daemonState.running ? null : false;
   const [proxyObservation, autostart] = await Promise.all([
     observeSystemProxy(context, dependencies, undefined, observed),
@@ -568,11 +563,6 @@ export function formatSystemProxyLine(desired: boolean, observed: CliObservedSys
   return "off";
 }
 
-/**
- * Start-at-login states in the user's terms. Only suggest the repair command
- * when this installation can actually register one; a source checkout or linked
- * package reports why instead.
- */
 export function formatAutostart(status: {
   state: string;
   canEnable?: boolean;

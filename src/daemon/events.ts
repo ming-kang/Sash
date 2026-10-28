@@ -120,7 +120,6 @@ export class DaemonEvents {
   }
 }
 
-/** Credentials stay in headers. Slow clients retain at most the newest pending snapshot. */
 export function streamDaemonEvents(
   ctx: DaemonContext,
   _req: IncomingMessage,

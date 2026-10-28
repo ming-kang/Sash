@@ -42,7 +42,6 @@ function initialObservation(status: CliRuntimeStatus, name: string): StatusDelay
   };
 }
 
-/** Ordinary status never calls this; outbound traffic requires an explicit target. */
 export async function observeStatusDelay(
   context: StatusObservationContext,
   status: CliRuntimeStatus,
@@ -90,7 +89,6 @@ interface DelayWatchOptions {
   intervalMs?: number;
 }
 
-/** Independent, non-overlapping sampling; status events never increase the probe frequency. */
 export async function* watchStatusWithDelay(
   context: () => StatusObservationContext,
   name: string,

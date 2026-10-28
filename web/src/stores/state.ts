@@ -34,7 +34,6 @@ export interface StoreState {
   proxies: Record<string, ProxyItem>;
   proxyGroups: string[];
   manualProxyDelays: Record<string, ProxyDelay>;
-  /** Bumped whenever the Core runtime is replaced; stale stream frames carry the old value. */
   runtimeGeneration: number;
   connections: ConnectionItem[];
   connectionsUploadTotal: number;
@@ -42,7 +41,6 @@ export interface StoreState {
   rules: RuleItem[];
   logs: StoredLogMessage[];
   profiles: ProfileMeta[];
-  /** False until the first successful profile fetch; keeps the empty state from flashing. */
   profilesLoaded: boolean;
   activeProfileId: string | null;
   activeGroup: string;

@@ -30,7 +30,6 @@ export interface CoreState {
 }
 
 export interface CoreOwnershipSnapshot {
-  /** Opaque identity of the claimed child; only compared, never inspected. */
   readonly child: object;
   readonly pid: number;
 }
@@ -48,7 +47,6 @@ export interface CoreSupervisorOptions {
 
 export const CORE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
 
-/** Skips non-regular files (such as symlinks) without following them. */
 export function rotateCoreLogs(layout: SashLayout): void {
   const targets = [layout.coreLogFile, layout.coreErrLogFile];
   for (const target of targets) {
@@ -292,7 +290,6 @@ export class CoreSupervisor {
     return Boolean(this.child && this.child === snapshot.child && this.isAlive(snapshot.pid));
   }
 
-  /** Every read probes the controller directly; DaemonEvents already throttles polling. */
   async status(): Promise<CoreState> {
     const ownership = this.ownedCoreSnapshot();
     if (!ownership) return { running: false };
@@ -329,7 +326,6 @@ export class CoreSupervisor {
     return Boolean(this.child && this.isAlive(this.child.pid ?? -1));
   }
 
-  /** Verify an orphaned Core's executable identity before terminating it. */
   async cleanStaleCore(): Promise<void> {
     const record = readPidRecord(this.layout.pidFile);
     if (!record) {

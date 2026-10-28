@@ -18,7 +18,6 @@ import {
 } from "./http.js";
 import { coreApiTarget } from "./proxy.js";
 
-/** public: no credential. control: CLI bearer or WebUI session token. gateway: same, then proxied to Core. */
 export type RouteAuth = "public" | "control" | "gateway";
 
 export interface RouteRequest {
@@ -123,7 +122,6 @@ export interface RequestBoundaryFailure {
   message: string;
 }
 
-/** Loopback Host and Origin policy shared by HTTP dispatch and WebSocket upgrades. */
 export function checkLoopbackBoundary(req: IncomingMessage): RequestBoundaryFailure | undefined {
   if (!isLoopbackHostHeader(req.headers.host))
     return { status: 421, code: "http", message: "Invalid Host header" };

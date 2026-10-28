@@ -46,7 +46,6 @@ export async function resolveDaemonSession(
   return daemon.kind === "stopped" ? { kind: "offline", daemon } : { kind: "unhealthy", daemon };
 }
 
-/** Boot the background process only; it owns all initialization and recovery. */
 export async function ensureDaemonSession(
   ctx: RuntimeContext,
   opts: { timeoutMs?: number } = {},

@@ -148,7 +148,6 @@ export function readLogGrowth(
   }
 }
 
-/** Never throws; an unreadable path yields a marker identity that later reads treat as a reset. */
 export function logTailCursor(file: string): LogFileCursor {
   try {
     return logCursorAtEnd(file);
@@ -157,7 +156,6 @@ export function logTailCursor(file: string): LogFileCursor {
   }
 }
 
-/** Missing, replaced, truncated, or unreadable files fail soft with "". */
 export interface BoundedLogTailOptions {
   maxBytes?: number;
   maxLines?: number;
@@ -213,7 +211,6 @@ export function boundedLogTailSince(
   }
 }
 
-/** Poll as a fallback: directory watch events can be unavailable or coalesced. */
 export function followLogFile(file: string, options: FollowLogOptions): Promise<void> {
   const chunkBytes = options.chunkBytes ?? LOG_FOLLOW_CHUNK_BYTES;
   const pollMs = options.pollMs ?? 500;

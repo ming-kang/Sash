@@ -52,18 +52,15 @@ export interface ProfileServiceOptions {
 export interface ProfileActionResult {
   profile: ProfileMeta;
   activated: boolean;
-  /** True when this change is already live in the running Core. */
   applied: boolean;
 }
 export interface ProfileUpdateResult {
   profile: ProfileMeta;
-  /** True when this change is already live in the running Core. */
   applied: boolean;
 }
 export interface ProfileUpdateAllResult {
   updated: number;
   failed: Array<{ id: string; name: string; error: string }>;
-  /** True when an updated profile is already live in the running Core. */
   applied: boolean;
 }
 
@@ -124,7 +121,6 @@ function validName(name: string): string {
   return result;
 }
 
-/** Saves immutable profile sources. Runtime changes are exclusively owned by App / Runtime. */
 export class ProfileService {
   private readonly downloads = new Set<AbortController>();
   private readonly updates = new Map<string, Promise<ProfileUpdateResult>>();
@@ -225,14 +221,11 @@ export class ProfileService {
       profiles: { activeId: select ? next.id : index.activeId, profiles },
     });
     if (previous && previous.revision !== next.revision) {
-      // Core consumes a separate generated config; it never holds a profile source open.
       try {
         await durableRemoveFile(
           profileFilePath(this.options.layout, previous.id, previous.revision),
         );
-      } catch {
-        /* A failed cleanup leaves an unreferenced source; the committed state is complete. */
-      }
+      } catch {}
     }
     return next;
   }
@@ -503,9 +496,7 @@ export class ProfileService {
       });
       try {
         await durableRemoveFile(profileFilePath(this.options.layout, profile.id, profile.revision));
-      } catch {
-        /* State no longer references this file. */
-      }
+      } catch {}
       return { wasActive };
     });
     return { ...result, applied: result.wasActive ? await this.reconcileRuntime() : false };

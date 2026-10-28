@@ -10,16 +10,6 @@ Sash runs one background process per data folder. The CLI and dashboard use its 
 
 [daemon/entry.ts](../src/daemon/entry.ts) acquires the instance lock, loads state and recovers interrupted Core/proxy operations before opening the listener. The local API and dashboard work even when Core is missing or stopped. [daemon/app.ts](../src/daemon/app.ts) connects the services; [DaemonGate](../src/daemon/context.ts) serializes saved-state and lifecycle changes in memory while reads and live Core requests run independently. Downloads prepare outside the queue; publication checks that saved state and runtime still match the operation's starting point.
 
-| Area | Main source | Responsibility |
-| --- | --- | --- |
-| Local API | [routes.ts](../src/daemon/routes.ts), [router.ts](../src/daemon/router.ts), [handlers.ts](../src/daemon/handlers.ts) | Authenticate, parse requests and call services |
-| Saved state | [app-state.ts](../src/app-state.ts) | Commit settings, profile metadata and selection atomically |
-| Settings and profiles | [settings-service.ts](../src/settings-service.ts), [profile-service.ts](../src/profile-service.ts) | Validate input and save changes |
-| Core lifecycle | [runtime-lifecycle.ts](../src/runtime-lifecycle.ts), [supervisor.ts](../src/supervisor.ts) | Apply configuration, start/stop Core and check readiness |
-| Core installation | [core.ts](../src/core.ts), [core-update.ts](../src/core-update.ts) | Download, verify, replace and recover the executable |
-| Desktop integration | [sysproxy/manager.ts](../src/sysproxy/manager.ts), [autostart/](../src/autostart/) | Windows proxy restoration and start at login |
-| Observation | [events.ts](../src/daemon/events.ts), [doctor.ts](../src/doctor.ts) | Shared status events and independent diagnostic checks |
-
 CLI discovery uses the running instance's observed port. Process locks coordinate instance startup and per-user Windows operations; ordinary application writes use the in-memory queue. Lock contenders use unique bakery tickets, so recovery of a dead owner cannot remove a successor's lock.
 
 ## Saved state and profiles
@@ -35,15 +25,6 @@ Remote updates share one in-flight download per profile. Scheduled failures back
 `runtime/config.yaml` is generated from the saved profile, or a DIRECT-only default when none is selected; source text stays unchanged. Sash supplies the proxy port, controller credentials and LAN setting, removes competing controller endpoints and tunnels, and sets `tun.enable` to `false`. See [State format and data](./usage.md#state-format-and-data) for settings and paths.
 
 ## Save, Apply and stop
-
-| Action | Effect |
-| Save settings | Save for the next Apply |
-| Select, edit or update the selected profile | Apply to the running Core immediately |
-| Apply / `sash restart` | Reload the running Core, or restart it when ports or LAN access changed |
-| Change mode or select a node | Change the running Core |
-| Toggle system proxy | Save the preference and reconcile Windows immediately |
-| Stop Core | Restore the prior proxy and stop Core; keep Sash available |
-| `sash stop` | Restore the prior proxy, stop Core and close Sash |
 
 Apply runs in this order:
 
@@ -76,18 +57,6 @@ Sash package upgrades use [self-upgrade.ts](../src/self-upgrade.ts). npm install
 ## Local API
 
 The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) lists every route and method; [contracts.ts](../src/contracts.ts) and [SashClient](../src/sash-client.ts) define request and response types.
-
-| Path | Purpose |
-| --- | --- |
-| `/sash/daemon/health`, `/sash/daemon/status` | Process identity and runtime status |
-| `/sash/events` | Authenticated status stream (SSE) |
-| `/sash/daemon/shutdown` | Full shutdown |
-| `/sash/settings`, `/sash/profiles`, `/sash/profiles/*` | Saved settings, profile content and selection |
-| `/sash/core/*` | Start, Apply, stop, update (POST start, GET progress, DELETE cancel), mode and delay tests |
-| `/sash/proxy`, `/sash/autostart` | Windows integration |
-| `/sash/web/*` | Browser authorization and session handoff |
-| `/core/api/*` | Authenticated Core queries, node selection, connection deletion and WebSocket streams |
-| `/ui/*` | Bundled dashboard |
 
 Health, status and proxy observations allow public reads; private profile URLs require authentication. Everything else requires a CLI bearer or browser session; browser session exchanges authenticate with the token in their request body. Errors use `{error: {code, message}}`; successful empty responses use `204`.
 

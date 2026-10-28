@@ -16,7 +16,6 @@ export async function runLogs(
   if (opts.startup && (opts.daemon || opts.errors)) {
     throw new Error("--startup cannot be combined with --daemon or --errors");
   }
-  // Diagnostics must remain readable even when corrupt settings prevented startup.
   const layout = sashLayout();
   let file: string;
   if (opts.startup) {

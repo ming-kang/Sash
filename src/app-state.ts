@@ -77,7 +77,6 @@ function parseStateText(text: string, layout: SashLayout): SashState {
   }
 }
 
-/** Read-only: CLI discovery must never initialize or migrate state. */
 export function readState(layout: SashLayout = sashLayout()): SashState | undefined {
   const text = readStateText(layout);
   return text === undefined ? undefined : parseStateText(text, layout);
@@ -91,7 +90,6 @@ export function loadProfiles(layout: SashLayout = sashLayout()): ProfilesIndex {
   return readState(layout)?.profiles ?? { activeId: null, profiles: [] };
 }
 
-/** One canonical publication point, used only by the daemon owning the instance lease. */
 export class SashStateStore {
   private state: SashState;
 
@@ -133,12 +131,9 @@ export class SashStateStore {
   private publishBackup(text: string): void {
     try {
       atomicWriteFileSync(this.layout.settingsBackupFile, text);
-    } catch {
-      /* The committed manifest is durable; a failed backup must not reject it. */
-    }
+    } catch {}
   }
 
-  /** Deeply frozen; reference identity changes only after a successful commit. */
   snapshot(): SashState {
     return this.state;
   }
@@ -169,7 +164,6 @@ export class SashStateStore {
     return next;
   }
 
-  /** Called inside the daemon mutation queue; startup retains its synchronous path. */
   async commitAsync(candidate: SashState): Promise<SashState> {
     const { next, text } = this.prepare(candidate);
     await atomicWriteFile(this.layout.settingsFile, text);

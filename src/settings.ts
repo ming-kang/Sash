@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import { isPlainObject } from "./json-shape.js";
 
-/** Settings owned by sashd. Listener addresses and credentials are boot settings. */
 export interface SashSettings {
   mixedPort: number;
   controller: string;
@@ -49,7 +48,6 @@ export interface ControllerAddress {
   canonical: string;
 }
 
-/** A controller credential must never leave loopback. */
 export function parseControllerAddress(value: string): ControllerAddress | undefined {
   const match = value.trim().match(/^(127\.0\.0\.1|localhost|\[::1\]):(\d+)$/i);
   const rawHost = match?.[1]?.toLowerCase();

@@ -42,9 +42,7 @@ export interface SashClientFetchInit {
   method: string;
   headers: Record<string, string>;
   body?: string;
-  /** Client-side deadline; the fetch adapter translates it as it sees fit. */
   timeoutMs?: number;
-  /** Honored only by retry-capable fetch adapters (the Node daemon client). */
   attempts?: number;
   signal?: AbortSignal;
 }
@@ -73,9 +71,7 @@ export interface SashRequestOptions {
   method?: string;
   body?: unknown;
   timeoutMs?: number;
-  /** Honored only by retry-capable fetch adapters (the Node daemon client). */
   attempts?: number;
-  /** Public credential exchanges must not send or invalidate a prior session. */
   authenticate?: boolean;
   signal?: AbortSignal;
 }
@@ -91,26 +87,12 @@ export const browserFetch: SashClientFetch = async (url, init) => {
   return { status: response.status, text: () => response.text() };
 };
 
-/**
- * An update, a start and a restart share the Core preparation path — install,
- * geodata seeding and validation — so this budget must outlive the daemon-side
- * work.
- */
 const CORE_UPDATE_TIMEOUT_MS = 45 * 60_000;
-
-/**
- * These budgets mirror the daemon-side validation and reload because a shorter
- * one reports failure for a change already committed and being served.
- */
-/** The plain configuration test, then one 3 minute retry per mirror set. */
 const CONFIG_VALIDATION_TIMEOUT_MS = 20_000 + 2 * 180_000;
 const CONFIG_RELOAD_TIMEOUT_MS = 180_000;
-/** One subscription fetch: a single absolute deadline, redirects included. */
 const PROFILE_FETCH_TIMEOUT_MS = 30_000;
 const PROFILE_APPLY_TIMEOUT_MS = CONFIG_VALIDATION_TIMEOUT_MS + CONFIG_RELOAD_TIMEOUT_MS;
-/** A change that also fetches its subscription source, inside or ahead of the queue. */
 const PROFILE_REFRESH_TIMEOUT_MS = PROFILE_APPLY_TIMEOUT_MS + PROFILE_FETCH_TIMEOUT_MS;
-/** Every profile may need its own fetch before one shared validation and reload. */
 const PROFILE_UPDATE_ALL_TIMEOUT_MS = 30 * 60_000;
 
 export class SashClient {
@@ -286,7 +268,6 @@ export class SashClient {
     });
   }
 
-  /** The daemon answers 409 when no Core download is running. */
   async cancelCoreUpdate(): Promise<void> {
     await this.request("/sash/core/update", { method: "DELETE", timeoutMs: 10_000, attempts: 1 });
   }

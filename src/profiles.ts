@@ -133,7 +133,6 @@ export function profileFilePath(layout: SashLayout, id: string, revision: number
   return path.join(layout.profilesDir, id, `${revision}.yaml`);
 }
 
-/** The single validation point for profile text entering Sash from any source. */
 export function parseProfileText(text: string): Record<string, unknown> {
   if (!text.trim() || Buffer.byteLength(text) > PROFILE_DOWNLOAD_SIZE_LIMIT) {
     throw new Error("Profile content must be non-empty and no larger than 8 MiB");

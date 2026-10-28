@@ -8,7 +8,6 @@ export type ProxyConnectionsObservation =
   | { supported: false }
   | { supported: true; additionalRecords: number };
 
-/** Detect opaque per-connection records without decoding or changing Windows-owned blobs. */
 export function countWindowsProxyConnections(output: string): number {
   const lines = output.split(/\r?\n/).filter((line) => line.trim());
   const header = lines.shift()?.trim().toLowerCase();

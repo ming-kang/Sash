@@ -37,7 +37,6 @@ export const DEFAULT_BYPASS_LIST = [
 
 export const SYSTEM_PROXY_SNAPSHOT_VERSION = 1 as const;
 
-/** Registry values use null to represent a value that did not exist. */
 export interface WindowsSystemProxySnapshot {
   version: typeof SYSTEM_PROXY_SNAPSHOT_VERSION;
   platform: "win32";

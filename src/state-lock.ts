@@ -20,13 +20,11 @@ export interface StateLockOptions {
 export interface StateLockLease {
   readonly file: string;
   readonly record: Readonly<StateLockRecord>;
-  /** Release this lease only when the lock still contains this lease's token. */
   release(): void;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_MS = 50;
-/** A record still unreadable past this window is abandoned, not being written. */
 const WRITE_GRACE_MS = 250;
 
 function ownerText(record?: StateLockRecord): string {
@@ -37,7 +35,6 @@ function lockError(file: string, message: string, record?: StateLockRecord): Err
   return new Error(`State lock ${message}: ${file} (${ownerText(record)})`);
 }
 
-/** Lenient by design: a diagnostic record, not a validated schema. */
 function readLockRecord(file: string): StateLockRecord | undefined {
   let parsed: unknown;
   try {
@@ -62,7 +59,6 @@ function readLockRecord(file: string): StateLockRecord | undefined {
   };
 }
 
-/** Missing or unreadable lock files are absent. */
 export function readStateLockRecord(file: string): StateLockRecord | undefined {
   return readLockRecord(file);
 }
@@ -72,7 +68,6 @@ interface Contender {
   ticket: bigint | null;
 }
 
-/** Each contender owns an immutable name. Cleanup never targets a successor's file. */
 function contenders(directory: string): Contender[] {
   const result: Contender[] = [];
   for (const name of fs.readdirSync(directory)) {

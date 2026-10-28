@@ -17,9 +17,7 @@ import { createSystemProxyBackend } from "./windows.js";
 export interface SystemProxyInspection {
   applied: boolean;
   state: SystemProxyState;
-  /** False when journal corruption prevents proving Sash ownership. */
   appliedKnown: boolean;
-  /** False when the backend could not observe the OS proxy state. */
   stateKnown: boolean;
   queryError?: string;
 }
@@ -51,7 +49,6 @@ export interface SystemProxyJournal {
 
 const MAX_JOURNAL_BYTES = 256 * 1024;
 
-/** Cache TTL for non-fresh inspection reads; must exceed the DaemonEvents sample interval (5000ms). */
 const SYSTEM_PROXY_INSPECTION_TTL_MS = 30_000;
 
 function journalError(message: string): Error {
@@ -74,7 +71,6 @@ function parseCreatedAt(value: unknown): string {
   return value;
 }
 
-/** Strictly parse an on-disk ownership journal before any OS operation. */
 function parseSystemProxyJournal(value: unknown): SystemProxyJournal {
   const record = hasExactKeys(value, [
     "schemaVersion",
@@ -123,7 +119,6 @@ function combinedError(primary: unknown, recovery: unknown): Error {
   );
 }
 
-/** Snapshot/journal based controller; the shared state lock serializes every operation across processes, so a persisted snapshot cannot change mid-operation. */
 export class SystemProxyManager implements SystemProxyController {
   private readonly layout: SystemProxyJournalLayout;
   private readonly backend: SystemProxyBackend;
@@ -382,7 +377,6 @@ export class SystemProxyManager implements SystemProxyController {
     await this.restoreJournal(journal);
   }
 
-  /** Restore only when the current values still belong to this journal; another application's value is never overwritten. */
   private async restoreJournal(journal: SystemProxyJournal): Promise<void> {
     const current = await this.captureCurrent();
     if (this.backend.equivalent(current, journal.original)) {

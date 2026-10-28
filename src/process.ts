@@ -162,7 +162,6 @@ export function classifyProcessIdentity(pid: number, expectedExe: string): Proce
   return "unknown";
 }
 
-/** OS identity queries must not block the local API while a process is stopping. */
 export async function classifyProcessIdentityAsync(
   pid: number,
   expectedExe: string,
@@ -401,7 +400,6 @@ async function runTaskkill(pid: number, force: boolean): Promise<boolean> {
 
 export interface KillProcessOptions {
   timeoutMs?: number;
-  /** Revalidate ownership immediately before every termination signal. */
   verify: () => ProcessIdentity | Promise<ProcessIdentity>;
   isAliveFn?: (pid: number) => boolean;
   signalFn?: (pid: number, force: boolean) => Promise<boolean>;
@@ -427,7 +425,6 @@ async function sendTerminationSignal(pid: number, force: boolean): Promise<boole
   }
 }
 
-/** Terminate a process without ever signalling a PID whose ownership became uncertain. */
 export async function killProcessGracefully(
   pid: number,
   opts: KillProcessOptions,

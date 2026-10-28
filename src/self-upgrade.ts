@@ -49,7 +49,6 @@ function parseNpmRegistry(value: string): string | undefined {
   }
 }
 
-/** `npm config get registry` reports the effective registry, honoring user mirrors (.npmrc, npm_config_registry). */
 export async function resolveNpmRegistry(
   nodePath = process.execPath,
   probe: (nodePath: string) => Promise<string | undefined> = probeNpmRegistry,
@@ -198,7 +197,6 @@ export async function inspectSashUpgrade(
   };
 }
 
-/** Resolve the npm CLI as a Node script so no shell is involved on any platform. */
 export function resolveNpmCli(nodePath = process.execPath, env = process.env): string {
   const candidates = [
     path.join(path.dirname(nodePath), "node_modules", "npm", "bin", "npm-cli.js"),
@@ -219,7 +217,6 @@ export function resolveNpmCli(nodePath = process.execPath, env = process.env): s
   return found;
 }
 
-/** Child processes never inherit Sash's own credentials or Node injection hooks. */
 function upgradeChildEnv(source = process.env): NodeJS.ProcessEnv {
   const env = buildSanitizedEnv(source);
   for (const key of Object.keys(env)) {
@@ -301,7 +298,6 @@ export interface SashUpgradeDeps {
 
 export type SashUpgradePhase = "restarting" | "starting-core";
 
-/** One upgrade at a time per data folder; a concurrent attempt fails fast instead of colliding inside npm. */
 export async function executeSashUpgrade(
   installation: NpmInstallation,
   target: SashPackageInfo,
@@ -413,7 +409,6 @@ function readPreviousVersion(installation: NpmInstallation): string | undefined 
   }
 }
 
-/** Reinstall the previous version through npm, which owns package integrity. */
 async function explainUpgradeStartFailure(
   error: unknown,
   previousVersion: string | undefined,

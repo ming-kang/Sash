@@ -10,31 +10,13 @@ The Vue 3 / Vite dashboard lives in `web/src/`, builds to `dist/ui/` and is serv
 
 [stores/state.ts](../web/src/stores/state.ts) holds shared shallow-reactive state; large collections are replaced by reference. [stores/index.ts](../web/src/stores/index.ts) exposes actions and selectors to views.
 
-| Module | Responsibility |
-| --- | --- |
-| [runtime-actions.ts](../web/src/stores/runtime-actions.ts) | Adopt status and save settings |
-| [profile-actions.ts](../web/src/stores/profile-actions.ts) | Save profiles and refresh metadata |
-| [core-actions.ts](../web/src/stores/core-actions.ts) | Load Core resources and control mode, nodes and connections |
-| [runtime-events.ts](../web/src/stores/runtime-events.ts) | Subscribe to status and schedule resource refreshes |
-| [traffic-events.ts](../web/src/stores/traffic-events.ts) | Own the runtime-scoped traffic WebSocket |
-| [telemetry.ts](../web/src/stores/telemetry.ts) | Keep traffic history and bounded log batches |
-| [api/](../web/src/api/) | Authorize the tab and transport requests and streams |
-
 Refreshes follow three values from Sash: `daemon.bootId` reconnects to the new Sash process and resets saved-state comparisons; `revisions.state` refreshes profile metadata; `daemon.bootId` + `revisions.runtime` clears the replaced Core's resources, traffic and manual latency results.
 
 Each Core resource has its own loading state and error. A failed query preserves that resource's previous data and marks it stale; other resources remain usable. Stopping or replacing Core clears its data.
 
 ## Refresh and streams
 
-Sash status arrives through authenticated SSE at `/sash/events`; a connection starts with a full snapshot. Core tables use a separate, non-overlapping two-second refresh schedule for the current page.
-
-| Page | Background work |
-| --- | --- |
-| Overview | Config/mode and proxies every third cycle; connections every fifth |
-| Connections | Connections each cycle |
-| Rules | Load on entry or Core replacement, then cache |
-| Profiles / Settings | Saved metadata; no periodic Core table reads |
-| Logs | Log stream while visible |
+Sash status arrives through authenticated SSE at `/sash/events`; a connection starts with a full snapshot. Core tables refresh on a two-second schedule scoped to the current page.
 
 Page entry loads the relevant resources immediately. Saving a profile refreshes metadata and applies it to the running Core; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket scoped to the authorized, healthy Core runtime and keeps appending history while the tab is hidden. Visible bursts are committed at most every 100ms, while hidden tabs retain every frame. Logs still pause when hidden; both streams stop when the session or Core is unavailable. A traffic disconnect cancels any pending rate and clears the displayed rate without immediately erasing recent history.
 

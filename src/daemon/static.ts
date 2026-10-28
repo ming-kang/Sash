@@ -36,7 +36,6 @@ const MIME_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-/** UI error responses keep the dashboard's framing and sniffing isolation. */
 function sendUiError(
   res: ServerResponse,
   statusCode: number,

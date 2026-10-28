@@ -48,7 +48,6 @@ export type RoutingMode = "rule" | "global" | "direct";
 export function isRoutingMode(value: unknown): value is RoutingMode {
   return value === "rule" || value === "global" || value === "direct";
 }
-/** The Core update result as it travels over the local API. */
 export type CoreUpdateResponse = CoreUpdateResult;
 export interface SettingsPatch {
   expectedRevision?: number;
@@ -102,7 +101,6 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
 }
 export interface DaemonStatus {
   coreUpdate?: CoreUpdateProgress | null;
-  /** null means direct with mirror fallback. */
   downloadTransport?: DownloadTransport | null;
   daemon: { pid: number; bootId: string; startedAt: string; port: number; version: string };
   revisions: { state: number; runtime: number };
@@ -139,7 +137,6 @@ export class SashApiError extends Error {
   }
 }
 
-/** Error bodies may arrive as plain text; extract the daemon's code and message when present. */
 export function parseApiErrorBody(value: unknown): { code: string; message: string } | undefined {
   if (!isPlainObject(value)) return undefined;
   const error = value.error;

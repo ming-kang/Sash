@@ -122,7 +122,6 @@ function daemonNodeArgs(): string[] {
   return ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, source];
 }
 
-/** Bounded startup diagnostics: only errors appended after spawn are reported. */
 function daemonStartupDiagnostics(layout: SashLayout, cursor: LogFileCursor): string {
   const details = boundedLogTailSince(layout.daemonErrLogFile, cursor, { maxLines: 20 });
   return `${details ? `\nRecent errors:\n${details}` : ""}\nCheck logs at: ${layout.daemonErrLogFile}`;

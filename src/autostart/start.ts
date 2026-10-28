@@ -49,7 +49,6 @@ function recordOutcome(
  */
 export const LOGIN_START_RETRY_DELAYS_MS = [10_000, 20_000, 30_000] as const;
 
-/** The same ownership/health flow as sash start, with diagnostics before settings are loaded. */
 export async function startAtLogin(
   layout: SashLayout = sashLayout(),
   start: () => Promise<CoreStartResult> = async () => {

@@ -1,4 +1,3 @@
-/* Sash Web design system */
 /* LXGW WenKai Lite is split into unicode-range chunks at build time
    (see the font-split plugin in vite.config.ts); only the glyph slices a
    page actually renders are downloaded. */
@@ -272,7 +271,6 @@ textarea:disabled {
   box-shadow: var(--shadow-card);
 }
 
-/* Compact state labels */
 .badge {
   display: inline-flex;
   min-height: 21px;
@@ -318,7 +316,6 @@ textarea:disabled {
   color: var(--info);
 }
 
-/* Buttons */
 .btn {
   display: inline-flex;
   min-height: 34px;
@@ -412,7 +409,6 @@ textarea:disabled {
   }
 }
 
-/* Icon buttons */
 .icon-btn {
   display: inline-flex;
   width: 32px;
@@ -443,7 +439,6 @@ textarea:disabled {
   opacity: 0.42;
 }
 
-/* Segmented controls */
 .segmented {
   display: inline-flex;
   align-items: center;
@@ -487,7 +482,6 @@ textarea:disabled {
   opacity: 0.48;
 }
 
-/* Inputs and search */
 .input {
   width: 100%;
   min-height: 36px;
@@ -563,7 +557,6 @@ select.input {
   outline: none;
 }
 
-/* Tables */
 .table-wrap {
   overflow-x: auto;
   background: var(--bg-card);
@@ -634,7 +627,6 @@ html[data-theme="dark"] .data-table tbody tr {
   font-size: 16px;
 }
 
-/* Utilities */
 .text-muted {
   color: var(--text-muted);
 }

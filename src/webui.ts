@@ -3,7 +3,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { type SashLayout, sashLayout } from "./paths.js";
 
-/** A user dashboard in the data folder overrides the one bundled in dist/. */
 export function resolveUiDir(
   layout: SashLayout = sashLayout(),
   runtimeDir = path.dirname(fileURLToPath(import.meta.url)),

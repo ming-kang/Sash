@@ -49,11 +49,9 @@ export interface CoreUpdateProgressPrinter {
   settle(): void;
 }
 
-/** The only upgrade journal: executable and install metadata, never profiles or settings. */
 export interface CoreUpdateTransaction {
   previous: InstallRecord | null;
   target: InstallRecord;
-  /** Set once the new binary passed its health check; cleanup may still be pending. */
   verified?: boolean;
 }
 
@@ -77,7 +75,6 @@ export interface CoreUpdateOptions {
 
 export interface CoreUpdateResult {
   version: string;
-  /** True when the requested release was already installed, so nothing was downloaded. */
   alreadyCurrent?: boolean;
 }
 
@@ -264,7 +261,6 @@ export async function waitForBinaryUnlocked(target: string, timeoutMs = 30_000):
   );
 }
 
-/** Every install/update completes a real health check in this operation. */
 export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<CoreUpdateResult> {
   const { layout, staged, runtime } = options;
   if (readCoreUpdateTransaction(layout)) recoverCoreUpdateTransaction(layout);
@@ -378,9 +374,7 @@ export async function withCoreUpdateProgress<T>(
       try {
         const progress = await client.coreUpdateProgress();
         if (!controller.signal.aborted && progress) onProgress(progress);
-      } catch {
-        // Progress errors do not affect the operation.
-      }
+      } catch {}
     }
   })();
   try {

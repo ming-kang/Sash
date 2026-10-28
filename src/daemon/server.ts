@@ -25,7 +25,6 @@ export interface DaemonInstance {
   close: () => Promise<void>;
 }
 
-/** Build the daemon and finish the recovery that must finish before it listens. */
 export async function createStartedDaemon(opts: {
   layout: SashLayout;
   packageRoot: string;

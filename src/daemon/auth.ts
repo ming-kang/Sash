@@ -36,7 +36,6 @@ function hashToken(token: string): string {
   return crypto.hash("sha256", token);
 }
 
-/** In-memory credentials; session hashes persist only to survive a daemon restart. */
 export class WebAuthManager {
   private readonly pendingBootstraps = new Map<string, number>();
   private readonly sessions = new Map<string, number>();
@@ -172,11 +171,9 @@ export function isControlMutation(method: string): boolean {
 
 export interface ControlAuthorization {
   daemonSecret: string;
-  /** Validates an in-memory WebUI session token issued via bootstrap exchange. */
   isSessionToken: (token: string) => boolean;
 }
 
-/** The per-boot health token is an identity nonce only and never authorizes. */
 export function isControlRequestAuthorized(
   req: IncomingMessage,
   opts: ControlAuthorization,

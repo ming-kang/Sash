@@ -16,7 +16,6 @@ export function currentPackageRoot(): string {
   return path.resolve(import.meta.dirname, "..");
 }
 
-/** Exact versions only: never let an npm URL, range or local path become an install spec. */
 export function exactSashVersion(value: unknown): string {
   if (typeof value !== "string" || value.length > 256)
     throw new Error("Expected an exact Sash version");

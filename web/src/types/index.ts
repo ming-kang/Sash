@@ -15,5 +15,4 @@ export type {
 
 export type SashStatus = DaemonStatus;
 
-/** Zero is a measured timeout; request failures have no measured latency. */
 export type ProxyDelay = number | "failed";

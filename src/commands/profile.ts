@@ -28,7 +28,6 @@ export function resolveProfileReference(index: ProfilesIndex, reference?: string
   return matches[0];
 }
 
-/** Offline reads are observational; all mutations use the daemon's existing profile API. */
 export class CliProfiles {
   constructor(private readonly context: RuntimeContext) {}
 

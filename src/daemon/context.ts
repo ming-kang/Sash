@@ -12,7 +12,6 @@ import type { CoreControlService } from "./core-service.js";
 import { ShuttingDownError } from "./errors.js";
 import type { DaemonEvents } from "./events.js";
 
-/** One queue and one admission gate for all daemon state transitions. Reads remain independent. */
 export class DaemonGate {
   private tail: Promise<void> = Promise.resolve();
   private closing = false;
@@ -31,9 +30,7 @@ export class DaemonGate {
   private changed(): void {
     try {
       this.options.onChange?.();
-    } catch {
-      /* Observation must never affect a mutation result. */
-    }
+    } catch {}
   }
 
   assertMutable(): void {

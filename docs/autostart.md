@@ -28,18 +28,7 @@ Sash performs registration changes. If stopped, `sash auto on/off` starts Sash's
 
 ## Status and diagnostics
 
-`sash auto status --json` returns `state`, `canEnable` and `reason`; `sash status --json` includes the same fields under `autostart`:
-
-| JSON state | Meaning |
-| --- | --- |
-| `on` | Current launcher is registered and enabled in Windows |
-| `off` | No entry is registered |
-| `stale` | Launcher, installation or data folder differs |
-| `disabled` | Windows has disabled the current entry |
-| `unknown` | Inspection failed; `reason` explains why |
-| `unsupported` | Platform has no supported startup integration |
-
-`canEnable` says whether this installation can register a launcher. Failed observation returns exit code `2`; `sash auto off` remains available to remove an entry.
+`sash auto status --json` returns `state`, `canEnable` and `reason`; `sash status --json` includes the same fields under `autostart`. `canEnable` indicates whether this installation can register a launcher. Failed observation returns exit code `2`; `sash auto off` remains available to remove an entry.
 
 The last login attempt's outcome is recorded in `state/login-start.json`. `sash status` appends a failure note to the start at login line, and `sash doctor` reports a failed attempt as the `login-start` check. Every attempt also appends to `<SASH_HOME>/logs/sash.log`, rotating at 1 MiB with one previous file:
 

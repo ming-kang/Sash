@@ -41,7 +41,6 @@ export function npmPackageRoot(prefix: string, platform = process.platform): str
   );
 }
 
-/** Structural lookup also works while the active package slot is temporarily absent. */
 export function npmPrefixForPackage(
   packageRoot: string,
   platform = process.platform,

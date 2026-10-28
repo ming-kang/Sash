@@ -303,7 +303,6 @@ export function health(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: body };
 }
 
-/** Authenticated CLI clients mint a one-time bootstrap token for `sash web`. */
 export function createWebBootstrap(ctx: DaemonContext): RouteResponse {
   const bootstrap = ctx.webAuth.createBootstrap();
   const body: WebBootstrapInfo = { token: bootstrap.token, expiresAt: bootstrap.expiresAt };
@@ -452,7 +451,6 @@ export async function proxyStatus(ctx: DaemonContext, req: RouteRequest): Promis
 
 const PATCHABLE_KEYS = ["expectedRevision", "mixedPort", "allowLan", "systemProxy"];
 
-/** Selects the patchable fields; the settings service validates their values. */
 function readSettingsPatch(body: unknown): SettingsPatch {
   const source = isPlainObject(body) ? body : {};
   for (const key of Object.keys(source)) {

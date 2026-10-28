@@ -3,10 +3,8 @@ import { directDispatcherForLoopback, ERROR_BODY_LIMIT, fetchWithRetry } from ".
 import type { SashEventFetch } from "./sash-client.js";
 import { SashClient, type SashClientFetch } from "./sash-client.js";
 
-// Profile metadata can occupy most of the supported 2 MiB application manifest.
 const DAEMON_SUCCESS_BODY_LIMIT = 2 * 1024 * 1024;
 
-/** Loopback-only fetch; local IPC fails fast without retries. */
 const daemonFetch: SashClientFetch = async (url, init) => {
   const res = await fetchWithRetry(url, {
     method: init.method,

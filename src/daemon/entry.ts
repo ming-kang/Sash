@@ -14,7 +14,6 @@ export interface DaemonPidRecord {
   port: number;
 }
 
-/** The sole application writer. The data-directory lease admits one daemon at a time. */
 async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
   const layout = opts.layout ?? sashLayout();
   const packageRoot = canonicalPath(currentPackageRoot());
