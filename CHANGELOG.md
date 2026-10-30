@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-30
+
 ### Changed
 
 - Redesigned WebUI notifications to stay out of the way. The Apply prompt for saved changes now sits beside the sidebar's Core state, or above the bottom navigation on phones, and appears only while Core is running. Toasts rise from the bottom corner, show at most three at once and are no longer raised for changes already visible on the page, such as switches, outbound mode, node selection, profile order or language. The connection page no longer repeats its instructions in a banner.
