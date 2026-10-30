@@ -1,12 +1,15 @@
 import { store, type ToastItem } from "./state.js";
 
+// Toasts report failures and outcomes the page cannot show by itself; a change that is
+// already visible in place (a switch, a selected card, a reordered list) gets none.
+// Confirmations fade quickly; errors stay until dismissed.
 const TOAST_DURATION: Record<ToastItem["kind"], number> = {
-  success: 3600,
-  info: 4200,
-  warning: 6500,
+  success: 2800,
+  info: 4000,
+  warning: 6000,
   error: 0,
 };
-const MAX_TOASTS = 5;
+const MAX_TOASTS = 3;
 
 let toastSequence = 0;
 interface ToastTimer {

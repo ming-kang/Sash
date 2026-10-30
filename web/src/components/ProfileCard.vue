@@ -174,19 +174,6 @@ const usagePct = computed(() => {
     border-color var(--motion-fast) var(--ease-standard),
     box-shadow var(--motion-fast) var(--ease-standard);
 }
-.profile-card::before {
-  position: absolute;
-  top: 19px;
-  left: 7px;
-  width: 2px;
-  height: 26px;
-  border-radius: var(--radius-full);
-  content: "";
-  background: var(--selection);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-fast) var(--ease-standard);
-}
 .profile-card:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-card-hover);
@@ -195,9 +182,6 @@ const usagePct = computed(() => {
   cursor: default;
   background: color-mix(in srgb, var(--selection-soft) 38%, var(--bg-card));
   border-color: var(--selection-border);
-}
-.profile-card.active::before {
-  opacity: 1;
 }
 .profile-card.busy {
   cursor: wait;

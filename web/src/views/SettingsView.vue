@@ -48,7 +48,7 @@
             <span class="setting-name">{{ t('settings.langTitle') }}</span>
             <span class="setting-desc">{{ t('settings.langDesc') }}</span>
           </div>
-          <div class="segmented preference-control language-control" role="group" :aria-label="t('settings.langTitle')">
+          <div class="segmented preference-control" role="group" :aria-label="t('settings.langTitle')">
             <button
               type="button"
               class="segmented-item"
@@ -116,7 +116,7 @@
           {{ t('settings.portInvalid') }}
         </p>
 
-        <div class="setting-row">
+        <div class="setting-row switch-row">
           <div class="setting-info">
             <span class="setting-name">{{ t('settings.allowLanTitle') }}</span>
             <span class="setting-desc">{{ t('settings.allowLanDesc') }}</span>
@@ -220,7 +220,6 @@ function switchTheme(next: Theme): void {
 function switchLocale(next: Locale): void {
   if (next === locale.value) return;
   setLocale(next);
-  toast.success(t("toast.langSwitched"));
 }
 
 function resetMixedPort(): void {
@@ -231,9 +230,9 @@ async function saveMixedPort(): Promise<void> {
   if (!portValid.value || savingPort.value || store.operations.networkSetting) return;
   savingPort.value = true;
   try {
-    const verified = await saveNetworkSettings({ mixedPort: mixedPort.value });
-    if (verified) toast.success(t("toast.portSaved"));
-    else toast.info(t("toast.settingSavedUnverified"));
+    if (!(await saveNetworkSettings({ mixedPort: mixedPort.value }))) {
+      toast.info(t("toast.settingSavedUnverified"));
+    }
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
@@ -243,9 +242,9 @@ async function saveMixedPort(): Promise<void> {
 
 async function toggleAllowLan(next: boolean): Promise<void> {
   try {
-    const verified = await saveNetworkSettings({ allowLan: next });
-    if (verified) toast.success(t("toast.settingSaved"));
-    else toast.info(t("toast.settingSavedUnverified"));
+    if (!(await saveNetworkSettings({ allowLan: next }))) {
+      toast.info(t("toast.settingSavedUnverified"));
+    }
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   }
@@ -263,17 +262,16 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 .settings-card {
   min-width: 0;
 }
+/* Equal-width options sized by the longest label, so two- and three-option controls share a rhythm. */
 .preference-control {
-  display: grid;
-  width: min(350px, 48%);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: inline-grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
   flex-shrink: 0;
   gap: 3px;
 }
-.language-control {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
 .preference-control .segmented-item {
+  min-width: 84px;
   min-height: 30px;
   border: 0;
   border-radius: var(--radius-sm);
@@ -419,6 +417,13 @@ async function toggleAllowLan(next: boolean): Promise<void> {
   .setting-action {
     align-self: stretch;
     justify-content: flex-end;
+  }
+  .switch-row {
+    align-items: center;
+    flex-direction: row;
+  }
+  .switch-row .setting-action {
+    align-self: center;
   }
   .port-action {
     display: grid;

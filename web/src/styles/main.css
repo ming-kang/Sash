@@ -607,12 +607,6 @@ html[data-theme="dark"] .data-table tbody tr {
   font-family: var(--font-mono);
   font-size: 14px;
 }
-.cell-truncate {
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .pagination {
   display: flex;
@@ -703,24 +697,6 @@ html[data-theme="dark"] .log-pane {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-.toast-enter-active {
-  transition:
-    opacity var(--motion-normal) var(--ease-standard),
-    transform var(--motion-normal) var(--ease-spring);
-}
-.toast-leave-active {
-  transition:
-    opacity var(--motion-fast) var(--ease-standard),
-    transform var(--motion-fast) var(--ease-standard);
-}
-.toast-enter-from {
-  opacity: 0;
-  transform: translateY(-8px) scale(0.985);
-}
-.toast-leave-to {
-  opacity: 0;
-  transform: translateX(8px);
 }
 
 @media (max-width: 899px) {

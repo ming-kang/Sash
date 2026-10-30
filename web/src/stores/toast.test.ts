@@ -55,10 +55,10 @@ it("caps visible toasts, evicting the oldest dismissible one first", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
   toast.error("pinned failure");
   for (let i = 1; i <= 6; i += 1) toast.success(`saved ${i}`);
-  assert.equal(store.toasts.length, 5);
+  assert.equal(store.toasts.length, 3);
   assert.deepEqual(
     store.toasts.map((item) => item.text),
-    ["pinned failure", "saved 3", "saved 4", "saved 5", "saved 6"],
+    ["pinned failure", "saved 5", "saved 6"],
   );
 });
 

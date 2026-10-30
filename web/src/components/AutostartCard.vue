@@ -87,7 +87,7 @@ const canRemove = computed(
 
 async function save(enabled: boolean): Promise<void> {
   try {
-    if (await setEnabled(enabled)) toast.success(t("toast.settingSaved"));
+    await setEnabled(enabled);
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   }

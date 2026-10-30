@@ -211,7 +211,6 @@ async function selectNode(group: string, name: string): Promise<void> {
   pendingSelection.value = { group, name };
   try {
     await selectGroupProxy(group, name);
-    toast.success(t("toast.nodeOk", { name }));
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   } finally {

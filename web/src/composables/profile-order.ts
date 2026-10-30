@@ -48,7 +48,6 @@ export function useProfileOrder(
     saving.value = true;
     try {
       await reorderProfiles(ids);
-      if (!disposed) toast.success(t("profiles.orderSaved"));
     } catch (error) {
       if (!disposed) toast.error(t("toast.failed", { msg: errorText(error) }));
     } finally {

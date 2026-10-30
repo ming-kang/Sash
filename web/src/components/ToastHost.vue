@@ -12,9 +12,7 @@
         @focusin="setToastPaused(item.id, 'focus', true)"
         @focusout="setToastPaused(item.id, 'focus', false)"
       >
-        <span class="toast-icon">
-          <Icon :name="iconFor(item.kind)" :size="14" />
-        </span>
+        <Icon :name="iconFor(item.kind)" :size="15" class="toast-icon" />
         <span class="toast-text">{{ item.text }}</span>
         <span v-if="item.count > 1" class="toast-count" :aria-label="t('toast.repeated', { n: item.count })">
           ×{{ item.count }}
@@ -47,47 +45,36 @@ function iconFor(kind: ToastItem["kind"]): string {
 </script>
 
 <style scoped>
+/* Notices rise from the bottom edge, away from page headers and their controls. */
 .toast-host {
-  position: static;
+  position: fixed;
+  right: max(24px, env(safe-area-inset-right, 0px));
+  bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-toast);
   display: flex;
-  width: 100%;
+  width: min(380px, calc(100vw - 48px));
   flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   pointer-events: none;
 }
 .toast {
-  position: relative;
   display: flex;
-  min-height: 44px;
+  max-width: 100%;
+  min-height: 40px;
   align-items: center;
-  gap: 9px;
-  padding: 9px 9px 9px 12px;
+  gap: 8px;
+  padding: 7px 7px 7px 12px;
   pointer-events: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-pop);
+  box-shadow: var(--shadow-card-hover);
   color: var(--text-primary);
   font-size: 13px;
-}
-.toast-success {
-  border-color: var(--success-border);
-}
-.toast-warning {
-  border-color: var(--warning-border);
-}
-.toast-error {
-  border-color: var(--danger-border);
-}
-.toast-info {
-  border-color: var(--info-border);
+  line-height: 1.45;
 }
 .toast-icon {
-  display: flex;
-  width: 18px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
   flex-shrink: 0;
   color: var(--info);
 }
@@ -102,54 +89,86 @@ function iconFor(kind: ToastItem["kind"]): string {
 }
 .toast-text {
   min-width: 0;
-  flex: 1;
-  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 .toast-count {
   flex-shrink: 0;
-  padding: 1px 6px;
+  padding: 0 6px;
   border-radius: var(--radius-full);
   background: var(--bg-inset);
-  color: var(--text-secondary);
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.6;
 }
 .toast-close {
   display: flex;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-right: -3px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-fast) var(--ease-standard);
 }
 .toast-close:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+/* Self-dismissing notices show their close button only on hover or keyboard focus; errors always do. */
+@media (hover: hover) and (pointer: fine) {
+  .toast:not(.toast-error) .toast-close {
+    opacity: 0;
+  }
+  .toast:hover .toast-close,
+  .toast:focus-within .toast-close {
+    opacity: 1;
+  }
+}
 
+.toast-enter-active,
+.toast-move {
+  transition:
+    opacity var(--motion-normal) var(--ease-standard),
+    transform var(--motion-normal) var(--ease-standard);
+}
+.toast-leave-active {
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+.toast-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.toast-leave-to {
+  opacity: 0;
+}
+
+/* Phones stack notices above the bottom navigation and the Apply dock. */
 @media (max-width: 899px) {
   .toast-host {
-    position: static;
-    width: 100%;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: calc(76px + var(--dock-h, 0px) + env(safe-area-inset-bottom, 0px));
+    left: max(12px, env(safe-area-inset-left, 0px));
+    width: auto;
+    align-items: center;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .toast-enter-active,
+  .toast-move,
   .toast-leave-active {
     transition: none;
   }
-  .toast-enter-from,
-  .toast-leave-to {
+  .toast-enter-from {
     transform: none;
   }
 }

@@ -70,7 +70,7 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     const boot = ((await harness.apiRequest("/sash/web/bootstrap", { method: "POST" }))
       .data as WebBootstrapInfo).token;
     await page.goto(`${base}#boot=${boot}`);
-    await page.locator(".runtime-banner.unauthorized").waitFor({ state: "hidden" });
+    await page.locator(".connection-panel").waitFor({ state: "detached" });
     await page.goto(`${base}#/overview`);
     const stop = ".page-head-actions .core-controls > .btn-danger-outline";
     const controlsRight = await rightEdge(stop);

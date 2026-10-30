@@ -1,6 +1,6 @@
 <template>
   <div class="logs-view">
-    <PageHeader :title="t('page.logs.title')" :desc="modeLabel">
+    <PageHeader :title="t('page.logs.title')" :desc="t('page.logs.desc')">
       <div class="search-box logs-search">
         <Icon name="search" :size="13" />
         <input
@@ -51,9 +51,9 @@
         {{ !isCoreRunning ? t('logs.coreStopped') : store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
       </div>
       <div v-for="log in filteredLogs" :key="log.id" class="log-line" :class="`lv-${log.type.toLowerCase()}`">
+        <span v-if="log.time" class="log-time mono">{{ log.time }}</span>
         <Icon :name="levelIcon(log.type)" :size="13" class="log-icon" />
         <span class="log-payload">{{ log.payload }}</span>
-        <span v-if="log.time" class="log-time mono">{{ log.time }}</span>
       </div>
     </div>
   </div>
@@ -67,14 +67,6 @@ import { t } from "../i18n/index.js";
 import { clearLogs, isCoreRunning, store } from "../stores/index.js";
 
 const levels = ["all", "info", "warning", "error", "debug"];
-const modeLabel = computed(() => {
-  const modeNames: Record<string, string> = {
-    rule: t("overview.modeRule"),
-    global: t("overview.modeGlobal"),
-    direct: t("overview.modeDirect"),
-  };
-  return t("logs.modeLabel", { mode: modeNames[store.mode] ?? store.mode });
-});
 const selectedLevel = ref("all");
 const searchQuery = ref("");
 const paused = ref(false);
@@ -146,6 +138,9 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex-direction: column;
 }
+.logs-view > .page-head {
+  margin-bottom: 0;
+}
 .logs-search {
   min-width: 0;
   flex: 1;
@@ -187,30 +182,34 @@ onBeforeUnmount(() => {
   font-size: 14px;
   text-align: center;
 }
+/* Time leads the row so entries scan chronologically and wrap without a separate time line on phones. */
 .log-line {
   display: grid;
   min-height: 27px;
-  grid-template-columns: 14px minmax(0, 1fr) max-content;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px 3px 20px;
+  grid-template-columns: max-content 14px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 20px;
   border-bottom: 1px solid var(--border);
   contain: layout paint style;
   content-visibility: auto;
   contain-intrinsic-size: auto 27px;
-  line-height: 1.35;
 }
 .log-line:hover {
   background: var(--general-row-hover);
 }
-.log-icon {
-  flex-shrink: 0;
-}
 .log-time {
+  grid-column: 1;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.log-icon {
+  grid-column: 2;
+  align-self: center;
 }
 .log-payload {
+  grid-column: 3;
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text-secondary);
@@ -234,10 +233,18 @@ onBeforeUnmount(() => {
   color: var(--log-debug);
 }
 
+/* Fill the space above the fixed bottom navigation and Apply dock; the header keeps its natural height. */
 @media (max-width: 899px) {
   .logs-view {
-    height: calc(100dvh - 210px - env(safe-area-inset-bottom, 0px));
-    min-height: 320px;
+    height: calc(100dvh - 78px - var(--dock-h, 0px) - env(safe-area-inset-bottom, 0px));
+    min-height: 360px;
+  }
+  .logs-view > .page-head {
+    margin-bottom: 14px;
+  }
+  .log-pane {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
   }
   .logs-search,
   .level-select,
@@ -245,26 +252,27 @@ onBeforeUnmount(() => {
   .log-pause {
     min-height: 40px;
   }
-}
-
-@media (max-width: 760px) {
   .log-line {
-    padding-left: 8px;
+    padding-right: 10px;
+    padding-left: 10px;
   }
 }
 
 @media (max-width: 480px) {
-  .logs-view {
-    height: calc(100dvh - 258px - env(safe-area-inset-bottom, 0px));
-  }
   .logs-search {
     flex-basis: 100%;
   }
   .log-line {
-    grid-template-columns: 14px minmax(0, 1fr);
+    display: block;
+  }
+  .log-time,
+  .log-icon {
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: -2px;
   }
   .log-time {
-    grid-column: 2;
+    vertical-align: baseline;
   }
 }
 </style>

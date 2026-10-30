@@ -204,13 +204,7 @@ async function download(): Promise<void> {
   try {
     const res = await addProfile(url);
     dlUrl.value = "";
-    if (res.activated) {
-      toast.success(
-        t("toast.profileActivated", { name: res.profile.name }),
-      );
-    } else {
-      toast.success(t("toast.profileAdded", { name: res.profile.name }));
-    }
+    toast.success(t("toast.profileAdded", { name: res.profile.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
@@ -252,7 +246,6 @@ async function selectProfile(p: ProfileMeta): Promise<void> {
   if (profileBusy.value || p.id === store.activeProfileId) return;
   try {
     await activateProfile(p.id);
-    toast.success(t("toast.profileActivated", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   }
@@ -275,7 +268,6 @@ async function removeProfile(p: ProfileMeta): Promise<void> {
   if (!ok) return;
   try {
     await deleteProfile(p.id);
-    toast.success(t("toast.profileDeleted", { name: p.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   }

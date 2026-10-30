@@ -76,11 +76,6 @@ async function switchMode(mode: RoutingMode): Promise<void> {
   pendingMode.value = mode;
   try {
     await setOutboundMode(mode);
-    toast.success(
-      t("toast.modeOk", {
-        mode: t(`overview.mode${mode[0]?.toUpperCase()}${mode.slice(1)}`),
-      }),
-    );
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   } finally {
@@ -90,9 +85,7 @@ async function switchMode(mode: RoutingMode): Promise<void> {
 
 async function toggleSystemProxy(target: boolean): Promise<void> {
   try {
-    const verified = await setSystemProxyEnabled(target);
-    if (verified) toast.success(t(target ? "toast.sysProxyOn" : "toast.sysProxyOff"));
-    else toast.info(t("toast.settingSavedUnverified"));
+    if (!(await setSystemProxyEnabled(target))) toast.info(t("toast.settingSavedUnverified"));
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   }
@@ -100,9 +93,9 @@ async function toggleSystemProxy(target: boolean): Promise<void> {
 
 async function toggleAllowLan(next: boolean): Promise<void> {
   try {
-    const verified = await saveNetworkSettings({ allowLan: next });
-    if (verified) toast.success(t("toast.settingSaved"));
-    else toast.info(t("toast.settingSavedUnverified"));
+    if (!(await saveNetworkSettings({ allowLan: next }))) {
+      toast.info(t("toast.settingSavedUnverified"));
+    }
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   }

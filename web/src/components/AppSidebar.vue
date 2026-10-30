@@ -21,6 +21,15 @@
     </nav>
 
     <div class="side-foot">
+      <Transition name="dock">
+        <div v-if="applyPending" class="pending-config" role="status">
+          <span class="pending-config-copy">
+            <Icon name="warning" :size="14" />
+            {{ t('settings.pendingApply') }}
+          </span>
+          <CoreControls apply-only />
+        </div>
+      </Transition>
       <div class="core-row" :title="coreTooltip">
         <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-muted'" />
         <span class="core-label">Core</span>
@@ -34,9 +43,11 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { applyPending } from "../composables/core-runtime.js";
 import { t } from "../i18n/index.js";
 import { currentRoute, navigate, type Route } from "../router.js";
 import { isCoreRunning, store } from "../stores/index.js";
+import CoreControls from "./CoreControls.vue";
 import Icon from "./Icon.vue";
 
 const navItems: Array<{ route: Route; icon: string }> = [
@@ -140,9 +151,46 @@ const coreTooltip = computed(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Saved changes wait beside the Core state instead of floating over the page. */
 .side-foot {
+  display: flex;
   margin-top: auto;
+  flex-direction: column;
+  gap: 8px;
   padding: 16px 2px 0;
+}
+.pending-config {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+}
+.pending-config-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.45;
+}
+.pending-config-copy > .sash-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--warning);
+}
+.pending-config :deep(.btn) {
+  flex: 1;
+}
+/* Fade in only: once applied, the prompt leaves at once instead of lingering. */
+.dock-enter-active {
+  transition: opacity var(--motion-normal) var(--ease-standard);
+}
+.dock-enter-from {
+  opacity: 0;
 }
 .core-row {
   display: flex;
@@ -178,8 +226,38 @@ const coreTooltip = computed(() => {
     border: 0;
   }
   .brand,
-  .side-foot {
+  .core-row {
     display: none;
+  }
+  /* The dock rests on the bottom navigation; App reserves --dock-h so it never covers content. */
+  .side-foot {
+    position: fixed;
+    right: 0;
+    bottom: calc(66px + env(safe-area-inset-bottom));
+    left: 0;
+    z-index: 40;
+    margin: 0;
+    padding: 0;
+  }
+  .pending-config {
+    min-height: var(--dock-h);
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px max(10px, env(safe-area-inset-right)) 5px max(16px, env(safe-area-inset-left));
+    border-width: 1px 0 0;
+    border-radius: 0;
+  }
+  .pending-config-copy {
+    align-items: center;
+    font-size: 13px;
+  }
+  .pending-config-copy > .sash-icon {
+    margin-top: 0;
+  }
+  .pending-config :deep(.btn) {
+    flex: none;
   }
   .side-nav {
     position: fixed;

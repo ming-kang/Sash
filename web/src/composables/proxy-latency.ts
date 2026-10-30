@@ -66,9 +66,10 @@ export function useProxyLatency() {
         Array.from({ length: Math.min(GROUP_CONCURRENCY, members.length) }, () => worker()),
       );
       if (generation !== store.runtimeGeneration) return;
+      // Each card already shows its delay or timeout; only request failures need a summary.
       const timeouts = results.filter((delay) => delay === 0).length;
       const failures = results.filter((delay) => delay === "failed").length;
-      if (timeouts || failures) {
+      if (failures) {
         toast.warning(
           t("toast.testGroupPartial", {
             name: group,
@@ -77,8 +78,6 @@ export function useProxyLatency() {
             failures,
           }),
         );
-      } else {
-        toast.success(t("toast.testGroupOk", { name: group, n: results.length }));
       }
     } finally {
       const nextNodes = new Set(testingNodes.value);
@@ -101,10 +100,8 @@ export function useProxyLatency() {
     try {
       const result = await measure(name, generation);
       if (generation !== store.runtimeGeneration) return;
-      if (result.delay === 0) toast.warning(t("toast.testTimeout", { name }));
-      else if (result.delay === "failed")
+      if (result.delay === "failed")
         toast.error(t("toast.testFailed", { name, msg: errorText(result.error) }));
-      else toast.success(t("toast.testNodeDone", { name, delay: result.delay }));
     } finally {
       clearTestingNode(name);
     }

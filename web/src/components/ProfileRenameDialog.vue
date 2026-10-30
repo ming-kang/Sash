@@ -86,7 +86,6 @@ async function save(): Promise<void> {
   saving.value = true;
   try {
     await renameProfile(props.profile.id, next);
-    toast.success(t("toast.profileRenamed", { name: next }));
     emit("close");
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));

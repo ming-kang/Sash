@@ -113,7 +113,7 @@ async function authorize(page: Page): Promise<void> {
     .data as WebBootstrapInfo;
   await page.goto(`${origin}/ui/#boot=${bootstrap.token}`);
   await page.locator(".node-card").first().waitFor();
-  await page.locator(".runtime-banner.unauthorized").waitFor({ state: "hidden" });
+  await page.locator(".connection-panel").waitFor({ state: "detached" });
 }
 
 async function profilesPage(page: Page): Promise<void> {
@@ -327,20 +327,54 @@ try {
         200,
       );
       await page.locator(".pending-config").waitFor();
+      // A rejected selection leaves a sticky error toast beside the pending Apply dock.
+      await page.route("**/sash/profiles/active", (route) =>
+        route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Simulated selection failure" }),
+        }),
+      );
+      const selectionError = page
+        .locator(".toast-error")
+        .filter({ hasText: "Simulated selection failure" });
       await page.locator(`.profile-card[data-id="${initialIds[0]}"] .profile-card-main`).click();
-      await idle(page);
-      const toastOverlap = await page.evaluate(() => {
-        const bar = document.querySelector(".pending-config")?.getBoundingClientRect();
-        const toasts = Array.from(document.querySelectorAll(".toast"), (el) =>
-          el.getBoundingClientRect(),
-        );
-        if (!bar || toasts.length === 0) return "missing pending bar or toast";
-        return toasts.some((box) => box.bottom > bar.top && box.top < bar.bottom)
-          ? "toast overlaps pending bar"
-          : null;
-      });
-      assert.equal(toastOverlap, null);
-      await capture(page, `${tag}-profiles-pending-toast`);
+      await selectionError.waitFor();
+      await page.unroute("**/sash/profiles/active");
+      assert.equal(loadProfiles(h.layout).activeId, initialIds[2]);
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
+        const layout = await page.evaluate(() => {
+          window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" });
+          const bar = document.querySelector(".pending-config")?.getBoundingClientRect();
+          const toasts = Array.from(document.querySelectorAll(".toast"), (el) =>
+            el.getBoundingClientRect(),
+          );
+          const cards = document.querySelectorAll(".profiles-grid > .profile-card");
+          const last = cards[cards.length - 1]?.getBoundingClientRect();
+          if (!bar || !last || toasts.length === 0) return "missing pending bar, card or toast";
+          if (
+            toasts.some(
+              (box) =>
+                box.left < bar.right &&
+                box.right > bar.left &&
+                box.top < bar.bottom &&
+                box.bottom > bar.top,
+            )
+          )
+            return "toast overlaps pending bar";
+          // On phones the dock is fixed above the navigation; the page reserves its height.
+          const covers =
+            last.left < bar.right && last.right > bar.left && last.bottom > bar.top + 1;
+          return covers ? "pending bar covers content" : null;
+        });
+        assert.equal(layout, null, `${tag}/${width}`);
+        await capture(page, `${tag}-profiles-pending-toast-${width}`);
+      }
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await selectionError.locator(".toast-close").click();
+      await selectionError.waitFor({ state: "detached" });
       assert.equal(
         (
           await h.apiRequest("/sash/settings", {

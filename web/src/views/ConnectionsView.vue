@@ -1,6 +1,6 @@
 <template>
   <div class="connections-view">
-    <PageHeader :title="t('page.connections.title')">
+    <PageHeader :title="t('page.connections.title')" :desc="t('page.connections.desc')">
       <div class="search-box connection-search">
         <Icon name="search" :size="13" />
         <input
@@ -16,36 +16,18 @@
           down: formatBytes(store.connectionsDownloadTotal),
         }) }}
       </div>
-    </PageHeader>
-
-    <div class="connections-control">
-      <div class="sort-labels" role="toolbar" :aria-label="t('connections.sortLabel')">
-        <button
-          v-for="option in sortOptions"
-          :key="option.key"
-          type="button"
-          class="sort-label-btn"
-          :class="{ active: sortKey === option.key, reverse: sortKey === option.key && !sortDesc }"
-          :aria-pressed="sortKey === option.key"
-          :aria-label="`${t(option.label)}${sortKey === option.key ? `: ${t(sortDesc ? 'common.descending' : 'common.ascending')}` : ''}`"
-          @click="setSort(option.key)"
-        >
-          <Icon :name="option.icon" :size="13" />
-          <span>{{ t(option.label) }}</span>
-          <span v-if="sortKey === option.key" aria-hidden="true">{{ sortDesc ? '↓' : '↑' }}</span>
-        </button>
-      </div>
-
       <div class="control-actions">
         <button
           type="button"
           class="btn btn-sm btn-secondary btn-pause"
           :class="{ 'btn-paused': paused }"
           :aria-pressed="paused"
+          :aria-label="paused ? t('connections.resume') : t('connections.pause')"
+          :title="paused ? t('connections.resume') : t('connections.pause')"
           @click="togglePause"
         >
           <Icon :name="paused ? 'play' : 'pause'" :size="13" />
-          <span>{{ paused ? t('connections.resume') : t('connections.pause') }}</span>
+          <span class="pause-label">{{ paused ? t('connections.resume') : t('connections.pause') }}</span>
         </button>
         <button
           type="button"
@@ -56,6 +38,22 @@
           {{ t('connections.closeAll') }} ({{ store.connections.length }})
         </button>
       </div>
+    </PageHeader>
+
+    <div class="connection-columns" role="toolbar" :aria-label="t('connections.sortLabel')">
+      <button
+        v-for="option in sortOptions"
+        :key="option.key"
+        type="button"
+        class="sort-column"
+        :class="[`sort-${option.key}`, { active: sortKey === option.key }]"
+        :aria-pressed="sortKey === option.key"
+        :aria-label="`${t(option.label)}${sortKey === option.key ? `: ${t(sortDesc ? 'common.descending' : 'common.ascending')}` : ''}`"
+        @click="setSort(option.key)"
+      >
+        <span>{{ t(option.short) }}</span>
+        <span class="sort-direction" aria-hidden="true">{{ sortKey === option.key ? (sortDesc ? '↓' : '↑') : '' }}</span>
+      </button>
     </div>
 
     <div class="connection-list">
@@ -111,11 +109,12 @@ import { formatAgo, formatBytes } from "../utils/format.js";
 
 const PAGE_SIZE = 80;
 type SortKey = "time" | "upload" | "download" | "host";
+// Listed in column order: host first, then the right-aligned traffic and age columns.
 const sortOptions = [
-  { key: "time", label: "connections.sortTime", icon: "timer" },
-  { key: "upload", label: "connections.sortUpload", icon: "upload" },
-  { key: "download", label: "connections.sortDownload", icon: "download" },
-  { key: "host", label: "connections.sortHost", icon: "monitor" },
+  { key: "host", label: "connections.sortHost", short: "connections.sortHostShort" },
+  { key: "download", label: "connections.sortDownload", short: "connections.sortDownloadShort" },
+  { key: "upload", label: "connections.sortUpload", short: "connections.sortUploadShort" },
+  { key: "time", label: "connections.sortTime", short: "connections.sortTimeShort" },
 ] as const;
 
 const searchQuery = ref("");
@@ -231,7 +230,6 @@ async function closeAll(): Promise<void> {
   try {
     await closeAllConnections();
     pausedSnapshot.value = [];
-    toast.success(t("toast.connAllClosed"));
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   }
@@ -239,7 +237,9 @@ async function closeAll(): Promise<void> {
 </script>
 
 <style scoped>
+/* Shared with ConnectionRow so the sort buttons sit directly above their columns. */
 .connections-view {
+  --connection-columns: minmax(0, 1fr) 76px 76px 72px 32px;
   min-height: 100%;
 }
 .connections-view > .page-head {
@@ -259,54 +259,6 @@ async function closeAll(): Promise<void> {
   font-size: 12px;
   white-space: nowrap;
 }
-.connections-control {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  min-height: 50px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-app);
-}
-.sort-labels {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.sort-label-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 30px;
-  padding: 0 9px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 1;
-  transition:
-    background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard),
-    color var(--motion-fast) var(--ease-standard);
-}
-.sort-label-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-.sort-label-btn.active,
-.sort-label-btn.active.reverse {
-  background: var(--accent-soft);
-  border-color: var(--border-accent);
-  color: var(--accent);
-}
 .control-actions {
   display: flex;
   align-items: center;
@@ -318,22 +270,97 @@ async function closeAll(): Promise<void> {
   border-color: var(--warning-border);
   color: var(--warning);
 }
+.connection-columns {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  min-height: 36px;
+  grid-template-columns: var(--connection-columns);
+  align-items: center;
+  column-gap: 12px;
+  padding: 3px 14px 3px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-app);
+}
+.sort-column {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  justify-self: end;
+  gap: 3px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+}
+.sort-column.sort-host {
+  justify-self: start;
+}
+.sort-column:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.sort-column.active {
+  color: var(--accent);
+}
+.sort-direction {
+  min-width: 0.6em;
+}
 .connection-list {
   min-height: 180px;
 }
 
-@media (max-width: 760px) {
-  .connections-control {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    padding: 8px 12px;
+@media (max-width: 899px) {
+  .connection-search {
+    flex-basis: 100%;
   }
   .control-actions {
-    justify-content: flex-end;
+    margin-left: auto;
   }
   .control-actions .btn {
-    min-height: 40px;
+    min-height: 38px;
+  }
+}
+
+@media (max-width: 760px) {
+  .connection-columns {
+    display: flex;
+    gap: 4px;
+    padding: 6px 4px;
+    overflow-x: auto;
+  }
+  .sort-column {
+    height: 32px;
+    margin: 0;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+  .sort-column.active {
+    border-color: var(--border-accent);
+    background: var(--accent-soft);
+  }
+}
+
+/* Phones: an icon-only pause keeps totals and actions on one line under the search box. */
+@media (max-width: 480px) {
+  .btn-pause {
+    min-width: 38px;
+    padding-inline: 0;
+  }
+  .pause-label {
+    display: none;
   }
 }
 </style>

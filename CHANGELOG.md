@@ -6,9 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Redesigned WebUI notifications to stay out of the way. The Apply prompt for saved changes now sits beside the sidebar's Core state, or above the bottom navigation on phones, and appears only while Core is running. Toasts rise from the bottom corner, show at most three at once and are no longer raised for changes already visible on the page, such as switches, outbound mode, node selection, profile order or language. The connection page no longer repeats its instructions in a banner.
+- Refined dense WebUI views. Connection rows align traffic and age under sortable column headers and show the proxy chain in routing order; rules use compact two-line rows on phones; Logs lead with the time and fill the screen on phones. Proxy cards fit more columns, Settings options share equal widths, and the header keeps the primary button style for Start.
+
 ### Fixed
 
 - The Settings page no longer flashes an installation hint in the Auto Start row while autostart is already enabled.
+- The pending-configuration notice no longer covers the Overview Start button while Core is stopped, or the end of the page on phones.
 
 ## [0.3.9] - 2026-10-28
 

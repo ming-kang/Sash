@@ -2,7 +2,8 @@
   <div class="core-controls">
     <button
       type="button"
-      class="btn btn-primary btn-sm"
+      class="btn btn-sm"
+      :class="emphasizeApply ? 'btn-primary' : 'btn-secondary'"
       :disabled="restarting || stopping || !store.status"
       @click="restartCore"
     >
@@ -20,7 +21,7 @@
       <Icon name="power" :size="13" :class="{ spin: stopping }" />
       <span>{{ t('settings.stopBtn') }}</span>
     </button>
-    <span v-if="coreUpdateText" class="core-update-progress">
+    <span v-if="coreUpdateText && !applyOnly" class="core-update-progress">
       {{ coreUpdateText }}
       <button
         v-if="store.status?.coreUpdate"
@@ -36,14 +37,17 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import { coreUpdateText, useCoreControl } from "../composables/core-runtime.js";
 import { t } from "../i18n/index.js";
 import { store } from "../stores/index.js";
 import Icon from "./Icon.vue";
 
-defineProps<{ applyOnly?: boolean }>();
+const props = defineProps<{ applyOnly?: boolean }>();
 const { restarting, stopping, cancellingUpdate, restartCore, stopCore, cancelCoreUpdate } =
   useCoreControl();
+// Pending changes are promoted by the Apply dock, so the header keeps the primary style for Start only.
+const emphasizeApply = computed(() => props.applyOnly || !store.status?.core.running);
 </script>
 
 <style scoped>

@@ -4,26 +4,21 @@
       <div class="connection-host mono" :title="host">
         {{ host }}
       </div>
-      <div class="connection-tags">
+      <div class="connection-meta">
         <span class="connection-tag tag-network">{{ connection.metadata.network.toUpperCase() }}</span>
-        <span v-if="process !== '-'" class="connection-tag tag-process" :title="connection.metadata.processPath">
-          {{ process }}
-        </span>
-        <span
-          v-for="chain in connection.chains"
-          :key="chain"
-          class="connection-tag tag-chain"
-        >
-          {{ chain }}
-        </span>
-        <span class="connection-tag tag-rule" :title="connection.rulePayload">
-          {{ connection.rule || '-' }}<template v-if="connection.rulePayload">,{{ connection.rulePayload }}</template>
-        </span>
-        <span class="connection-tag tag-time">{{ formatAgo(connection.start) }}</span>
-        <span class="connection-tag tag-traffic mono">
-          ↑{{ formatBytes(connection.upload) }} ↓{{ formatBytes(connection.download) }}
-        </span>
+        <span v-if="route" class="connection-tag tag-chain" :title="route">{{ route }}</span>
+        <span class="meta-text" :title="rule">{{ rule }}</span>
+        <span v-if="process" class="meta-text" :title="connection.metadata.processPath">{{ process }}</span>
       </div>
+    </div>
+    <div class="connection-stats">
+      <span class="stat mono" :title="t('overview.download')">
+        <span class="stat-arrow down" aria-hidden="true">↓</span>{{ formatBytes(connection.download) }}
+      </span>
+      <span class="stat mono" :title="t('overview.upload')">
+        <span class="stat-arrow up" aria-hidden="true">↑</span>{{ formatBytes(connection.upload) }}
+      </span>
+      <span class="stat stat-time">{{ formatAgo(connection.start) }}</span>
     </div>
     <button
       type="button"
@@ -32,7 +27,7 @@
       :title="t('connections.closeTitle')"
       @click="emit('close', connection.id)"
     >
-      <Icon name="x" :size="18" />
+      <Icon name="x" :size="16" />
     </button>
   </article>
 </template>
@@ -60,19 +55,29 @@ const host = computed(() => {
 
 const process = computed(() => {
   const path = props.connection.metadata.processPath;
-  return path ? (path.split(/[\\/]/).pop() ?? path) : "-";
+  return path ? (path.split(/[\\/]/).pop() ?? path) : "";
+});
+
+// Core lists the chain from the outbound node back to the rule's policy; show it in routing order.
+const route = computed(() => [...props.connection.chains].reverse().join(" → "));
+
+const rule = computed(() => {
+  const { rule, rulePayload } = props.connection;
+  if (!rule) return "-";
+  return rulePayload ? `${rule}(${rulePayload})` : rule;
 });
 </script>
 
 <style scoped>
 .connection-row {
   content-visibility: auto;
-  contain-intrinsic-block-size: auto 54px;
-  position: relative;
-  display: flex;
-  min-height: 54px;
+  contain-intrinsic-block-size: auto 58px;
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: var(--connection-columns, minmax(0, 1fr) 76px 76px 72px 32px);
   align-items: center;
-  padding: 8px 48px 8px 20px;
+  column-gap: 12px;
+  padding: 8px 14px 8px 20px;
   border-bottom: 1px solid var(--border);
   transition: background var(--motion-fast) var(--ease-standard);
 }
@@ -81,7 +86,6 @@ const process = computed(() => {
 }
 .connection-main {
   min-width: 0;
-  flex: 1;
 }
 .connection-host {
   overflow: hidden;
@@ -91,28 +95,34 @@ const process = computed(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.connection-tags {
+.connection-meta {
   display: flex;
   min-width: 0;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 5px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .connection-tag {
   display: inline-flex;
+  min-width: 0;
   max-width: 320px;
   min-height: 19px;
+  flex-shrink: 0;
   align-items: center;
   padding: 1px 6px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-xs);
   background: var(--bg-inset);
   color: var(--text-secondary);
   font-size: 11px;
+  font-weight: 550;
   line-height: 1.2;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .tag-network {
   background: var(--info-soft);
@@ -120,22 +130,50 @@ const process = computed(() => {
   color: var(--info);
 }
 .tag-chain {
+  flex-shrink: 1;
   background: var(--selection-soft);
   border-color: var(--selection-border);
   color: var(--selection);
 }
-.tag-traffic {
-  background: var(--accent-soft);
-  border-color: var(--border-accent);
-  color: var(--accent);
+.meta-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta-text + .meta-text::before {
+  margin-right: 8px;
+  color: var(--border-strong);
+  content: "·";
+}
+/* On wide screens each stat is its own grid column, aligned under the sort header. */
+.connection-stats {
+  display: contents;
+}
+.stat {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stat-arrow {
+  margin-right: 3px;
+  font-weight: 650;
+}
+.stat-arrow.down {
+  color: var(--chart-down);
+}
+.stat-arrow.up {
+  color: var(--chart-up);
+}
+.stat-time {
+  color: var(--text-muted);
 }
 .connection-close {
-  position: absolute;
-  top: 50%;
-  right: 18px;
   display: flex;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -144,7 +182,6 @@ const process = computed(() => {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transform: translateY(-50%);
   transition:
     background var(--motion-fast) var(--ease-standard),
     color var(--motion-fast) var(--ease-standard);
@@ -154,21 +191,45 @@ const process = computed(() => {
   color: var(--danger);
 }
 
+/* Narrow screens keep host and route readable; traffic moves under the metadata line. */
 @media (max-width: 760px) {
   .connection-row {
-    padding-right: 48px;
-    padding-left: 8px;
+    grid-template-areas:
+      "main close"
+      "stats close";
+    grid-template-columns: minmax(0, 1fr) 40px;
+    gap: 4px 8px;
+    padding: 9px 4px 9px 10px;
+  }
+  .connection-main {
+    grid-area: main;
+  }
+  .connection-meta {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    white-space: normal;
+  }
+  .meta-text {
+    white-space: nowrap;
+  }
+  .connection-stats {
+    display: flex;
+    grid-area: stats;
+    gap: 14px;
+  }
+  .stat {
+    text-align: left;
   }
   .connection-close {
-    right: 4px;
     width: 40px;
     height: 40px;
+    grid-area: close;
   }
 }
 
 @media (max-width: 480px) {
   .connection-tag {
-    max-width: 220px;
+    max-width: 100%;
   }
 }
 </style>

@@ -81,7 +81,7 @@ async function verify(engine: BrowserType, name: string) {
       .data as WebBootstrapInfo;
     await page.goto(`${base}#boot=${boot.token}`);
     await page.getByText("工作配置", { exact: true }).waitFor();
-    await page.locator(".runtime-banner.unauthorized").waitFor({ state: "hidden" });
+    await page.locator(".connection-panel").waitFor({ state: "detached" });
     await page.evaluate(() => document.fonts.ready);
     const fonts = await page.evaluate(() => ({
       family: getComputedStyle(document.querySelector(".brand-name") ?? document.body).fontFamily,

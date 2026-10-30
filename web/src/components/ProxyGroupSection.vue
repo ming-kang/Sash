@@ -251,14 +251,14 @@ const visibleMemberBatches = computed(() => {
 
 .pgroup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
   gap: 12px;
 }
 .node-batch {
   display: grid;
   min-width: 0;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
   gap: 12px;
   content-visibility: auto;
   contain-intrinsic-block-size: auto 640px;
@@ -436,10 +436,6 @@ const visibleMemberBatches = computed(() => {
   }
   .node-delay {
     height: 40px;
-  }
-  .pgroup-grid,
-  .node-batch {
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   }
   .node-sub {
     min-height: 40px;

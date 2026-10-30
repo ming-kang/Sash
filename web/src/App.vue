@@ -1,5 +1,5 @@
 <template>
-  <div class="app-frame">
+  <div class="app-frame" :class="{ 'apply-pending': applyPending }">
     <div class="app-shell">
       <AppSidebar />
 
@@ -20,20 +20,6 @@
           </div>
         </Transition>
 
-        <div class="app-chrome">
-          <div
-            v-if="sessionReady && store.status?.configuration.pending"
-            class="pending-config"
-            role="status"
-          >
-            <Icon name="warning" :size="16" />
-            <span class="pending-config-copy">{{ t('settings.pendingApply') }}</span>
-            <CoreControls apply-only />
-          </div>
-
-          <ToastHost />
-        </div>
-
         <div
           ref="pageContainer"
           class="page-container"
@@ -51,6 +37,7 @@
 
       <ConfirmDialog />
     </div>
+    <ToastHost />
   </div>
 </template>
 
@@ -60,9 +47,9 @@ import { api, sessionReady } from "./api/index.js";
 import AppSidebar from "./components/AppSidebar.vue";
 import { asyncView } from "./components/async-view.js";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
-import CoreControls from "./components/CoreControls.vue";
 import Icon from "./components/Icon.vue";
 import ToastHost from "./components/ToastHost.vue";
+import { applyPending } from "./composables/core-runtime.js";
 import { t } from "./i18n/index.js";
 import { currentRoute } from "./router.js";
 import {
@@ -77,8 +64,9 @@ import {
 import OverviewView from "./views/OverviewView.vue";
 import ConnectionView from "./views/ConnectionView.vue";
 
+// Without a session the connection page already explains what to do; an offline Sash still gets the banner.
 const bannerNotice = computed(() =>
-  store.daemonOnline && !sessionReady.value ? "unauthorized" : runtimeNotice.value,
+  sessionReady.value || !store.daemonOnline ? runtimeNotice.value : null,
 );
 
 const ConnectionsView = asyncView(() => import("./views/ConnectionsView.vue"));
@@ -155,43 +143,9 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.app-chrome {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top, 0px));
-  right: max(24px, env(safe-area-inset-right, 0px));
-  z-index: var(--z-toast);
-  display: flex;
-  width: min(400px, calc(100% - 48px));
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: none;
-}
-.pending-config {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 9px;
-  padding: 10px 11px 10px 13px;
-  pointer-events: auto;
-  color: var(--warning);
-  background: var(--bg-elevated);
-  border: 1px solid var(--warning-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-pop);
-  font-size: 13px;
-}
-.pending-config > .sash-icon {
-  flex-shrink: 0;
-}
-.pending-config-copy {
-  min-width: 120px;
-  flex: 1;
-  color: var(--text-primary);
-  font-weight: 550;
-  line-height: 1.4;
-}
 .app-frame {
+  /* Height of the phone Apply dock above the bottom navigation; zero elsewhere. */
+  --dock-h: 0px;
   width: 100%;
   height: 100vh;
   height: 100dvh;
@@ -219,26 +173,35 @@ onUnmounted(() => {
   z-index: var(--z-banner);
   display: flex;
   flex-shrink: 0;
-  min-height: 30px;
+  min-height: 32px;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 5px 18px;
+  gap: 8px;
+  padding: 6px 18px;
   background: var(--danger-soft);
   border-bottom: 1px solid var(--danger-border);
-  color: var(--danger);
-  font-size: 13px;
-  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.45;
   text-align: center;
+}
+.runtime-banner > .sash-icon {
+  flex-shrink: 0;
+  color: var(--danger);
 }
 .runtime-banner.coreDegraded,
 .runtime-banner.coreUnavailable {
   background: var(--warning-soft);
   border-bottom-color: var(--warning-border);
+}
+.runtime-banner.coreDegraded > .sash-icon,
+.runtime-banner.coreUnavailable > .sash-icon {
   color: var(--warning);
 }
 .snapshot-error {
   display: block;
+  color: var(--text-secondary);
   overflow-wrap: anywhere;
   font-weight: 400;
 }
@@ -270,13 +233,8 @@ onUnmounted(() => {
 }
 
 @media (max-width: 899px) {
-  .app-chrome {
-    position: fixed;
-    top: auto;
-    right: max(12px, env(safe-area-inset-right, 0px));
-    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-    left: max(12px, env(safe-area-inset-left, 0px));
-    width: auto;
+  .app-frame.apply-pending {
+    --dock-h: 48px;
   }
   .app-frame {
     height: auto;
@@ -305,7 +263,7 @@ onUnmounted(() => {
   .page-container.page-connections {
     --page-gutter: 16px;
     overflow: visible;
-    padding: 0 var(--page-gutter) calc(78px + env(safe-area-inset-bottom));
+    padding: 0 var(--page-gutter) calc(78px + var(--dock-h) + env(safe-area-inset-bottom));
   }
   .page-container.page-logs {
     padding-bottom: 8px;

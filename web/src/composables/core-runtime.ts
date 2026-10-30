@@ -1,5 +1,5 @@
 import { computed, ref } from "vue";
-import { api } from "../api/index.js";
+import { api, sessionReady } from "../api/index.js";
 import { confirmDialog } from "../components/confirm.js";
 import { t } from "../i18n/index.js";
 import { errorText, refreshRuntimeState, store, toast } from "../stores/index.js";
@@ -8,6 +8,11 @@ export const coreVersion = computed(() => {
   const version = store.status?.core.version;
   return version ? (version.startsWith("v") ? version : `v${version}`) : "";
 });
+
+// Start always applies the saved configuration, so only a running Core can be out of date.
+export const applyPending = computed(() =>
+  Boolean(sessionReady.value && store.status?.core.running && store.status.configuration.pending),
+);
 
 export const coreUpdateText = computed(() => {
   const update = store.status?.coreUpdate;
@@ -32,7 +37,6 @@ async function cancelCoreUpdate(): Promise<void> {
   try {
     await api.cancelCoreUpdate();
     await refreshRuntimeState();
-    if (generation === actionGeneration) toast.success(t("toast.coreUpdateCancelled"));
   } catch (error) {
     if (generation === actionGeneration) toast.error(t("toast.failed", { msg: errorText(error) }));
   } finally {
@@ -45,10 +49,12 @@ export function useCoreControl() {
     if (restarting.value || stopping.value || !store.status) return;
     restarting.value = true;
     const generation = ++actionGeneration;
+    // A started Core shows itself in the status; only an in-place Apply needs a confirmation.
+    const reapplying = store.status.core.running;
     try {
       await api.restartCore();
       await refreshRuntimeState();
-      if (generation === actionGeneration) toast.success(t("toast.coreRestarted"));
+      if (reapplying && generation === actionGeneration) toast.success(t("toast.coreRestarted"));
     } catch (error) {
       await refreshRuntimeState().catch(() => undefined);
       if (generation === actionGeneration)
@@ -75,7 +81,6 @@ export function useCoreControl() {
     try {
       await api.stopCore();
       await refreshRuntimeState();
-      toast.success(t("toast.coreStopped"));
     } catch (error) {
       toast.error(t("toast.failed", { msg: errorText(error) }));
     } finally {

@@ -5,7 +5,7 @@
     <div class="general-list">
       <div class="general-row">
         <div class="general-label">{{ t('overview.uptime') }}</div>
-        <div class="general-value mono">{{ uptime }}</div>
+        <div class="general-value uptime-value">{{ uptime }}</div>
       </div>
 
       <div class="general-row">
@@ -213,6 +213,9 @@ async function refreshActiveProfile(): Promise<void> {
   font-size: 13px;
   text-align: right;
 }
+.uptime-value {
+  font-variant-numeric: tabular-nums;
+}
 .profile-value {
   max-width: 58%;
   gap: 7px;
@@ -335,18 +338,6 @@ async function refreshActiveProfile(): Promise<void> {
   }
   .general-value {
     max-width: 58%;
-  }
-  .profile-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .profile-row .general-value,
-  .profile-row > .btn {
-    width: 100%;
-    max-width: none;
-  }
-  .profile-value {
-    justify-content: space-between;
   }
 }
 </style>

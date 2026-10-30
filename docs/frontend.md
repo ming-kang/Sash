@@ -24,9 +24,11 @@ Unchanged proxy data retains its references. Lists use memoization, pagination o
 
 ## Views and controls
 
-[App.vue](../web/src/App.vue) owns the session gate, floating pending-configuration notification and shared stream lifetime. [AppSidebar.vue](../web/src/components/AppSidebar.vue) keeps primary navigation and a compact Core state; live traffic and uptime stay on Overview instead of being duplicated in the sidebar. Pages cover Overview, Profiles, Logs, Connections, Rules and Settings.
+[App.vue](../web/src/App.vue) owns the session gate, runtime banner and shared stream lifetime. [AppSidebar.vue](../web/src/components/AppSidebar.vue) keeps primary navigation, a compact Core state and the Apply prompt; live traffic and uptime stay on Overview instead of being duplicated in the sidebar. Pages cover Overview, Profiles, Logs, Connections, Rules and Settings.
 
 [CoreControls.vue](../web/src/components/CoreControls.vue) shares start, stop and Apply behavior through [useCoreControl](../web/src/composables/core-runtime.ts). Applying a profile reloads the running Core and keeps established connections, so it no longer asks for confirmation; a proxy port or LAN change still restarts Core.
+
+Notifications stay out of the way of page content. Saved changes that a running Core has not applied show an Apply prompt beside the sidebar's Core state; on phones it rests above the bottom navigation, and pages reserve its height. A stopped Core shows no prompt because Start applies the saved configuration. The banner above pages reports only an offline Sash or unavailable Core data. Toasts rise from the bottom corner for failures and for outcomes the page cannot show by itself; a change already visible in place, such as a switch, the selected node or the profile order, gets none. Confirmations fade within a few seconds, errors stay until dismissed, and at most three are shown.
 
 Profiles shows the saved selection; Overview shows the configuration Core is using. The editor saves against the content revision read on open. Settings drafts stay local until Save and survive status refreshes. The system-proxy switch acts immediately and remains available for restoration when Core is stopped.
 

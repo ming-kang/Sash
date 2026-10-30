@@ -25,21 +25,15 @@
         </thead>
         <tbody>
           <tr v-for="entry in pagedRules" :key="entry.key">
-            <td class="cell-mono text-muted idx" :data-label="t('rules.colIndex')">
-              {{ entry.originalIndex + 1 }}
-            </td>
-            <td :data-label="t('rules.colType')">
+            <td class="cell-mono text-muted idx">{{ entry.originalIndex + 1 }}</td>
+            <td class="rule-type">
               <span class="badge badge-neutral">{{ entry.rule.type }}</span>
             </td>
-            <td
-              class="cell-mono cell-truncate"
-              :data-label="t('rules.colPayload')"
-              :title="entry.rule.payload || '-'"
-            >
+            <td class="cell-mono rule-payload" :title="entry.rule.payload || '-'">
               {{ entry.rule.payload || '-' }}
             </td>
-            <td :data-label="t('rules.colTarget')">
-              <span class="badge badge-accent">{{ entry.rule.proxy }}</span>
+            <td class="rule-target">
+              <span class="badge" :class="targetBadge(entry.rule.proxy)">{{ entry.rule.proxy }}</span>
             </td>
           </tr>
         </tbody>
@@ -76,6 +70,12 @@ import { t } from "../i18n/index.js";
 import { isCoreRunning, store } from "../stores/index.js";
 
 const PAGE_SIZE = 80;
+
+function targetBadge(proxy: string): string {
+  if (proxy.startsWith("REJECT")) return "badge-danger";
+  if (proxy === "DIRECT") return "badge-neutral";
+  return "badge-accent";
+}
 
 const searchQuery = ref("");
 const currentPage = ref(1);
@@ -128,15 +128,31 @@ watch(
 .data-table td {
   padding-top: 9px;
   padding-bottom: 9px;
-  text-align: left;
-}
-.data-table .cell-truncate {
-  text-align: left;
 }
 .idx {
-  width: 56px;
+  width: 64px;
+}
+.rule-type {
+  width: 180px;
+}
+.rule-payload {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rule-target {
+  width: 28%;
+}
+.rule-target .badge {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
+/* Phones: each rule becomes a two-line entry — type and index, then payload and target. */
 @media (max-width: 760px) {
   :deep(.page-head-actions) {
     flex-wrap: wrap;
@@ -146,59 +162,51 @@ watch(
     width: min(260px, 100%);
     min-height: 40px;
   }
-  .rule-list {
-    overflow: visible;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-  .data-table,
-  .data-table tbody,
-  .data-table tr,
-  .data-table td {
-    display: block;
-    width: 100%;
-  }
   .data-table thead {
     display: none;
   }
+  .data-table,
   .data-table tbody {
-    display: grid;
-    gap: 10px;
+    display: block;
   }
   .data-table tbody tr {
+    display: grid;
+    grid-template-areas:
+      "type idx"
+      "payload target";
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 12px;
     padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-panel);
-    box-shadow: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .data-table tbody tr:last-child {
+    border-bottom: 0;
   }
   .data-table td {
-    display: grid;
-    grid-template-columns: minmax(70px, 0.3fr) minmax(0, 1fr);
-    align-items: baseline;
-    gap: 10px;
+    width: auto;
     max-width: none;
-    padding: 4px 0;
+    padding: 0;
     border: 0;
-    text-align: left;
-    white-space: normal;
-    overflow-wrap: anywhere;
   }
-  .data-table td .badge {
-    justify-self: start;
-  }
-  .data-table td::before {
-    content: attr(data-label);
-    color: var(--text-muted);
-    font-family: var(--font-sans);
+  .idx {
+    grid-area: idx;
     font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    text-align: right;
   }
-  .data-table .idx {
-    width: 100%;
+  .rule-type {
+    grid-area: type;
+  }
+  .rule-payload {
+    grid-area: payload;
+    font-size: 13px;
+  }
+  .rule-target {
+    grid-area: target;
+    justify-self: end;
+  }
+  .rule-target .badge {
+    max-width: 55vw;
   }
 }
 
