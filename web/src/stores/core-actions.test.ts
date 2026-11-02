@@ -7,8 +7,10 @@ import {
   closeAllConnections,
   closeConnection,
   normalizeConnections,
+  proxyChain,
   refreshProxies,
   refreshRules,
+  resolvedProxyDelay,
   selectGroupProxy,
   setProxies,
 } from "./core-actions.js";
@@ -109,4 +111,43 @@ describe("web Core actions", () => {
         all ? [] : ["two"],
       );
     });
+
+  it("resolves a group's delay through its selected chain and survives cycles", (t) => {
+    const original = { ...store };
+    t.after(() => Object.assign(store, original));
+    const node = (name: string, delay?: number) => ({
+      name,
+      type: "Trojan",
+      udp: true,
+      history: delay === undefined ? [] : [{ time: "2026-11-01T00:00:00Z", delay }],
+    });
+    const group = (name: string, now: string) => ({
+      name,
+      type: "Selector",
+      udp: true,
+      history: [],
+      all: [now],
+      now,
+    });
+    store.proxies = {
+      PROXY: group("PROXY", "Auto"),
+      Auto: { ...group("Auto", "jp"), type: "URLTest" },
+      jp: node("jp", 93),
+      LB: { ...group("LB", ""), type: "LoadBalance", history: [{ time: "", delay: 40 }] },
+      A: group("A", "B"),
+      B: group("B", "A"),
+      Lost: group("Lost", "missing"),
+    };
+    store.manualProxyDelays = {};
+    assert.deepEqual(proxyChain("PROXY"), ["PROXY", "Auto", "jp"]);
+    assert.equal(resolvedProxyDelay("PROXY"), 93);
+    store.manualProxyDelays = { jp: 0 };
+    assert.equal(resolvedProxyDelay("PROXY"), 0);
+    assert.equal(resolvedProxyDelay("LB"), 40);
+    assert.deepEqual(proxyChain("A"), ["A", "B"]);
+    assert.equal(resolvedProxyDelay("A"), undefined);
+    store.manualProxyDelays = { Lost: 120 };
+    assert.deepEqual(proxyChain("Lost"), ["Lost"]);
+    assert.equal(resolvedProxyDelay("Lost"), 120);
+  });
 });

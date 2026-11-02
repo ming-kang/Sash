@@ -55,11 +55,12 @@
         v-for="batch in visibleMemberBatches"
         :key="batch[0]?.name"
         class="node-batch"
+        :style="{ '--batch-size': batch.length }"
       >
         <article
           v-for="member in batch"
           :key="member.name"
-          v-memo="[member.name, member.selected, member.meta, member.udp, member.text, member.cls, member.testing, member.pending, busy, selectable, testing, locale]"
+          v-memo="[member.name, member.selected, member.type, member.udp, member.via, member.viaRegion, member.title, member.text, member.cls, member.testing, member.pending, busy, selectable, testing, locale]"
           class="node-card"
           :class="{ selected: member.selected, static: !selectable }"
         >
@@ -67,34 +68,42 @@
             :is="selectable ? 'button' : 'div'"
             class="node-main"
             :type="selectable ? 'button' : undefined"
+            :title="member.title"
             :aria-pressed="selectable ? member.selected : undefined"
             :disabled="selectable ? busy : undefined"
             @click="selectable && !busy && emit('select', member.name)"
           >
-            <div class="node-top">
-              <span class="node-name" :title="member.name">{{ member.name }}</span>
-              <Icon v-if="member.selected" name="check-circle" :size="14" class="node-selected" />
+            <span class="node-top">
+              <span class="node-name"><span v-if="member.region" class="region-code">{{ member.region }}</span>{{ member.label }}</span>
               <Icon v-if="member.pending" name="loader" :size="12" class="spin node-pending" />
-            </div>
-            <div class="node-sub">
-              <span class="node-meta">
-                {{ member.meta }}
-              </span>
-              <span class="node-badges">
-                <span v-if="member.udp" class="node-badge udp-tag">UDP</span>
-              </span>
-            </div>
+            </span>
+            <span class="node-meta">
+              <span class="node-type">{{ member.type }}</span>
+              <template v-if="member.via">
+                <span class="meta-sep" aria-hidden="true" />
+                <span class="node-via">
+                  <span aria-hidden="true">→</span>
+                  <span v-if="member.viaRegion" class="region-code">{{ member.viaRegion }}</span>
+                  <span class="node-via-name">{{ member.via }}</span>
+                </span>
+              </template>
+              <template v-else-if="member.udp">
+                <span class="meta-sep" aria-hidden="true" />
+                <span>UDP</span>
+              </template>
+            </span>
           </component>
           <button
             type="button"
             class="node-delay"
             :class="[member.cls, { testing: member.testing }]"
-            :aria-label="`${t('proxies.testNode', { name: member.name })}: ${member.text}`"
+            :aria-label="`${t('proxies.testNode', { name: member.name })}: ${member.status}`"
             :disabled="member.testing || testing"
             @click="emit('test-node', member.name)"
           >
-            <Icon v-if="member.testing" name="refresh" :size="11" class="delay-spinner" />
-            <span v-else class="node-delay-text">{{ member.text }}</span>
+            <Icon v-if="member.testing" name="refresh" :size="12" class="delay-spinner" />
+            <span v-else-if="member.ms !== undefined">{{ member.ms }}<small>ms</small></span>
+            <template v-else>{{ member.text }}</template>
           </button>
         </article>
       </div>
@@ -105,8 +114,8 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { locale, t } from "../i18n/index.js";
-import { proxyDelay, store } from "../stores/index.js";
-import { delayLevel } from "../utils/format.js";
+import { proxyChain, resolvedProxyDelay, store } from "../stores/index.js";
+import { delayLevel, splitRegionFlag } from "../utils/format.js";
 import Icon from "./Icon.vue";
 
 const props = defineProps<{
@@ -133,26 +142,42 @@ const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "R
 const current = computed(() => store.proxies[props.group]?.now ?? "");
 const typeBadge = computed(() => store.proxies[props.group]?.type ?? "Selector");
 const sortByLatency = ref(false);
-const hasDelays = computed(() => props.members.some((name) => proxyDelay(name) !== undefined));
+const hasDelays = computed(() =>
+  props.members.some((name) => resolvedProxyDelay(name) !== undefined),
+);
 
 const visibleMembers = computed(() => {
   const members = props.members.map((name) => {
     const proxy = store.proxies[name];
-    const delay = proxyDelay(name);
-    const level = typeof delay === "number" ? delayLevel(delay) : "bad";
+    const isGroup = groupTypes.has(proxy?.type ?? "") || Array.isArray(proxy?.all);
+    const chain = isGroup ? proxyChain(name) : [name];
+    const routed = chain.length > 1 ? (chain.at(-1) ?? "") : "";
+    const delay = resolvedProxyDelay(name);
+    const { region, label } = splitRegionFlag(name);
+    const via = splitRegionFlag(routed);
+    const status = delay === undefined ? t("common.untested")
+      : delay === "failed" ? t("common.failed")
+      : delay <= 0 ? t("common.timeout") : `${delay} ms`;
     return {
       name,
+      region,
+      label,
+      title: chain.join(" → "),
       selected: current.value === name,
-      meta: `${proxy?.type ?? ""}${groupTypes.has(proxy?.type ?? "") && proxy?.now ? ` · ${proxy.now}` : ""}`,
-      udp: proxy?.udp ?? false,
+      type: proxy?.type ?? "",
+      udp: !isGroup && (proxy?.udp ?? false),
+      via: via.label,
+      viaRegion: via.region,
       pending: props.pending === name,
-      testing: props.testingNodes?.has(name) ?? false,
+      testing: chain.some((node) => props.testingNodes?.has(node)),
       timeout: delay === 0,
       rank: typeof delay === "number" && delay > 0 ? delay : Number.POSITIVE_INFINITY,
-      cls: delay === undefined ? "delay-none" : `delay-${level}`,
-      text: delay === undefined ? t("common.untested")
-        : delay === "failed" ? t("common.failed")
-        : delay <= 0 ? t("common.timeout") : `${delay} ms`,
+      cls: typeof delay === "number" ? `delay-${delayLevel(delay)}`
+        : delay === "failed" ? "delay-bad" : "delay-none",
+      ms: typeof delay === "number" && delay > 0 ? delay : undefined,
+      // Untested stays a quiet dash; the accessible label still spells it out.
+      text: delay === undefined ? "—" : status,
+      status,
     };
   }).filter((member) => !props.hideTimeout || !member.timeout);
   // Stable sorting leaves equal, failed and untested entries in source order.
@@ -251,24 +276,26 @@ const visibleMemberBatches = computed(() => {
 
 .pgroup-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
-  gap: 12px;
+  container-type: inline-size;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
 }
 .node-batch {
   display: grid;
   min-width: 0;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
   content-visibility: auto;
-  contain-intrinsic-block-size: auto 640px;
+  /* Placeholder height before first paint, scaled to the batch so short groups do not reserve
+     a full batch of space. Assumes about three columns; the single-column query refines it. */
+  contain-intrinsic-block-size: auto calc(var(--batch-size, 24) * 24px);
 }
 .node-card {
   position: relative;
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 64px;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--border);
@@ -281,23 +308,34 @@ const visibleMemberBatches = computed(() => {
 }
 .node-card:hover {
   border-color: var(--border-strong);
-  background: var(--bg-hover);
 }
 .node-card.selected,
 .node-card.selected:hover {
   border-color: var(--selection-border);
   background: var(--selection-soft);
 }
+.node-card.selected::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--selection);
+  content: "";
+}
 .node-main {
   display: flex;
   min-width: 0;
-  min-height: 62px;
+  min-height: 58px;
   flex-direction: column;
   justify-content: space-between;
-  padding: 10px 12px 5px;
+  gap: 5px;
+  padding: 9px 12px 9px 13px;
   border: 0;
   background: transparent;
   color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -315,63 +353,119 @@ const visibleMemberBatches = computed(() => {
 }
 .node-top {
   display: flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
+  align-items: flex-start;
+  gap: 6px;
+  /* Room for the delay button, which sits over the card's top-right corner. */
+  padding-right: 58px;
+}
+/* One line in multi-column grids keeps rows even; the full name is in the card's title. */
+.node-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 560;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.region-code {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  vertical-align: 1px;
 }
 .node-pending {
   flex-shrink: 0;
+  margin-top: 4px;
   color: var(--accent);
 }
-.node-selected {
-  margin-left: auto;
-  flex-shrink: 0;
-  color: var(--selection);
-}
-.node-name {
+.node-meta {
+  display: flex;
   min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 550;
-  line-height: 1.4;
-  white-space: normal;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.node-type {
+  flex-shrink: 0;
+}
+.meta-sep {
+  width: 3px;
+  height: 3px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  opacity: 0.55;
+}
+.node-via {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+.node-via .region-code {
+  margin-right: 0;
+  font-size: 9px;
+  line-height: 13px;
+}
+.node-via-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .node-delay {
   position: absolute;
-  right: 9px;
-  bottom: 5px;
+  top: 7px;
+  right: 7px;
   display: inline-flex;
-  min-width: 60px;
-  height: 28px;
+  min-width: 34px;
+  height: 24px;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 0 7px;
+  justify-content: flex-end;
+  padding: 0 6px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
-  font-weight: 550;
+  font-weight: 600;
   line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   transition: background var(--motion-fast) var(--ease-standard);
 }
-.node-delay-text {
-  display: block;
-  line-height: 1;
-  white-space: nowrap;
+.node-delay small {
+  margin-left: 1px;
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.75;
 }
-.node-delay:hover:not(:disabled) {
+/* Hovering the card hints that the delay is its own retest button. */
+.node-card:hover .node-delay:not(:disabled) {
   background: var(--bg-inset);
+}
+.node-card .node-delay:hover:not(:disabled) {
+  background: var(--bg-active);
 }
 .node-delay.testing {
   justify-content: center;
   color: var(--accent);
   cursor: wait;
-  opacity: 0.72;
 }
 .delay-spinner {
   animation: rotate 0.9s linear infinite;
@@ -386,59 +480,46 @@ const visibleMemberBatches = computed(() => {
   color: var(--danger);
 }
 .delay-none {
-  color: var(--text-secondary);
-}
-.node-sub {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 28px;
-  margin-top: 3px;
-  padding-right: 70px;
   color: var(--text-muted);
-  font-size: 11px;
-}
-.node-meta {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.node-badges {
-  display: inline-flex;
-  flex-shrink: 0;
-  gap: 4px;
-  margin-left: auto;
-}
-.node-badge {
-  display: inline-flex;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-xs);
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
+  font-weight: 500;
 }
 .spin {
   animation: rotate 0.9s linear infinite;
 }
 
+/* A single column has room to grow vertically, so long names get a second line. */
+@container (max-width: 449px) {
+  .node-name {
+    display: -webkit-box;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .node-batch {
+    contain-intrinsic-block-size: auto calc(var(--batch-size, 24) * 70px);
+  }
+}
+
 @media (max-width: 760px) {
   .group-action,
-  .group-test,
-  .node-delay {
+  .group-test {
     min-width: 40px;
   }
   .node-delay {
-    height: 40px;
+    top: 4px;
+    right: 4px;
+    min-width: 44px;
+    height: 36px;
+    padding: 0 9px;
   }
-  .node-sub {
-    min-height: 40px;
+  .node-top {
+    padding-right: 62px;
+  }
+  .node-main {
+    min-height: 62px;
+    padding-block: 11px;
   }
 }
 
@@ -452,13 +533,7 @@ const visibleMemberBatches = computed(() => {
   .pgroup-grid,
   .node-batch {
     grid-template-columns: 1fr;
-  }
-  .node-batch {
-    contain-intrinsic-block-size: auto 2100px;
-  }
-  .node-card,
-  .node-main {
-    min-height: 78px;
+    gap: 8px;
   }
 }
 </style>

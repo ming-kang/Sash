@@ -9,6 +9,7 @@ import {
   formatDuration,
   formatSpeed,
   formatTime,
+  splitRegionFlag,
 } from "./format.js";
 
 const realNow = Date.now;
@@ -119,5 +120,18 @@ describe("delayLevel", () => {
   ];
   it("classifies measurements by threshold", () => {
     for (const [input, expected] of cases) assert.equal(delayLevel(input), expected);
+  });
+});
+
+describe("splitRegionFlag", () => {
+  it("turns a leading flag into a region code and keeps the rest of the name", () => {
+    assert.deepEqual(splitRegionFlag("🇭🇰 香港 01"), { region: "HK", label: "香港 01" });
+    assert.deepEqual(splitRegionFlag("🇺🇸美国 | 1.5x"), { region: "US", label: "美国 | 1.5x" });
+  });
+
+  it("leaves names without a leading flag, or with nothing after it, untouched", () => {
+    for (const name of ["香港 🇭🇰 01", "DIRECT", "🇯🇵", "🇯 broken", ""]) {
+      assert.deepEqual(splitRegionFlag(name), { region: "", label: name });
+    }
   });
 });

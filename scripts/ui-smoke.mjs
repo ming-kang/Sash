@@ -69,7 +69,7 @@ async function exercise(fixture, label) {
   assert.equal(await fifth.locator(".pgroup-toggle").getAttribute("aria-expanded"), "true");
   await first.locator(".pgroup-toggle").click();
   await first.getByRole("button", { name: "Test latency: PROXY", exact: true }).click();
-  await first.locator(".node-delay").filter({ hasText: "20 ms" }).waitFor();
+  await first.locator(".node-delay").filter({ hasText: "20ms" }).waitFor();
   await first.getByRole("button", { name: "Sort by latency", exact: true }).click();
   assert.equal(await first.locator(".node-name").first().textContent(), "Node fast");
   const fast = first

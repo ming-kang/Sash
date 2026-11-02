@@ -55,6 +55,22 @@ export function formatDate(epochSec: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+const LEADING_FLAG = /^\s*([\u{1F1E6}-\u{1F1FF}]{2})\s*/u;
+
+/**
+ * Splits a leading flag emoji into its region code. Windows Chromium has no flag glyphs and
+ * draws bare letters, so cards render the code themselves for the same look in every engine.
+ */
+export function splitRegionFlag(name: string): { region: string; label: string } {
+  const match = LEADING_FLAG.exec(name);
+  const label = match ? name.slice(match[0].length) : "";
+  if (!match?.[1] || !label) return { region: "", label: name };
+  const region = Array.from(match[1], (symbol) =>
+    String.fromCharCode((symbol.codePointAt(0) ?? 0x1f1e6) - 0x1f1e6 + 65),
+  ).join("");
+  return { region, label };
+}
+
 export function delayLevel(delay: number): "good" | "mid" | "bad" {
   if (delay <= 0) return "bad";
   if (delay < 300) return "good";

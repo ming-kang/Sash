@@ -1,7 +1,7 @@
 import { shallowRef } from "vue";
 import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
-import { errorText, store, toast, updateProxyDelay } from "../stores/index.js";
+import { errorText, proxyChain, store, toast, updateProxyDelay } from "../stores/index.js";
 import type { ProxyDelay } from "../types/index.js";
 
 const GROUP_CONCURRENCY = 8;
@@ -14,13 +14,18 @@ function isTimeout(error: unknown): boolean {
   );
 }
 
+/** Group cards show their routed node's delay, so measuring that node keeps both cards in step. */
+function measuredTarget(name: string): string {
+  return proxyChain(name).at(-1) ?? name;
+}
+
 export function useProxyLatency() {
   const testingGroups = shallowRef(new Set<string>());
   const testingNodes = shallowRef(new Set<string>());
 
-  function clearTestingNode(name: string): void {
+  function clearTestingNodes(names: Iterable<string>): void {
     const next = new Set(testingNodes.value);
-    next.delete(name);
+    for (const name of names) next.delete(name);
     testingNodes.value = next;
   }
 
@@ -43,27 +48,30 @@ export function useProxyLatency() {
   async function testGroup(group: string): Promise<void> {
     if (testingGroups.value.has(group)) return;
     const members = [...new Set(store.proxies[group]?.all ?? [])];
-    if (members.length === 0 || members.some((name) => testingNodes.value.has(name))) return;
+    const targetOf = new Map(members.map((name) => [name, measuredTarget(name)]));
+    const targets = [...new Set(targetOf.values())];
+    const busy = [...new Set([...members, ...targets])];
+    if (members.length === 0 || busy.some((name) => testingNodes.value.has(name))) return;
     testingGroups.value = new Set(testingGroups.value).add(group);
-    testingNodes.value = new Set([...testingNodes.value, ...members]);
+    testingNodes.value = new Set([...testingNodes.value, ...busy]);
     const generation = store.runtimeGeneration;
-    const results: ProxyDelay[] = Array(members.length);
+    const results: ProxyDelay[] = Array(targets.length);
     let cursor = 0;
 
     async function worker(): Promise<void> {
-      while (cursor < members.length) {
+      while (cursor < targets.length) {
         const index = cursor++;
-        const name = members[index];
+        const name = targets[index];
         if (!name) continue;
         const result = await measure(name, generation);
         results[index] = result.delay;
-        clearTestingNode(name);
+        clearTestingNodes([name, ...members.filter((member) => targetOf.get(member) === name)]);
       }
     }
 
     try {
       await Promise.all(
-        Array.from({ length: Math.min(GROUP_CONCURRENCY, members.length) }, () => worker()),
+        Array.from({ length: Math.min(GROUP_CONCURRENCY, targets.length) }, () => worker()),
       );
       if (generation !== store.runtimeGeneration) return;
       // Each card already shows its delay or timeout; only request failures need a summary.
@@ -80,9 +88,7 @@ export function useProxyLatency() {
         );
       }
     } finally {
-      const nextNodes = new Set(testingNodes.value);
-      for (const name of members) nextNodes.delete(name);
-      testingNodes.value = nextNodes;
+      clearTestingNodes(busy);
       const nextGroups = new Set(testingGroups.value);
       nextGroups.delete(group);
       testingGroups.value = nextGroups;
@@ -90,20 +96,24 @@ export function useProxyLatency() {
   }
 
   async function testSingle(name: string): Promise<void> {
+    const target = measuredTarget(name);
+    const busy = [...new Set([name, target])];
     if (
-      testingNodes.value.has(name) ||
-      [...testingGroups.value].some((group) => store.proxies[group]?.all?.includes(name))
+      busy.some((node) => testingNodes.value.has(node)) ||
+      [...testingGroups.value].some((group) =>
+        busy.some((node) => store.proxies[group]?.all?.includes(node)),
+      )
     )
       return;
-    testingNodes.value = new Set(testingNodes.value).add(name);
+    testingNodes.value = new Set([...testingNodes.value, ...busy]);
     const generation = store.runtimeGeneration;
     try {
-      const result = await measure(name, generation);
+      const result = await measure(target, generation);
       if (generation !== store.runtimeGeneration) return;
       if (result.delay === "failed")
         toast.error(t("toast.testFailed", { name, msg: errorText(result.error) }));
     } finally {
-      clearTestingNode(name);
+      clearTestingNodes(busy);
     }
   }
 

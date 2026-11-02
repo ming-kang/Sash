@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Redesigned proxy node cards as compact two-row cards of equal height. The latency sits beside the name and highlights as a retest button on hover; UDP support reads as plain text next to the protocol; the selected node is marked by an accent bar. Leading flag emoji show as region codes such as `HK`, so cards look the same in every browser. In multi-column grids long names fit on one line with the full name on hover, and on phones they wrap to two lines.
+
+### Fixed
+
+- Proxy group cards, such as an automatic-selection group inside a selector, now show the latency and the name of the node they currently route through instead of "Untested". Testing such a card measures that node, so both cards update together.
+- Off-screen node batches reserve space in proportion to their size, so the page no longer jumps while scrolling past short groups on phones.
+
 ## [0.4.0] - 2026-10-30
 
 ### Changed

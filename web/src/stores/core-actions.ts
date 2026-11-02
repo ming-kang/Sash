@@ -205,3 +205,24 @@ export function proxyDelay(name: string): ProxyDelay | undefined {
   if (manual !== undefined) return manual;
   return store.proxies[name]?.history?.at(-1)?.delay;
 }
+
+/** Follows group selections (`now`) from `name` to the outbound actually in use. */
+export function proxyChain(name: string): string[] {
+  const chain = [name];
+  let current = store.proxies[name];
+  while (current?.now && store.proxies[current.now] && !chain.includes(current.now)) {
+    chain.push(current.now);
+    current = store.proxies[current.now];
+  }
+  return chain;
+}
+
+/** A group's own history is rarely populated, so prefer the delay of the node it routes through. */
+export function resolvedProxyDelay(name: string): ProxyDelay | undefined {
+  const chain = proxyChain(name);
+  for (let index = chain.length - 1; index >= 0; index--) {
+    const delay = proxyDelay(chain[index] ?? name);
+    if (delay !== undefined) return delay;
+  }
+  return undefined;
+}

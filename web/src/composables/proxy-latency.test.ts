@@ -130,4 +130,44 @@ describe("proxy latency ownership", () => {
     assert.equal(store.manualProxyDelays.node, undefined);
     assert.equal(latency.testingNodes.value.has("node"), false);
   });
+
+  it("measures the node a nested group routes through so both cards update together", async () => {
+    store.proxies.jp = { name: "jp", type: "Trojan", udp: true, history: [] };
+    store.proxies.Auto = {
+      name: "Auto",
+      type: "URLTest",
+      udp: true,
+      history: [],
+      all: ["jp"],
+      now: "jp",
+    };
+    store.proxies.PROXY = {
+      name: "PROXY",
+      type: "Selector",
+      udp: true,
+      history: [],
+      all: ["Auto", "jp", "node"],
+      now: "Auto",
+    };
+    const requested: string[] = [];
+    const jp = deferredValue<{ delay: number }>();
+    api.testProxyDelay = (name) => {
+      requested.push(name);
+      return name === "jp" ? jp.promise : Promise.resolve({ delay: 20 });
+    };
+    const latency = useProxyLatency();
+
+    const single = latency.testSingle("Auto");
+    assert.deepEqual(latency.testingNodes.value, new Set(["Auto", "jp"]));
+    jp.resolve({ delay: 93 });
+    await single;
+    assert.deepEqual(requested, ["jp"]);
+    assert.equal(store.manualProxyDelays.jp, 93);
+    assert.equal(store.manualProxyDelays.Auto, undefined);
+
+    requested.length = 0;
+    await latency.testGroup("PROXY");
+    assert.deepEqual(requested.sort(), ["jp", "node"]);
+    assert.equal(latency.testingNodes.value.size, 0);
+  });
 });

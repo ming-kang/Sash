@@ -194,26 +194,34 @@ try {
           const geometry = await page.locator(".node-card").evaluateAll((cards) =>
             cards.map((card) => {
               const name = card.querySelector<HTMLElement>(".node-name");
+              const meta = card.querySelector<HTMLElement>(".node-meta");
               const delay = card.querySelector<HTMLElement>(".node-delay");
-              const delayText = card.querySelector<HTMLElement>(".node-delay-text");
-              const udp = card.querySelector<HTMLElement>(".udp-tag");
-              if (!name || !delay || !delayText) throw new Error("Missing node fields");
+              if (!name || !meta || !delay) throw new Error("Missing node fields");
+              const nameBox = name.getBoundingClientRect();
               const delayBox = delay.getBoundingClientRect();
-              const textBox = delayText.getBoundingClientRect();
-              const udpBox = udp?.getBoundingClientRect();
-              const visible = delayBox.width > 0 && textBox.height > 0;
+              const visible = delayBox.width > 0 && delayBox.height > 0;
+              const firstLine = nameBox.top + Number.parseFloat(getComputedStyle(name).lineHeight) / 2;
               return {
-                fits: name.scrollWidth <= name.clientWidth + 1,
-                overlap: name.getBoundingClientRect().bottom > delayBox.top + 1,
+                // Multi-column cards truncate on purpose; the title must then carry the full name.
+                fits:
+                  name.scrollWidth <= name.clientWidth + 1 ||
+                  (getComputedStyle(name).textOverflow === "ellipsis" &&
+                    (card.querySelector(".node-main")?.getAttribute("title") ?? "").includes(
+                      // Text nodes only: the region chip replaces the flag in the raw name.
+                      Array.from(name.childNodes, (node) =>
+                        node.nodeType === Node.TEXT_NODE ? node.textContent : "",
+                      ).join("") || "\u0000",
+                    )),
+                metaFits: meta.scrollWidth <= meta.clientWidth + 1,
+                overlap:
+                  nameBox.right > delayBox.left + 1 &&
+                  nameBox.top < delayBox.bottom &&
+                  nameBox.bottom > delayBox.top,
                 cardFits: card.scrollWidth <= card.clientWidth + 1,
                 visible,
-                delayCentered:
-                  !visible ||
-                  Math.abs((textBox.top + textBox.bottom - delayBox.top - delayBox.bottom) / 2) <= 1,
-                udpAligned:
-                  !visible ||
-                  !udpBox ||
-                  Math.abs((textBox.top + textBox.bottom - udpBox.top - udpBox.bottom) / 2) <= 1,
+                // The delay sits beside the name's first line, whichever line count the name uses.
+                delayAligned:
+                  !visible || Math.abs((delayBox.top + delayBox.bottom) / 2 - firstLine) <= 3,
               };
             }),
           );
@@ -223,10 +231,10 @@ try {
               geometry.every(
                 (item) =>
                   item.fits &&
+                  item.metaFits &&
                   item.cardFits &&
                   !item.overlap &&
-                  item.delayCentered &&
-                  item.udpAligned,
+                  item.delayAligned,
               ),
             `${tag}/${width}/${theme}: clipped, overlapping or misaligned node fields`,
           );
