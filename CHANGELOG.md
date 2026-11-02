@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-02
+
 ### Changed
 
 - Redesigned proxy node cards as compact two-row cards of equal height. The latency sits beside the name and highlights as a retest button on hover; UDP support reads as plain text next to the protocol; the selected node is marked by an accent bar. Leading flag emoji show as region codes such as `HK`, so cards look the same in every browser. In multi-column grids long names fit on one line with the full name on hover, and on phones they wrap to two lines.
