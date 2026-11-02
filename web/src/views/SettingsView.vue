@@ -257,7 +257,6 @@ async function toggleAllowLan(next: boolean): Promise<void> {
   width: min(1080px, 100%);
   grid-template-columns: 1fr;
   gap: 14px;
-  margin: 0 auto;
 }
 .settings-card {
   min-width: 0;

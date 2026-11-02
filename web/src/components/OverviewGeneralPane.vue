@@ -13,11 +13,12 @@
         <div class="general-value">
           <button
             type="button"
-            class="general-link mono"
+            class="general-link"
+            :class="{ mono: Boolean(proxyAddress) }"
             :title="t('page.settings.title')"
             @click="navigate('settings')"
           >
-            {{ store.status?.core.running && store.status.configuration.appliedSettings ? `127.0.0.1:${store.status.configuration.appliedSettings.mixedPort}` : '-' }}
+            {{ proxyAddress || '-' }}
           </button>
         </div>
       </div>
@@ -25,7 +26,7 @@
       <div class="general-row profile-row">
         <div class="general-label">
           <span>{{ t('overview.subTitle') }}</span>
-          <small v-if="activeProfile">{{ t('common.nodesCount', { n: totalNodes }) }}</small>
+          <small v-if="activeProfile && totalNodes !== null">{{ t('common.nodesCount', { n: totalNodes }) }}</small>
         </div>
         <div v-if="activeProfile" class="general-value profile-value">
           <button
@@ -121,12 +122,19 @@ const activeProfile = computed(() => {
   const applied = store.status?.configuration.appliedProfile;
   return applied ? store.profiles.find((profile) => profile.id === applied.id) ?? applied : null;
 });
-const totalNodes = computed(
-  () =>
-    Object.values(store.proxies).filter(
-      (proxy) => !(Array.isArray(proxy.all) && proxy.all.length > 0),
-    ).length,
-);
+const proxyAddress = computed(() => {
+  const applied = store.status?.configuration.appliedSettings;
+  return store.status?.core.running && applied ? `127.0.0.1:${applied.mixedPort}` : "";
+});
+// Core lists its built-in outbounds beside profile nodes; they are not part of the profile.
+const BUILTIN_OUTBOUNDS = new Set(["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]);
+// Only Core knows the node list, so a stopped Core shows no count rather than a misleading zero.
+const totalNodes = computed(() => {
+  if (!isCoreReady.value || !store.resourceLoaded.proxies) return null;
+  return Object.values(store.proxies).filter(
+    (proxy) => !BUILTIN_OUTBOUNDS.has(proxy.name) && !Array.isArray(proxy.all),
+  ).length;
+});
 
 async function refreshActiveProfile(): Promise<void> {
   const profile = activeProfile.value;

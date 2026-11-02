@@ -5,6 +5,7 @@ import {
   delayLevel,
   formatAgo,
   formatBytes,
+  formatCount,
   formatDate,
   formatDuration,
   formatSpeed,
@@ -133,5 +134,14 @@ describe("splitRegionFlag", () => {
     for (const name of ["香港 🇭🇰 01", "DIRECT", "🇯🇵", "🇯 broken", ""]) {
       assert.deepEqual(splitRegionFlag(name), { region: "", label: name });
     }
+  });
+});
+
+describe("formatCount", () => {
+  it("groups thousands in both locales", () => {
+    assert.equal(formatCount(999), "999");
+    assert.equal(formatCount(1234), "1,234");
+    setLocale("zh");
+    assert.equal(formatCount(10_000), "10,000");
   });
 });

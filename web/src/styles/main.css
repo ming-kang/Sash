@@ -522,6 +522,42 @@ textarea:disabled {
 select.input {
   cursor: pointer;
 }
+/* Native selects draw engine-specific arrows; this wrapper matches the text inputs instead. */
+.select-box {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.select-box select {
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 30px 5px 11px;
+  appearance: none;
+  outline: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard);
+}
+.select-box select:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+.select-box select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.select-box > .sash-icon {
+  position: absolute;
+  right: 9px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
 .search-box {
   display: flex;
   min-height: 36px;

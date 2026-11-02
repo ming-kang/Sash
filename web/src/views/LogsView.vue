@@ -11,11 +11,14 @@
         />
       </div>
 
-      <select v-model="selectedLevel" class="input input-sm level-select" :aria-label="t('logs.levelLabel')">
-        <option v-for="level in levels" :key="level" :value="level">
-          {{ level === 'all' ? t('logs.levelAll') : level.toUpperCase() }}
-        </option>
-      </select>
+      <div class="select-box level-select">
+        <select v-model="selectedLevel" :aria-label="t('logs.levelLabel')">
+          <option v-for="level in levels" :key="level" :value="level">
+            {{ level === 'all' ? t('logs.levelAll') : level.toUpperCase() }}
+          </option>
+        </select>
+        <Icon name="chevron-down" :size="14" />
+      </div>
 
       <button
         type="button"
@@ -146,8 +149,7 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 .level-select {
-  width: 100px;
-  min-height: 34px;
+  width: 112px;
   flex-shrink: 0;
 }
 .log-clear,
@@ -189,7 +191,7 @@ onBeforeUnmount(() => {
   grid-template-columns: max-content 14px minmax(0, 1fr);
   align-items: baseline;
   gap: 8px;
-  padding: 4px 20px;
+  padding: 4px var(--page-inset, 30px);
   border-bottom: 1px solid var(--border);
   contain: layout paint style;
   content-visibility: auto;
@@ -247,7 +249,7 @@ onBeforeUnmount(() => {
     border-radius: var(--radius-md);
   }
   .logs-search,
-  .level-select,
+  .level-select select,
   .log-clear,
   .log-pause {
     min-height: 40px;

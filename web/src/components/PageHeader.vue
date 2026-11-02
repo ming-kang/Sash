@@ -22,7 +22,7 @@ defineProps<{ title: string; desc?: string }>();
   justify-content: space-between;
   gap: 12px 24px;
   margin: 0 calc(-1 * var(--page-gutter, 30px)) 18px;
-  padding: 10px var(--header-pad, max(var(--page-gutter, 30px), 20px));
+  padding: 10px var(--page-inset, 30px);
   border-bottom: 1px solid var(--border);
 }
 .page-head-text {

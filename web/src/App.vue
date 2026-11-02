@@ -206,7 +206,9 @@ onUnmounted(() => {
   font-weight: 400;
 }
 .page-container {
+  /* Gutter pads the scroller; inset is where text starts, so full-bleed pages still align. */
   --page-gutter: 30px;
+  --page-inset: 30px;
   width: 100%;
   min-height: 0;
   flex: 1;

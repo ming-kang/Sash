@@ -9,11 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Redesigned proxy node cards as compact two-row cards of equal height. The latency sits beside the name and highlights as a retest button on hover; UDP support reads as plain text next to the protocol; the selected node is marked by an accent bar. Leading flag emoji show as region codes such as `HK`, so cards look the same in every browser. In multi-column grids long names fit on one line with the full name on hover, and on phones they wrap to two lines.
+- Aligned WebUI pages to one grid. Logs and Connections headers and rows now start where other pages do, and Settings sits under its title instead of centered. The rule target column hugs the right edge so patterns get the width, and the rule count groups thousands.
+- Settings gives Auto Start its own Startup section with a labelled Refresh status button, and Logs use a styled level picker instead of the browser's native one. Overview group headings now read "Manually switched groups" and "Automatically switched groups", so they no longer echo common group names such as "自动选择".
+- The connect page hides navigation and Core state until a session exists, and offers a copy button for `sash web`. Connection targets show their port for domains as well as IP addresses.
 
 ### Fixed
 
 - Proxy group cards, such as an automatic-selection group inside a selector, now show the latency and the name of the node they currently route through instead of "Untested". Testing such a card measures that node, so both cards update together.
 - Off-screen node batches reserve space in proportion to their size, so the page no longer jumps while scrolling past short groups on phones.
+- The Overview node count no longer includes Core's built-in outbounds such as `DIRECT` and `REJECT`, and is hidden while Core is stopped instead of reading zero.
+- On phones, a wrapped connection detail no longer starts its line with a stray separator dot.
 
 ## [0.4.0] - 2026-10-30
 

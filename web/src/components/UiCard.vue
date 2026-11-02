@@ -34,7 +34,7 @@ defineProps<{ title?: string; desc?: string }>();
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 18px 10px;
+  padding: 16px 20px 10px;
 }
 .ui-card-heading {
   min-width: 0;
@@ -69,7 +69,7 @@ defineProps<{ title?: string; desc?: string }>();
     flex-wrap: wrap;
   }
   .ui-card-head {
-    padding: 15px 15px 9px;
+    padding: 15px 18px 9px;
   }
   .ui-card-body {
     padding: 0 10px 10px;

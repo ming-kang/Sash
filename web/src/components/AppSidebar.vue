@@ -5,7 +5,8 @@
       <span class="brand-name">Sash</span>
     </div>
 
-    <nav class="side-nav" :aria-label="t('app.navigation')">
+    <!-- Until a session exists the pages cannot load and Core state is unknown. -->
+    <nav v-if="sessionReady" class="side-nav" :aria-label="t('app.navigation')">
       <button
         v-for="item in navItems"
         :key="item.route"
@@ -30,7 +31,7 @@
           <CoreControls apply-only />
         </div>
       </Transition>
-      <div class="core-row" :title="coreTooltip">
+      <div v-if="sessionReady" class="core-row" :title="coreTooltip">
         <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-muted'" />
         <span class="core-label">Core</span>
         <span class="core-state">
@@ -43,6 +44,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { sessionReady } from "../api/index.js";
 import { applyPending } from "../composables/core-runtime.js";
 import { t } from "../i18n/index.js";
 import { currentRoute, navigate, type Route } from "../router.js";

@@ -1,5 +1,16 @@
 <template>
-  <UiCard class="autostart-card">
+  <UiCard :title="t('settings.startupTitle')" class="autostart-card">
+    <template #actions>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs autostart-refresh"
+        :disabled="busy || !owner"
+        @click="refresh"
+      >
+        <Icon name="refresh" :size="13" :class="{ spin: busy }" />
+        {{ t('autostart.refresh') }}
+      </button>
+    </template>
     <div class="autostart-row" :aria-busy="busy">
       <div class="autostart-info">
         <span class="autostart-title">{{ t('autostart.title') }}</span>
@@ -9,16 +20,6 @@
         <span id="autostart-state" class="sr-only" role="status">{{ stateText }}</span>
       </div>
       <div class="autostart-actions">
-        <button
-          type="button"
-          class="icon-btn autostart-refresh"
-          :title="t('autostart.refresh')"
-          :aria-label="t('autostart.refresh')"
-          :disabled="busy || !owner"
-          @click="refresh"
-        >
-          <Icon name="refresh" :size="15" :class="{ spin: busy }" />
-        </button>
         <UiSwitch
           :model-value="status?.state === 'on'"
           :label="t('autostart.title')"
@@ -98,11 +99,11 @@ async function save(enabled: boolean): Promise<void> {
 .autostart-row {
   display: flex;
   min-width: 0;
-  min-height: 62px;
+  min-height: 52px;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 12px 6px 2px;
+  padding: 8px 6px;
 }
 .autostart-info {
   display: flex;
@@ -133,8 +134,7 @@ async function save(enabled: boolean): Promise<void> {
   gap: 10px;
 }
 .autostart-refresh {
-  width: 30px;
-  height: 30px;
+  color: var(--text-muted);
 }
 .autostart-recovery {
   display: flex;
@@ -142,10 +142,7 @@ async function save(enabled: boolean): Promise<void> {
   padding: 0 6px 6px;
 }
 @media (max-width: 760px) {
-  .autostart-refresh {
-    width: 40px;
-    height: 40px;
-  }
+  .autostart-refresh,
   .autostart-recovery .btn {
     min-height: 40px;
   }
@@ -154,7 +151,7 @@ async function save(enabled: boolean): Promise<void> {
   .autostart-row {
     align-items: flex-start;
     gap: 12px;
-    padding: 14px 8px 4px;
+    padding: 13px 8px;
   }
   .autostart-actions {
     gap: 4px;

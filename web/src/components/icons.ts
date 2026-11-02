@@ -3,6 +3,7 @@ import {
   RiArrowDownSLine,
   RiArrowLeftRightLine,
   RiCheckboxCircleLine,
+  RiCheckLine,
   RiClipboardLine,
   RiCloseLine,
   RiCodeSSlashLine,
@@ -11,6 +12,7 @@ import {
   RiDeleteBin6Line,
   RiDownload2Line,
   RiErrorWarningLine,
+  RiFileCopyLine,
   RiFilter3Line,
   RiFlashlightLine,
   RiGlobalLine,
@@ -33,10 +35,12 @@ import type { Component } from "vue";
 
 export const iconComponents = {
   alert: RiErrorWarningLine,
+  check: RiCheckLine,
   "check-circle": RiCheckboxCircleLine,
   "chevron-down": RiArrowDownSLine,
   clipboard: RiClipboardLine,
   code: RiCodeSSlashLine,
+  copy: RiFileCopyLine,
   download: RiDownload2Line,
   globe: RiGlobalLine,
   grid: RiDashboardLine,

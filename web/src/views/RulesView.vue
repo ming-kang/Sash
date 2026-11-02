@@ -10,7 +10,7 @@
           :placeholder="t('rules.searchPlaceholder')"
         />
       </div>
-      <span class="badge badge-neutral">{{ t('common.rulesCount', { n: filteredRules.length }) }}</span>
+      <span class="badge badge-neutral">{{ t('common.rulesCount', { n: formatCount(filteredRules.length) }) }}</span>
     </PageHeader>
 
     <div class="table-wrap rule-list">
@@ -20,7 +20,7 @@
             <th class="idx">{{ t('rules.colIndex') }}</th>
             <th>{{ t('rules.colType') }}</th>
             <th>{{ t('rules.colPayload') }}</th>
-            <th>{{ t('rules.colTarget') }}</th>
+            <th class="rule-target">{{ t('rules.colTarget') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -68,6 +68,7 @@ import PageHeader from "../components/PageHeader.vue";
 import PaginationFooter from "../components/PaginationFooter.vue";
 import { t } from "../i18n/index.js";
 import { isCoreRunning, store } from "../stores/index.js";
+import { formatCount } from "../utils/format.js";
 
 const PAGE_SIZE = 80;
 
@@ -141,12 +142,15 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Shrink to the widest target and sit on the right edge; the payload takes the remaining width. */
 .rule-target {
-  width: 28%;
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
 }
 .rule-target .badge {
   display: inline-block;
-  max-width: 100%;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;

@@ -1,4 +1,4 @@
-import { t } from "../i18n/index.js";
+import { locale, t } from "../i18n/index.js";
 
 export function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return "0 B";
@@ -7,6 +7,11 @@ export function formatBytes(bytes: number): string {
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), units.length - 1);
   const value = bytes / k ** i;
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
+}
+
+/** Groups thousands for counts such as "1,234 rules"; ports and versions stay unformatted. */
+export function formatCount(n: number): string {
+  return n.toLocaleString(locale.value === "zh" ? "zh-CN" : "en-US");
 }
 
 export function formatSpeed(bytesPerSec: number): string {

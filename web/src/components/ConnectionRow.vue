@@ -1,8 +1,8 @@
 <template>
   <article class="connection-row">
     <div class="connection-main">
-      <div class="connection-host mono" :title="host">
-        {{ host }}
+      <div class="connection-host mono" :title="target">
+        <span>{{ host }}</span><span v-if="port" class="connection-port">:{{ port }}</span>
       </div>
       <div class="connection-meta">
         <span class="connection-tag tag-network">{{ connection.metadata.network.toUpperCase() }}</span>
@@ -47,11 +47,13 @@ const emit = defineEmits<{
   close: [id: string];
 }>();
 
+// Domain and IP targets both show their port, de-emphasized, so rows read the same way.
 const host = computed(() => {
   const meta = props.connection.metadata;
-  if (meta.host) return meta.host;
-  return `${meta.destinationIP}:${meta.destinationPort}`;
+  return meta.host || meta.destinationIP;
 });
+const port = computed(() => props.connection.metadata.destinationPort);
+const target = computed(() => (port.value ? `${host.value}:${port.value}` : host.value));
 
 const process = computed(() => {
   const path = props.connection.metadata.processPath;
@@ -77,7 +79,7 @@ const rule = computed(() => {
   grid-template-columns: var(--connection-columns, minmax(0, 1fr) 76px 76px 72px 32px);
   align-items: center;
   column-gap: 12px;
-  padding: 8px 14px 8px 20px;
+  padding: 8px calc(var(--page-inset, 30px) - 8px) 8px var(--page-inset, 30px);
   border-bottom: 1px solid var(--border);
   transition: background var(--motion-fast) var(--ease-standard);
 }
@@ -94,6 +96,10 @@ const rule = computed(() => {
   font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.connection-port {
+  color: var(--text-muted);
+  font-weight: 400;
 }
 .connection-meta {
   display: flex;
@@ -211,6 +217,14 @@ const rule = computed(() => {
   }
   .meta-text {
     white-space: nowrap;
+  }
+  /* A wrapped item would start its line with the dot, so spacing separates items instead. */
+  .meta-text + .meta-text::before {
+    content: none;
+  }
+  .meta-text + .meta-text {
+    margin-left: 4px;
+    color: var(--text-secondary);
   }
   .connection-stats {
     display: flex;

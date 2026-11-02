@@ -279,7 +279,7 @@ async function closeAll(): Promise<void> {
   grid-template-columns: var(--connection-columns);
   align-items: center;
   column-gap: 12px;
-  padding: 3px 14px 3px 20px;
+  padding: 3px calc(var(--page-inset, 30px) - 8px) 3px var(--page-inset, 30px);
   border-bottom: 1px solid var(--border);
   background: var(--bg-app);
 }
