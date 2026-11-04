@@ -111,18 +111,21 @@ async function verify(engine: BrowserType, name: string) {
     await page.locator(".cm-editor").waitFor(); await page.screenshot({ path: path.join(outDir, `${name}-profile-editor.png`) });
     await page.keyboard.press("Escape"); await page.getByRole("dialog").waitFor({ state: "hidden" });
 
-    await page.goto(`${base}#/settings`); await page.locator("#mixed-port").waitFor();
+    await page.goto(`${base}#/settings`);
+    await page.locator(".page-overview").waitFor();
+    await page.locator("#mixed-port").waitFor();
     const starts = core.starts; await page.locator("#mixed-port").fill("18888");
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await page.locator(".pending-config").waitFor(); assert.equal(core.starts, starts);
     await page.getByRole("button", { name: "深色", exact: true }).click();
-    await page.screenshot({ path: path.join(outDir, `${name}-settings-pending-dark.png`) });
+    await page.screenshot({ path: path.join(outDir, `${name}-overview-pending-dark.png`) });
     await apply(page); assert.equal(core.starts, starts + 1);
-    for (const route of ["overview", "profiles", "connections", "rules", "logs", "settings"]) {
+    for (const route of ["overview", "profiles", "connections", "rules", "logs"]) {
       await page.goto(`${base}#/${route}`); await page.waitForTimeout(300);
       if (route === "rules") assert.ok(await page.locator("tbody tr").count() <= 80, "rules were not paginated");
       await page.screenshot({ path: path.join(outDir, `${name}-${route}-dark.png`) });
     }
+    await page.goto(`${base}#/overview`);
     await page.getByRole("button", { name: "停止核心", exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "停止核心", exact: true }).click();
     await page.getByRole("button", { name: "启动核心", exact: true }).waitFor(); assert.equal(core.running, false);

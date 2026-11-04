@@ -69,7 +69,7 @@ const props = withDefaults(
   },
 );
 
-const chartLabel = computed(() => props.label ?? t("overview.trafficChartLabel"));
+const chartLabel = computed(() => props.label ?? t("overview.trafficTitle"));
 
 const W = 600;
 const H = 148;

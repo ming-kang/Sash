@@ -1,103 +1,97 @@
 <template>
-  <aside class="general-pane" :aria-label="t('overview.coreTitle')">
-    <ModeControl :is-core-ready="isCoreReady" />
+  <div class="general-column">
+    <aside class="general-pane" :aria-label="t('overview.coreTitle')">
+      <ModeControl :is-core-ready="isCoreReady" />
 
-    <div class="general-list">
-      <div class="general-row">
-        <div class="general-label">{{ t('overview.uptime') }}</div>
-        <div class="general-value uptime-value">{{ uptime }}</div>
-      </div>
+      <div class="general-list">
+        <div class="general-row">
+          <div class="general-label">{{ t('overview.uptime') }}</div>
+          <div class="general-value uptime-value">{{ uptime }}</div>
+        </div>
 
-      <div class="general-row">
-        <div class="general-label">{{ t('overview.mixedPort') }}</div>
-        <div class="general-value">
-          <button
-            type="button"
-            class="general-link"
-            :class="{ mono: Boolean(proxyAddress) }"
-            :title="t('page.settings.title')"
-            @click="navigate('settings')"
-          >
-            {{ proxyAddress || '-' }}
+        <div class="general-row">
+          <div class="general-label">{{ t('overview.mixedPort') }}</div>
+          <div class="general-value">
+            <button
+              type="button"
+              class="general-link"
+              :class="{ mono: Boolean(proxyAddress) }"
+              :title="t('settings.mixedPortTitle')"
+              @click="focusProxyPort"
+            >
+              {{ proxyAddress || '-' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="general-row profile-row">
+          <div class="general-label">{{ t('overview.subTitle') }}</div>
+          <div v-if="activeProfile" class="general-value profile-value">
+            <button
+              type="button"
+              class="general-link profile-name"
+              :title="activeProfile.url || activeProfile.name"
+              @click="navigate('profiles')"
+            >
+              {{ activeProfile.name }}
+            </button>
+            <button
+              v-if="activeProfile.url"
+              type="button"
+              class="icon-btn"
+              :class="{ spin: refreshingSub }"
+              :title="t('profiles.update')"
+              :aria-label="t('profiles.update')"
+              :disabled="refreshingSub"
+              @click="refreshActiveProfile"
+            >
+              <Icon name="refresh" :size="14" />
+            </button>
+          </div>
+          <button v-else type="button" class="btn btn-primary btn-sm" @click="navigate('profiles')">
+            {{ t('overview.subSet') }}
           </button>
         </div>
       </div>
 
-      <div class="general-row profile-row">
-        <div class="general-label">
-          <span>{{ t('overview.subTitle') }}</span>
-          <small v-if="activeProfile && totalNodes !== null">{{ t('common.nodesCount', { n: totalNodes }) }}</small>
-        </div>
-        <div v-if="activeProfile" class="general-value profile-value">
-          <button
-            type="button"
-            class="general-link profile-name"
-            :title="activeProfile.url || activeProfile.name"
-            @click="navigate('profiles')"
-          >
-            {{ activeProfile.name }}
-          </button>
-          <button
-            v-if="activeProfile.url"
-            type="button"
-            class="icon-btn"
-            :class="{ spin: refreshingSub }"
-            :title="t('profiles.update')"
-            :aria-label="t('profiles.update')"
-            :disabled="refreshingSub"
-            @click="refreshActiveProfile"
-          >
-            <Icon name="refresh" :size="14" />
-          </button>
-        </div>
-        <button v-else type="button" class="btn btn-primary btn-sm" @click="navigate('profiles')">
-          {{ t('overview.subSet') }}
-        </button>
+      <div class="general-core-controls">
+        <CoreControls />
       </div>
-    </div>
 
-    <section class="traffic-compact" :aria-label="t('overview.trafficTitle')">
-      <div class="pane-section-heading traffic-heading">
-        <div>
-          <h3>{{ t('overview.trafficTitle') }}</h3>
-          <p>
-            {{ t('connections.active') }}
-            <strong class="mono">{{ store.connections.length }}</strong>
-          </p>
+      <section class="traffic-compact" :aria-label="t('overview.trafficTitle')">
+        <div class="traffic-heading">
+          <h2>{{ t('overview.trafficTitle') }}</h2>
         </div>
-        <span v-if="isCoreReady" class="live-state">
-          <span class="dot dot-success" />
-          {{ t('common.live') }}
-        </span>
-      </div>
-      <div class="traffic-metrics">
-        <div class="traffic-metric">
-          <span>{{ t('overview.download') }}</span>
-          <strong class="mono down-value">{{ formatSpeed(store.traffic.down) }}</strong>
+        <div class="traffic-metrics">
+          <div class="traffic-metric">
+            <span>{{ t('overview.download') }}</span>
+            <strong class="mono down-value">{{ formatSpeed(store.traffic.down) }}</strong>
+          </div>
+          <div class="traffic-metric">
+            <span>{{ t('overview.upload') }}</span>
+            <strong class="mono up-value">{{ formatSpeed(store.traffic.up) }}</strong>
+          </div>
         </div>
-        <div class="traffic-metric">
-          <span>{{ t('overview.upload') }}</span>
-          <strong class="mono up-value">{{ formatSpeed(store.traffic.up) }}</strong>
+        <TrafficChart
+          :down="store.traffic.historyDown"
+          :up="store.traffic.historyUp"
+          :height="104"
+          :label="t('overview.trafficTitle')"
+        />
+        <div class="traffic-totals">
+          <span>
+            {{ t('overview.totalDown') }}
+            <strong class="mono">{{ formatBytes(store.connectionsDownloadTotal) }}</strong>
+          </span>
+          <span>
+            {{ t('overview.totalUp') }}
+            <strong class="mono">{{ formatBytes(store.connectionsUploadTotal) }}</strong>
+          </span>
         </div>
-      </div>
-      <TrafficChart
-        :down="store.traffic.historyDown"
-        :up="store.traffic.historyUp"
-        :height="104"
-        :label="t('overview.trafficTitle')"
-      />
-      <div class="traffic-totals">
-        <span>
-          {{ t('overview.totalDown') }}
-          <strong class="mono">{{ formatBytes(store.connectionsDownloadTotal) }}</strong>
-        </span>
-        <span>
-          {{ t('overview.totalUp') }}
-          <strong class="mono">{{ formatBytes(store.connectionsUploadTotal) }}</strong>
-        </span>
-      </div>
-    </section>
-  </aside>
+      </section>
+    </aside>
+    <OverviewSettingsPane />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -112,8 +106,10 @@ import {
   updateProfile,
 } from "../stores/index.js";
 import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
+import CoreControls from "./CoreControls.vue";
 import Icon from "./Icon.vue";
 import ModeControl from "./ModeControl.vue";
+import OverviewSettingsPane from "./OverviewSettingsPane.vue";
 import TrafficChart from "./TrafficChart.vue";
 
 const refreshingSub = ref(false);
@@ -126,15 +122,14 @@ const proxyAddress = computed(() => {
   const applied = store.status?.configuration.appliedSettings;
   return store.status?.core.running && applied ? `127.0.0.1:${applied.mixedPort}` : "";
 });
-// Core lists its built-in outbounds beside profile nodes; they are not part of the profile.
-const BUILTIN_OUTBOUNDS = new Set(["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]);
-// Only Core knows the node list, so a stopped Core shows no count rather than a misleading zero.
-const totalNodes = computed(() => {
-  if (!isCoreReady.value || !store.resourceLoaded.proxies) return null;
-  return Object.values(store.proxies).filter(
-    (proxy) => !BUILTIN_OUTBOUNDS.has(proxy.name) && !Array.isArray(proxy.all),
-  ).length;
-});
+
+function focusProxyPort(): void {
+  const input = document.getElementById("mixed-port");
+  if (!(input instanceof HTMLInputElement)) return;
+  input.scrollIntoView({ block: "center" });
+  input.focus({ preventScroll: true });
+  input.select();
+}
 
 async function refreshActiveProfile(): Promise<void> {
   const profile = activeProfile.value;
@@ -152,33 +147,40 @@ async function refreshActiveProfile(): Promise<void> {
 </script>
 
 <style scoped>
+.general-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 24px;
+}
 .general-pane {
   min-width: 0;
+  flex-shrink: 0;
   overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
 }
+.general-core-controls {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.general-core-controls :deep(.core-controls),
+.general-core-controls :deep(.core-update-progress) {
+  justify-content: flex-start;
+}
+.general-core-controls :deep(.core-update-progress) {
+  flex-wrap: wrap;
+}
 .traffic-compact {
   padding: 18px;
 }
-.pane-section-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.pane-section-heading h3 {
+.traffic-heading h2 {
   color: var(--text-primary);
   font-size: 14px;
   font-weight: 650;
-}
-.pane-section-heading p {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 12px;
 }
 .general-list {
   background: var(--bg-card);
@@ -206,11 +208,6 @@ async function refreshActiveProfile(): Promise<void> {
   flex-direction: column;
   color: var(--text-primary);
   font-size: 14px;
-}
-.general-label small {
-  margin-top: 1px;
-  color: var(--text-muted);
-  font-size: 12px;
 }
 .general-value {
   display: flex;
@@ -258,21 +255,6 @@ async function refreshActiveProfile(): Promise<void> {
 }
 .traffic-heading {
   margin-bottom: 10px;
-}
-.live-state {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 6px;
-  color: var(--success);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-}
-.live-state .dot {
-  width: 6px;
-  height: 6px;
-  box-shadow: 0 0 0 3px var(--success-soft);
 }
 .traffic-metrics {
   display: grid;

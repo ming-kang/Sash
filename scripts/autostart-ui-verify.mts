@@ -71,7 +71,7 @@ try {
       await page.goto(origin + "/ui/#boot=" + bootstrap.token);
       await page.waitForFunction(() => sessionStorage.getItem("sash.control-token") !== null);
       await page.goto(origin + "/ui/#/settings");
-      const card = page.locator(".autostart-card");
+      const card = page.locator(".autostart-row");
       await card.waitFor();
       await idle(page);
       const toggle = card.getByRole("switch");
@@ -146,7 +146,7 @@ try {
           for (const theme of ["light", "dark"]) {
             await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
             const titleCovered = await page.evaluate(() => {
-              const title = document.querySelector(".page-head-text")?.getBoundingClientRect();
+              const title = document.querySelector(".page-title")?.getBoundingClientRect();
               const pending = document.querySelector(".pending-config")?.getBoundingClientRect();
               return Boolean(
                 title &&
@@ -158,7 +158,7 @@ try {
               );
             });
             assert.equal(titleCovered, false, `${name}/${width}/${theme}: notification covers title`);
-            await capture(page, name + "-settings-" + locale + "-" + width + "-" + theme);
+            await capture(page, name + "-overview-" + locale + "-" + width + "-" + theme);
           }
         }
       }

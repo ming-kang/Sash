@@ -1,6 +1,6 @@
 <template>
   <div>
-    <PageHeader :title="t('page.rules.title')" :desc="t('page.rules.desc')">
+    <PageHeader :title="t('page.rules')">
       <div class="search-box rule-search">
         <Icon name="search" :size="13" />
         <input
@@ -42,7 +42,6 @@
         v-if="!isCoreRunning"
         icon="list-filter"
         :title="t('rules.coreStopped')"
-        :hint="t('rules.coreStoppedHint')"
       />
       <EmptyState
         v-else-if="!store.resourceLoaded.rules"

@@ -59,7 +59,7 @@ sash mode global           # change the running mode
 sash proxy on              # requires a healthy Core
 ```
 
-The Settings page saves the proxy port and LAN access for the next Apply, because Core rebinds its listeners only on a restart. Mode and node selection affect the running Core; a later Apply uses the saved profile again. The system-proxy switch acts immediately; if turning it off fails, the off preference stays saved — resolve the Windows error and retry.
+Overview keeps preferences, the proxy port and runtime details in its left column. The proxy port and LAN access are saved for the next Apply, because Core rebinds its listeners only on a restart. Mode and node selection affect the running Core; a later Apply uses the saved profile again. The system-proxy switch acts immediately; if turning it off fails, the off preference stays saved — resolve the Windows error and retry.
 
 Profiles must be YAML objects in Core format. The editor can open damaged YAML for repair and checks it on save. If another tab has edited the same content, reopen the current version before saving again.
 

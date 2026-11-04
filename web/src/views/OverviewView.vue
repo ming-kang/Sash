@@ -1,8 +1,6 @@
 <template>
   <div class="overview">
-    <PageHeader :title="t('page.overview.title')" :desc="t('page.overview.desc')">
-      <CoreControls />
-    </PageHeader>
+    <PageHeader :title="t('page.overview')" />
 
     <div class="overview-split">
       <OverviewGeneralPane />
@@ -12,12 +10,10 @@
 </template>
 
 <script setup lang="ts">
-import CoreControls from "../components/CoreControls.vue";
 import OverviewGeneralPane from "../components/OverviewGeneralPane.vue";
 import OverviewProxyPane from "../components/OverviewProxyPane.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
-
 </script>
 
 <style scoped>

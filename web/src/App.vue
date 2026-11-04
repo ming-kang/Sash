@@ -31,7 +31,6 @@
           <LogsView v-else-if="currentRoute === 'logs'" />
           <ConnectionsView v-else-if="currentRoute === 'connections'" />
           <RulesView v-else-if="currentRoute === 'rules'" />
-          <SettingsView v-else-if="currentRoute === 'settings'" />
         </div>
       </main>
 
@@ -73,7 +72,6 @@ const ConnectionsView = asyncView(() => import("./views/ConnectionsView.vue"));
 const LogsView = asyncView(() => import("./views/LogsView.vue"));
 const ProfilesView = asyncView(() => import("./views/ProfilesView.vue"));
 const RulesView = asyncView(() => import("./views/RulesView.vue"));
-const SettingsView = asyncView(() => import("./views/SettingsView.vue"));
 
 let stopRuntime: (() => void) | null = null;
 let stopTraffic: (() => void) | null = null;

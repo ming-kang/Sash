@@ -1,6 +1,6 @@
 # Automatic Startup
 
-Start Sash in the background when the current Windows user signs in. Use **Settings → Start at Login** or the CLI:
+Start Sash in the background when the current Windows user signs in. Use **Overview → General → Auto Start** or the CLI:
 
 ```sh
 sash auto on       # enable or repair

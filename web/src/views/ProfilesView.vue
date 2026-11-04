@@ -1,6 +1,6 @@
 <template>
   <div class="profiles-view">
-    <PageHeader :title="t('page.profiles.title')" :desc="t('page.profiles.desc')" />
+    <PageHeader :title="t('page.profiles')" />
 
     <div class="dl-panel" :aria-busy="downloading || updatingAll || importing || profileBusy">
       <div class="dl-input-wrap">
@@ -78,14 +78,15 @@
     </div>
 
     <div v-else-if="profiles.length === 0" class="empty-panel">
-      <EmptyState
-        icon="layers"
-        :title="t('profiles.emptyTitle')"
-        :hint="t('profiles.emptyHint')"
-      />
+      <EmptyState icon="layers" :title="t('profiles.emptyTitle')" />
     </div>
 
-    <p v-if="profiles.length > 1" id="profile-order-hint" class="profile-order-hint">
+    <p
+      v-if="profiles.length > 1"
+      id="profile-order-hint"
+      class="profile-order-hint"
+      :class="{ 'sr-only': !chosenId }"
+    >
       {{ chosenId ? t('profiles.reorderDropHint') : t('profiles.reorderHint') }}
     </p>
     <div
@@ -312,12 +313,8 @@ async function pasteFromClipboard(): Promise<void> {
   grid-template-columns: minmax(220px, 1fr) auto;
   align-items: center;
   gap: 10px;
-  margin-bottom: 16px;
-  padding: 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
+  margin-bottom: 20px;
+  padding: 0;
 }
 .dl-input-wrap {
   position: relative;
@@ -406,7 +403,6 @@ async function pasteFromClipboard(): Promise<void> {
 @media (max-width: 480px) {
   .dl-panel {
     gap: 10px;
-    padding: 12px;
   }
   .dl-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));

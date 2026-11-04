@@ -32,7 +32,9 @@
         </div>
       </Transition>
       <div v-if="sessionReady" class="core-row" :title="coreTooltip">
-        <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-muted'" />
+        <span class="core-indicator">
+          <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-muted'" />
+        </span>
         <span class="core-label">Core</span>
         <span class="core-state">
           {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
@@ -58,7 +60,6 @@ const navItems: Array<{ route: Route; icon: string }> = [
   { route: "logs", icon: "terminal" },
   { route: "connections", icon: "swap" },
   { route: "rules", icon: "list-filter" },
-  { route: "settings", icon: "settings" },
 ];
 
 const coreTooltip = computed(() => {
@@ -83,22 +84,22 @@ const coreTooltip = computed(() => {
 }
 .brand {
   display: flex;
-  min-height: 82px;
+  min-height: 64px;
   align-items: center;
-  gap: 11px;
-  padding: 0 9px;
+  gap: 10px;
+  padding: 0 12px;
 }
 .brand-mark {
   display: block;
-  width: 39px;
-  height: 39px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   object-fit: contain;
 }
 .brand-name {
   color: var(--text-primary);
   font-family: var(--font-brand);
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1.15;
@@ -106,15 +107,15 @@ const coreTooltip = computed(() => {
 .side-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding-top: 12px;
+  gap: 2px;
+  padding-top: 8px;
 }
 .side-nav-item {
   position: relative;
   display: flex;
-  min-height: 44px;
+  min-height: 40px;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   padding: 0 12px;
   border: 0;
   border-radius: var(--radius-md);
@@ -143,6 +144,8 @@ const coreTooltip = computed(() => {
 }
 .nav-icon {
   display: flex;
+  width: 30px;
+  height: 22px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
@@ -159,7 +162,7 @@ const coreTooltip = computed(() => {
   margin-top: auto;
   flex-direction: column;
   gap: 8px;
-  padding: 16px 2px 0;
+  padding: 16px 0 0;
 }
 .pending-config {
   display: flex;
@@ -198,13 +201,20 @@ const coreTooltip = computed(() => {
   display: flex;
   min-height: 40px;
   align-items: center;
-  gap: 8px;
-  padding: 8px 11px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  gap: 10px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   color: var(--text-secondary);
   font-size: 12px;
+}
+.core-indicator {
+  display: flex;
+  width: 30px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
 }
 .core-label {
   color: var(--text-primary);
@@ -269,7 +279,7 @@ const coreTooltip = computed(() => {
     z-index: 40;
     display: grid;
     height: calc(66px + env(safe-area-inset-bottom));
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 2px;
     padding: 5px 6px calc(5px + env(safe-area-inset-bottom));
     background: color-mix(in srgb, var(--bg-sidebar) 94%, transparent);

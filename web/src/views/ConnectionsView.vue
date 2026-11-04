@@ -1,6 +1,6 @@
 <template>
   <div class="connections-view">
-    <PageHeader :title="t('page.connections.title')" :desc="t('page.connections.desc')">
+    <PageHeader :title="t('page.connections')">
       <div class="search-box connection-search">
         <Icon name="search" :size="13" />
         <input
@@ -69,7 +69,6 @@
         v-if="!isCoreRunning"
         icon="swap"
         :title="t('connections.coreStopped')"
-        :hint="t('connections.coreStoppedHint')"
       />
       <EmptyState
         v-else-if="!store.resourceLoaded.connections"

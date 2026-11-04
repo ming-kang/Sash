@@ -1,6 +1,6 @@
 <template>
   <div class="logs-view">
-    <PageHeader :title="t('page.logs.title')" :desc="t('page.logs.desc')">
+    <PageHeader :title="t('page.logs')">
       <div class="search-box logs-search">
         <Icon name="search" :size="13" />
         <input
@@ -47,7 +47,7 @@
       tabindex="0"
       aria-live="off"
       aria-atomic="false"
-      :aria-label="t('page.logs.title')"
+      :aria-label="t('page.logs')"
       @scroll="onScroll"
     >
       <div v-if="filteredLogs.length === 0" class="log-empty text-muted">

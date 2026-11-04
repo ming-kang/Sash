@@ -240,10 +240,11 @@ try {
 
             await page.goto(`${origin}/ui/#/settings`);
             await page.locator(".settings-grid").waitFor();
-            assert.equal(await page.getByRole("switch", { name: "Allow LAN Connections", exact: true }).count(), 1);
+            assert.equal(await page.getByRole("switch", { name: "Allow LAN Connections", exact: true }).count(), 0);
+            assert.equal(await page.getByRole("switch", { name: "LAN Access", exact: true }).count(), 1);
             assert.equal(await page.getByRole("switch", { name: "Auto Start" }).count(), 1);
             assert.equal(await page.getByRole("switch", { name: /TUN/ }).count(), 0);
-            await capture(page, `${name}-settings`);
+            await capture(page, `${name}-overview-preferences`);
             await page.goto(`${origin}/ui/#/`);
             await page.locator(".page-overview").waitFor();
 

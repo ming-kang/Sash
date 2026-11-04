@@ -1,12 +1,7 @@
 <template>
-  <section class="proxy-pane" :aria-label="t('overview.modeTitle')">
+  <section class="proxy-pane" :aria-label="t('proxies.title')">
     <header class="proxy-pane-head">
-      <div>
-        <div class="proxy-title-row">
-          <h2>{{ activeModeLabel }}</h2>
-        </div>
-        <p>{{ activeModeDescription }}</p>
-      </div>
+      <h2>{{ t('proxies.title') }}</h2>
       <div
         v-if="store.mode !== 'direct' && store.proxyGroups.length > 0"
         class="search-box proxy-filter"
@@ -22,7 +17,7 @@
     </header>
 
     <div v-if="!isCoreRunning" class="empty-panel">
-      <EmptyState icon="globe" :title="t('proxies.coreStopped')" :hint="t('proxies.coreStoppedHint')" />
+      <EmptyState icon="globe" :title="t('proxies.coreStopped')" />
     </div>
 
     <div v-else-if="store.mode !== 'direct' && !store.resourceLoaded.proxies" class="empty-panel" aria-busy="true">
@@ -31,7 +26,6 @@
 
     <template v-else-if="store.mode === 'rule'">
       <template v-if="selectorGroups.length > 0 && (!normalizedFilter || anyVisibleMembers)">
-        <div class="proxy-kind-heading">{{ t('proxies.manual') }}</div>
         <ProxyGroupSection
           v-for="group in selectorGroups"
           :key="group"
@@ -53,7 +47,6 @@
       </template>
 
       <template v-if="autoGroups.length > 0 && (!normalizedFilter || anyVisibleMembers)">
-        <div class="proxy-kind-heading">{{ t('proxies.auto') }}</div>
         <ProxyGroupSection
           v-for="group in autoGroups"
           :key="group"
@@ -81,7 +74,6 @@
         <EmptyState
           icon="globe"
           :title="normalizedFilter ? t('proxies.noMatch') : t('proxies.noGroups')"
-          :hint="normalizedFilter ? undefined : t('proxies.noGroupsHint')"
         />
       </div>
     </template>
@@ -108,7 +100,6 @@
         <EmptyState
           icon="globe"
           :title="normalizedFilter ? t('proxies.noMatch') : t('proxies.noGroups')"
-          :hint="normalizedFilter ? undefined : t('proxies.noGroupsHint')"
         />
       </div>
     </template>
@@ -118,11 +109,9 @@
         <span class="direct-indicator" />
         <div class="direct-copy">
           <strong>DIRECT</strong>
-          <span>{{ t('overview.modeDirect') }}</span>
         </div>
         <span class="direct-current">{{ t('proxies.currentTag') }}</span>
       </article>
-      <p class="direct-hint">{{ t('proxies.directHint') }}</p>
     </template>
   </section>
 </template>
@@ -158,16 +147,6 @@ function toggleHideTimeout(group: string): void {
   else next.add(group);
   hideTimeoutGroups.value = next;
 }
-const activeModeLabel = computed(() => {
-  if (store.mode === "global") return t("overview.modeGlobal");
-  if (store.mode === "direct") return t("overview.modeDirect");
-  return t("overview.modeRule");
-});
-const activeModeDescription = computed(() => {
-  if (store.mode === "global") return t("overview.modeGlobalDesc");
-  if (store.mode === "direct") return t("overview.modeDirectDesc");
-  return t("overview.modeRuleDesc");
-});
 const selectorGroups = computed(() =>
   store.proxyGroups.filter(
     (group) => store.proxies[group]?.type === "Selector" && group !== "GLOBAL",
@@ -226,7 +205,7 @@ async function selectNode(group: string, name: string): Promise<void> {
 }
 .proxy-pane-head {
   display: flex;
-  min-height: 64px;
+  min-height: 48px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -234,34 +213,16 @@ async function selectNode(group: string, name: string): Promise<void> {
   padding: 4px 2px 13px;
   border-bottom: 1px solid var(--border);
 }
-.proxy-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .proxy-pane-head h2 {
   color: var(--text-primary);
   font-size: 18px;
   font-weight: 650;
   letter-spacing: -0.015em;
 }
-.proxy-pane-head p {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
 .proxy-filter {
   width: 240px;
   min-width: 160px;
   flex-shrink: 1;
-}
-.proxy-kind-heading {
-  margin: 20px 0 9px;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 .empty-panel {
   overflow: hidden;
@@ -302,11 +263,6 @@ async function selectNode(group: string, name: string): Promise<void> {
   font-size: 16px;
   font-weight: 500;
 }
-.direct-copy span {
-  margin-top: 3px;
-  color: var(--text-muted);
-  font-size: 14px;
-}
 .direct-current {
   padding: 3px 8px;
   border-radius: var(--radius-full);
@@ -314,11 +270,6 @@ async function selectNode(group: string, name: string): Promise<void> {
   color: var(--selection);
   font-size: 12px;
   font-weight: 650;
-}
-.direct-hint {
-  margin-top: 10px;
-  color: var(--text-muted);
-  font-size: 14px;
 }
 
 @media (max-width: 580px) {

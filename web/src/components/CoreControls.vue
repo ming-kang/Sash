@@ -5,6 +5,7 @@
       class="btn btn-sm"
       :class="emphasizeApply ? 'btn-primary' : 'btn-secondary'"
       :disabled="restarting || stopping || !store.status"
+      :title="store.status?.core.running ? t('settings.restartDesc') : t('settings.startBtn')"
       @click="restartCore"
     >
       <Icon name="refresh" :size="13" :class="{ spin: restarting }" />
@@ -46,12 +47,12 @@ import Icon from "./Icon.vue";
 const props = defineProps<{ applyOnly?: boolean }>();
 const { restarting, stopping, cancellingUpdate, restartCore, stopCore, cancelCoreUpdate } =
   useCoreControl();
-// Pending changes are promoted by the Apply dock, so the header keeps the primary style for Start only.
+// Pending changes are promoted by the Apply dock, so only Start keeps the primary style here.
 const emphasizeApply = computed(() => props.applyOnly || !store.status?.core.running);
 </script>
 
 <style scoped>
-/* Both rows keep the header's right edge: the progress row must not push the controls away from it. */
+/* Progress occupies its own row without separating the action buttons. */
 .core-controls {
   display: flex;
   flex-wrap: wrap;

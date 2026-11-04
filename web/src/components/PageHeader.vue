@@ -1,9 +1,6 @@
 <template>
   <header class="page-head">
-    <div class="page-head-text">
-      <h1 class="page-title">{{ title }}</h1>
-      <p v-if="desc" class="page-desc">{{ desc }}</p>
-    </div>
+    <h1 class="page-title">{{ title }}</h1>
     <div v-if="$slots.default" class="page-head-actions">
       <slot />
     </div>
@@ -11,13 +8,13 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ title: string; desc?: string }>();
+defineProps<{ title: string }>();
 </script>
 
 <style scoped>
 .page-head {
   display: flex;
-  min-height: 78px;
+  min-height: 64px;
   align-items: center;
   justify-content: space-between;
   gap: 12px 24px;
@@ -25,22 +22,13 @@ defineProps<{ title: string; desc?: string }>();
   padding: 10px var(--page-inset, 30px);
   border-bottom: 1px solid var(--border);
 }
-.page-head-text {
-  min-width: 0;
-}
 .page-title {
+  min-width: 0;
   color: var(--text-primary);
   font-size: clamp(20px, 1.55vw, 23px);
   font-weight: 650;
   letter-spacing: -0.025em;
   line-height: 1.2;
-}
-.page-desc {
-  max-width: 720px;
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.45;
 }
 .page-head-actions {
   display: flex;

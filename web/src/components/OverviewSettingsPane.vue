@@ -1,0 +1,384 @@
+<template>
+  <div class="settings-grid">
+    <UiCard :title="t('settings.appearanceTitle')" class="settings-card">
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-name">{{ t('settings.themeTitle') }}</span>
+        </div>
+        <div
+          class="segmented preference-control"
+          role="group"
+          :aria-label="t('settings.appearanceTitle')"
+        >
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: theme === 'system' }"
+            :aria-pressed="theme === 'system'"
+            @click="switchTheme('system')"
+          >
+            {{ t('theme.system') }}
+          </button>
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: theme === 'light' }"
+            :aria-pressed="theme === 'light'"
+            @click="switchTheme('light')"
+          >
+            {{ t('theme.light') }}
+          </button>
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: theme === 'dark' }"
+            :aria-pressed="theme === 'dark'"
+            @click="switchTheme('dark')"
+          >
+            {{ t('theme.dark') }}
+          </button>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-name">{{ t('settings.langTitle') }}</span>
+        </div>
+        <div class="segmented preference-control" role="group" :aria-label="t('settings.langTitle')">
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: locale === 'zh' }"
+            :aria-pressed="locale === 'zh'"
+            @click="switchLocale('zh')"
+          >
+            中文
+          </button>
+          <button
+            type="button"
+            class="segmented-item"
+            :class="{ active: locale === 'en' }"
+            :aria-pressed="locale === 'en'"
+            @click="switchLocale('en')"
+          >
+            English
+          </button>
+        </div>
+      </div>
+      <AutostartRow />
+    </UiCard>
+
+    <UiCard :title="t('settings.networkTitle')" class="settings-card">
+      <div class="setting-row interrupt-row">
+        <div class="setting-info">
+          <label class="setting-name" for="mixed-port">{{ t('settings.mixedPortTitle') }}</label>
+        </div>
+        <div class="setting-action port-action">
+          <input
+            id="mixed-port"
+            v-model.number="mixedPort"
+            type="number"
+            min="1"
+            max="65535"
+            class="input input-sm port-input"
+            :class="{ 'input-invalid': portInvalid }"
+            :aria-label="t('settings.mixedPortTitle')"
+            :aria-invalid="portInvalid || undefined"
+            aria-describedby="mixed-port-hint"
+            :disabled="savingPort || store.operations.networkSetting || !store.status"
+          />
+          <button
+            v-if="portDirty"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="savingPort || store.operations.networkSetting || !store.status"
+            @click="resetMixedPort"
+          >
+            {{ t('common.reset') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm interrupt-save"
+            :disabled="savingPort || store.operations.networkSetting || !portValid || !store.status"
+            @click="saveMixedPort"
+          >
+            {{ savingPort ? t('common.loading') : t('common.save') }}
+          </button>
+        </div>
+      </div>
+      <p v-if="portInvalid" id="mixed-port-hint" class="port-hint" role="alert">
+        {{ t('settings.portInvalid') }}
+      </p>
+    </UiCard>
+
+    <UiCard :title="t('settings.aboutTitle')" class="settings-card runtime-card">
+      <dl class="info-grid">
+        <div class="info-item">
+          <dt>{{ t('overview.daemonPort') }}</dt>
+          <dd class="mono" :title="`127.0.0.1:${store.status?.settings.daemonPort ?? 19090}`">
+            127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}
+          </dd>
+        </div>
+        <div class="info-item">
+          <dt>{{ t('overview.controller') }}</dt>
+          <dd class="mono" :title="store.status?.settings.controller || '-'">
+            {{ store.status?.settings.controller || '-' }}
+          </dd>
+        </div>
+        <div class="info-item">
+          <dt>{{ t('settings.coreVersion') }}</dt>
+          <dd class="mono" :title="coreVersion || '-'">{{ coreVersion || '-' }}</dd>
+        </div>
+      </dl>
+    </UiCard>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch } from "vue";
+import { coreVersion } from "../composables/core-runtime.js";
+import { locale, setLocale, t, type Locale } from "../i18n/index.js";
+import {
+  errorText,
+  saveNetworkSettings,
+  store,
+  toast,
+} from "../stores/index.js";
+import { setTheme, theme, type Theme } from "../theme.js";
+import AutostartRow from "./AutostartRow.vue";
+import UiCard from "./UiCard.vue";
+
+const committedMixedPort = ref(store.status?.settings.mixedPort ?? 7890);
+const mixedPort = ref(committedMixedPort.value);
+
+const savingPort = ref(false);
+
+watch(
+  () => store.status?.settings.mixedPort,
+  (next) => {
+    if (next === undefined) return;
+    const previous = committedMixedPort.value;
+    committedMixedPort.value = next;
+    if (!savingPort.value && Object.is(mixedPort.value, previous)) mixedPort.value = next;
+  },
+);
+
+const portDirty = computed(() => !Object.is(mixedPort.value, committedMixedPort.value));
+const portInvalid = computed(
+  () =>
+    portDirty.value &&
+    (!Number.isInteger(mixedPort.value) || mixedPort.value < 1 || mixedPort.value > 65535),
+);
+const portValid = computed(
+  () =>
+    Number.isInteger(mixedPort.value) &&
+    mixedPort.value >= 1 &&
+    mixedPort.value <= 65535 &&
+    portDirty.value,
+);
+
+function switchTheme(next: Theme): void {
+  if (next !== theme.value) setTheme(next);
+}
+
+function switchLocale(next: Locale): void {
+  if (next === locale.value) return;
+  setLocale(next);
+}
+
+function resetMixedPort(): void {
+  mixedPort.value = committedMixedPort.value;
+}
+
+async function saveMixedPort(): Promise<void> {
+  if (!portValid.value || savingPort.value || store.operations.networkSetting) return;
+  savingPort.value = true;
+  try {
+    if (!(await saveNetworkSettings({ mixedPort: mixedPort.value }))) {
+      toast.info(t("toast.settingSavedUnverified"));
+    }
+  } catch (err) {
+    toast.error(t("toast.failed", { msg: errorText(err) }));
+  } finally {
+    savingPort.value = false;
+  }
+}
+</script>
+
+<style scoped>
+.settings-grid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.settings-card {
+  min-width: 0;
+}
+/* Equal-width options sized by the longest label, so two- and three-option controls share a rhythm. */
+.preference-control {
+  display: inline-grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  flex-shrink: 0;
+  gap: 3px;
+}
+.preference-control .segmented-item {
+  min-width: 56px;
+  min-height: 30px;
+  padding-inline: 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.setting-row {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.setting-row:first-child {
+  margin-top: 0;
+}
+.setting-row:last-child {
+  border-bottom: 0;
+}
+.setting-row:hover {
+  background: var(--general-row-hover);
+  border-radius: var(--radius-sm);
+}
+.setting-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.setting-name {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 550;
+}
+.setting-action {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.interrupt-row {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 10px;
+}
+.port-action {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.port-input {
+  width: 100%;
+  font-family: var(--font-mono);
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.port-input::-webkit-outer-spin-button,
+.port-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.port-input.input-invalid {
+  border-color: var(--danger);
+}
+.port-hint {
+  margin: -2px 5px 8px;
+  color: var(--danger);
+  font-size: 14px;
+}
+.interrupt-save {
+  color: var(--warning);
+  background: transparent;
+  border-color: var(--warning-border);
+}
+.interrupt-save:hover:not(:disabled) {
+  background: var(--warning-soft);
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+.info-item {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.info-item:last-child {
+  border-bottom: 0;
+}
+.info-item dt {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.info-item dd {
+  width: auto;
+  max-width: 65%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .preference-control .segmented-item,
+  .setting-action .btn {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-grid {
+    gap: 14px;
+  }
+  .preference-control {
+    width: 100%;
+  }
+  .preference-control .segmented-item {
+    min-height: 40px;
+    font-size: 14px;
+  }
+  .setting-row {
+    min-height: 0;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 11px;
+    padding: 13px 8px;
+  }
+  .setting-action {
+    align-self: stretch;
+    justify-content: flex-end;
+  }
+  .port-input {
+    width: 100%;
+    min-height: 44px;
+    text-align: left;
+  }
+  .setting-action .btn {
+    min-height: 44px;
+  }
+}
+</style>

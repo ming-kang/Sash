@@ -1,45 +1,40 @@
 <template>
-  <UiCard :title="t('settings.startupTitle')" class="autostart-card">
-    <template #actions>
+  <div class="setting-row autostart-row" :aria-busy="busy">
+    <div class="autostart-info">
+      <span class="autostart-title">{{ t('autostart.title') }}</span>
+      <span v-if="stateHint" class="autostart-state">{{ stateHint }}</span>
+      <span v-if="reasonText" class="autostart-reason">{{ reasonText }}</span>
+      <span id="autostart-state" class="sr-only" role="status">{{ stateText }}</span>
+    </div>
+    <div class="autostart-actions">
       <button
         type="button"
-        class="btn btn-ghost btn-xs autostart-refresh"
+        class="icon-btn autostart-refresh"
+        :title="t('autostart.refresh')"
+        :aria-label="t('autostart.refresh')"
         :disabled="busy || !owner"
         @click="refresh"
       >
-        <Icon name="refresh" :size="13" :class="{ spin: busy }" />
-        {{ t('autostart.refresh') }}
+        <Icon name="refresh" :size="14" :class="{ spin: busy }" />
       </button>
-    </template>
-    <div class="autostart-row" :aria-busy="busy">
-      <div class="autostart-info">
-        <span class="autostart-title">{{ t('autostart.title') }}</span>
-        <span class="autostart-desc">{{ t('autostart.description') }}</span>
-        <span v-if="stateHint" class="autostart-state">{{ stateHint }}</span>
-        <span v-if="reasonText" class="autostart-reason">{{ reasonText }}</span>
-        <span id="autostart-state" class="sr-only" role="status">{{ stateText }}</span>
-      </div>
-      <div class="autostart-actions">
-        <UiSwitch
-          :model-value="status?.state === 'on'"
-          :label="t('autostart.title')"
-          aria-describedby="autostart-state"
-          :disabled="switchDisabled"
-          @update:model-value="save"
-        />
-      </div>
-    </div>
-    <div v-if="canRemove" class="autostart-recovery">
       <button
+        v-if="canRemove"
         type="button"
-        class="btn btn-ghost btn-sm"
+        class="btn btn-ghost btn-xs"
         :disabled="busy || !owner"
         @click="save(false)"
       >
         {{ t('autostart.remove') }}
       </button>
+      <UiSwitch
+        :model-value="status?.state === 'on'"
+        :label="t('autostart.title')"
+        aria-describedby="autostart-state"
+        :disabled="switchDisabled"
+        @update:model-value="save"
+      />
     </div>
-  </UiCard>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -49,7 +44,6 @@ import { useAutostart, visibleAutostartReason } from "../composables/autostart.j
 import { t } from "../i18n/index.js";
 import { errorText, store, toast } from "../stores/index.js";
 import Icon from "./Icon.vue";
-import UiCard from "./UiCard.vue";
 import UiSwitch from "./UiSwitch.vue";
 
 const owner = computed(() =>
@@ -97,13 +91,7 @@ async function save(enabled: boolean): Promise<void> {
 
 <style scoped>
 .autostart-row {
-  display: flex;
   min-width: 0;
-  min-height: 52px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 8px 6px;
 }
 .autostart-info {
   display: flex;
@@ -117,7 +105,6 @@ async function save(enabled: boolean): Promise<void> {
   font-size: 14px;
   font-weight: 550;
 }
-.autostart-desc,
 .autostart-state,
 .autostart-reason {
   color: var(--text-muted);
@@ -136,29 +123,27 @@ async function save(enabled: boolean): Promise<void> {
 .autostart-refresh {
   color: var(--text-muted);
 }
-.autostart-recovery {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 6px 6px;
-}
 @media (max-width: 760px) {
-  .autostart-refresh,
-  .autostart-recovery .btn {
+  .autostart-refresh {
+    width: 40px;
+    height: 40px;
+  }
+  .autostart-actions .btn {
     min-height: 40px;
   }
 }
 @media (max-width: 480px) {
-  .autostart-row {
-    align-items: flex-start;
+  .setting-row.autostart-row {
+    align-items: center;
+    flex-direction: row;
     gap: 12px;
-    padding: 13px 8px;
+  }
+  .autostart-info {
+    flex: 1;
   }
   .autostart-actions {
+    align-self: center;
     gap: 4px;
-  }
-  .autostart-recovery {
-    padding-right: 8px;
-    padding-left: 8px;
   }
 }
 </style>

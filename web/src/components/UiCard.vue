@@ -1,10 +1,7 @@
 <template>
   <section class="ui-card">
-    <header v-if="title || desc || $slots.actions" class="ui-card-head">
-      <div class="ui-card-heading">
-        <h2 v-if="title" class="ui-card-title">{{ title }}</h2>
-        <p v-if="desc" class="ui-card-desc">{{ desc }}</p>
-      </div>
+    <header v-if="title || $slots.actions" class="ui-card-head">
+      <h2 v-if="title" class="ui-card-title">{{ title }}</h2>
       <div v-if="$slots.actions" class="ui-card-actions">
         <slot name="actions" />
       </div>
@@ -16,7 +13,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ title?: string; desc?: string }>();
+defineProps<{ title?: string }>();
 </script>
 
 <style scoped>
@@ -36,20 +33,11 @@ defineProps<{ title?: string; desc?: string }>();
   gap: 16px;
   padding: 16px 20px 10px;
 }
-.ui-card-heading {
-  min-width: 0;
-}
 .ui-card-title {
   color: var(--text-primary);
   font-size: 15px;
   font-weight: 650;
   line-height: 1.4;
-}
-.ui-card-desc {
-  margin-top: 3px;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.35;
 }
 .ui-card-actions {
   display: flex;

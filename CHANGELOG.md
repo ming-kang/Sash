@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidated Settings into Overview's left column alongside Core controls, traffic and runtime status. Navigation is reduced to five destinations, duplicate LAN and Core controls are removed, and existing `#/settings` links continue to open the combined workspace.
+- Simplified dashboard copy and visual hierarchy: removed page taglines, repeated mode descriptions and nonessential helper text; aligned the sidebar brand, navigation and Core status; kept reorder instructions available to assistive technology; and unified dark mode around neutral surfaces.
+
 ## [0.4.1] - 2026-11-02
 
 ### Changed
