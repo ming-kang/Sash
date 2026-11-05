@@ -191,6 +191,7 @@ export const en: Messages = {
     portInvalid: "Enter a whole number from 1 to 65535",
     restartDesc: "Changing the proxy port or LAN access restarts the Core; active connections drop",
     applyBtn: "Apply configuration",
+    reloadBtn: "Reload configuration",
     startBtn: "Start Core",
     stopBtn: "Stop Core",
     cancelUpdateBtn: "Cancel download",

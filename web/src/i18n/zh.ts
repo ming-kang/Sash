@@ -189,6 +189,7 @@ export const zh = {
     portInvalid: "端口需为 1 至 65535 的整数",
     restartDesc: "修改代理端口或局域网访问需要重启核心，活动连接将中断",
     applyBtn: "应用配置",
+    reloadBtn: "重载配置",
     startBtn: "启动核心",
     stopBtn: "停止核心",
     cancelUpdateBtn: "取消下载",

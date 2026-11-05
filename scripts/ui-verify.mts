@@ -150,7 +150,7 @@ async function verify(engine: BrowserType, name: string) {
     await page.getByRole("alertdialog").getByRole("button", { name: "停止核心", exact: true }).click();
     await page.getByRole("button", { name: "启动核心", exact: true }).waitFor(); assert.equal(core.running, false);
     await page.getByRole("button", { name: "启动核心", exact: true }).click();
-    await page.getByRole("button", { name: "应用配置", exact: true }).waitFor();
+    await page.getByRole("button", { name: "重载配置", exact: true }).waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${base}#/overview`); await page.waitForTimeout(300);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "mobile layout overflow");

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Overview's Core controls now live in one status row that replaces the Uptime row: a state dot, "Running" with the uptime, and icon buttons for Reload configuration and Stop, which turns red on hover and still asks for confirmation. While Core is stopped the row offers Start Core instead. The row above the traffic chart is gone, and Core download progress and Cancel appear as their own row beneath.
+
+### Fixed
+
+- Restored the dark theme palette from 0.4.1; 0.4.2 had replaced it with a different set of colors.
+
 ## [0.4.2] - 2026-11-05
 
 ### Changed

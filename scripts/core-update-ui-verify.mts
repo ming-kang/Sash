@@ -52,11 +52,11 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     locale: uiLocale === "zh" ? "zh-CN" : "en-US",
   });
   const started = uiLocale === "zh" ? "启动核心" : "Start Core";
-  /** The left edge of one row in the Overview controls. */
-  const leftEdge = async (selector: string) => {
+  /** The top edge of one row in the Overview Core status. */
+  const topEdge = async (selector: string) => {
     const box = await page.locator(selector).first().boundingBox();
     if (!box) throw new Error(`missing ${selector}`);
-    return Math.round(box.x);
+    return Math.round(box.y);
   };
   try {
     page.on("pageerror", (error) => errors.push(error.message));
@@ -72,9 +72,9 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     await page.goto(`${base}#boot=${boot}`);
     await page.locator(".connection-panel").waitFor({ state: "detached" });
     await page.goto(`${base}#/overview`);
-    const primary = ".general-core-controls .core-controls > .btn:first-child";
-    const controlsLeft = await leftEdge(primary);
-    await page.locator(".general-core-controls").getByRole("button", { name: started, exact: true }).click();
+    const coreRow = ".core-status-row";
+    const coreRowTop = await topEdge(coreRow);
+    await page.locator(coreRow).getByRole("button", { name: started, exact: true }).click();
 
     const progress = page.locator(".core-update-progress").first();
     await progress.waitFor();
@@ -86,13 +86,11 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     assert.equal((await progress.innerText()).replace(/\s+/g, " ").trim(), expected);
     await page.screenshot({ path: path.join(outDir, `${name}-${uiLocale}-core-update.png`) });
 
-    // The progress row must not move the controls or push Cancel outside the narrow column.
-    assert.equal(await leftEdge(primary), controlsLeft, "the controls stay where they were");
-    const controls = await page.locator(".general-core-controls .core-controls").boundingBox();
-    const row = await page.locator(".general-core-controls .core-update-progress").boundingBox();
-    const cancel = await page
-      .locator(".general-core-controls .core-update-progress button")
-      .boundingBox();
+    // The progress row must not move the Core row or push Cancel outside the narrow column.
+    assert.equal(await topEdge(coreRow), coreRowTop, "the Core row stays where it was");
+    const controls = await page.locator(coreRow).boundingBox();
+    const row = await page.locator(".core-update-progress").boundingBox();
+    const cancel = await page.locator(".core-update-progress button").boundingBox();
     assert.ok(controls && row && row.y > controls.y, "the progress row sits below the controls");
     assert.ok(
       cancel && row && cancel.x >= row.x && cancel.x + cancel.width <= row.x + row.width + 1,
@@ -103,8 +101,7 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     release.resolve();
     await progress.waitFor({ state: "hidden", timeout: 15_000 });
     await page
-      .getByRole("button", { name: uiLocale === "zh" ? "应用配置" : "Apply configuration", exact: true })
-      .first()
+      .getByRole("button", { name: uiLocale === "zh" ? "重载配置" : "Reload configuration", exact: true })
       .waitFor();
     assert.deepEqual(errors, []);
   } catch (error) {

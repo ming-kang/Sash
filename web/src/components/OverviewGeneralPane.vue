@@ -4,10 +4,24 @@
       <ModeControl :is-core-ready="isCoreReady" />
 
       <div class="general-list">
-        <div class="general-row">
-          <div class="general-label">{{ t('overview.uptime') }}</div>
-          <div class="general-value uptime-value">{{ uptime }}</div>
+        <div class="general-row core-status-row">
+          <div class="core-state">
+            <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-muted'" />
+            <span class="core-state-text">
+              {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
+            </span>
+            <template v-if="isCoreRunning">
+              <span aria-hidden="true">·</span>
+              <span class="core-uptime">
+                <span class="sr-only">{{ t('overview.uptime') }}</span>
+                {{ uptime }}
+              </span>
+            </template>
+          </div>
+          <CoreControls />
         </div>
+
+        <CoreUpdateProgress class="general-row" />
 
         <div class="general-row">
           <div class="general-label">{{ t('overview.mixedPort') }}</div>
@@ -54,10 +68,6 @@
         </div>
       </div>
 
-      <div class="general-core-controls">
-        <CoreControls />
-      </div>
-
       <section class="traffic-compact" :aria-label="t('overview.trafficTitle')">
         <div class="traffic-metrics">
           <div class="traffic-metric">
@@ -98,12 +108,14 @@ import { navigate } from "../router.js";
 import {
   errorText,
   isCoreReady,
+  isCoreRunning,
   store,
   toast,
   updateProfile,
 } from "../stores/index.js";
 import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
 import CoreControls from "./CoreControls.vue";
+import CoreUpdateProgress from "./CoreUpdateProgress.vue";
 import Icon from "./Icon.vue";
 import ModeControl from "./ModeControl.vue";
 import OverviewSettingsPane from "./OverviewSettingsPane.vue";
@@ -160,17 +172,6 @@ async function refreshActiveProfile(): Promise<void> {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
 }
-.general-core-controls {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.general-core-controls :deep(.core-controls),
-.general-core-controls :deep(.core-update-progress) {
-  justify-content: flex-start;
-}
-.general-core-controls :deep(.core-update-progress) {
-  flex-wrap: wrap;
-}
 .traffic-compact {
   padding: 18px;
 }
@@ -210,8 +211,25 @@ async function refreshActiveProfile(): Promise<void> {
   font-size: 13px;
   text-align: right;
 }
-.uptime-value {
+.core-state {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.core-state-text {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 550;
+}
+.core-uptime {
+  min-width: 0;
+  overflow: hidden;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .profile-value {
   max-width: 58%;
