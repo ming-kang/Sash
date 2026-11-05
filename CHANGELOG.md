@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-05
+
 ### Changed
 
 - Consolidated Settings into Overview's left column alongside Core controls, traffic and runtime status. Navigation is reduced to five destinations and duplicate LAN and Core controls are removed. The `#/settings` route is gone; unknown routes open Overview.
