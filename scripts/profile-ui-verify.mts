@@ -400,7 +400,7 @@ try {
       await page.mouse.move(heldBox.x + 45, heldBox.y + 25, { steps: 5 });
       await page.locator(".profile-drag-ghost").waitFor();
       await page.evaluate(() => {
-        window.location.hash = "/settings";
+        window.location.hash = "/overview";
       });
       await page.locator(".profile-drag-ghost").waitFor({ state: "detached" });
       await page.mouse.up();

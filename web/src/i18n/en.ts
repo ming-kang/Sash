@@ -30,7 +30,6 @@ export const en: Messages = {
     copied: "Copied",
     loading: "Loading…",
     loadFailed: "Could not load this page",
-    reloadHint: "Check your connection, then reload the page",
     reload: "Reload",
     reset: "Reset",
     timeout: "Timeout",
@@ -92,7 +91,6 @@ export const en: Messages = {
     testAll: "Test latency",
     testNode: "Test latency for {name}",
     sortLatency: "Sort by latency",
-    currentTag: "current",
     filter: "Filter nodes…",
     hideTimeout: "Show/hide timed-out nodes",
     coreStopped: "Core is not running",
@@ -156,7 +154,6 @@ export const en: Messages = {
     renameTitle: "Rename profile",
     nameLabel: "Name",
     delete: "Delete",
-    clickToUse: "Select this profile",
     reorderHint: "Hold a card to drag, or focus it and press Alt + ↑ / ↓ to reorder",
     reorderDropHint: "Release to save the order, or press Esc to cancel",
     localFile: "local file",
@@ -186,10 +183,10 @@ export const en: Messages = {
     remove: "Remove startup entry",
   },
   settings: {
-    appearanceTitle: "General",
+    preferencesTitle: "Preferences",
+    runtimeTitle: "Runtime",
     themeTitle: "Theme",
     langTitle: "Language",
-    networkTitle: "Network",
     mixedPortTitle: "Proxy Port",
     portInvalid: "Enter a whole number from 1 to 65535",
     restartDesc: "Changing the proxy port or LAN access restarts the Core; active connections drop",
@@ -201,7 +198,6 @@ export const en: Messages = {
     stopConfirmMsg:
       "Proxying stops immediately, active connections drop, and the system proxy setting is restored. Stop the Core?",
     pendingApply: "Saved configuration has not been applied",
-    aboutTitle: "Runtime",
     coreVersion: "Core Version",
   },
   coreUpdate: {
@@ -244,8 +240,6 @@ export const en: Messages = {
     offline: "Sash is unreachable, retrying automatically…",
     unauthorized: "This browser session is not authorized. Run 'sash web' to connect",
     connectTitle: "Connect to Sash",
-    connectDescription:
-      "Run this command in the terminal where you use Sash. It opens and authorizes the dashboard in your browser",
     coreDegraded: "Core data refresh failed; showing the last valid snapshot while retrying…",
     coreUnavailable: "Core is running, but runtime data is temporarily unavailable; retrying…",
   },

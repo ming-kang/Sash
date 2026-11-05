@@ -24,7 +24,7 @@ Unchanged proxy data retains its references. Lists use memoization, pagination o
 
 ## Views and controls
 
-[App.vue](../web/src/App.vue) owns the session gate, runtime banner and shared stream lifetime. [AppSidebar.vue](../web/src/components/AppSidebar.vue) keeps primary navigation, a compact Core state and the Apply prompt; live traffic and uptime stay on Overview instead of being duplicated in the sidebar. Pages cover Overview, Profiles, Logs, Connections and Rules. Overview combines runtime status, Core controls, preferences, network settings and runtime information in its left column; the legacy `#/settings` hash opens the same workspace.
+[App.vue](../web/src/App.vue) owns the session gate, runtime banner and shared stream lifetime. [AppSidebar.vue](../web/src/components/AppSidebar.vue) keeps primary navigation, a compact Core state and the Apply prompt; live traffic and uptime stay on Overview instead of being duplicated in the sidebar. Pages cover Overview, Profiles, Logs, Connections and Rules. Overview combines runtime status, Core controls, preferences, the proxy port and runtime information in its left column; there is no separate Settings page.
 
 [CoreControls.vue](../web/src/components/CoreControls.vue) shares start, stop and Apply behavior through [useCoreControl](../web/src/composables/core-runtime.ts). Applying a profile reloads the running Core and keeps established connections, so it no longer asks for confirmation; a proxy port or LAN change still restarts Core.
 

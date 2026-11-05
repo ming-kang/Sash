@@ -365,6 +365,7 @@ async function pasteFromClipboard(): Promise<void> {
   gap: 14px;
   padding: 0 0 24px;
 }
+/* Visible only while a card is held; otherwise the hint is announced to assistive technology. */
 .profile-order-hint {
   margin: 0 0 12px;
   color: var(--text-muted);
@@ -382,9 +383,6 @@ async function pasteFromClipboard(): Promise<void> {
 }
 
 @media (max-width: 820px) {
-  .dl-panel {
-    grid-template-columns: 1fr;
-  }
   .dl-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

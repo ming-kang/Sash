@@ -270,6 +270,17 @@ textarea:disabled {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
 }
+/* A card holding a flat list of rows; the rows supply their own vertical rhythm. */
+.card-list {
+  min-width: 0;
+  padding: 6px 14px;
+  overflow: hidden;
+}
+@media (max-width: 520px) {
+  .card-list {
+    padding: 4px 10px;
+  }
+}
 
 .badge {
   display: inline-flex;

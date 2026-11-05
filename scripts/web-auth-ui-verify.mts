@@ -183,7 +183,7 @@ try {
             const page = await context.newPage();
             page.setDefaultTimeout(10_000);
             const healthReady = page.waitForResponse((response) => response.url().endsWith("/sash/daemon/health"));
-            await page.goto(`${origin}/ui/#/settings`);
+            await page.goto(`${origin}/ui/#/overview`);
             assert.equal((await healthReady).status(), 200);
             await page.locator(".connection-panel").waitFor();
             assert.equal(await page.getByRole("switch").count(), 0);
@@ -238,7 +238,7 @@ try {
             );
             await capture(page, `${name}-authorized`);
 
-            await page.goto(`${origin}/ui/#/settings`);
+            await page.goto(`${origin}/ui/#/overview`);
             await page.locator(".settings-grid").waitFor();
             assert.equal(await page.getByRole("switch", { name: "Allow LAN Connections", exact: true }).count(), 0);
             assert.equal(await page.getByRole("switch", { name: "LAN Access", exact: true }).count(), 1);

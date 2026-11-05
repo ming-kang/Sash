@@ -110,7 +110,6 @@
         <div class="direct-copy">
           <strong>DIRECT</strong>
         </div>
-        <span class="direct-current">{{ t('proxies.currentTag') }}</span>
       </article>
     </template>
   </section>
@@ -262,14 +261,6 @@ async function selectNode(group: string, name: string): Promise<void> {
   color: var(--text-primary);
   font-size: 16px;
   font-weight: 500;
-}
-.direct-current {
-  padding: 3px 8px;
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--bg-card) 52%, transparent);
-  color: var(--selection);
-  font-size: 12px;
-  font-weight: 650;
 }
 
 @media (max-width: 580px) {

@@ -7,8 +7,6 @@ export type Route = (typeof ROUTES)[number];
 function parseHash(): Route {
   if (typeof window === "undefined") return "overview";
   const raw = window.location.hash.replace(/^#\/?/, "").split("?")[0] ?? "";
-  // Keep existing bookmarks working after moving Settings into Overview.
-  if (raw === "settings") return "overview";
   return (ROUTES as readonly string[]).includes(raw) ? (raw as Route) : "overview";
 }
 

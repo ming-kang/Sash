@@ -16,7 +16,6 @@
       :aria-disabled="isBusy || isActive"
       :aria-describedby="canReorder ? 'profile-order-hint' : undefined"
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-      :title="isActive ? undefined : t('profiles.clickToUse')"
       @click="emit('select', profile)"
       @keydown.enter.prevent="emit('select', profile)"
       @keydown.space.prevent="emit('select', profile)"

@@ -59,9 +59,6 @@
       </div>
 
       <section class="traffic-compact" :aria-label="t('overview.trafficTitle')">
-        <div class="traffic-heading">
-          <h2>{{ t('overview.trafficTitle') }}</h2>
-        </div>
         <div class="traffic-metrics">
           <div class="traffic-metric">
             <span>{{ t('overview.download') }}</span>
@@ -177,11 +174,6 @@ async function refreshActiveProfile(): Promise<void> {
 .traffic-compact {
   padding: 18px;
 }
-.traffic-heading h2 {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 650;
-}
 .general-list {
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
@@ -252,9 +244,6 @@ async function refreshActiveProfile(): Promise<void> {
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.traffic-heading {
-  margin-bottom: 10px;
 }
 .traffic-metrics {
   display: grid;

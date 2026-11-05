@@ -70,7 +70,7 @@ try {
         .data as WebBootstrapInfo;
       await page.goto(origin + "/ui/#boot=" + bootstrap.token);
       await page.waitForFunction(() => sessionStorage.getItem("sash.control-token") !== null);
-      await page.goto(origin + "/ui/#/settings");
+      await page.goto(origin + "/ui/#/overview");
       const card = page.locator(".autostart-row");
       await card.waitFor();
       await idle(page);

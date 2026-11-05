@@ -111,12 +111,32 @@ async function verify(engine: BrowserType, name: string) {
     await page.locator(".cm-editor").waitFor(); await page.screenshot({ path: path.join(outDir, `${name}-profile-editor.png`) });
     await page.keyboard.press("Escape"); await page.getByRole("dialog").waitFor({ state: "hidden" });
 
-    await page.goto(`${base}#/settings`);
+    await page.goto(`${base}#/overview`);
     await page.locator(".page-overview").waitFor();
-    await page.locator("#mixed-port").waitFor();
-    const starts = core.starts; await page.locator("#mixed-port").fill("18888");
-    await page.getByRole("button", { name: "保存", exact: true }).click();
+    const port = page.locator("#mixed-port"); await port.waitFor();
+    for (const title of ["偏好设置", "运行信息"]) await page.getByRole("region", { name: title, exact: true }).waitFor();
+    const resetButton = page.getByRole("button", { name: "重置", exact: true });
+    const portFocused = () => page.waitForFunction(() => document.activeElement?.id === "mixed-port");
+    const committedPort = await port.inputValue();
+    assert.equal(await resetButton.count(), 0, "Reset shown for an unedited port");
+    // The error is linked to the field only while shown, and Esc discards the edit.
+    await port.fill("70000");
+    await page.locator("#mixed-port-hint").waitFor();
+    assert.equal(await port.getAttribute("aria-describedby"), "mixed-port-hint");
+    await port.press("Escape");
+    assert.equal(await port.inputValue(), committedPort);
+    assert.equal(await port.getAttribute("aria-describedby"), null);
+    assert.equal(await resetButton.count(), 0, "Reset left behind after Esc");
+    // Activating Reset from the keyboard hands focus back to the field.
+    await port.fill("19999"); await resetButton.focus(); await page.keyboard.press("Enter");
+    await portFocused(); assert.equal(await port.inputValue(), committedPort);
+    // Saving from either the field (Enter) or the Save button keeps keyboard focus on the field.
+    const starts = core.starts; await port.fill("18888"); await port.press("Enter");
     await page.locator(".pending-config").waitFor(); assert.equal(core.starts, starts);
+    await portFocused(); assert.equal(await resetButton.count(), 0, "Reset left behind after save");
+    await port.fill("18889"); await page.getByRole("button", { name: "保存", exact: true }).focus(); await page.keyboard.press("Enter");
+    await portFocused(); assert.equal(await port.inputValue(), "18889"); assert.equal(core.starts, starts);
+    await port.fill("18888"); await port.press("Enter"); await portFocused();
     await page.getByRole("button", { name: "深色", exact: true }).click();
     await page.screenshot({ path: path.join(outDir, `${name}-overview-pending-dark.png`) });
     await apply(page); assert.equal(core.starts, starts + 1);

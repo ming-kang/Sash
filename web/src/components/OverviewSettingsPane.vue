@@ -1,141 +1,112 @@
 <template>
   <div class="settings-grid">
-    <UiCard :title="t('settings.appearanceTitle')" class="settings-card">
+    <section class="card card-list" :aria-label="t('settings.preferencesTitle')">
       <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-name">{{ t('settings.themeTitle') }}</span>
-        </div>
+        <span class="setting-name">{{ t('settings.themeTitle') }}</span>
         <div
           class="segmented preference-control"
           role="group"
-          :aria-label="t('settings.appearanceTitle')"
+          :aria-label="t('settings.themeTitle')"
         >
           <button
+            v-for="option in themeOptions"
+            :key="option"
             type="button"
             class="segmented-item"
-            :class="{ active: theme === 'system' }"
-            :aria-pressed="theme === 'system'"
-            @click="switchTheme('system')"
+            :class="{ active: theme === option }"
+            :aria-pressed="theme === option"
+            @click="switchTheme(option)"
           >
-            {{ t('theme.system') }}
-          </button>
-          <button
-            type="button"
-            class="segmented-item"
-            :class="{ active: theme === 'light' }"
-            :aria-pressed="theme === 'light'"
-            @click="switchTheme('light')"
-          >
-            {{ t('theme.light') }}
-          </button>
-          <button
-            type="button"
-            class="segmented-item"
-            :class="{ active: theme === 'dark' }"
-            :aria-pressed="theme === 'dark'"
-            @click="switchTheme('dark')"
-          >
-            {{ t('theme.dark') }}
+            {{ t(`theme.${option}`) }}
           </button>
         </div>
       </div>
 
       <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-name">{{ t('settings.langTitle') }}</span>
-        </div>
+        <span class="setting-name">{{ t('settings.langTitle') }}</span>
         <div class="segmented preference-control" role="group" :aria-label="t('settings.langTitle')">
           <button
+            v-for="option in localeOptions"
+            :key="option.id"
             type="button"
             class="segmented-item"
-            :class="{ active: locale === 'zh' }"
-            :aria-pressed="locale === 'zh'"
-            @click="switchLocale('zh')"
+            :class="{ active: locale === option.id }"
+            :aria-pressed="locale === option.id"
+            @click="switchLocale(option.id)"
           >
-            中文
-          </button>
-          <button
-            type="button"
-            class="segmented-item"
-            :class="{ active: locale === 'en' }"
-            :aria-pressed="locale === 'en'"
-            @click="switchLocale('en')"
-          >
-            English
+            {{ option.label }}
           </button>
         </div>
       </div>
-      <AutostartRow />
-    </UiCard>
 
-    <UiCard :title="t('settings.networkTitle')" class="settings-card">
-      <div class="setting-row interrupt-row">
-        <div class="setting-info">
-          <label class="setting-name" for="mixed-port">{{ t('settings.mixedPortTitle') }}</label>
-        </div>
-        <div class="setting-action port-action">
+      <AutostartRow />
+
+      <div ref="portRow" class="setting-row port-row">
+        <label class="setting-name" for="mixed-port">{{ t('settings.mixedPortTitle') }}</label>
+        <div class="setting-action">
           <input
             id="mixed-port"
+            ref="portInput"
             v-model.number="mixedPort"
             type="number"
             min="1"
             max="65535"
             class="input input-sm port-input"
             :class="{ 'input-invalid': portInvalid }"
-            :aria-label="t('settings.mixedPortTitle')"
             :aria-invalid="portInvalid || undefined"
-            aria-describedby="mixed-port-hint"
-            :disabled="savingPort || store.operations.networkSetting || !store.status"
+            :aria-describedby="portInvalid ? 'mixed-port-hint' : undefined"
+            :disabled="portLocked"
+            @keydown.enter.prevent="saveMixedPort"
+            @keydown.esc="resetMixedPort"
           />
-          <button
-            v-if="portDirty"
-            type="button"
-            class="btn btn-secondary btn-sm"
-            :disabled="savingPort || store.operations.networkSetting || !store.status"
-            @click="resetMixedPort"
-          >
-            {{ t('common.reset') }}
-          </button>
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm interrupt-save"
-            :disabled="savingPort || store.operations.networkSetting || !portValid || !store.status"
-            @click="saveMixedPort"
-          >
-            {{ savingPort ? t('common.loading') : t('common.save') }}
-          </button>
+          <template v-if="portDirty">
+            <button
+              type="button"
+              class="icon-btn port-reset"
+              :title="t('common.reset')"
+              :aria-label="t('common.reset')"
+              :disabled="portLocked"
+              @click="resetMixedPort"
+            >
+              <Icon name="x" :size="14" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="portLocked || !portValid"
+              @click="saveMixedPort"
+            >
+              {{ savingPort ? t('common.loading') : t('common.save') }}
+            </button>
+          </template>
         </div>
       </div>
       <p v-if="portInvalid" id="mixed-port-hint" class="port-hint" role="alert">
         {{ t('settings.portInvalid') }}
       </p>
-    </UiCard>
+    </section>
 
-    <UiCard :title="t('settings.aboutTitle')" class="settings-card runtime-card">
+    <section class="card card-list" :aria-label="t('settings.runtimeTitle')">
       <dl class="info-grid">
         <div class="info-item">
           <dt>{{ t('overview.daemonPort') }}</dt>
-          <dd class="mono" :title="`127.0.0.1:${store.status?.settings.daemonPort ?? 19090}`">
-            127.0.0.1:{{ store.status?.settings.daemonPort ?? 19090 }}
-          </dd>
+          <dd class="mono" :title="daemonAddress">{{ daemonAddress }}</dd>
         </div>
         <div class="info-item">
           <dt>{{ t('overview.controller') }}</dt>
-          <dd class="mono" :title="store.status?.settings.controller || '-'">
-            {{ store.status?.settings.controller || '-' }}
-          </dd>
+          <dd class="mono" :title="controller">{{ controller }}</dd>
         </div>
         <div class="info-item">
           <dt>{{ t('settings.coreVersion') }}</dt>
           <dd class="mono" :title="coreVersion || '-'">{{ coreVersion || '-' }}</dd>
         </div>
       </dl>
-    </UiCard>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { coreVersion } from "../composables/core-runtime.js";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
 import {
@@ -146,12 +117,25 @@ import {
 } from "../stores/index.js";
 import { setTheme, theme, type Theme } from "../theme.js";
 import AutostartRow from "./AutostartRow.vue";
-import UiCard from "./UiCard.vue";
+import Icon from "./Icon.vue";
+
+const themeOptions: Theme[] = ["system", "light", "dark"];
+const localeOptions: Array<{ id: Locale; label: string }> = [
+  { id: "zh", label: "中文" },
+  { id: "en", label: "English" },
+];
 
 const committedMixedPort = ref(store.status?.settings.mixedPort ?? 7890);
 const mixedPort = ref(committedMixedPort.value);
 
+const portRow = ref<HTMLElement | null>(null);
+const portInput = ref<HTMLInputElement | null>(null);
 const savingPort = ref(false);
+const portLocked = computed(
+  () => savingPort.value || store.operations.networkSetting || !store.status,
+);
+const daemonAddress = computed(() => `127.0.0.1:${store.status?.settings.daemonPort ?? 19090}`);
+const controller = computed(() => store.status?.settings.controller || "-");
 
 watch(
   () => store.status?.settings.mixedPort,
@@ -164,18 +148,11 @@ watch(
 );
 
 const portDirty = computed(() => !Object.is(mixedPort.value, committedMixedPort.value));
-const portInvalid = computed(
-  () =>
-    portDirty.value &&
-    (!Number.isInteger(mixedPort.value) || mixedPort.value < 1 || mixedPort.value > 65535),
+const portInRange = computed(
+  () => Number.isInteger(mixedPort.value) && mixedPort.value >= 1 && mixedPort.value <= 65535,
 );
-const portValid = computed(
-  () =>
-    Number.isInteger(mixedPort.value) &&
-    mixedPort.value >= 1 &&
-    mixedPort.value <= 65535 &&
-    portDirty.value,
-);
+const portInvalid = computed(() => portDirty.value && !portInRange.value);
+const portValid = computed(() => portDirty.value && portInRange.value);
 
 function switchTheme(next: Theme): void {
   if (next !== theme.value) setTheme(next);
@@ -186,12 +163,25 @@ function switchLocale(next: Locale): void {
   setLocale(next);
 }
 
+const focusInPortRow = (): boolean => !!portRow.value?.contains(document.activeElement);
+
+// Saving disables the field and Reset/Save unmount once the port is clean, either of which would
+// drop keyboard focus to <body>; hand it back to the field.
+async function restorePortFocus(hadFocus: boolean): Promise<void> {
+  if (!hadFocus) return;
+  await nextTick();
+  portInput.value?.focus();
+}
+
 function resetMixedPort(): void {
+  const hadFocus = focusInPortRow();
   mixedPort.value = committedMixedPort.value;
+  void restorePortFocus(hadFocus);
 }
 
 async function saveMixedPort(): Promise<void> {
-  if (!portValid.value || savingPort.value || store.operations.networkSetting) return;
+  if (!portValid.value || portLocked.value) return;
+  const hadFocus = focusInPortRow();
   savingPort.value = true;
   try {
     if (!(await saveNetworkSettings({ mixedPort: mixedPort.value }))) {
@@ -201,6 +191,7 @@ async function saveMixedPort(): Promise<void> {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
     savingPort.value = false;
+    await restorePortFocus(hadFocus);
   }
 }
 </script>
@@ -211,9 +202,6 @@ async function saveMixedPort(): Promise<void> {
   width: 100%;
   grid-template-columns: 1fr;
   gap: 12px;
-}
-.settings-card {
-  min-width: 0;
 }
 /* Equal-width options sized by the longest label, so two- and three-option controls share a rhythm. */
 .preference-control {
@@ -239,24 +227,16 @@ async function saveMixedPort(): Promise<void> {
   justify-content: space-between;
   gap: 16px;
   padding: 8px 6px;
-  border-bottom: 1px solid var(--border);
   transition: background var(--motion-fast) var(--ease-standard);
 }
-.setting-row:first-child {
-  margin-top: 0;
-}
-.setting-row:last-child {
-  border-bottom: 0;
+/* Separators sit above each following row, so a trailing hint or error never leaves a stray rule. */
+.setting-row + .setting-row,
+.info-item + .info-item {
+  border-top: 1px solid var(--border);
 }
 .setting-row:hover {
   background: var(--general-row-hover);
   border-radius: var(--radius-sm);
-}
-.setting-info {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
 }
 .setting-name {
   color: var(--text-primary);
@@ -269,19 +249,10 @@ async function saveMixedPort(): Promise<void> {
   flex-shrink: 0;
   gap: 8px;
 }
-.interrupt-row {
-  align-items: stretch;
-  flex-direction: column;
-  gap: 10px;
-}
-.port-action {
-  display: grid;
-  width: 100%;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-}
 .port-input {
-  width: 100%;
+  width: 96px;
   font-family: var(--font-mono);
+  text-align: right;
   appearance: textfield;
   -moz-appearance: textfield;
 }
@@ -294,23 +265,12 @@ async function saveMixedPort(): Promise<void> {
   border-color: var(--danger);
 }
 .port-hint {
-  margin: -2px 5px 8px;
+  margin: 0 6px 8px;
   color: var(--danger);
-  font-size: 14px;
-}
-.interrupt-save {
-  color: var(--warning);
-  background: transparent;
-  border-color: var(--warning-border);
-}
-.interrupt-save:hover:not(:disabled) {
-  background: var(--warning-soft);
+  font-size: 12px;
+  text-align: right;
 }
 
-.info-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-}
 .info-item {
   display: flex;
   min-width: 0;
@@ -319,10 +279,6 @@ async function saveMixedPort(): Promise<void> {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 6px;
-  border-bottom: 1px solid var(--border);
-}
-.info-item:last-child {
-  border-bottom: 0;
 }
 .info-item dt {
   color: var(--text-muted);
@@ -330,7 +286,6 @@ async function saveMixedPort(): Promise<void> {
   line-height: 1.4;
 }
 .info-item dd {
-  width: auto;
   max-width: 65%;
   min-width: 0;
   overflow: hidden;
@@ -347,6 +302,10 @@ async function saveMixedPort(): Promise<void> {
   .preference-control .segmented-item,
   .setting-action .btn {
     min-height: 40px;
+  }
+  .port-reset {
+    width: 40px;
+    height: 40px;
   }
 }
 
@@ -368,17 +327,24 @@ async function saveMixedPort(): Promise<void> {
     gap: 11px;
     padding: 13px 8px;
   }
-  .setting-action {
+  .port-row .setting-action {
     align-self: stretch;
-    justify-content: flex-end;
   }
   .port-input {
-    width: 100%;
+    flex: 1;
+    width: auto;
     min-height: 44px;
     text-align: left;
   }
   .setting-action .btn {
     min-height: 44px;
+  }
+  .port-reset {
+    width: 44px;
+    height: 44px;
+  }
+  .port-hint {
+    text-align: left;
   }
 }
 </style>

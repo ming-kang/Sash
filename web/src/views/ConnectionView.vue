@@ -1,7 +1,6 @@
 <template>
   <PageHeader :title="t('status.connectTitle')" />
   <section class="connection-panel">
-    <p>{{ t("status.connectDescription") }}</p>
     <div class="command-row">
       <code class="mono">{{ COMMAND }}</code>
       <button
@@ -61,7 +60,6 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer));
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 16px;
   padding: 6px 6px 6px 16px;
   background: var(--bg-inset);
   border: 1px solid var(--border);

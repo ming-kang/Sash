@@ -3,7 +3,6 @@
     <Icon :name="error ? 'alert' : 'loader'" :class="{ spin: !error }" :size="24" />
     <p>{{ error ? t('common.loadFailed') : t('common.loading') }}</p>
     <template v-if="error">
-      <p class="async-hint">{{ t('common.reloadHint') }}</p>
       <button type="button" class="btn btn-secondary" @click="reload">{{ t('common.reload') }}</button>
     </template>
   </section>
@@ -30,8 +29,5 @@ function reload(): void {
   padding: 24px;
   color: var(--text-primary);
   text-align: center;
-}
-.async-hint {
-  color: var(--text-secondary);
 }
 </style>

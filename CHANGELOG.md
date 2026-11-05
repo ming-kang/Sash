@@ -8,8 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- Consolidated Settings into Overview's left column alongside Core controls, traffic and runtime status. Navigation is reduced to five destinations, duplicate LAN and Core controls are removed, and existing `#/settings` links continue to open the combined workspace.
+- Consolidated Settings into Overview's left column alongside Core controls, traffic and runtime status. Navigation is reduced to five destinations and duplicate LAN and Core controls are removed. The `#/settings` route is gone; unknown routes open Overview.
 - Simplified dashboard copy and visual hierarchy: removed page taglines, repeated mode descriptions and nonessential helper text; aligned the sidebar brand, navigation and Core status; kept reorder instructions available to assistive technology; and unified dark mode around neutral surfaces.
+- Cut the remaining helper copy: the connect-page description, the reload hint, the profile hover tooltip, the "current" tag on Direct, and the Traffic heading. Preferences and the proxy port share one card of uniform rows, and the visible card titles are replaced by accessible region names. The port's Reset and Save appear only while it is edited, Enter saves and Esc resets, keyboard focus returns to the field after saving or resetting, and its error message is linked to the field only while shown.
 
 ## [0.4.1] - 2026-11-02
 
