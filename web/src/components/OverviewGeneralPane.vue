@@ -4,24 +4,7 @@
       <ModeControl :is-core-ready="isCoreReady" />
 
       <div class="general-list">
-        <div class="general-row core-status-row">
-          <div class="core-state">
-            <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-muted'" />
-            <span class="core-state-text">
-              {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
-            </span>
-            <template v-if="isCoreRunning">
-              <span aria-hidden="true">·</span>
-              <span class="core-uptime">
-                <span class="sr-only">{{ t('overview.uptime') }}</span>
-                {{ uptime }}
-              </span>
-            </template>
-          </div>
-          <CoreControls />
-        </div>
-
-        <CoreUpdateProgress class="general-row" />
+        <CoreStatus class="mobile-core-status" />
 
         <div class="general-row">
           <div class="general-label">{{ t('overview.mixedPort') }}</div>
@@ -108,21 +91,18 @@ import { navigate } from "../router.js";
 import {
   errorText,
   isCoreReady,
-  isCoreRunning,
   store,
   toast,
   updateProfile,
 } from "../stores/index.js";
-import { formatBytes, formatDuration, formatSpeed } from "../utils/format.js";
-import CoreControls from "./CoreControls.vue";
-import CoreUpdateProgress from "./CoreUpdateProgress.vue";
+import { formatBytes, formatSpeed } from "../utils/format.js";
+import CoreStatus from "./CoreStatus.vue";
 import Icon from "./Icon.vue";
 import ModeControl from "./ModeControl.vue";
 import OverviewSettingsPane from "./OverviewSettingsPane.vue";
 import TrafficChart from "./TrafficChart.vue";
 
 const refreshingSub = ref(false);
-const uptime = computed(() => formatDuration(store.status?.core.startedAt));
 const activeProfile = computed(() => {
   const applied = store.status?.configuration.appliedProfile;
   return applied ? store.profiles.find((profile) => profile.id === applied.id) ?? applied : null;
@@ -211,25 +191,8 @@ async function refreshActiveProfile(): Promise<void> {
   font-size: 13px;
   text-align: right;
 }
-.core-state {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-.core-state-text {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 550;
-}
-.core-uptime {
-  min-width: 0;
-  overflow: hidden;
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.mobile-core-status {
+  display: none;
 }
 .profile-value {
   max-width: 58%;
@@ -326,7 +289,19 @@ async function refreshActiveProfile(): Promise<void> {
   font-weight: 500;
 }
 
+@media (max-width: 899px) {
+  .mobile-core-status {
+    display: flex;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
 @media (max-width: 420px) {
+  .mobile-core-status {
+    padding-right: 11px;
+    padding-left: 11px;
+  }
   .general-row {
     min-height: 52px;
     gap: 10px;

@@ -52,7 +52,7 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     locale: uiLocale === "zh" ? "zh-CN" : "en-US",
   });
   const started = uiLocale === "zh" ? "启动核心" : "Start Core";
-  /** The top edge of one row in the Overview Core status. */
+  /** The top edge of the desktop sidebar's Core controls. */
   const topEdge = async (selector: string) => {
     const box = await page.locator(selector).first().boundingBox();
     if (!box) throw new Error(`missing ${selector}`);
@@ -72,11 +72,12 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     await page.goto(`${base}#boot=${boot}`);
     await page.locator(".connection-panel").waitFor({ state: "detached" });
     await page.goto(`${base}#/overview`);
-    const coreRow = ".core-status-row";
-    const coreRowTop = await topEdge(coreRow);
+    const coreRow = ".sidebar .core-status-row";
+    const coreHeading = ".sidebar .core-heading";
+    const coreControlsTop = await topEdge(coreHeading);
     await page.locator(coreRow).getByRole("button", { name: started, exact: true }).click();
 
-    const progress = page.locator(".core-update-progress").first();
+    const progress = page.locator(".sidebar .core-update-progress");
     await progress.waitFor();
     const expected =
       uiLocale === "zh"
@@ -86,12 +87,15 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     assert.equal((await progress.innerText()).replace(/\s+/g, " ").trim(), expected);
     await page.screenshot({ path: path.join(outDir, `${name}-${uiLocale}-core-update.png`) });
 
-    // The progress row must not move the Core row or push Cancel outside the narrow column.
-    assert.equal(await topEdge(coreRow), coreRowTop, "the Core row stays where it was");
-    const controls = await page.locator(coreRow).boundingBox();
-    const row = await page.locator(".core-update-progress").boundingBox();
-    const cancel = await page.locator(".core-update-progress button").boundingBox();
-    assert.ok(controls && row && row.y > controls.y, "the progress row sits below the controls");
+    // Progress expands the bottom-anchored panel upwards without moving the Core controls.
+    assert.equal(await topEdge(coreHeading), coreControlsTop, "the Core controls stay where they were");
+    const controls = await page.locator(coreHeading).boundingBox();
+    const row = await progress.boundingBox();
+    const cancel = await progress.locator("button").boundingBox();
+    assert.ok(
+      controls && row && row.y + row.height <= controls.y + 1,
+      "the progress row sits above the controls",
+    );
     assert.ok(
       cancel && row && cancel.x >= row.x && cancel.x + cancel.width <= row.x + row.width + 1,
       "the cancel button stays inside the progress row",

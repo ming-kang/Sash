@@ -82,6 +82,9 @@ async function verify(engine: BrowserType, name: string) {
     await page.goto(`${base}#boot=${boot.token}`);
     await page.getByText("工作配置", { exact: true }).waitFor();
     await page.locator(".connection-panel").waitFor({ state: "detached" });
+    const coreStatus = page.locator(".core-status-row:visible");
+    assert.equal(await coreStatus.count(), 1, "Core status appears once on desktop");
+    assert.equal(await coreStatus.locator(".core-state-text").innerText(), "运行中");
     await page.evaluate(() => document.fonts.ready);
     const fonts = await page.evaluate(() => ({
       family: getComputedStyle(document.querySelector(".brand-name") ?? document.body).fontFamily,
@@ -153,6 +156,7 @@ async function verify(engine: BrowserType, name: string) {
     await page.getByRole("button", { name: "重载配置", exact: true }).waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${base}#/overview`); await page.waitForTimeout(300);
+    assert.equal(await page.locator(".core-status-row:visible").count(), 1, "Core status appears once on mobile");
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "mobile layout overflow");
     await page.screenshot({ path: path.join(outDir, `${name}-overview-mobile.png`) });
     assert.deepEqual(errors, []);

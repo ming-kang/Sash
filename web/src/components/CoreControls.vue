@@ -29,6 +29,8 @@
         type="button"
         class="btn btn-primary btn-sm"
         :disabled="restarting || stopping || !store.status"
+        :title="t('settings.startBtn')"
+        :aria-label="t('settings.startBtn')"
         @click="restartCore"
       >
         <Icon :name="restarting ? 'refresh' : 'play'" :size="13" :class="{ spin: restarting }" />

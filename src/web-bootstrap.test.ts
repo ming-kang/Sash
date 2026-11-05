@@ -5,9 +5,11 @@ import path from "node:path";
 import { afterEach, beforeEach, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { WEB_BOOTSTRAP_TTL_MS, WebAuthManager } from "./daemon/auth.js";
 import { sashLayout } from "./paths.js";
 import { runSanitizedCommand, windowsSystemExecutable } from "./process.js";
 import {
+  CLOCK_SKEW_TOLERANCE_MS,
   removeBootstrapFile,
   removeStaleBootstrapFiles,
   writeBootstrapFile,
@@ -123,11 +125,34 @@ it("does not follow bootstrap directory links or recursively remove extra files"
   assert.equal(fs.readFileSync(extra, "utf8"), "keep");
 });
 
+it("accepts a freshly issued handoff when the daemon clock reads slightly ahead", () => {
+  // The daemon stamps expiresAt from its own process clock, which on some
+  // Windows hosts runs 1-3ms ahead of the CLI's; the strict upper bound used
+  // to reject every such grant with "Invalid or expired browser
+  // authorization" before the handoff file was written.
+  for (const skew of [1, 2, 3, CLOCK_SKEW_TOLERANCE_MS - 1]) {
+    const auth = new WebAuthManager();
+    const daemonNow = Date.now() + skew;
+    const bootstrap = auth.createBootstrap(daemonNow);
+    const file = writeBootstrapFile(sashLayout(root), { dashboardUrl, ...bootstrap });
+    assert.ok(fs.existsSync(file.filePath));
+    // The skewed grant is genuine: the daemon still redeems it with the clock
+    // that issued it.
+    assert.ok(auth.redeemBootstrap(bootstrap.token, daemonNow));
+    removeBootstrapFile(file.filePath);
+  }
+});
+
 it("rejects invalid credentials and remote handoffs before writing anything", () => {
   for (const patch of [
     { token: "invalid" },
     { expiresAt: new Date(Date.now() - 1).toISOString() },
     { expiresAt: new Date(Date.now() + 120_000).toISOString() },
+    {
+      expiresAt: new Date(
+        Date.now() + WEB_BOOTSTRAP_TTL_MS + CLOCK_SKEW_TOLERANCE_MS + 1_000,
+      ).toISOString(),
+    },
     { dashboardUrl: "https://example.com/ui/" },
     { dashboardUrl: "http://user@127.0.0.1:29193/ui/" },
   ]) {

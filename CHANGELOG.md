@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidated Core state, uptime, lifecycle controls and download progress into the desktop sidebar's navigation-aligned status section, with icon actions and no separate card. The duplicate Overview status row is gone; phones keep the same full controls at the top of Overview.
+
+### Fixed
+
+- `sash web` no longer rejects a freshly issued browser authorization when the daemon and CLI clocks differ by a few milliseconds. The CLI allows a small clock-skew margin while the daemon still enforces the one-time handoff's actual expiry.
+- Core uptime now advances from a local timer without waiting for a status event or a page refresh, resets correctly across Core stops and starts, and releases its timer when the status component unmounts.
+
 ## [0.5.0] - 2026-11-05
 
 ### Changed

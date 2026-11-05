@@ -18,11 +18,11 @@ export function formatSpeed(bytesPerSec: number): string {
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
-export function formatDuration(startIso: string | undefined): string {
+export function formatDuration(startIso: string | undefined, now = Date.now()): string {
   if (!startIso) return "-";
   const start = new Date(startIso).getTime();
   if (Number.isNaN(start)) return "-";
-  let secs = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  let secs = Math.max(0, Math.floor((now - start) / 1000));
   const days = Math.floor(secs / 86400);
   secs %= 86400;
   const hours = Math.floor(secs / 3600);

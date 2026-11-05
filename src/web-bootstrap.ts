@@ -10,6 +10,16 @@ import { runSanitizedCommand, windowsSystemExecutable } from "./process.js";
 
 const BOOTSTRAP_DIRECTORY = /^web-bootstrap-(\d{13})-[a-f0-9]{16}$/;
 
+/**
+ * The daemon stamps `expiresAt` from its own process clock, and two processes
+ * can disagree on wall time by a few milliseconds: a grant issued for exactly
+ * WEB_BOOTSTRAP_TTL_MS then reads as TTL+skew here and `sash web` fails before
+ * the handoff file is written. The tolerance only bounds how long a handoff
+ * may linger on disk; the daemon enforces the true TTL at redemption with the
+ * same clock that issued the grant.
+ */
+export const CLOCK_SKEW_TOLERANCE_MS = 5_000;
+
 export function removeStaleBootstrapFiles(root: string, now = Date.now()): void {
   let entries: fs.Dirent[];
   try {
@@ -63,7 +73,7 @@ export function writeBootstrapFile(
     !/^[a-f0-9]{64}$/.test(opts.token) ||
     !Number.isFinite(expiresAt) ||
     expiresAt <= now ||
-    expiresAt > now + WEB_BOOTSTRAP_TTL_MS
+    expiresAt > now + WEB_BOOTSTRAP_TTL_MS + CLOCK_SKEW_TOLERANCE_MS
   ) {
     throw new Error("Invalid or expired browser authorization; run 'sash web' again.");
   }

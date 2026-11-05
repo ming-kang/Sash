@@ -31,27 +31,18 @@
           <CoreControls apply-only />
         </div>
       </Transition>
-      <div v-if="sessionReady" class="core-row" :title="coreTooltip">
-        <span class="core-indicator">
-          <span class="dot" :class="isCoreRunning ? 'dot-success' : 'dot-muted'" />
-        </span>
-        <span class="core-label">Core</span>
-        <span class="core-state">
-          {{ isCoreRunning ? t('common.running') : t('common.stopped') }}
-        </span>
-      </div>
+      <CoreStatus v-if="sessionReady" class="core-panel" />
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
 import { sessionReady } from "../api/index.js";
 import { applyPending } from "../composables/core-runtime.js";
 import { t } from "../i18n/index.js";
 import { currentRoute, navigate, type Route } from "../router.js";
-import { isCoreRunning, store } from "../stores/index.js";
 import CoreControls from "./CoreControls.vue";
+import CoreStatus from "./CoreStatus.vue";
 import Icon from "./Icon.vue";
 
 const navItems: Array<{ route: Route; icon: string }> = [
@@ -61,11 +52,6 @@ const navItems: Array<{ route: Route; icon: string }> = [
   { route: "connections", icon: "swap" },
   { route: "rules", icon: "list-filter" },
 ];
-
-const coreTooltip = computed(() => {
-  const status = isCoreRunning.value ? t("app.coreRunning") : t("app.coreStopped");
-  return store.status?.core.pid ? `${status} · PID ${store.status.core.pid}` : status;
-});
 </script>
 
 <style scoped>
@@ -197,37 +183,18 @@ const coreTooltip = computed(() => {
 .dock-enter-from {
   opacity: 0;
 }
-.core-row {
-  display: flex;
-  min-height: 40px;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
+.core-panel {
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
 }
-.core-indicator {
-  display: flex;
-  width: 30px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
+.core-panel :deep(.core-controls > .btn) {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
 }
-.core-label {
-  color: var(--text-primary);
-  font-weight: 600;
+.core-panel :deep(.core-controls > .btn > span) {
+  display: none;
 }
-.core-state {
-  margin-left: auto;
-  overflow: hidden;
-  color: var(--text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 @media (max-width: 899px) {
   .sidebar {
     position: static;
@@ -238,7 +205,7 @@ const coreTooltip = computed(() => {
     border: 0;
   }
   .brand,
-  .core-row {
+  .core-panel {
     display: none;
   }
   /* The dock rests on the bottom navigation; App reserves --dock-h so it never covers content. */
