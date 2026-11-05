@@ -479,7 +479,7 @@ textarea:disabled {
 .segmented-item:active:not(:disabled) {
   transform: scale(0.98);
 }
-.segmented-item:hover:not(:disabled) {
+.segmented-item:hover:not(:disabled):not(.active) {
   background: var(--bg-hover);
   color: var(--text-primary);
 }

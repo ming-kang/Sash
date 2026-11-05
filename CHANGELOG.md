@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-05
+
+### Fixed
+
+- Selected theme and language options keep their selected styling on hover. Preference controls and the start-at-login refresh and toggle now keep their positions when switching between Chinese and English, including on narrow cards.
+- Start-at-login warnings use a readable full-width notice instead of squeezing text beside the controls. The removal action lives inside the notice, so its translated label no longer displaces the main controls.
+
 ## [0.5.1] - 2026-11-05
 
 ### Changed

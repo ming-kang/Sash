@@ -1,6 +1,6 @@
 <template>
   <div class="settings-grid">
-    <section class="card card-list" :aria-label="t('settings.preferencesTitle')">
+    <section class="card card-list preferences-card" :aria-label="t('settings.preferencesTitle')">
       <div class="setting-row">
         <span class="setting-name">{{ t('settings.themeTitle') }}</span>
         <div
@@ -95,13 +95,29 @@ function switchLocale(next: Locale): void {
   grid-template-columns: 1fr;
   gap: 12px;
 }
-/* Equal-width options sized by the longest label, so two- and three-option controls share a rhythm. */
+.preferences-card {
+  container-type: inline-size;
+}
+/* Keep option positions stable when the locale changes. */
 .preference-control {
   display: inline-grid;
+  width: 224px;
+  max-width: 100%;
   grid-auto-columns: 1fr;
   grid-auto-flow: column;
   flex-shrink: 0;
   gap: 3px;
+}
+@container (max-width: 399px) {
+  .preferences-card > .setting-row:not(.autostart-row) {
+    min-height: 0;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .preference-control {
+    width: 100%;
+  }
 }
 .preference-control .segmented-item {
   min-width: 56px;

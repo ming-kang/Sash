@@ -137,6 +137,10 @@ try {
       assert.equal(writes, beforeBlocked);
       results.push(name + ": source installs show a reason and cannot enable startup");
 
+      state = { state: "stale", canEnable: false, reason: "Simulated stale startup entry" };
+      await card.getByRole("button", { name: "刷新状态" }).click();
+      await idle(page);
+      const localeBounds = new Map<string, number[]>();
       for (const locale of ["zh", "en"]) {
         await page.evaluate((value) => localStorage.setItem("sash.locale", value), locale);
         await page.reload();
@@ -159,9 +163,44 @@ try {
             });
             assert.equal(titleCovered, false, `${name}/${width}/${theme}: notification covers title`);
             await capture(page, name + "-overview-" + locale + "-" + width + "-" + theme);
+            const bounds = await page.evaluate(() => {
+              const preferences = document.querySelectorAll(".preference-control");
+              const elements = [
+                document.querySelector(".autostart-actions"),
+                preferences[0],
+                preferences[0]?.querySelector(".segmented-item.active"),
+                preferences[1],
+              ];
+              const boxes: number[][] = [];
+              for (const element of elements) {
+                if (!element) {
+                  boxes.push([]);
+                  continue;
+                }
+                const rect = element.getBoundingClientRect();
+                boxes.push([rect.x + scrollX, rect.y + scrollY, rect.width, rect.height]);
+              }
+              return { actions: boxes[0], theme: boxes[1], selectedTheme: boxes[2], language: boxes[3] };
+            });
+            for (const [control, current] of Object.entries(bounds)) {
+              assert.equal(current.length, 4, `${name}/${width}/${theme}: missing ${control}`);
+              const key = `${width}/${theme}/${control}`;
+              const previous = localeBounds.get(key);
+              if (previous) {
+                current.forEach((value, index) => {
+                  assert.ok(
+                    Math.abs(value - previous[index]) < 1,
+                    `${name}/${key}: ${locale} moved ${control} (${previous[index]} -> ${value})`,
+                  );
+                });
+              } else {
+                localeBounds.set(key, current);
+              }
+            }
           }
         }
       }
+      results.push(name + ": locale switches keep preference and autostart controls stable");
       await page.close();
     } catch (error) {
       await captureFailurePages(browser, output, name);
