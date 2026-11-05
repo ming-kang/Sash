@@ -26,14 +26,14 @@ it("advances without a status refresh and follows Core stops and starts", async 
   const scope = effectScope();
   const uptime = scope.run(() => useCoreUptime());
   assert.ok(uptime);
-  assert.equal(uptime.value, "59s");
+  assert.equal(uptime.value, "00:00:00");
 
   t.mock.timers.tick(1000);
-  assert.equal(uptime.value, "1m");
+  assert.equal(uptime.value, "00:00:01");
 
   adoptDaemonStatus({ ...testStatus(), core: { running: false } });
   await nextTick();
-  assert.equal(uptime.value, "-");
+  assert.equal(uptime.value, "--:--:--");
 
   t.mock.timers.tick(60_000);
   adoptDaemonStatus({
@@ -41,8 +41,8 @@ it("advances without a status refresh and follows Core stops and starts", async 
     core: { ...testStatus().core, startedAt: new Date(Date.now()).toISOString() },
   });
   await nextTick();
-  assert.equal(uptime.value, "0s");
+  assert.equal(uptime.value, "00:00:00");
   t.mock.timers.tick(1000);
-  assert.equal(uptime.value, "1s");
+  assert.equal(uptime.value, "00:00:00");
   scope.stop();
 });

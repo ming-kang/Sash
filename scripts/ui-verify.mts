@@ -84,7 +84,8 @@ async function verify(engine: BrowserType, name: string) {
     await page.locator(".connection-panel").waitFor({ state: "detached" });
     const coreStatus = page.locator(".core-status-row:visible");
     assert.equal(await coreStatus.count(), 1, "Core status appears once on desktop");
-    assert.equal(await coreStatus.locator(".core-state-text").innerText(), "运行中");
+    assert.equal(await coreStatus.getAttribute("data-state"), "running");
+    assert.match(await coreStatus.locator(".core-clock").innerText(), /\d{2}:\d{2}:\d{2}/);
     await page.evaluate(() => document.fonts.ready);
     const fonts = await page.evaluate(() => ({
       family: getComputedStyle(document.querySelector(".brand-name") ?? document.body).fontFamily,
@@ -118,27 +119,32 @@ async function verify(engine: BrowserType, name: string) {
     await page.locator(".page-overview").waitFor();
     const port = page.locator("#mixed-port"); await port.waitFor();
     for (const title of ["偏好设置", "运行信息"]) await page.getByRole("region", { name: title, exact: true }).waitFor();
-    const resetButton = page.getByRole("button", { name: "重置", exact: true });
     const portFocused = () => page.waitForFunction(() => document.activeElement?.id === "mixed-port");
     const committedPort = await port.inputValue();
-    assert.equal(await resetButton.count(), 0, "Reset shown for an unedited port");
-    // The error is linked to the field only while shown, and Esc discards the edit.
+    // The port edits in place: a bad value is reported and linked only while it stands.
     await port.fill("70000");
     await page.locator("#mixed-port-hint").waitFor();
     assert.equal(await port.getAttribute("aria-describedby"), "mixed-port-hint");
     await port.press("Escape");
     assert.equal(await port.inputValue(), committedPort);
     assert.equal(await port.getAttribute("aria-describedby"), null);
-    assert.equal(await resetButton.count(), 0, "Reset left behind after Esc");
-    // Activating Reset from the keyboard hands focus back to the field.
-    await port.fill("19999"); await resetButton.focus(); await page.keyboard.press("Enter");
-    await portFocused(); assert.equal(await port.inputValue(), committedPort);
-    // Saving from either the field (Enter) or the Save button keeps keyboard focus on the field.
+    // Leaving the field discards a bad value instead of leaving it behind in red.
+    await port.fill("70000");
+    await page.locator(".brand-name").click();
+    assert.equal(await port.inputValue(), committedPort);
+    assert.equal(await page.locator("#mixed-port-hint").count(), 0);
+    // Saving from the field (Enter) keeps keyboard focus where it was; the row shows no extra button.
     const starts = core.starts; await port.fill("18888"); await port.press("Enter");
     await page.locator(".pending-config").waitFor(); assert.equal(core.starts, starts);
-    await portFocused(); assert.equal(await resetButton.count(), 0, "Reset left behind after save");
-    await port.fill("18889"); await page.getByRole("button", { name: "保存", exact: true }).focus(); await page.keyboard.press("Enter");
-    await portFocused(); assert.equal(await port.inputValue(), "18889"); assert.equal(core.starts, starts);
+    await portFocused();
+    // Leaving the field with a valid port saves it as well.
+    await port.fill("18889"); await page.locator(".brand-name").click();
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const { settings } = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+      if (settings.mixedPort === 18889) break;
+      await page.waitForTimeout(100);
+    }
+    assert.equal(((await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus).settings.mixedPort, 18889);
     await port.fill("18888"); await port.press("Enter"); await portFocused();
     await page.getByRole("button", { name: "深色", exact: true }).click();
     await page.screenshot({ path: path.join(outDir, `${name}-overview-pending-dark.png`) });

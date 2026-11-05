@@ -1,7 +1,5 @@
 export const zh = {
   app: {
-    coreRunning: "核心运行中",
-    coreStopped: "核心已停止",
     navigation: "主导航",
     coreState: {
       running: "运行中",
@@ -10,7 +8,6 @@ export const zh = {
       stopping: "正在停止…",
       unresponsive: "无响应",
     },
-    coreVersionLast: "上次检测到的版本 {v}",
   },
   nav: {
     overview: "概览",
@@ -62,10 +59,6 @@ export const zh = {
     daysAgo: "{n} 天前",
     monthsAgo: "{n} 个月前",
     yearsAgo: "{n} 年前",
-    durationDayHour: "{d} 天 {h} 小时",
-    durationHourMin: "{h} 小时 {m} 分",
-    durationMin: "{m} 分钟",
-    durationSec: "{s} 秒",
   },
   theme: {
     system: "跟随系统",
@@ -86,7 +79,6 @@ export const zh = {
     subTitle: "配置",
     subSet: "前往配置",
     coreTitle: "核心信息",
-    uptime: "运行时长",
     mixedPort: "代理端口",
     controller: "核心控制器",
     daemonPort: "本地 API 端口",

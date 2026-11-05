@@ -6,18 +6,34 @@
       <div class="general-list">
         <CoreStatus class="mobile-core-status" />
 
-        <div class="general-row">
-          <div class="general-label">{{ t('overview.mixedPort') }}</div>
-          <div class="general-value">
-            <button
-              type="button"
-              class="general-link"
-              :class="{ mono: Boolean(proxyAddress) }"
-              :title="t('settings.mixedPortTitle')"
-              @click="focusProxyPort"
-            >
-              {{ proxyAddress || '-' }}
-            </button>
+        <div class="general-row port-row">
+          <div class="general-label">
+            <label for="mixed-port">{{ t('overview.mixedPort') }}</label>
+            <span v-if="portInvalid" id="mixed-port-hint" class="port-hint" role="alert">
+              {{ t('settings.portInvalid') }}
+            </span>
+          </div>
+          <div class="general-value port-value" :title="t('settings.mixedPortTitle')">
+            <span class="port-prefix mono">127.0.0.1:</span>
+            <!-- The underline is the field: the port edits in place instead of a second row. -->
+            <input
+              id="mixed-port"
+              ref="portInput"
+              v-model.number="mixedPort"
+              type="number"
+              min="1"
+              max="65535"
+              inputmode="numeric"
+              class="port-input mono"
+              :class="{ invalid: portInvalid }"
+              :aria-label="t('overview.mixedPort')"
+              :aria-invalid="portInvalid || undefined"
+              :aria-describedby="portInvalid ? 'mixed-port-hint' : undefined"
+              :disabled="portLocked"
+              @keydown.enter.prevent="saveMixedPort"
+              @keydown.esc="resetMixedPort"
+              @blur="commitMixedPort"
+            />
           </div>
         </div>
 
@@ -85,12 +101,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { t } from "../i18n/index.js";
 import { navigate } from "../router.js";
 import {
   errorText,
   isCoreReady,
+  saveNetworkSettings,
   store,
   toast,
   updateProfile,
@@ -107,17 +124,61 @@ const activeProfile = computed(() => {
   const applied = store.status?.configuration.appliedProfile;
   return applied ? store.profiles.find((profile) => profile.id === applied.id) ?? applied : null;
 });
-const proxyAddress = computed(() => {
-  const applied = store.status?.configuration.appliedSettings;
-  return store.status?.core.running && applied ? `127.0.0.1:${applied.mixedPort}` : "";
-});
 
-function focusProxyPort(): void {
-  const input = document.getElementById("mixed-port");
-  if (!(input instanceof HTMLInputElement)) return;
-  input.scrollIntoView({ block: "center" });
-  input.focus({ preventScroll: true });
-  input.select();
+// The port row shows the saved setting and edits it in place; the sidebar's Apply prompt
+// reports that a running Core still uses the old port.
+const committedMixedPort = ref(store.status?.settings.mixedPort ?? 7890);
+const mixedPort = ref(committedMixedPort.value);
+const portInput = ref<HTMLInputElement | null>(null);
+const savingPort = ref(false);
+const portLocked = computed(
+  () => savingPort.value || store.operations.networkSetting || !store.status,
+);
+
+watch(
+  () => store.status?.settings.mixedPort,
+  (next) => {
+    if (next === undefined) return;
+    const previous = committedMixedPort.value;
+    committedMixedPort.value = next;
+    if (!savingPort.value && Object.is(mixedPort.value, previous)) mixedPort.value = next;
+  },
+);
+
+const portInRange = computed(
+  () => Number.isInteger(mixedPort.value) && mixedPort.value >= 1 && mixedPort.value <= 65535,
+);
+const portDirty = computed(() => !Object.is(mixedPort.value, committedMixedPort.value));
+const portInvalid = computed(() => !portInRange.value);
+
+function resetMixedPort(): void {
+  mixedPort.value = committedMixedPort.value;
+}
+
+async function saveMixedPort(): Promise<void> {
+  if (!portDirty.value || !portInRange.value || portLocked.value) return;
+  // Saving disables the field, which would drop keyboard focus to the page; hand it back after.
+  const hadFocus = document.activeElement === portInput.value;
+  savingPort.value = true;
+  try {
+    if (!(await saveNetworkSettings({ mixedPort: mixedPort.value }))) {
+      toast.info(t("toast.settingSavedUnverified"));
+    }
+  } catch (error) {
+    toast.error(t("toast.failed", { msg: errorText(error) }));
+  } finally {
+    savingPort.value = false;
+    if (hadFocus) {
+      await nextTick();
+      portInput.value?.focus();
+    }
+  }
+}
+
+// Inline editing commits on its own: leaving the field saves a valid port and discards a bad one.
+function commitMixedPort(): void {
+  if (portDirty.value && portInRange.value) void saveMixedPort();
+  else resetMixedPort();
 }
 
 async function refreshActiveProfile(): Promise<void> {
@@ -193,6 +254,64 @@ async function refreshActiveProfile(): Promise<void> {
 }
 .mobile-core-status {
   display: none;
+}
+/* The port edits in place, so the row reads 127.0.0.1:[17891] with one underline. */
+.port-value {
+  align-items: baseline;
+  gap: 2px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.port-prefix {
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.port-input {
+  /* Room for five digits plus the inline padding; narrower clips the last one. */
+  width: 6ch;
+  flex-shrink: 0;
+  padding: 1px 2px 2px;
+  border: 0;
+  border-bottom: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
+}
+.port-input::-webkit-outer-spin-button,
+.port-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.port-input:hover:not(:disabled) {
+  border-bottom-color: var(--accent);
+}
+.port-input:focus {
+  border-bottom: 1px solid var(--accent);
+  outline-offset: 1px;
+  background: var(--bg-inset);
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+}
+.port-input.invalid {
+  border-bottom-color: var(--danger);
+  color: var(--danger);
+}
+.port-input:disabled {
+  border-bottom-style: solid;
+  color: var(--text-muted);
+}
+.port-hint {
+  margin-top: 2px;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.35;
 }
 .profile-value {
   max-width: 58%;
@@ -294,6 +413,11 @@ async function refreshActiveProfile(): Promise<void> {
     display: flex;
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
+  }
+  /* The card centers its clock; the phone row keeps it close to the Core label. */
+  .mobile-core-status :deep(.core-clock) {
+    padding-left: 24px;
+    text-align: left;
   }
 }
 

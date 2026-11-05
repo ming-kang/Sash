@@ -1,6 +1,6 @@
 import { computed, onScopeDispose, ref, watch } from "vue";
 import { isCoreRunning, store } from "../stores/index.js";
-import { formatDuration } from "../utils/format.js";
+import { formatUptime } from "../utils/format.js";
 
 export function useCoreUptime() {
   const now = ref(Date.now());
@@ -30,6 +30,6 @@ export function useCoreUptime() {
   });
 
   return computed(() =>
-    isCoreRunning.value ? formatDuration(store.status?.core.startedAt, now.value) : "-",
+    isCoreRunning.value ? formatUptime(store.status?.core.startedAt, now.value) : "--:--:--",
   );
 }

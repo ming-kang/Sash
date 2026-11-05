@@ -7,9 +7,9 @@ import {
   formatBytes,
   formatCount,
   formatDate,
-  formatDuration,
   formatSpeed,
   formatTime,
+  formatUptime,
   splitRegionFlag,
 } from "./format.js";
 
@@ -55,21 +55,28 @@ describe("byte formatting", () => {
   });
 });
 
-describe("relative time formatting", () => {
-  const durations: Array<[string | undefined, string]> = [
-    [undefined, "-"],
-    ["", "-"],
-    ["not-a-date", "-"],
-    [iso(NOW), "0s"],
-    [iso(NOW - 59_000), "59s"],
-    [iso(NOW - 60_000), "1m"],
-    [iso(NOW - 599_000), "9m"],
-    [iso(NOW - 3_600_000), "1h 0m"],
-    [iso(NOW - (2 * 3600 + 30 * 60) * 1000), "2h 30m"],
-    [iso(NOW - 86_400_000), "1d 0h"],
-    [iso(NOW - (3 * 86_400 + 5 * 3600) * 1000), "3d 5h"],
-    [iso(NOW + 60_000), "0s"],
+describe("core uptime", () => {
+  const uptimes: Array<[string | undefined, string]> = [
+    [undefined, "--:--:--"],
+    ["", "--:--:--"],
+    ["not-a-date", "--:--:--"],
+    [iso(NOW), "00:00:00"],
+    [iso(NOW - 59_000), "00:00:00"],
+    [iso(NOW - 60_000), "00:00:01"],
+    [iso(NOW - 3_600_000), "00:01:00"],
+    [iso(NOW - (2 * 3600 + 30 * 60) * 1000), "00:02:30"],
+    [iso(NOW - 86_400_000), "01:00:00"],
+    [iso(NOW - (3 * 86_400 + 5 * 3600 + 42 * 60) * 1000), "03:05:42"],
+    [iso(NOW - 58 * 86_400_000), "58:00:00"],
+    // A clock that moved backwards never shows a negative uptime.
+    [iso(NOW + 60_000), "00:00:00"],
   ];
+  it("formats DD:HH:MM and reads as unknown without a start", () => {
+    for (const [input, expected] of uptimes) assert.equal(formatUptime(input, NOW), expected);
+  });
+});
+
+describe("relative time formatting", () => {
   const ago: Array<[string, string]> = [
     ["not-a-date", "-"],
     [iso(0), "-"],
@@ -86,8 +93,7 @@ describe("relative time formatting", () => {
     [iso(NOW - 364 * 86_400_000), "1 y ago"],
     [iso(NOW - 800 * 86_400_000), "2 y ago"],
   ];
-  it("renders durations and relative timestamps", () => {
-    for (const [input, expected] of durations) assert.equal(formatDuration(input), expected);
+  it("renders relative timestamps", () => {
     for (const [input, expected] of ago) assert.equal(formatAgo(input), expected);
   });
 });

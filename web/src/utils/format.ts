@@ -18,19 +18,16 @@ export function formatSpeed(bytesPerSec: number): string {
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
-export function formatDuration(startIso: string | undefined, now = Date.now()): string {
-  if (!startIso) return "-";
-  const start = new Date(startIso).getTime();
-  if (Number.isNaN(start)) return "-";
-  let secs = Math.max(0, Math.floor((now - start) / 1000));
-  const days = Math.floor(secs / 86400);
-  secs %= 86400;
-  const hours = Math.floor(secs / 3600);
-  const mins = Math.floor((secs % 3600) / 60);
-  if (days > 0) return t("format.durationDayHour", { d: days, h: hours });
-  if (hours > 0) return t("format.durationHourMin", { h: hours, m: mins });
-  if (mins > 0) return t("format.durationMin", { m: mins });
-  return t("format.durationSec", { s: Math.max(secs % 60, 0) });
+/**
+ * Uptime as DD:HH:MM. Minutes are the smallest unit, so a Core that just started reads 00:00:00
+ * until its first minute completes.
+ */
+export function formatUptime(startIso: string | undefined, now = Date.now()): string {
+  const start = startIso ? new Date(startIso).getTime() : Number.NaN;
+  if (!Number.isFinite(start)) return "--:--:--";
+  const secs = Math.max(0, Math.floor((now - start) / 1000));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(Math.floor(secs / 86400))}:${pad(Math.floor(secs / 3600) % 24)}:${pad(Math.floor(secs / 60) % 60)}`;
 }
 
 export function formatTime(date: Date = new Date()): string {

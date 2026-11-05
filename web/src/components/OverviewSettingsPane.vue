@@ -40,50 +40,6 @@
       </div>
 
       <AutostartRow />
-
-      <div ref="portRow" class="setting-row port-row">
-        <label class="setting-name" for="mixed-port">{{ t('settings.mixedPortTitle') }}</label>
-        <div class="setting-action">
-          <input
-            id="mixed-port"
-            ref="portInput"
-            v-model.number="mixedPort"
-            type="number"
-            min="1"
-            max="65535"
-            class="input input-sm port-input"
-            :class="{ 'input-invalid': portInvalid }"
-            :aria-invalid="portInvalid || undefined"
-            :aria-describedby="portInvalid ? 'mixed-port-hint' : undefined"
-            :disabled="portLocked"
-            @keydown.enter.prevent="saveMixedPort"
-            @keydown.esc="resetMixedPort"
-          />
-          <template v-if="portDirty">
-            <button
-              type="button"
-              class="icon-btn port-reset"
-              :title="t('common.reset')"
-              :aria-label="t('common.reset')"
-              :disabled="portLocked"
-              @click="resetMixedPort"
-            >
-              <Icon name="x" :size="14" />
-            </button>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="portLocked || !portValid"
-              @click="saveMixedPort"
-            >
-              {{ savingPort ? t('common.loading') : t('common.save') }}
-            </button>
-          </template>
-        </div>
-      </div>
-      <p v-if="portInvalid" id="mixed-port-hint" class="port-hint" role="alert">
-        {{ t('settings.portInvalid') }}
-      </p>
     </section>
 
     <section class="card card-list" :aria-label="t('settings.runtimeTitle')">
@@ -106,18 +62,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed } from "vue";
 import { coreVersion } from "../composables/core-runtime.js";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
-import {
-  errorText,
-  saveNetworkSettings,
-  store,
-  toast,
-} from "../stores/index.js";
+import { store } from "../stores/index.js";
 import { setTheme, theme, type Theme } from "../theme.js";
 import AutostartRow from "./AutostartRow.vue";
-import Icon from "./Icon.vue";
 
 const themeOptions: Theme[] = ["system", "light", "dark"];
 const localeOptions: Array<{ id: Locale; label: string }> = [
@@ -125,34 +75,8 @@ const localeOptions: Array<{ id: Locale; label: string }> = [
   { id: "en", label: "English" },
 ];
 
-const committedMixedPort = ref(store.status?.settings.mixedPort ?? 7890);
-const mixedPort = ref(committedMixedPort.value);
-
-const portRow = ref<HTMLElement | null>(null);
-const portInput = ref<HTMLInputElement | null>(null);
-const savingPort = ref(false);
-const portLocked = computed(
-  () => savingPort.value || store.operations.networkSetting || !store.status,
-);
 const daemonAddress = computed(() => `127.0.0.1:${store.status?.settings.daemonPort ?? 19090}`);
 const controller = computed(() => store.status?.settings.controller || "-");
-
-watch(
-  () => store.status?.settings.mixedPort,
-  (next) => {
-    if (next === undefined) return;
-    const previous = committedMixedPort.value;
-    committedMixedPort.value = next;
-    if (!savingPort.value && Object.is(mixedPort.value, previous)) mixedPort.value = next;
-  },
-);
-
-const portDirty = computed(() => !Object.is(mixedPort.value, committedMixedPort.value));
-const portInRange = computed(
-  () => Number.isInteger(mixedPort.value) && mixedPort.value >= 1 && mixedPort.value <= 65535,
-);
-const portInvalid = computed(() => portDirty.value && !portInRange.value);
-const portValid = computed(() => portDirty.value && portInRange.value);
 
 function switchTheme(next: Theme): void {
   if (next !== theme.value) setTheme(next);
@@ -161,38 +85,6 @@ function switchTheme(next: Theme): void {
 function switchLocale(next: Locale): void {
   if (next === locale.value) return;
   setLocale(next);
-}
-
-const focusInPortRow = (): boolean => !!portRow.value?.contains(document.activeElement);
-
-// Saving disables the field and Reset/Save unmount once the port is clean, either of which would
-// drop keyboard focus to <body>; hand it back to the field.
-async function restorePortFocus(hadFocus: boolean): Promise<void> {
-  if (!hadFocus) return;
-  await nextTick();
-  portInput.value?.focus();
-}
-
-function resetMixedPort(): void {
-  const hadFocus = focusInPortRow();
-  mixedPort.value = committedMixedPort.value;
-  void restorePortFocus(hadFocus);
-}
-
-async function saveMixedPort(): Promise<void> {
-  if (!portValid.value || portLocked.value) return;
-  const hadFocus = focusInPortRow();
-  savingPort.value = true;
-  try {
-    if (!(await saveNetworkSettings({ mixedPort: mixedPort.value }))) {
-      toast.info(t("toast.settingSavedUnverified"));
-    }
-  } catch (err) {
-    toast.error(t("toast.failed", { msg: errorText(err) }));
-  } finally {
-    savingPort.value = false;
-    await restorePortFocus(hadFocus);
-  }
 }
 </script>
 
@@ -243,34 +135,6 @@ async function saveMixedPort(): Promise<void> {
   font-size: 14px;
   font-weight: 550;
 }
-.setting-action {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 8px;
-}
-.port-input {
-  width: 96px;
-  font-family: var(--font-mono);
-  text-align: right;
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-.port-input::-webkit-outer-spin-button,
-.port-input::-webkit-inner-spin-button {
-  margin: 0;
-  -webkit-appearance: none;
-}
-.port-input.input-invalid {
-  border-color: var(--danger);
-}
-.port-hint {
-  margin: 0 6px 8px;
-  color: var(--danger);
-  font-size: 12px;
-  text-align: right;
-}
-
 .info-item {
   display: flex;
   min-width: 0;
@@ -299,13 +163,8 @@ async function saveMixedPort(): Promise<void> {
 }
 
 @media (max-width: 760px) {
-  .preference-control .segmented-item,
-  .setting-action .btn {
+  .preference-control .segmented-item {
     min-height: 40px;
-  }
-  .port-reset {
-    width: 40px;
-    height: 40px;
   }
 }
 
@@ -326,25 +185,6 @@ async function saveMixedPort(): Promise<void> {
     flex-direction: column;
     gap: 11px;
     padding: 13px 8px;
-  }
-  .port-row .setting-action {
-    align-self: stretch;
-  }
-  .port-input {
-    flex: 1;
-    width: auto;
-    min-height: 44px;
-    text-align: left;
-  }
-  .setting-action .btn {
-    min-height: 44px;
-  }
-  .port-reset {
-    width: 44px;
-    height: 44px;
-  }
-  .port-hint {
-    text-align: left;
   }
 }
 </style>

@@ -10,26 +10,10 @@
       <CoreControls />
     </div>
 
-    <div class="core-details">
-      <div class="core-state">
-        <!-- Announce state changes only; the uptime ticks every second. -->
-        <span class="core-state-text" role="status">{{ t(`app.coreState.${state}`) }}</span>
-        <template v-if="showUptime">
-          <span aria-hidden="true">·</span>
-          <span class="core-uptime">
-            <span class="sr-only">{{ t('overview.uptime') }}</span>
-            {{ uptime }}
-          </span>
-        </template>
-      </div>
-      <div
-        v-if="version"
-        class="core-version mono"
-        :class="{ stale: !versionLive }"
-        :title="versionLive ? `${t('settings.coreVersion')} ${version}` : t('app.coreVersionLast', { v: version })"
-      >
-        {{ version }}
-      </div>
+    <!-- The dot and the clock carry the state; this line stays quiet and centered. -->
+    <div class="core-clock mono" :title="coreTooltip">
+      <span class="sr-only">{{ t(`app.coreState.${state}`) }}</span>
+      {{ uptime }}
     </div>
   </div>
 </template>
@@ -39,17 +23,15 @@ import { computed } from "vue";
 import { useCoreDisplay } from "../composables/core-display.js";
 import { useCoreUptime } from "../composables/core-uptime.js";
 import { t } from "../i18n/index.js";
-import { isCoreRunning, store } from "../stores/index.js";
+import { store } from "../stores/index.js";
 import CoreControls from "./CoreControls.vue";
 import CoreUpdateProgress from "./CoreUpdateProgress.vue";
 
 const uptime = useCoreUptime();
-const { state, version } = useCoreDisplay();
-const showUptime = computed(() => state.value === "running");
-// Only a responding Core proves which binary is live; otherwise the version is the last one seen.
-const versionLive = computed(() => state.value === "running");
+const { state } = useCoreDisplay();
+// The card shows no state word, so the tooltip and the screen-reader text carry it.
 const coreTooltip = computed(() => {
-  const status = isCoreRunning.value ? t("app.coreRunning") : t("app.coreStopped");
+  const status = t(`app.coreState.${state.value}`);
   return store.status?.core.pid ? `${status} · PID ${store.status.core.pid}` : status;
 });
 </script>
@@ -60,7 +42,7 @@ const coreTooltip = computed(() => {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 .core-status-row[data-state="running"] {
   --core-tone: var(--success);
@@ -73,8 +55,7 @@ const coreTooltip = computed(() => {
   --core-tone: var(--warning);
 }
 .core-heading,
-.core-identity,
-.core-state {
+.core-identity {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -122,44 +103,16 @@ const coreTooltip = computed(() => {
   font-size: 14px;
   font-weight: 600;
 }
-.core-details {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-  padding-left: 24px;
-}
-.core-state {
-  gap: 6px;
+.core-clock {
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.4;
-}
-.core-state-text {
-  flex-shrink: 0;
-  color: var(--text-secondary);
-}
-.core-status-row[data-state="unresponsive"] .core-state-text {
-  color: var(--core-tone);
-  font-weight: 600;
-}
-.core-uptime {
-  min-width: 0;
-  overflow: hidden;
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.core-version {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 11px;
+  letter-spacing: 0.02em;
   line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-align: center;
 }
-.core-version.stale {
-  opacity: 0.7;
+.core-status-row:is([data-state="running"], [data-state="unresponsive"]) .core-clock {
+  color: var(--text-secondary);
 }
 .core-status-row :deep(.core-update-progress) {
   display: flex;

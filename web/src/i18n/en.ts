@@ -2,8 +2,6 @@ import type { Messages } from "./zh.js";
 
 export const en: Messages = {
   app: {
-    coreRunning: "Core running",
-    coreStopped: "Core stopped",
     navigation: "Primary navigation",
     coreState: {
       running: "Running",
@@ -12,7 +10,6 @@ export const en: Messages = {
       stopping: "Stopping…",
       unresponsive: "Not responding",
     },
-    coreVersionLast: "Last seen version {v}",
   },
   nav: {
     overview: "Overview",
@@ -64,10 +61,6 @@ export const en: Messages = {
     daysAgo: "{n} d ago",
     monthsAgo: "{n} mo ago",
     yearsAgo: "{n} y ago",
-    durationDayHour: "{d}d {h}h",
-    durationHourMin: "{h}h {m}m",
-    durationMin: "{m}m",
-    durationSec: "{s}s",
   },
   theme: {
     system: "System",
@@ -88,7 +81,6 @@ export const en: Messages = {
     subTitle: "Profile",
     subSet: "Select profile",
     coreTitle: "Core Info",
-    uptime: "Uptime",
     mixedPort: "Proxy Port",
     controller: "Core Controller",
     daemonPort: "Local API Port",
