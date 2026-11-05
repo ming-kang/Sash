@@ -6,12 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-05
+
 ### Changed
 
-- The desktop sidebar's Core section is now a card that reports what Core is doing without spelling it out: the state dot and card edge take the tone of Running, Not responding, Starting, Stopping or Stopped, and the uptime sits alone on a centered line as `DD:HH:MM` (`--:--:--` when unknown). The version line and the state word are gone. Core download progress gains a determinate or indeterminate bar.
-- Overview's proxy port is a single row: `127.0.0.1:` with the port on a centered underline that edits in place. Enter or leaving the field saves a valid port; Esc or a bad value keeps the saved one, and the separate Proxy Port setting row with its Save and Reset buttons is gone.
-
-- Consolidated Core state, uptime, lifecycle controls and download progress into the desktop sidebar's navigation-aligned status section, with icon actions and no separate card. The duplicate Overview status row is gone; phones keep the same full controls at the top of Overview.
+- The desktop sidebar's Core section is now a card that reports what Core is doing without spelling it out: the state dot and the card edge take the tone of Running, Not responding, Starting, Stopping or Stopped, the uptime sits alone on a centered line as `DD:HH:MM` (`--:--:--` while Core is stopped), and the version line and state word are gone. A Core that outlives its controller reads as Not responding instead of Running. Core download progress gains a determinate or indeterminate bar.
+- Overview's proxy port is a single row: `127.0.0.1:` with the port on a centered underline that edits in place. Enter or leaving the field saves a valid port; Esc or a bad value keeps the saved one, with the error under the row label. The separate Proxy Port setting row and its Save and Reset buttons are gone.
 
 ### Fixed
 
