@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- The desktop sidebar's Core section is now a card that reports what Core is doing: the state dot takes the tone of Running, Not responding, Starting, Stopping or Stopped, the uptime sits beside the state word, and the Core version keeps the last value the daemon reported, dimmed while Core cannot confirm it. A Core that outlives its controller reads as Not responding in amber with a tinted card edge instead of a running Core, and the card reads Core download progress with a determinate or indeterminate bar.
+
 - Consolidated Core state, uptime, lifecycle controls and download progress into the desktop sidebar's navigation-aligned status section, with icon actions and no separate card. The duplicate Overview status row is gone; phones keep the same full controls at the top of Overview.
 
 ### Fixed

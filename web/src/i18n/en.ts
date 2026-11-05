@@ -5,6 +5,14 @@ export const en: Messages = {
     coreRunning: "Core running",
     coreStopped: "Core stopped",
     navigation: "Primary navigation",
+    coreState: {
+      running: "Running",
+      stopped: "Stopped",
+      starting: "Starting…",
+      stopping: "Stopping…",
+      unresponsive: "Not responding",
+    },
+    coreVersionLast: "Last seen version {v}",
   },
   nav: {
     overview: "Overview",
@@ -210,6 +218,7 @@ export const en: Messages = {
     validating: "Checking Configuration",
     waiting: "Waiting for Other Operations",
     installing: "Installing and Checking Core",
+    progress: "Core update progress",
   },
   toast: {
     repeated: "repeated {n} times",

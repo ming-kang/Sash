@@ -3,6 +3,14 @@ export const zh = {
     coreRunning: "核心运行中",
     coreStopped: "核心已停止",
     navigation: "主导航",
+    coreState: {
+      running: "运行中",
+      stopped: "已停止",
+      starting: "正在启动…",
+      stopping: "正在停止…",
+      unresponsive: "无响应",
+    },
+    coreVersionLast: "上次检测到的版本 {v}",
   },
   nav: {
     overview: "概览",
@@ -207,6 +215,7 @@ export const zh = {
     validating: "正在检查配置",
     waiting: "正在等待进行中的操作",
     installing: "正在安装并验证核心",
+    progress: "核心更新进度",
   },
   toast: {
     repeated: "重复 {n} 次",

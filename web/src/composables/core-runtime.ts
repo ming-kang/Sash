@@ -4,10 +4,11 @@ import { confirmDialog } from "../components/confirm.js";
 import { t } from "../i18n/index.js";
 import { errorText, refreshRuntimeState, store, toast } from "../stores/index.js";
 
-export const coreVersion = computed(() => {
-  const version = store.status?.core.version;
+export function normalizeCoreVersion(version: string | undefined): string {
   return version ? (version.startsWith("v") ? version : `v${version}`) : "";
-});
+}
+
+export const coreVersion = computed(() => normalizeCoreVersion(store.status?.core.version));
 
 // Start always applies the saved configuration, so only a running Core can be out of date.
 export const applyPending = computed(() =>

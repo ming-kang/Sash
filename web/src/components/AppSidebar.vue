@@ -157,7 +157,7 @@ const navItems: Array<{ route: Route; icon: string }> = [
   padding: 11px;
   background: var(--warning-soft);
   border: 1px solid var(--warning-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 .pending-config-copy {
   display: flex;
@@ -184,12 +184,25 @@ const navItems: Array<{ route: Route; icon: string }> = [
   opacity: 0;
 }
 .core-panel {
-  padding: 12px 0 0;
-  border-top: 1px solid var(--border);
+  padding: 11px 10px 11px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 2px var(--accent-shadow);
+  transition: border-color var(--motion-normal) var(--ease-standard);
 }
+/* A Core that cannot answer tints the card's edge, so it reads from the corner of the eye. */
+.core-panel[data-state="unresponsive"] {
+  border-color: var(--warning-border);
+}
+.core-panel :deep(.core-controls) {
+  gap: 2px;
+}
+.core-panel :deep(.core-controls > .icon-btn),
 .core-panel :deep(.core-controls > .btn) {
-  width: 32px;
-  min-height: 32px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
 }
 .core-panel :deep(.core-controls > .btn > span) {
