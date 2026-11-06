@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-06
+
 ### Fixed
 
 - Core updates no longer fail because a profile was renamed or reordered during preparation. A running update preserves the applied configuration and leaves saved profile or listener edits pending; a stopped update rejects only changes to the configuration it prepared. Runtime replacement still invalidates an in-flight candidate.
