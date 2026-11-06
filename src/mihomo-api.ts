@@ -177,8 +177,9 @@ export class MihomoApi {
   /**
    * Reload the configuration the Core is running from an absolute path. The
    * Core swaps proxies, rules and DNS in place, so connections established
-   * before the reload keep their current outbound; listener-level settings
-   * (ports, LAN binding) need a restart instead.
+   * before the reload keep their current outbound. This request omits
+   * `force=true`, so Sash handles standard listener port and LAN changes
+   * through a restart instead.
    */
   async reloadConfig(path: string, signal?: AbortSignal): Promise<void> {
     const response = await this.request("/configs", {

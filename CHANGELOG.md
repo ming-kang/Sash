@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Core updates no longer fail because a profile was renamed or reordered during preparation. A running update preserves the applied configuration and leaves saved profile or listener edits pending; a stopped update rejects only changes to the configuration it prepared. Runtime replacement still invalidates an in-flight candidate.
+
+### Changed
+
+- CLI status queries, disconnected observations and SSE snapshots share one output projection. Installation facts are sampled once, online profile knowledge comes from Sash, and the existing JSON fields, unknown values and exit meanings are unchanged.
+- Profile inspection returns a small summary instead of sending the parsed document back from the worker. Geodata mirror variants are rewritten in that worker without reapplying source limits or managed settings, and the source publisher alone allocates content revisions while preserving unchanged content and orphan-file recovery.
+- Start, Apply and active-profile reconciliation share one preparation/publication flow. Core update progress has one operation owner, and the Windows system-proxy backend is limited to OS capture/apply with pure target, comparison and status functions.
+
+### Removed
+
+- Unused synchronous process-identity inspection, unused release URL/staged asset fields, and the unproduced executable-verification progress stage. Removed repeated internal proxy-snapshot parsing and ZIP path checks already performed by the archive reader; existing download integrity, process ownership, conditional restoration and rollback behavior remain unchanged.
+
 ## [0.5.2] - 2026-11-05
 
 ### Fixed

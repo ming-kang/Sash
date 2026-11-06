@@ -24,11 +24,16 @@ import {
 import { errorMessage } from "../error-utils.js";
 import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
 import { type DownloadTransport, envProxyUri, formatProxyFallbackWarning } from "../http.js";
-import { GEOX_MIRROR_SETS, type GeneratedConfig, withGeodataMirrors } from "../mihomo-config.js";
+import { GEOX_MIRROR_SETS, type GeneratedConfig } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
 import { renderActiveConfig } from "../profile-service.js";
+import { renderGeodataMirrorsOffThread } from "../profile-work.js";
 import { getActiveProfile } from "../profiles.js";
-import type { RuntimeConfiguration, RuntimeLifecycle } from "../runtime-lifecycle.js";
+import type {
+  RuntimeConfiguration,
+  RuntimeLifecycle,
+  RuntimeTarget,
+} from "../runtime-lifecycle.js";
 import { runtimeDelta } from "../runtime-lifecycle.js";
 import type { CoreSupervisor } from "../supervisor.js";
 
@@ -56,26 +61,27 @@ export interface CoreControlServiceOptions {
 const PROGRESS_NOTIFY_INTERVAL_MS = 250;
 
 /**
- * Downloads prepare outside the mutation queue; publication re-checks that
- * saved state and the runtime still match the operation's starting point.
+ * Preparation stays outside the mutation queue; publication compares the
+ * configuration it actually uses and the captured runtime epoch.
  */
 export class CoreControlService {
-  private downloading = false;
   private validationTail: Promise<void> = Promise.resolve();
-  private progressValue: CoreUpdateProgress | null = null;
   private preparation = new AbortController();
-  private operation: { readonly id: number } | null = null;
-  private nextOperationId = 0;
+  private operation: CoreUpdateProgress | null = null;
   private lastProgressNotify = 0;
 
   constructor(private readonly options: CoreControlServiceOptions) {}
 
   get progress(): CoreUpdateProgress | null {
-    return this.progressValue ? { ...this.progressValue } : null;
+    return this.operation ? { ...this.operation } : null;
   }
 
   get isUpdating(): boolean {
-    return this.downloading;
+    return this.operation !== null;
+  }
+
+  get pendingApply(): boolean {
+    return runtimeDelta(this.options.lifecycle.configuration(), this.savedTarget()).pending;
   }
 
   downloadTransport(): DownloadTransport | null {
@@ -94,16 +100,10 @@ export class CoreControlService {
   }
 
   cancel(): void {
-    if (!this.downloading) throw new StateConflictError("No Core download is in progress");
+    if (!this.operation) throw new StateConflictError("No Core download is in progress");
     this.cancelPreparation();
-    this.clearOperation();
-    this.options.onProgress();
-  }
-
-  private clearOperation(): void {
-    this.downloading = false;
-    this.progressValue = null;
     this.operation = null;
+    this.options.onProgress();
   }
 
   private publishProgress(immediate = false): void {
@@ -170,14 +170,14 @@ export class CoreControlService {
       if (!isGeodataDownloadFailure(error)) throw error;
       const seen = new Set([configuration.generated.yaml]);
       let lastError = error;
-      for (let index = 0; index < GEOX_MIRROR_SETS.length; index += 1) {
+      for (const mirrors of GEOX_MIRROR_SETS) {
         const retried: RuntimeConfiguration = {
           ...configuration,
-          generated: withGeodataMirrors(configuration.generated, index),
+          generated: await renderGeodataMirrorsOffThread(configuration.generated, mirrors),
         };
         if (seen.has(retried.generated.yaml)) continue;
         seen.add(retried.generated.yaml);
-        const host = new URL(GEOX_MIRROR_SETS[index]?.geoip ?? "").host;
+        const host = new URL(mirrors.geoip).host;
         console.warn(`[sashd] geodata download failed; retrying through mirror ${host}`);
         try {
           await this.validate(
@@ -247,31 +247,28 @@ export class CoreControlService {
       );
   }
 
+  private savedTarget(snapshot = this.options.state.snapshot()): RuntimeTarget {
+    return { profile: getActiveProfile(snapshot.profiles), settings: snapshot.settings };
+  }
+
+  private configurationPlan() {
+    return { snapshot: this.options.state.snapshot(), epoch: this.options.lifecycle.revision };
+  }
+
   private assertCurrentConfiguration(configuration: RuntimeConfiguration): void {
-    const saved = this.options.state.snapshot();
-    const active = getActiveProfile(saved.profiles);
-    if (
-      runtimeDelta(configuration, {
-        profile: active ? { id: active.id, revision: active.revision } : null,
-        settings: saved.settings,
-      }).pending
-    )
+    if (runtimeDelta(configuration, this.savedTarget()).pending)
       throw new StateConflictError("Saved configuration changed during preparation; retry Apply");
   }
 
   async update(version?: string, startAfterInstall = false): Promise<CoreUpdateResult> {
-    const { layout, state, supervisor, lifecycle } = this.options;
+    const { layout, supervisor, lifecycle } = this.options;
     this.options.assertMutable();
-    if (this.downloading)
+    if (this.operation)
       throw new StateConflictError(
         "A Core download is already in progress — wait for it to finish, or cancel it with sash update --cancel",
       );
     this.requireRecoveredInstall();
     const { signal } = this.preparation;
-    this.nextOperationId += 1;
-    const operation = { id: this.nextOperationId };
-    this.operation = operation;
-    this.downloading = true;
     // Chosen once: the transport must not change between metadata, archive and
     // geodata fetches inside one operation.
     const transport = this.downloadTransport();
@@ -284,7 +281,7 @@ export class CoreControlService {
       downloaded: 0,
       total: null,
     };
-    this.progressValue = progress;
+    this.operation = progress;
     this.options.onProgress();
     const setStage = (stage: CoreUpdateStage, target?: string): void => {
       progress.stage = stage;
@@ -296,9 +293,9 @@ export class CoreControlService {
     try {
       signal.throwIfAborted();
       this.requireRecoveredInstall();
-      const revision = state.snapshot().revision;
       const epoch = lifecycle.revision;
-      const configuration = supervisor.isRunning()
+      const wasRunning = supervisor.isRunning();
+      const configuration = wasRunning
         ? lifecycle.configuration()
         : await this.savedConfiguration();
       if (!configuration) throw new Error("Running Core configuration is unknown");
@@ -328,7 +325,7 @@ export class CoreControlService {
         ...(proxyUri !== undefined ? { proxyUri } : {}),
         onStage: setStage,
         onProgress: (downloaded, total) => {
-          if (this.progressValue !== progress) return;
+          if (this.operation !== progress) return;
           progress.downloaded = downloaded;
           progress.total = total ?? null;
           this.publishProgress();
@@ -352,7 +349,8 @@ export class CoreControlService {
       setStage("waiting");
       return await this.options.commit(async () => {
         signal.throwIfAborted();
-        state.assertCurrent(revision);
+        // A running update preserves the applied configuration, not pending saved edits.
+        if (!wasRunning) this.assertCurrentConfiguration(validated);
         if (lifecycle.revision !== epoch)
           throw new StateConflictError("Core changed during download; retry the update");
         setStage("installing");
@@ -364,112 +362,113 @@ export class CoreControlService {
     } finally {
       // Only the operation still owning the observable state may clear it; a
       // cancelled predecessor unwinds after its successor already started.
-      if (this.operation === operation) {
-        this.clearOperation();
+      if (this.operation === progress) {
+        this.operation = null;
         this.options.onProgress();
       }
       if (staged) fs.rmSync(staged.dir, { recursive: true, force: true });
     }
   }
 
-  async apply(onlyIfStopped = false): Promise<CoreStartResult> {
-    const { layout, state, supervisor, lifecycle } = this.options;
+  async apply(): Promise<CoreStartResult> {
     this.options.assertMutable();
-    const { signal } = this.preparation;
-    this.requireRecoveredInstall();
-    signal.throwIfAborted();
-    if (!coreInstalled(layout)) {
-      await this.update(undefined, true);
-      return this.options.commit(() => {
-        signal.throwIfAborted();
-        const owner = supervisor.ownedCoreSnapshot();
-        if (!owner) throw new Error("Core exited after installation");
-        return {
-          pid: owner.pid,
-          version: currentCoreVersion(layout),
-          alreadyRunning: false,
-          mixedPort: lifecycle.settings().mixedPort,
-        };
-      });
-    }
-    // Capture after earlier lifecycle operations, but keep parsing, downloads
-    // and preflight out of the state mutation queue.
-    const plan = await this.options.commit(async () => {
-      signal.throwIfAborted();
-      this.requireRecoveredInstall();
-      if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
-      return { snapshot: state.snapshot(), epoch: lifecycle.revision };
-    });
-    if (!("snapshot" in plan)) return plan;
-    const validated = await this.validateConfiguration(
-      await this.savedConfiguration(plan.snapshot),
-      layout.coreExe,
-      signal,
-      this.downloadTransport()?.uri,
-    );
-    return this.options.commit(async () => {
-      signal.throwIfAborted();
-      this.requireRecoveredInstall();
-      if (onlyIfStopped && supervisor.isRunning()) return lifecycle.start();
-      this.assertCurrentConfiguration(validated);
-      if (lifecycle.revision !== plan.epoch)
-        throw new StateConflictError("Core changed during preparation; retry Apply");
-      if (await this.canReload(validated)) return lifecycle.reload(validated, signal);
-      return lifecycle.apply(validated);
-    });
+    return this.applySavedConfiguration("apply");
   }
 
-  /**
-   * A reload can only carry a configuration whose listeners already match the
-   * running Core. Ports and LAN binding are re-bound by a restart alone, and
-   * an unknown or unhealthy runtime cannot answer the controller at all.
-   */
-  private async canReload(configuration: RuntimeConfiguration): Promise<boolean> {
-    const applied = this.options.lifecycle.configuration();
-    if (!applied) return false;
-    const core = await this.options.supervisor.status();
-    if (!core.running || !core.healthy) return false;
-    return !runtimeDelta(applied, configuration).restartRequired;
+  async start(): Promise<CoreStartResult> {
+    this.options.assertMutable();
+    return this.applySavedConfiguration("start");
   }
 
   async reconcileSaved(): Promise<boolean> {
     this.options.assertMutable();
-    const { signal } = this.preparation;
-    if (this.downloading || signal.aborted) return false;
-    const state = this.options.state.snapshot();
-    const epoch = this.options.lifecycle.revision;
-    const active = getActiveProfile(state.profiles);
-    const delta = runtimeDelta(this.options.lifecycle.configuration(), {
-      profile: active ? { id: active.id, revision: active.revision } : null,
-      settings: state.settings,
-    });
-    if (!delta.pending || delta.restartRequired) return false;
-    const core = await this.options.supervisor.status();
-    if (!core.running || !core.healthy) return false;
+    if (this.isUpdating || this.preparation.signal.aborted) return false;
     try {
-      const validated = await this.validateConfiguration(
-        await this.savedConfiguration(state),
-        this.options.layout.coreExe,
-        signal,
-      );
-      return await this.options.commit(async () => {
-        signal.throwIfAborted();
-        this.assertCurrentConfiguration(validated);
-        if (this.options.lifecycle.revision !== epoch) return false;
-        if (!(await this.canReload(validated))) return false;
-        await this.options.lifecycle.reload(validated, signal);
-        return true;
-      });
+      return Boolean(await this.applySavedConfiguration("reconcile"));
     } catch (error) {
-      // The state change itself already succeeded; a configuration the Core
-      // refuses stays pending, and an explicit apply reports the reason.
+      // Saving already succeeded; a rejected configuration stays pending.
       console.warn(`[sashd] saved configuration was not applied: ${errorMessage(error)}`);
       return false;
     }
   }
 
-  start(): Promise<CoreStartResult> {
-    return this.apply(true);
+  private applySavedConfiguration(intent: "start" | "apply"): Promise<CoreStartResult>;
+  private applySavedConfiguration(intent: "reconcile"): Promise<CoreStartResult | undefined>;
+  private async applySavedConfiguration(
+    intent: "start" | "apply" | "reconcile",
+  ): Promise<CoreStartResult | undefined> {
+    const { layout, supervisor, lifecycle } = this.options;
+    const { signal } = this.preparation;
+    if (intent !== "reconcile") {
+      this.requireRecoveredInstall();
+      signal.throwIfAborted();
+      if (!coreInstalled(layout)) {
+        await this.update(undefined, true);
+        return this.options.commit(() => {
+          signal.throwIfAborted();
+          const owner = supervisor.ownedCoreSnapshot();
+          if (!owner) throw new Error("Core exited after installation");
+          return {
+            pid: owner.pid,
+            version: currentCoreVersion(layout),
+            alreadyRunning: false,
+            mixedPort: lifecycle.settings().mixedPort,
+          };
+        });
+      }
+    }
+
+    // Start/Apply capture after earlier queued lifecycle operations. A saved
+    // profile reconciliation already follows its publication and needs no read-only queue turn.
+    const plan =
+      intent === "reconcile"
+        ? this.configurationPlan()
+        : await this.options.commit(async () => {
+            signal.throwIfAborted();
+            this.requireRecoveredInstall();
+            if (intent === "start" && supervisor.isRunning()) return lifecycle.start();
+            return this.configurationPlan();
+          });
+    if (!("snapshot" in plan)) return plan;
+
+    if (intent === "reconcile") {
+      const target = this.savedTarget(plan.snapshot);
+      if (
+        !runtimeDelta(lifecycle.configuration(), target).pending ||
+        !(await this.canReload(target))
+      )
+        return undefined;
+    }
+
+    // All intents share rendering and preflight outside the state mutation queue.
+    const configuration = await this.savedConfiguration(plan.snapshot);
+    const validated = await this.validateConfiguration(
+      configuration,
+      layout.coreExe,
+      signal,
+      intent === "reconcile" ? undefined : this.downloadTransport()?.uri,
+    );
+    return this.options.commit(async () => {
+      signal.throwIfAborted();
+      if (intent !== "reconcile") this.requireRecoveredInstall();
+      if (intent === "start" && supervisor.isRunning()) return lifecycle.start();
+      this.assertCurrentConfiguration(validated);
+      if (lifecycle.revision !== plan.epoch) {
+        if (intent === "reconcile") return undefined;
+        throw new StateConflictError("Core changed during preparation; retry Apply");
+      }
+      if (await this.canReload(validated)) return lifecycle.reload(validated, signal);
+      if (intent === "reconcile") return undefined;
+      return lifecycle.apply(validated);
+    });
+  }
+
+  /** Sash uses non-forced reloads: listener changes take the restart path. */
+  private async canReload(target: RuntimeTarget): Promise<boolean> {
+    const applied = this.options.lifecycle.configuration();
+    if (!applied || runtimeDelta(applied, target).restartRequired) return false;
+    const core = await this.options.supervisor.status();
+    return core.running && core.healthy === true;
   }
 
   async stop(): Promise<void> {

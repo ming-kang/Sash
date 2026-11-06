@@ -8,13 +8,12 @@ import { DaemonGate } from "./daemon/context.js";
 import type { SubscriptionFetch } from "./mihomo-config.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { ProfileService, profileDueForUpdate, readProfileText } from "./profile-service.js";
-import { type ProfileMeta, parseProfileText, profileFilePath } from "./profiles.js";
+import { type ProfileMeta, profileFilePath } from "./profiles.js";
 import { createTestState, deferred } from "./testing/state.js";
 
 const yamlA = "proxies:\n  - name: node-a\n    type: direct\nrules: ['MATCH,DIRECT']\n";
 const yamlB = yamlA.replace("node-a", "node-b");
 const fetched = (yamlText = yamlA): SubscriptionFetch => ({
-  doc: parseProfileText(yamlText),
   yamlText,
   intervalHours: 6,
   subInfo: { upload: 1, download: 2, total: 100 },
@@ -56,6 +55,8 @@ describe("saved profiles", () => {
     const second = await profiles.importLocal("local", yamlB);
     assert.equal(first.activated, true);
     assert.equal(second.activated, false);
+    assert.equal(first.profile.revision, 1);
+    assert.equal(second.profile.revision, 1);
     assert.equal(first.profile.intervalHours, 6);
     assert.equal(first.profile.subInfo?.total, 100);
     assert.equal(profiles.readContent(first.profile.id).content, yamlA);

@@ -103,7 +103,6 @@ export async function resolveLatestTag(
 
 export interface ReleaseAsset {
   name: string;
-  browser_download_url: string;
   size: number;
   digest: string;
 }
@@ -145,7 +144,6 @@ export async function listReleaseAssets(
     const asset = value as Record<string, unknown>;
     if (
       typeof asset.name !== "string" ||
-      typeof asset.browser_download_url !== "string" ||
       typeof asset.size !== "number" ||
       !Number.isSafeInteger(asset.size) ||
       asset.size <= 0 ||
@@ -156,7 +154,6 @@ export async function listReleaseAssets(
     return [
       {
         name: asset.name,
-        browser_download_url: asset.browser_download_url,
         size: asset.size,
         digest: asset.digest,
       },
@@ -178,8 +175,7 @@ export interface DownloadOptions {
   tag: string;
   deadlineMs?: number;
   proxyUri?: string;
-  assets: ReleaseAsset[];
-  candidates: string[];
+  asset: ReleaseAsset;
   dest: string;
   onProgress?: (downloaded: number, total: number | undefined) => void;
   onProxyFallback?: ProxyFallbackListener;
@@ -196,19 +192,18 @@ export function selectReleaseAsset(
     .find((asset): asset is ReleaseAsset => asset !== undefined);
 }
 
-export async function downloadReleaseAsset(opts: DownloadOptions): Promise<string> {
-  const chosen = selectReleaseAsset(opts.assets, opts.candidates);
-  if (!chosen) {
+export function releaseAssetDigest(asset: ReleaseAsset): string {
+  if (asset.size > RELEASE_ASSET_SIZE_LIMIT) {
     throw new Error(
-      `No trusted release asset matched ${opts.candidates.join(", ")} for ${opts.repo}@${opts.tag}`,
+      `Release asset ${asset.name} exceeds the ${RELEASE_ASSET_SIZE_LIMIT} byte safety limit`,
     );
   }
-  if (chosen.size > RELEASE_ASSET_SIZE_LIMIT) {
-    throw new Error(
-      `Release asset ${chosen.name} exceeds the ${RELEASE_ASSET_SIZE_LIMIT} byte safety limit`,
-    );
-  }
-  const expectedDigest = parseSha256Digest(chosen.digest);
+  return parseSha256Digest(asset.digest);
+}
+
+export async function downloadReleaseAsset(opts: DownloadOptions): Promise<void> {
+  const chosen = opts.asset;
+  const expectedDigest = releaseAssetDigest(chosen);
 
   const directUrl = `https://github.com/${opts.repo}/releases/download/${opts.tag}/${chosen.name}`;
   const urls = mirrorize(directUrl);
@@ -240,7 +235,7 @@ export async function downloadReleaseAsset(opts: DownloadOptions): Promise<strin
         deadlineMs: remainingMs,
         onProxyFallback: opts.onProxyFallback,
       });
-      return chosen.name;
+      return;
     } catch (err) {
       fs.rmSync(opts.dest, { force: true });
       lastError = err as Error;

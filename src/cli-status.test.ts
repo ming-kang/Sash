@@ -1,23 +1,34 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it, type TestContext } from "node:test";
 import { printStatus } from "./cli-status.js";
 import { runStatus } from "./commands/status.js";
+import { writeInstallRecord } from "./core.js";
 import { readSashPackageInfo } from "./package-info.js";
 import { sashLayout } from "./paths.js";
 import { cliStatusFromDaemonStatus } from "./status.js";
 import { testSettings, testStatus } from "./testing/state.js";
 
+function context(t: TestContext) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-cli-status-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const layout = sashLayout(root);
+  writeInstallRecord({ coreVersion: "v1.0.0" }, layout);
+  fs.mkdirSync(layout.uiDir, { recursive: true });
+  fs.writeFileSync(path.join(layout.uiDir, "index.html"), "<!doctype html>");
+  return { layout, settings: testSettings() };
+}
+
 it("renders six aligned summary rows and preserves detail in verbose and JSON output", async (t) => {
   const wire = testStatus();
   wire.daemon.version = readSashPackageInfo().version;
-  const status = cliStatusFromDaemonStatus(
-    { layout: sashLayout(path.join(os.tmpdir(), "sash-copy-fixture")), settings: testSettings() },
-    wire,
-    { state: "on", canEnable: true, reason: null },
-    { installedCoreVersion: "v1.0.0", uiInstalled: true },
-  );
+  const status = cliStatusFromDaemonStatus(context(t), wire, {
+    state: "on",
+    canEnable: true,
+    reason: null,
+  });
   const lines: string[] = [];
   t.mock.method(console, "log", (line: string) => lines.push(line));
   printStatus(status);
@@ -38,12 +49,11 @@ it("renders six aligned summary rows and preserves detail in verbose and JSON ou
 it("does not present stopped or unobserved endpoints as available, and preserves warnings", (t) => {
   const wire = testStatus();
   wire.daemon.version = readSashPackageInfo().version;
-  const status = cliStatusFromDaemonStatus(
-    { layout: sashLayout(path.join(os.tmpdir(), "sash-copy-fixture")), settings: testSettings() },
-    wire,
-    { state: "stale", canEnable: true, reason: "Missing launcher" },
-    { installedCoreVersion: "v1.0.0", uiInstalled: true },
-  );
+  const status = cliStatusFromDaemonStatus(context(t), wire, {
+    state: "stale",
+    canEnable: true,
+    reason: "Missing launcher",
+  });
   const lines: string[] = [];
   const warnings: string[] = [];
   t.mock.method(console, "log", (line: string) => lines.push(line));

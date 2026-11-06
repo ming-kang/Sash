@@ -50,18 +50,9 @@ export interface WindowsSystemProxySnapshot {
 export type SystemProxySnapshot = WindowsSystemProxySnapshot;
 
 export interface SystemProxyBackend {
-  readonly supported?: boolean;
-  readonly details?: string;
+  readonly supported: boolean;
   capture(): Promise<SystemProxySnapshot>;
-  createTarget(original: SystemProxySnapshot, opts: EnableOptions): SystemProxySnapshot;
   apply(snapshot: SystemProxySnapshot): Promise<void>;
-  equivalent(a: SystemProxySnapshot, b: SystemProxySnapshot): boolean;
-  compatible(
-    current: SystemProxySnapshot,
-    original: SystemProxySnapshot,
-    target: SystemProxySnapshot,
-  ): boolean;
-  state(snapshot: SystemProxySnapshot): SystemProxyState;
 }
 
 export interface WindowsRegistryProxyValues {

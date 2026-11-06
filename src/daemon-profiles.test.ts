@@ -273,7 +273,7 @@ describe("profile management API", () => {
           downloadSignal = signal;
           entered.resolve();
           await release.promise;
-          return { yamlText: content, doc: {} };
+          return { yamlText: content };
         },
       });
       const pending = h

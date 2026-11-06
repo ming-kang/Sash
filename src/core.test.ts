@@ -103,7 +103,6 @@ describe("core", () => {
       const candidates = mihomoAssetCandidates("v1.19.30", "linux", "x64");
       const asset = (name: string): ReleaseAsset => ({
         name,
-        browser_download_url: `https://example.test/${name}`,
         size: 1,
         digest: `sha256:${"a".repeat(64)}`,
       });
@@ -140,7 +139,8 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo.exe");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      await extractCoreArchive(zipPath, "mihomo-windows-amd64-v1.19.30.zip", destExe);
+      for (const name of ["mihomo-windows-amd64-v1.19.30.zip", "MIHOMO-WINDOWS-AMD64-V1.19.30.ZIP"])
+        await extractCoreArchive(zipPath, name, destExe);
 
       assert.equal(fs.existsSync(destExe), true);
       assert.deepEqual(fs.readFileSync(destExe), fakeExeData);
@@ -169,7 +169,8 @@ describe("core", () => {
       const destExe = path.join(tmpDir, "bin", "mihomo");
       fs.mkdirSync(path.dirname(destExe), { recursive: true });
 
-      await extractCoreArchive(gzPath, "mihomo-linux-amd64-v1.19.30.gz", destExe);
+      for (const name of ["mihomo-linux-amd64-v1.19.30.gz", "MIHOMO-LINUX-AMD64-V1.19.30.GZ"])
+        await extractCoreArchive(gzPath, name, destExe);
 
       assert.equal(fs.existsSync(destExe), true);
       assert.deepEqual(fs.readFileSync(destExe), fakeBinaryData);

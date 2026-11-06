@@ -40,7 +40,7 @@ describe("daemon-owned Core updates", () => {
     const dir = fs.mkdtempSync(path.join(h.layout.tempDir, "candidate-"));
     const exe = path.join(dir, "candidate");
     fs.writeFileSync(exe, "v2-core");
-    return { exe, dir, version: "v2", assetName: "mihomo-windows-amd64-v3-v2.zip" };
+    return { exe, dir, version: "v2" };
   }
   it("publishes authenticated progress during preparation and clears it after completion", async () => {
     const entered = deferred();

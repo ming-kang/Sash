@@ -186,7 +186,6 @@ describe("daemon server", () => {
         fetchProfile: async () => {
           fetches++;
           return {
-            doc: { rules: ["MATCH,DIRECT"] },
             yamlText: "rules:\n  - MATCH,DIRECT\n",
           };
         },

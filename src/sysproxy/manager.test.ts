@@ -9,15 +9,9 @@ import {
   type SystemProxyJournalLayout,
   SystemProxyManager,
 } from "./manager.js";
-import type {
-  EnableOptions,
-  SystemProxyBackend,
-  SystemProxySnapshot,
-  SystemProxyState,
-} from "./types.js";
-import { createSystemProxyBackend } from "./windows.js";
+import type { SystemProxyBackend, SystemProxySnapshot } from "./types.js";
+import { createSystemProxyBackend, createWindowsTarget } from "./windows.js";
 
-const windows = createSystemProxyBackend("win32");
 function snapshot(name: string, port: number): SystemProxySnapshot {
   return {
     version: 1,
@@ -37,7 +31,6 @@ class FakeBackend implements SystemProxyBackend {
   captureCalls = 0;
   onApply?: (snapshot: SystemProxySnapshot, backend: FakeBackend) => void | Promise<void>;
   onCapture?: (backend: FakeBackend) => void | Promise<void>;
-  onCreateTarget?: (backend: FakeBackend) => void;
   constructor(initial: SystemProxySnapshot) {
     this.current = structuredClone(initial);
   }
@@ -46,20 +39,11 @@ class FakeBackend implements SystemProxyBackend {
     await this.onCapture?.(this);
     return structuredClone(this.current);
   }
-  createTarget(original: SystemProxySnapshot, opts: EnableOptions): SystemProxySnapshot {
-    this.onCreateTarget?.(this);
-    return windows.createTarget(original, opts);
-  }
   async apply(snapshot: SystemProxySnapshot): Promise<void> {
     const next = structuredClone(snapshot);
     this.applyCalls.push(next);
     if (this.onApply) await this.onApply(next, this);
     else this.current = next;
-  }
-  equivalent = windows.equivalent;
-  compatible = windows.compatible;
-  state(snapshot: SystemProxySnapshot): SystemProxyState {
-    return windows.state(snapshot);
   }
 }
 
@@ -80,16 +64,6 @@ describe("SystemProxyManager", () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}
   });
-
-  function targetFor(
-    backend: FakeBackend,
-    original: SystemProxySnapshot,
-    port = 17890,
-  ): SystemProxySnapshot {
-    const target = backend.createTarget(original, { port });
-    assert.equal(target.platform, "win32");
-    return target;
-  }
 
   function writeJournal(
     original: SystemProxySnapshot,
@@ -122,7 +96,7 @@ describe("SystemProxyManager", () => {
     await manager.apply({ port: 17890 });
 
     assert.equal(readJournal().phase, "applied");
-    assert.deepEqual(backend.current, targetFor(backend, original));
+    assert.deepEqual(backend.current, createWindowsTarget({ port: 17890 }));
     assert.equal((await manager.inspect()).applied, true);
     if (process.platform !== "win32") {
       assert.equal(fs.statSync(layout.systemProxyStateFile).mode & 0o777, 0o600);
@@ -144,7 +118,7 @@ describe("SystemProxyManager", () => {
       ownerPid: process.pid,
       createdAt: "2026-09-08T00:00:00.000Z",
       original,
-      target: targetFor(backend, original),
+      target: createWindowsTarget({ port: 17890 }),
     };
     const manager = new SystemProxyManager({ layout, backend });
     for (const invalid of [
@@ -197,12 +171,26 @@ describe("SystemProxyManager", () => {
   });
 
   it("reports unsupported desktop integration without issuing OS commands", async () => {
-    const manager = new SystemProxyManager({ layout, backend: createSystemProxyBackend("linux") });
+    const backend = createSystemProxyBackend("linux");
+    const manager = new SystemProxyManager({ layout, backend });
     const inspection = await manager.inspect();
-    assert.equal(inspection.state.supported, false);
+    assert.deepEqual(inspection.state, {
+      supported: false,
+      enabled: false,
+      details: "System proxy integration is available on Windows only",
+    });
     assert.equal(inspection.stateKnown, true);
     assert.equal(inspection.applied, false);
+    await assert.rejects(
+      manager.apply({ port: 17890 }),
+      /System proxy integration is available on Windows only/,
+    );
+    await assert.rejects(
+      backend.apply(createWindowsTarget({ port: 17890 })),
+      /System proxy integration is available on Windows only/,
+    );
     await manager.release();
+    assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
   it("does not tear down and reapply an unchanged owned target", async () => {
@@ -221,8 +209,8 @@ describe("SystemProxyManager", () => {
     const original = snapshot("proxy-a", 8000);
     const external = snapshot("proxy-b", 9000);
     const backend = new FakeBackend(original);
-    backend.onCreateTarget = (fake) => {
-      fake.current = structuredClone(external);
+    backend.onCapture = (fake) => {
+      if (fake.captureCalls === 2) fake.current = structuredClone(external);
     };
     const manager = new SystemProxyManager({ layout, backend });
 
@@ -236,7 +224,7 @@ describe("SystemProxyManager", () => {
   it("restores a prepared partial write left by a crash", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
-    const target = targetFor(backend, original);
+    const target = createWindowsTarget({ port: 17890 });
     const partial = structuredClone(original);
     partial.proxyServer = target.proxyServer;
     partial.proxyEnable = target.proxyEnable;
@@ -269,7 +257,7 @@ describe("SystemProxyManager", () => {
   it("fails closed when a third-party proxy configuration is present", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(snapshot("proxy-b", 9000));
-    const target = targetFor(backend, original);
+    const target = createWindowsTarget({ port: 17890 });
     const journalText = writeJournal(original, target, "applied");
     const manager = new SystemProxyManager({ layout, backend });
 
@@ -282,7 +270,7 @@ describe("SystemProxyManager", () => {
   it("compensates an apply failure when the partial state is still compatible", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
-    const target = targetFor(backend, original);
+    const target = createWindowsTarget({ port: 17890 });
     const partial = structuredClone(original);
     partial.proxyServer = target.proxyServer;
     let invocation = 0;
@@ -308,7 +296,7 @@ describe("SystemProxyManager", () => {
   it("keeps a restoring journal when compensation cannot restore the snapshot", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
-    const target = targetFor(backend, original);
+    const target = createWindowsTarget({ port: 17890 });
     const partial = structuredClone(original);
     partial.proxyServer = target.proxyServer;
     let invocation = 0;

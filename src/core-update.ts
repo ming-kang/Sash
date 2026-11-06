@@ -19,7 +19,7 @@ import {
   durableRenameSync,
   pathEntryExists,
 } from "./fs-atomic.js";
-import { parseSha256Digest, RELEASE_ASSET_SIZE_LIMIT, selectReleaseAsset } from "./github.js";
+import { releaseAssetDigest, selectReleaseAsset } from "./github.js";
 import type { ProxyFallbackListener } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
 import type { SashLayout } from "./paths.js";
@@ -30,7 +30,6 @@ export type CoreUpdateStage =
   | "resolving"
   | "downloading"
   | "extracting"
-  | "verifying"
   | "validating"
   | "waiting"
   | "installing";
@@ -331,9 +330,7 @@ export async function checkCoreUpdate(
     throw new Error(
       `No compatible Core artifact is available for ${process.platform}/${process.arch} at ${tag}`,
     );
-  if (asset.size > RELEASE_ASSET_SIZE_LIMIT)
-    throw new Error("Core release exceeds the download size limit");
-  parseSha256Digest(asset.digest);
+  releaseAssetDigest(asset);
   return { current, target: tag, available: current !== tag, asset: asset.name };
 }
 
@@ -342,7 +339,6 @@ const STAGE_TEXT: Record<CoreUpdateStage, string> = {
   resolving: "Checking Release",
   downloading: "Downloading",
   extracting: "Extracting",
-  verifying: "Checking Executable",
   validating: "Checking Configuration",
   waiting: "Waiting for Other Operations",
   installing: "Installing and Checking Core",

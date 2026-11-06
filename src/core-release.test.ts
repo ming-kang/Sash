@@ -16,7 +16,6 @@ function oneAsset(tag: string) {
     assets: [
       {
         name: `mihomo-linux-amd64-${tag}.gz`,
-        browser_download_url: `https://github.com/MetaCubeX/mihomo/releases/download/${tag}/mihomo-linux-amd64-${tag}.gz`,
         size: 1024,
         digest: `sha256:${"1".repeat(64)}`,
       },

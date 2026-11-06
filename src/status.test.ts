@@ -74,6 +74,9 @@ function statusResponse(
 function dependencies(
   overrides: StatusObservationDependencies = {},
 ): StatusObservationDependencies {
+  const inspectAutostart =
+    overrides.inspectAutostart ??
+    (async (): Promise<AutostartStatus> => ({ state: "off", canEnable: true, reason: null }));
   return {
     evaluateDaemon: async () => ({
       kind: "healthy",
@@ -97,7 +100,8 @@ function dependencies(
       stateKnown: true,
     }),
     installedCoreVersion: () => "v1.2.3",
-    inspectAutostart: async () => ({ state: "off", canEnable: true, reason: null }),
+    queryDaemonAutostart: () => inspectAutostart(context),
+    inspectAutostart,
     activeProfile: () => null,
     hasUi: () => true,
     ...overrides,
@@ -132,6 +136,7 @@ describe("system proxy observation resolver", () => {
   it("merges daemon knowledge with local fallback and deduplicates errors", () => {
     const observation = resolveObservedSystemProxy(
       {
+        desired: false,
         applied: false,
         appliedKnown: false,
         stateKnown: false,
@@ -213,6 +218,37 @@ describe("CLI runtime status observations", () => {
 
     await captureConsole(() => runStatus({ json: true }, async () => status));
     assert.equal(process.exitCode ?? 0, 0);
+  });
+
+  it("samples local installation facts once and takes an online profile from the daemon", async () => {
+    let versionReads = 0;
+    let uiReads = 0;
+    let profileReads = 0;
+    const wire = statusResponse({ running: false });
+    wire.activeProfile = { id: "41", name: "daemon profile", url: "https://example.test/profile" };
+    const observed = await collectRuntimeStatus(
+      context,
+      dependencies({
+        queryDaemonStatus: async () => wire,
+        installedCoreVersion: () => {
+          versionReads += 1;
+          return "v2.0.0";
+        },
+        hasUi: () => {
+          uiReads += 1;
+          return true;
+        },
+        activeProfile: () => {
+          profileReads += 1;
+          return null;
+        },
+      }),
+    );
+    assert.equal(versionReads, 1);
+    assert.equal(uiReads, 1);
+    assert.equal(profileReads, 0);
+    assert.equal(observed.core.installedVersion, "v2.0.0");
+    assert.deepEqual(observed.activeProfile, wire.activeProfile);
   });
 
   it("queries and reports the observed healthy daemon port", async () => {

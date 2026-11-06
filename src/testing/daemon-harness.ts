@@ -166,7 +166,6 @@ export class DaemonTestHarness {
           assets: [
             {
               name: "mihomo-windows-amd64-v3-v2.zip",
-              browser_download_url: "https://example.invalid/mihomo-windows-amd64-v3-v2.zip",
               size: 1024,
               digest: `sha256:${"0".repeat(64)}`,
             },

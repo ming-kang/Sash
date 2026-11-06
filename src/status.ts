@@ -90,32 +90,57 @@ export interface StatusObservationContext {
   settings: SashSettings;
 }
 
-export interface StatusObservationDependencies {
-  evaluateDaemon?: (context: StatusObservationContext) => Promise<DaemonRunningInfo>;
-  queryDaemonStatus?: (
+export interface StatusObserver {
+  evaluateDaemon(context: StatusObservationContext): Promise<DaemonRunningInfo>;
+  queryDaemonStatus(
     context: StatusObservationContext,
     daemon: DaemonHealthyInfo,
-  ) => Promise<DaemonStatus>;
-  queryDaemonAutostart?: (
+  ): Promise<DaemonStatus>;
+  queryDaemonAutostart(
     context: StatusObservationContext,
     daemon: DaemonHealthyInfo,
-  ) => Promise<AutostartStatus>;
-  inspectSystemProxy?: (context: StatusObservationContext) => Promise<SystemProxyInspection>;
-  inspectAutostart?: (context: StatusObservationContext) => Promise<AutostartStatus>;
-  installedCoreVersion?: (context: StatusObservationContext) => string;
-  activeProfile?: (
-    context: StatusObservationContext,
-  ) => { id: string; name: string; url: string } | null;
-  hasUi?: (context: StatusObservationContext) => boolean;
+  ): Promise<AutostartStatus>;
+  inspectSystemProxy(context: StatusObservationContext): Promise<SystemProxyInspection>;
+  inspectAutostart(context: StatusObservationContext): Promise<AutostartStatus>;
+  installedCoreVersion(context: StatusObservationContext): string;
+  activeProfile(context: StatusObservationContext): DaemonStatus["activeProfile"];
+  hasUi(context: StatusObservationContext): boolean;
 }
 
-export interface SystemProxyObservationSource {
-  applied: boolean;
-  appliedKnown: boolean;
-  state?: SystemProxyState;
-  stateKnown: boolean;
-  queryError?: string;
+export type StatusObservationDependencies = Partial<StatusObserver>;
+
+function statusObserver(dependencies: StatusObservationDependencies = {}): StatusObserver {
+  return {
+    evaluateDaemon:
+      dependencies.evaluateDaemon ??
+      ((context) => evaluateDaemon(context.layout, context.settings)),
+    queryDaemonStatus:
+      dependencies.queryDaemonStatus ??
+      ((context, daemon) =>
+        createDaemonClient(daemon.port, context.settings.daemonSecret).status()),
+    queryDaemonAutostart:
+      dependencies.queryDaemonAutostart ??
+      ((context, daemon) =>
+        createDaemonClient(daemon.port, context.settings.daemonSecret).autostartStatus()),
+    inspectSystemProxy:
+      dependencies.inspectSystemProxy ??
+      ((context) => new SystemProxyManager({ layout: context.layout }).inspect()),
+    inspectAutostart:
+      dependencies.inspectAutostart ??
+      ((context) => new AutostartService({ layout: context.layout }).inspect()),
+    installedCoreVersion:
+      dependencies.installedCoreVersion ?? ((context) => currentCoreVersion(context.layout)),
+    activeProfile:
+      dependencies.activeProfile ??
+      ((context) => {
+        const profile = getActiveProfile(loadProfiles(context.layout));
+        return profile ? { id: profile.id, name: profile.name, url: profile.url } : null;
+      }),
+    hasUi: dependencies.hasUi ?? ((context) => uiInstalled(context.layout)),
+  };
 }
+
+const DEFAULT_STATUS_OBSERVER = statusObserver();
 
 export interface ResolvedSystemProxyObservation {
   daemonApplied: boolean | null;
@@ -144,23 +169,39 @@ function observedSystemProxy(state: SystemProxyState | undefined): CliObservedSy
 }
 
 function daemonObservation(
+  context: StatusObservationContext,
   state: DaemonRunningInfo,
-  daemonState?: CliDaemonState,
-  runningVersion?: string,
 ): CliDaemonObservation {
-  const resolvedState = daemonState ?? state.kind;
   return {
-    state: resolvedState,
+    state: state.kind,
     running: state.running,
-    healthy: resolvedState === "healthy",
-    pid: typeof state.pid === "number" ? state.pid : null,
-    port: state.kind === "stopped" ? 0 : (state.port ?? 0),
-    version: runningVersion?.trim() ? runningVersion : null,
+    healthy: state.healthy,
+    pid: state.pid ?? null,
+    port: (state.kind === "stopped" ? 0 : state.port) || context.settings.daemonPort,
+    version: null,
+  };
+}
+
+function onlineDaemonObservation(
+  context: StatusObservationContext,
+  status: DaemonStatus,
+  identity: Pick<DaemonHealthyInfo, "pid" | "port"> = status.daemon,
+): CliDaemonObservation {
+  return {
+    state: "healthy",
+    running: true,
+    healthy: true,
+    pid: typeof identity.pid === "number" ? identity.pid : null,
+    port: identity.port ?? context.settings.daemonPort,
+    version:
+      typeof status.daemon.version === "string" && status.daemon.version.trim()
+        ? status.daemon.version
+        : null,
   };
 }
 
 export function resolveObservedSystemProxy(
-  source: SystemProxyObservationSource | undefined,
+  source: DaemonStatus["systemProxy"] | undefined,
   fallbackDaemonApplied: boolean | null,
   inspection?: SystemProxyInspection,
   inspectionError?: string,
@@ -174,8 +215,8 @@ export function resolveObservedSystemProxy(
     if (daemonApplied === null)
       addError(errors, "system proxy: Sash could not confirm what it applied");
     if (source.queryError) addError(errors, `system proxy: ${source.queryError}`);
-    if (source.stateKnown && source.state) {
-      osObserved = observedSystemProxy(source.state);
+    if (source.stateKnown && source.actual) {
+      osObserved = observedSystemProxy(source.actual);
     }
   }
 
@@ -198,17 +239,15 @@ export function resolveObservedSystemProxy(
 
 async function observeSystemProxy(
   context: StatusObservationContext,
-  dependencies: StatusObservationDependencies,
-  source: SystemProxyObservationSource | undefined,
+  observer: StatusObserver,
+  source: DaemonStatus["systemProxy"] | undefined,
   fallbackDaemonApplied: boolean | null,
 ): Promise<ResolvedSystemProxyObservation> {
   let inspection: SystemProxyInspection | undefined;
   let inspectionError: string | undefined;
-  if (!source?.stateKnown || !source.state) {
+  if (!source?.stateKnown || !source.actual) {
     try {
-      inspection = dependencies.inspectSystemProxy
-        ? await dependencies.inspectSystemProxy(context)
-        : await new SystemProxyManager({ layout: context.layout }).inspect();
+      inspection = await observer.inspectSystemProxy(context);
     } catch (err) {
       inspectionError = `system proxy: ${errorText(err)}`;
     }
@@ -216,62 +255,18 @@ async function observeSystemProxy(
   return resolveObservedSystemProxy(source, fallbackDaemonApplied, inspection, inspectionError);
 }
 
-async function evaluate(
-  context: StatusObservationContext,
-  dependencies: StatusObservationDependencies,
-): Promise<DaemonRunningInfo> {
-  return dependencies.evaluateDaemon
-    ? dependencies.evaluateDaemon(context)
-    : evaluateDaemon(context.layout, context.settings);
-}
-
-async function queryStatus(
-  context: StatusObservationContext,
-  dependencies: StatusObservationDependencies,
-  daemon: DaemonHealthyInfo,
-): Promise<DaemonStatus> {
-  if (dependencies.queryDaemonStatus) {
-    return dependencies.queryDaemonStatus(context, daemon);
-  }
-  return createDaemonClient(daemon.port, context.settings.daemonSecret).status();
-}
-
-async function queryAutostart(
-  context: StatusObservationContext,
-  dependencies: StatusObservationDependencies,
-  daemon: DaemonHealthyInfo,
-): Promise<AutostartStatus> {
-  if (dependencies.queryDaemonAutostart) {
-    return dependencies.queryDaemonAutostart(context, daemon);
-  }
-  if (dependencies.queryDaemonStatus && dependencies.inspectAutostart) {
-    return dependencies.inspectAutostart(context);
-  }
-  return createDaemonClient(daemon.port, context.settings.daemonSecret).autostartStatus();
-}
-
-async function inspectLocalAutostart(
-  context: StatusObservationContext,
-  dependencies: StatusObservationDependencies,
-): Promise<AutostartStatus> {
-  return dependencies.inspectAutostart
-    ? dependencies.inspectAutostart(context)
-    : new AutostartService({ layout: context.layout }).inspect();
-}
-
 async function observeAutostart(
   context: StatusObservationContext,
-  dependencies: StatusObservationDependencies,
-  daemonState: DaemonRunningInfo,
-  daemonOnline: boolean,
+  observer: StatusObserver,
+  daemon: DaemonHealthyInfo | undefined,
 ): Promise<AutostartStatus> {
-  if (daemonOnline && daemonState.kind === "healthy") {
+  if (daemon) {
     try {
-      return await queryAutostart(context, dependencies, daemonState);
+      return await observer.queryDaemonAutostart(context, daemon);
     } catch {}
   }
   try {
-    return await inspectLocalAutostart(context, dependencies);
+    return await observer.inspectAutostart(context);
   } catch (err) {
     return { state: "unknown", canEnable: false, reason: errorText(err) };
   }
@@ -281,249 +276,163 @@ function addObservationErrors(errors: string[], observation: ResolvedSystemProxy
   for (const error of observation.errors) addError(errors, error);
 }
 
-export interface CliStatusFromDaemonOptions {
-  installedCoreVersion?: string | null;
-  uiInstalled?: boolean;
-  activeProfile?: { id: string; name: string; url: string } | null;
-  proxyObservation?: ResolvedSystemProxyObservation;
-  daemonPort?: number;
-  daemonPid?: number | null;
+interface RuntimeStatusObservation {
+  daemon: CliDaemonObservation;
+  status: DaemonStatus | undefined;
+  proxy: ResolvedSystemProxyObservation;
+  autostart: AutostartStatus;
+  activeProfile: DaemonStatus["activeProfile"];
+  installedVersion: string | null;
+  uiInstalled: boolean;
+  loginStart: LoginStartRecord | null;
+  errors: string[];
+}
+
+function readLocalStatusFacts(context: StatusObservationContext, observer: StatusObserver) {
+  return {
+    installedVersion: observer.installedCoreVersion(context) || null,
+    uiInstalled: observer.hasUi(context),
+    loginStart: readLoginStartRecord(context.layout) ?? null,
+  };
+}
+
+/** One projection for HTTP observations, disconnected observations, and SSE snapshots. */
+function projectRuntimeStatus(
+  context: StatusObservationContext,
+  observation: RuntimeStatusObservation,
+): CliRuntimeStatus {
+  const { daemon, status, proxy, autostart } = observation;
+  const errors = [...observation.errors];
+  const observed = daemon.running ? null : false;
+  const core: CliRuntimeStatus["core"] = {
+    running: observed,
+    healthy: observed,
+    pid: null,
+    version: null,
+    installedVersion: observation.installedVersion,
+  };
+  if (status) {
+    if (typeof status.core.running !== "boolean") {
+      addError(errors, "Core: state unknown");
+      core.running = false;
+      core.healthy = null;
+    } else if (!status.core.running) {
+      core.running = false;
+      core.healthy = false;
+    } else {
+      core.running = true;
+      core.healthy = typeof status.core.healthy === "boolean" ? status.core.healthy : null;
+      core.pid = typeof status.core.pid === "number" ? status.core.pid : null;
+      core.version =
+        typeof status.core.version === "string" && status.core.version ? status.core.version : null;
+      if (core.healthy === null) addError(errors, "Core: health unknown");
+      else if (!core.healthy) addError(errors, "Core: its control API is not answering");
+      if (core.pid === null) addError(errors, "Core: process id unknown");
+      if (core.version === null) addError(errors, "Core: version unknown");
+    }
+  }
+  addObservationErrors(errors, proxy);
+  if (autostart.state === "unknown") {
+    addError(errors, `start at login: ${autostart.reason ?? "could not read the state"}`);
+  }
+  const settings = status ? status.settings : context.settings;
+  const mixedEndpoint = status?.core.running
+    ? status.configuration.appliedSettings
+      ? `127.0.0.1:${status.configuration.appliedSettings.mixedPort}`
+      : "unknown"
+    : `127.0.0.1:${settings.mixedPort}`;
+
+  return {
+    schemaVersion: CLI_STATUS_SCHEMA_VERSION,
+    complete: errors.length === 0,
+    healthy: core.running === false ? false : core.healthy,
+    queryError: errors.length > 0 ? errors.join("; ") : null,
+    autostart,
+    loginStart: observation.loginStart,
+    daemon,
+    core,
+    ...(status?.coreUpdate ? { coreUpdate: status.coreUpdate } : {}),
+    ...(status?.downloadTransport
+      ? {
+          downloadProxy: describeDownloadTransport(status.downloadTransport),
+          downloadTransport: status.downloadTransport,
+        }
+      : {}),
+    systemProxy: {
+      desired: status ? status.systemProxy.desired : settings.systemProxy,
+      daemonApplied: proxy.daemonApplied,
+      osObserved: proxy.osObserved,
+    },
+    uiInstalled: observation.uiInstalled,
+    endpoints: {
+      mixedProxy: mixedEndpoint,
+      controller: settings.controller,
+      daemonApi: `http://127.0.0.1:${daemon.port}`,
+      dashboard: `http://127.0.0.1:${daemon.port}/ui/`,
+    },
+    activeProfile: observation.activeProfile,
+    paths: {
+      root: context.layout.root,
+      config: context.layout.configFile,
+    },
+  };
 }
 
 export function cliStatusFromDaemonStatus(
   context: StatusObservationContext,
   status: DaemonStatus,
   autostart: AutostartStatus,
-  options: CliStatusFromDaemonOptions = {},
 ): CliRuntimeStatus {
-  const errors: string[] = [];
-  const daemonPort = options.daemonPort ?? status.daemon.port ?? context.settings.daemonPort;
-  const daemonPid =
-    options.daemonPid !== undefined
-      ? options.daemonPid
-      : typeof status.daemon.pid === "number"
-        ? status.daemon.pid
-        : null;
-  const daemon: CliDaemonObservation = {
-    state: "healthy",
-    running: true,
-    healthy: true,
-    pid: daemonPid,
-    port: daemonPort,
-    version:
-      typeof status.daemon.version === "string" && status.daemon.version.trim()
-        ? status.daemon.version
-        : null,
-  };
-
-  const desiredProxy = status.systemProxy.desired;
-  const controllerEndpoint = status.settings.controller;
-  const mixedEndpoint = status.core.running
-    ? status.configuration.appliedSettings
-      ? `127.0.0.1:${status.configuration.appliedSettings.mixedPort}`
-      : "unknown"
-    : `127.0.0.1:${status.settings.mixedPort}`;
-
-  const proxySource: SystemProxyObservationSource = {
-    applied: status.systemProxy.applied,
-    appliedKnown: status.systemProxy.appliedKnown,
-    stateKnown: status.systemProxy.stateKnown,
-    ...(status.systemProxy.actual ? { state: status.systemProxy.actual } : {}),
-    ...(status.systemProxy.queryError ? { queryError: status.systemProxy.queryError } : {}),
-  };
-
-  let coreRunning: boolean;
-  let coreHealthy: boolean | null;
-  let corePid: number | null = null;
-  let coreVersion: string | null = null;
-
-  if (typeof status.core.running !== "boolean") {
-    addError(errors, "Core: state unknown");
-    coreRunning = false;
-    coreHealthy = null;
-  } else if (!status.core.running) {
-    coreRunning = false;
-    coreHealthy = false;
-  } else {
-    coreRunning = true;
-    coreHealthy = typeof status.core.healthy === "boolean" ? status.core.healthy : null;
-    corePid = typeof status.core.pid === "number" ? status.core.pid : null;
-    coreVersion =
-      typeof status.core.version === "string" && status.core.version ? status.core.version : null;
-    if (coreHealthy === null) addError(errors, "Core: health unknown");
-    else if (!coreHealthy) addError(errors, "Core: its control API is not answering");
-    if (corePid === null) addError(errors, "Core: process id unknown");
-    if (coreVersion === null) addError(errors, "Core: version unknown");
-  }
-
-  const proxyObservation =
-    options.proxyObservation ?? resolveObservedSystemProxy(proxySource, null);
-  addObservationErrors(errors, proxyObservation);
-
-  const healthy = coreRunning === false ? false : coreHealthy;
-  const activeProfile =
-    options.activeProfile !== undefined
-      ? options.activeProfile
-      : status.activeProfile
-        ? {
-            id: status.activeProfile.id,
-            name: status.activeProfile.name,
-            url: status.activeProfile.url,
-          }
-        : null;
-
-  if (autostart.state === "unknown") {
-    addError(errors, `start at login: ${autostart.reason ?? "could not read the state"}`);
-  }
-  const loginStart = readLoginStartRecord(context.layout) ?? null;
-  const installedVersion =
-    options.installedCoreVersion !== undefined
-      ? options.installedCoreVersion
-      : currentCoreVersion(context.layout);
-  const hasUi =
-    options.uiInstalled !== undefined ? options.uiInstalled : uiInstalled(context.layout);
-
-  return {
-    schemaVersion: CLI_STATUS_SCHEMA_VERSION,
-    complete: errors.length === 0,
-    healthy,
-    queryError: errors.length > 0 ? errors.join("; ") : null,
+  return projectRuntimeStatus(context, {
+    daemon: onlineDaemonObservation(context, status),
+    status,
+    proxy: resolveObservedSystemProxy(status.systemProxy, null),
     autostart,
-    loginStart,
-    daemon,
-    core: {
-      running: coreRunning,
-      healthy: coreHealthy,
-      pid: corePid,
-      version: coreVersion,
-      installedVersion: installedVersion || null,
-    },
-    ...(status.coreUpdate ? { coreUpdate: status.coreUpdate } : {}),
-    ...(status.downloadTransport
-      ? { downloadProxy: describeDownloadTransport(status.downloadTransport) }
-      : {}),
-    ...(status.downloadTransport ? { downloadTransport: status.downloadTransport } : {}),
-    systemProxy: {
-      desired: desiredProxy,
-      daemonApplied: proxyObservation.daemonApplied,
-      osObserved: proxyObservation.osObserved,
-    },
-    uiInstalled: hasUi,
-    endpoints: {
-      mixedProxy: mixedEndpoint,
-      controller: controllerEndpoint,
-      daemonApi: `http://127.0.0.1:${daemonPort}`,
-      dashboard: `http://127.0.0.1:${daemonPort}/ui/`,
-    },
-    activeProfile,
-    paths: {
-      root: context.layout.root,
-      config: context.layout.configFile,
-    },
-  };
+    activeProfile: status.activeProfile,
+    ...readLocalStatusFacts(context, DEFAULT_STATUS_OBSERVER),
+    errors: [],
+  });
 }
 
 export async function collectRuntimeStatus(
   context: StatusObservationContext,
   dependencies: StatusObservationDependencies = {},
 ): Promise<CliRuntimeStatus> {
+  const observer = statusObserver(dependencies);
+  const daemonState = await observer.evaluateDaemon(context);
+  let daemon = daemonObservation(context, daemonState);
+  let status: DaemonStatus | undefined;
   const errors: string[] = [];
-  const daemonState = await evaluate(context, dependencies);
-  let daemon = daemonObservation(daemonState);
-  const installedVersion = dependencies.installedCoreVersion
-    ? dependencies.installedCoreVersion(context)
-    : currentCoreVersion(context.layout);
-  const profile = dependencies.activeProfile
-    ? dependencies.activeProfile(context)
-    : getActiveProfile(loadProfiles(context.layout));
-
-  const desiredProxy = context.settings.systemProxy;
-  const mixedEndpoint = `127.0.0.1:${context.settings.mixedPort}`;
-  const controllerEndpoint = context.settings.controller;
-
   if (daemonState.kind === "healthy") {
     try {
-      const status = await queryStatus(context, dependencies, daemonState);
-      const proxySource: SystemProxyObservationSource = {
-        applied: status.systemProxy.applied,
-        appliedKnown: status.systemProxy.appliedKnown,
-        stateKnown: status.systemProxy.stateKnown,
-        ...(status.systemProxy.actual ? { state: status.systemProxy.actual } : {}),
-        ...(status.systemProxy.queryError ? { queryError: status.systemProxy.queryError } : {}),
-      };
-      const [proxyObservation, autostart] = await Promise.all([
-        observeSystemProxy(context, dependencies, proxySource, null),
-        observeAutostart(context, dependencies, daemonState, true),
-      ]);
-      return cliStatusFromDaemonStatus(context, status, autostart, {
-        daemonPort: daemonState.port,
-        daemonPid: typeof daemonState.pid === "number" ? daemonState.pid : undefined,
-        installedCoreVersion: dependencies.installedCoreVersion
-          ? dependencies.installedCoreVersion(context)
-          : undefined,
-        uiInstalled: dependencies.hasUi ? dependencies.hasUi(context) : undefined,
-        activeProfile: dependencies.activeProfile
-          ? profile
-            ? { id: profile.id, name: profile.name, url: profile.url }
-            : null
-          : undefined,
-        proxyObservation,
-      });
+      status = await observer.queryDaemonStatus(context, daemonState);
+      daemon = onlineDaemonObservation(context, status, daemonState);
     } catch (err) {
-      daemon = daemonObservation(daemonState, "unhealthy");
+      status = undefined;
+      daemon = { ...daemon, state: "unhealthy", healthy: false };
       addError(errors, `local API request failed: ${errorText(err)}`);
     }
   } else if (daemonState.running) {
     addError(errors, "the local API is unreachable");
   }
 
-  const observed: boolean | null = daemonState.running ? null : false;
-  const [proxyObservation, autostart] = await Promise.all([
-    observeSystemProxy(context, dependencies, undefined, observed),
-    observeAutostart(context, dependencies, daemonState, false),
+  const [proxy, autostart] = await Promise.all([
+    observeSystemProxy(context, observer, status?.systemProxy, daemon.running ? null : false),
+    observeAutostart(
+      context,
+      observer,
+      status && daemonState.kind === "healthy" ? daemonState : undefined,
+    ),
   ]);
-  addObservationErrors(errors, proxyObservation);
-
-  const activeProfile = profile ? { id: profile.id, name: profile.name, url: profile.url } : null;
-  const daemonPort = daemon.port || context.settings.daemonPort;
-  if (autostart.state === "unknown") {
-    addError(errors, `start at login: ${autostart.reason ?? "could not read the state"}`);
-  }
-  const loginStart = readLoginStartRecord(context.layout) ?? null;
-
-  return {
-    schemaVersion: CLI_STATUS_SCHEMA_VERSION,
-    complete: errors.length === 0,
-    healthy: observed,
-    queryError: errors.length > 0 ? errors.join("; ") : null,
+  return projectRuntimeStatus(context, {
+    daemon,
+    status,
+    proxy,
     autostart,
-    loginStart,
-    daemon: { ...daemon, port: daemonPort },
-    core: {
-      running: observed,
-      healthy: observed,
-      pid: null,
-      version: null,
-      installedVersion: installedVersion || null,
-    },
-    systemProxy: {
-      desired: desiredProxy,
-      daemonApplied: proxyObservation.daemonApplied,
-      osObserved: proxyObservation.osObserved,
-    },
-    uiInstalled: dependencies.hasUi ? dependencies.hasUi(context) : uiInstalled(context.layout),
-    endpoints: {
-      mixedProxy: mixedEndpoint,
-      controller: controllerEndpoint,
-      daemonApi: `http://127.0.0.1:${daemonPort}`,
-      dashboard: `http://127.0.0.1:${daemonPort}/ui/`,
-    },
-    activeProfile,
-    paths: {
-      root: context.layout.root,
-      config: context.layout.configFile,
-    },
-  };
+    activeProfile: status ? status.activeProfile : observer.activeProfile(context),
+    ...readLocalStatusFacts(context, observer),
+    errors,
+  });
 }
 
 export type StatusHeadline = { level: "info" | "ok" | "warn"; text: string };

@@ -59,7 +59,7 @@ sash mode global           # change the running mode
 sash proxy on              # requires a healthy Core
 ```
 
-Overview keeps preferences, the proxy port and runtime details in its left column. The proxy port and LAN access are saved for the next Apply, because Core rebinds its listeners only on a restart. Mode and node selection affect the running Core; a later Apply uses the saved profile again. The system-proxy switch acts immediately; if turning it off fails, the off preference stays saved — resolve the Windows error and retry.
+Overview keeps preferences, the proxy port and runtime details in its left column. The proxy port and LAN access are saved for the next Apply: Sash uses non-forced reloads for profile changes and restarts Core for these listener changes. Mode and node selection affect the running Core; a later Apply uses the saved profile again. The system-proxy switch acts immediately; if turning it off fails, the off preference stays saved — resolve the Windows error and retry.
 
 Profiles must be YAML objects in Core format. The editor can open damaged YAML for repair and checks it on save. If another tab has edited the same content, reopen the current version before saving again.
 
@@ -104,7 +104,7 @@ sash update v1.19.30        # install an exact release tag
 sash update --cancel        # abandon a download that is already running
 ```
 
-Sash selects an official build that runs on the processor, verifies its download and keeps the previous binary until the new Core passes a health check; failure restores the executable and install record. Updates preserve whether Core was running — an update while stopped starts Core briefly for verification, then stops it. The dashboard stays available throughout. `--check` reads metadata without starting Sash or Core; `--json` prints one result instead of progress text.
+Sash selects an official build that runs on the processor, verifies its download and keeps the previous binary until the new Core passes a health check; failure restores the executable and install record. Updates preserve whether Core was running — an update while stopped starts Core briefly for verification, then stops it. The dashboard stays available throughout. Running updates keep the applied configuration; profile and listener edits saved during preparation remain pending instead of cancelling the update. A stopped update checks its saved profile revision and listener settings, so unrelated renames or ordering changes do not cancel it either. `--check` reads metadata without starting Sash or Core; `--json` prints one result instead of progress text.
 
 Sash resolves the release before it downloads anything, so an update that names the installed version downloads nothing and reports `Core vX is up to date` — including an explicit tag. The proxy never pauses and the binary is never replaced for a release that is already installed.
 
@@ -179,7 +179,7 @@ Use an exact node or group name. Core requests `https://www.gstatic.com/generate
 
 JSON formats: `status --json` is `schemaVersion: 2` with runtime, endpoints, profile, proxy, startup, `complete` and `healthy` (unknown observations are `null`); `--delay` adds probe details. A Core download in progress adds `coreUpdate`, and a reachable Sash adds `downloadProxy` describing the transport. `doctor --json` is `schemaVersion: 1` with `healthy`, `complete` and named `checks`.
 
-Core fetches geodata itself, ignoring `HTTP_PROXY`; Sash retries a failed fetch once through mirrors. If that also fails, provide a reachable `geox-url` in the profile or pre-seed the databases named by the error (`geoip.metadb`, `geosite.dat`, `country.mmdb` or `GeoLite2-ASN.mmdb`). A system-wide tunnel can also supply connectivity.
+Core fetches geodata itself, ignoring `HTTP_PROXY`; Sash tries the mirror list after a geodata failure, then fetches missing databases through its existing verified release pipeline if the mirrors also fail. If that also fails, provide a reachable `geox-url` in the profile or pre-seed the databases named by the error (`geoip.metadb`, `geosite.dat`, `country.mmdb` or `GeoLite2-ASN.mmdb`). A system-wide tunnel can also supply connectivity.
 
 Sash manages Windows desktop proxy/PAC settings; doctor may report separate VPN/dial-up proxy records to inspect in Windows even if the connection is inactive. Core/CLI operation is portable to macOS and Linux; desktop proxy and startup integration are Windows-only. The generated core config disables TUN.
 

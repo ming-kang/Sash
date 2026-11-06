@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { isSystemProxySupported, runCmd } from "./common.js";
+import { snapshotsCompatible, snapshotsEquivalent } from "./snapshot.js";
 import { DEFAULT_BYPASS_LIST } from "./types.js";
 import {
-  createSystemProxyBackend,
+  createWindowsTarget,
   formatWindowsBypass,
   parseWindowsRegistryProxyValues,
+  windowsState,
 } from "./windows.js";
 
 describe("sysproxy", () => {
@@ -120,7 +122,6 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
 
   describe("Windows snapshot ownership", () => {
     it("recognizes only original and target leaf values as compatible", () => {
-      const backend = createSystemProxyBackend("win32");
       const original = {
         version: 1 as const,
         platform: "win32" as const,
@@ -142,34 +143,72 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
       const partial = { ...original, proxyServer: target.proxyServer };
       const thirdParty = { ...partial, proxyOverride: "proxy-b.example.test" };
 
-      assert.equal(backend.equivalent(original, { ...original }), true);
-      assert.equal(backend.compatible(partial, original, target), true);
-      assert.equal(backend.compatible(thirdParty, original, target), false);
+      assert.equal(snapshotsEquivalent(original, { ...original }), true);
+      assert.equal(snapshotsCompatible(partial, original, target), true);
+      assert.equal(snapshotsCompatible(thirdParty, original, target), false);
 
       // The flat AutoDetect value is rewritten by Windows on WinINet refreshes,
       // so it is excluded from ownership equivalence and compatibility.
-      assert.equal(backend.equivalent(target, { ...target, autoDetect: null }), true);
-      assert.equal(backend.compatible({ ...partial, autoDetect: null }, original, target), true);
-      assert.equal(backend.compatible({ ...partial, autoDetect: 0 }, original, target), true);
+      assert.equal(snapshotsEquivalent(target, { ...target, autoDetect: null }), true);
+      assert.equal(snapshotsCompatible({ ...partial, autoDetect: null }, original, target), true);
+      assert.equal(snapshotsCompatible({ ...partial, autoDetect: 0 }, original, target), true);
     });
 
     it("leaves the unmanaged Windows AutoDetect value out of targets", () => {
-      const backend = createSystemProxyBackend("win32");
-      const original = {
-        version: 1 as const,
-        platform: "win32" as const,
-        proxyEnable: 0,
-        proxyServer: null,
-        proxyOverride: null,
-        autoConfigUrl: null,
-        autoDetect: 1,
-      };
-      const target = backend.createTarget(original, { port: 17890 });
+      const target = createWindowsTarget({ port: 17890 });
       assert.equal(target.platform, "win32");
-      if (target.platform !== "win32") return;
       assert.equal(target.autoDetect, null);
       assert.equal(target.proxyEnable, 1);
       assert.equal(target.proxyServer, "127.0.0.1:17890");
+      assert.equal(target.proxyOverride, DEFAULT_BYPASS_LIST.join(";"));
+      assert.equal(target.autoConfigUrl, null);
+    });
+
+    it("normalizes custom endpoints and bypass lists when creating targets", () => {
+      const target = createWindowsTarget({
+        host: "::1",
+        port: 17890,
+        bypass: ["localhost", "<local>"],
+      });
+      assert.equal(target.proxyServer, "[::1]:17890");
+      assert.equal(target.proxyOverride, "localhost;<local>");
+    });
+
+    it("reports manual, PAC, and AutoDetect state from typed snapshots", () => {
+      const target = createWindowsTarget({ port: 17890 });
+      assert.deepEqual(windowsState(target), {
+        supported: true,
+        enabled: true,
+        server: "127.0.0.1:17890",
+      });
+      assert.deepEqual(windowsState({ ...target, proxyServer: null }), {
+        supported: true,
+        enabled: true,
+        details: "manual proxy has no server",
+      });
+      assert.deepEqual(
+        windowsState({
+          ...target,
+          proxyEnable: 0,
+          autoConfigUrl: "https://pac.example.test/proxy.pac",
+          autoDetect: 1,
+        }),
+        {
+          supported: true,
+          enabled: true,
+          server: "https://pac.example.test/proxy.pac",
+          details: "automatic proxy configuration is enabled",
+        },
+      );
+      assert.deepEqual(windowsState({ ...target, proxyEnable: 0, autoDetect: 1 }), {
+        supported: true,
+        enabled: true,
+        details: "automatic proxy detection is enabled",
+      });
+      assert.deepEqual(windowsState({ ...target, proxyEnable: 0 }), {
+        supported: true,
+        enabled: false,
+      });
     });
   });
 });

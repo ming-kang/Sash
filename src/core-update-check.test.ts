@@ -33,7 +33,6 @@ for (const target of ["v1.0.0", "v2.0.0"]) {
         assets: [
           {
             name,
-            browser_download_url: `https://github.com/MetaCubeX/mihomo/releases/download/${target}/${name}`,
             size: 1024,
             digest: `sha256:${"1".repeat(64)}`,
           },

@@ -93,10 +93,9 @@ interface CachedManifest {
 
 const manifestCache = new Map<string, CachedManifest>();
 
-export function manifestReleaseAssets(repo: string, release: BootstrapRelease): ReleaseAsset[] {
+export function manifestReleaseAssets(release: BootstrapRelease): ReleaseAsset[] {
   return release.assets.map((asset) => ({
     name: asset.name,
-    browser_download_url: `https://github.com/${repo}/releases/download/${release.tag}/${asset.name}`,
     size: asset.size,
     digest: `sha256:${asset.sha256}`,
   }));

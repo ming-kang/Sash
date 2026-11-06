@@ -53,7 +53,6 @@ describe("seedGeodataFile", () => {
         assets: [
           {
             name: "geoip.dat",
-            browser_download_url: `https://github.com${DOWNLOAD}/v2026.01/geoip.dat`,
             size: content.length,
             digest: `sha256:${digest}`,
           },

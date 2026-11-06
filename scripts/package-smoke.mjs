@@ -185,14 +185,16 @@ try {
   let expectedVersion = packageJson.version;
   let packedFiles;
   if (spec) {
-    const packOutput = JSON.parse(
-      runNpm(["pack", spec, "--dry-run", "--json", "--pack-destination", packDir]),
+    const packOutput = Object.values(
+      JSON.parse(runNpm(["pack", spec, "--dry-run", "--json", "--pack-destination", packDir])),
     );
     assert.equal(packOutput.length, 1, "npm pack produced an unexpected result count");
     expectedVersion = packOutput[0].version ?? expectedVersion;
     packedFiles = packOutput[0].files;
   } else {
-    const packOutput = JSON.parse(runNpm(["pack", "--json", "--pack-destination", packDir]));
+    const packOutput = Object.values(
+      JSON.parse(runNpm(["pack", "--json", "--pack-destination", packDir])),
+    );
     assert.equal(packOutput.length, 1, "npm pack produced an unexpected result count");
     const packed = packOutput[0];
     spec = path.join(packDir, packed.filename);
@@ -234,8 +236,8 @@ try {
         reject(new Error(`Profile worker exited before responding (${code})`)),
       );
     });
-    worker.postMessage({ id: 1, text: "rules: ['MATCH,DIRECT']\n" });
-    assert.deepEqual(await parsed, { id: 1, value: { rules: ["MATCH,DIRECT"] } });
+    worker.postMessage({ id: 1, kind: "inspect", text: "rules: ['MATCH,DIRECT']\n" });
+    assert.deepEqual(await parsed, { id: 1, value: { proxyCount: 0 } });
   } finally {
     await worker.terminate();
   }

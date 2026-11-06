@@ -4,15 +4,14 @@ import { atomicWriteFileSync } from "../fs-atomic.js";
 import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "../json-shape.js";
 import { sashLayout } from "../paths.js";
 import { withStateLock } from "../state-lock.js";
-import { isSystemProxySupported } from "./common.js";
-import { parseSystemProxySnapshot } from "./snapshot.js";
+import { parseSystemProxySnapshot, snapshotsCompatible, snapshotsEquivalent } from "./snapshot.js";
 import type {
   EnableOptions,
   SystemProxyBackend,
   SystemProxySnapshot,
   SystemProxyState,
 } from "./types.js";
-import { createSystemProxyBackend } from "./windows.js";
+import { createSystemProxyBackend, createWindowsTarget, windowsState } from "./windows.js";
 
 export interface SystemProxyInspection {
   applied: boolean;
@@ -208,15 +207,15 @@ export class SystemProxyManager implements SystemProxyController {
     let current: SystemProxySnapshot;
     let state: SystemProxyState;
     try {
-      current = await this.captureCurrent();
-      state = this.backend.state(current);
+      current = await this.backend.capture();
+      state = windowsState(current);
     } catch (error) {
       add(error);
       const queryError = messages.join("; ");
       return {
         applied: false,
         state: {
-          supported: this.backend.supported ?? isSystemProxySupported(),
+          supported: this.backend.supported,
           enabled: false,
           details: queryError,
         },
@@ -237,7 +236,7 @@ export class SystemProxyManager implements SystemProxyController {
       };
     }
     return {
-      applied: journal?.phase === "applied" && this.backend.equivalent(current, journal.target),
+      applied: journal?.phase === "applied" && snapshotsEquivalent(current, journal.target),
       state,
       appliedKnown: true,
       stateKnown: true,
@@ -309,29 +308,23 @@ export class SystemProxyManager implements SystemProxyController {
     }
   }
 
-  private async captureCurrent(): Promise<SystemProxySnapshot> {
-    return parseSystemProxySnapshot(await this.backend.capture());
-  }
-
   private async applyUnlocked(opts: EnableOptions): Promise<void> {
     const previous = this.readJournal();
     if (previous) {
-      const desiredTarget = parseSystemProxySnapshot(
-        this.backend.createTarget(previous.original, opts),
-      );
-      const current = await this.captureCurrent();
+      const desiredTarget = createWindowsTarget(opts);
+      const current = await this.backend.capture();
       if (
         previous.phase === "applied" &&
-        this.backend.equivalent(previous.target, desiredTarget) &&
-        this.backend.equivalent(current, previous.target)
+        snapshotsEquivalent(previous.target, desiredTarget) &&
+        snapshotsEquivalent(current, previous.target)
       ) {
         return;
       }
       await this.restoreJournal(previous);
     }
 
-    const original = await this.captureCurrent();
-    const target = parseSystemProxySnapshot(this.backend.createTarget(original, opts));
+    const original = await this.backend.capture();
+    const target = createWindowsTarget(opts);
 
     const prepared: SystemProxyJournal = {
       schemaVersion: 2,
@@ -343,8 +336,8 @@ export class SystemProxyManager implements SystemProxyController {
     };
     this.writeJournal(prepared);
 
-    const beforeApply = await this.captureCurrent();
-    if (!this.backend.equivalent(beforeApply, original)) {
+    const beforeApply = await this.backend.capture();
+    if (!snapshotsEquivalent(beforeApply, original)) {
       this.clearJournal();
       throw new Error(
         "System proxy settings changed while Sash was preparing ownership; refusing to overwrite them",
@@ -354,8 +347,8 @@ export class SystemProxyManager implements SystemProxyController {
     let activeJournal = prepared;
     try {
       await this.backend.apply(target);
-      const current = await this.captureCurrent();
-      if (!this.backend.equivalent(current, target)) {
+      const current = await this.backend.capture();
+      if (!snapshotsEquivalent(current, target)) {
         throw new Error("System proxy target verification failed after apply");
       }
       const applied: SystemProxyJournal = { ...prepared, phase: "applied" };
@@ -378,16 +371,16 @@ export class SystemProxyManager implements SystemProxyController {
   }
 
   private async restoreJournal(journal: SystemProxyJournal): Promise<void> {
-    const current = await this.captureCurrent();
-    if (this.backend.equivalent(current, journal.original)) {
+    const current = await this.backend.capture();
+    if (snapshotsEquivalent(current, journal.original)) {
       this.clearJournal();
       return;
     }
 
     const canRestore =
-      this.backend.equivalent(current, journal.target) ||
+      snapshotsEquivalent(current, journal.target) ||
       ((journal.phase === "prepared" || journal.phase === "restoring") &&
-        this.backend.compatible(current, journal.original, journal.target));
+        snapshotsCompatible(current, journal.original, journal.target));
     if (!canRestore) {
       throw new Error(
         "System proxy journal refuses to restore because current settings were modified outside Sash",
@@ -409,7 +402,7 @@ export class SystemProxyManager implements SystemProxyController {
 
     let restored: SystemProxySnapshot;
     try {
-      restored = await this.captureCurrent();
+      restored = await this.backend.capture();
     } catch (err) {
       const verificationError = new Error(
         `Could not verify system proxy restoration: ${errorMessage(err)}`,
@@ -418,7 +411,7 @@ export class SystemProxyManager implements SystemProxyController {
         ? verificationError
         : combinedError(applyResult.error, verificationError);
     }
-    if (!this.backend.equivalent(restored, restoring.original)) {
+    if (!snapshotsEquivalent(restored, restoring.original)) {
       const verificationError = new Error("System proxy restoration verification failed");
       throw applyResult.ok
         ? verificationError

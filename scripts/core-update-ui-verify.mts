@@ -40,7 +40,7 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-core-update-ui-"));
       const exe = path.join(dir, "candidate");
       fs.writeFileSync(exe, "fake-core");
-      return { exe, dir, version: "v9.9.9", assetName: "mihomo-windows-amd64-v9.9.9.zip" };
+      return { exe, dir, version: "v9.9.9" };
     },
     validateConfig: () => undefined,
   });

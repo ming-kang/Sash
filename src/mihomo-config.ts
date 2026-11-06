@@ -1,6 +1,6 @@
 import YAML from "yaml";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
-import { parseProfileOffThread } from "./profile-work.js";
+import { inspectProfileOffThread } from "./profile-work.js";
 import type { SashSettings } from "./settings.js";
 
 export interface GeneratedConfig {
@@ -38,7 +38,6 @@ export interface SubscriptionUserinfo {
 }
 
 export interface SubscriptionFetch {
-  doc: Record<string, unknown>;
   yamlText: string;
   name?: string;
   subInfo?: SubscriptionUserinfo;
@@ -175,9 +174,8 @@ export async function fetchSubscriptionProfile(
     throw new Error(`Subscription fetch failed: HTTP ${res.statusCode}`);
   }
   const text = await res.text(PROFILE_DOWNLOAD_SIZE_LIMIT);
-  const doc = await parseProfileOffThread(text);
+  await inspectProfileOffThread(text);
   return {
-    doc,
     yamlText: text,
     name: parseContentDispositionFilename(firstHeader(res.headers["content-disposition"])),
     subInfo: parseSubscriptionUserinfo(firstHeader(res.headers["subscription-userinfo"])),
@@ -212,17 +210,7 @@ function geoxMirrorSet(mirror: string): GeoxMirrorSet {
 
 const GHFAST_TOP = geoxMirrorSet("https://ghfast.top/");
 const GH_PROXY = geoxMirrorSet("https://gh-proxy.com/");
-export const GEOX_MIRROR_SETS: readonly GeoxMirrorSet[] = [GHFAST_TOP, GH_PROXY];
-
-export const GEOX_MIRRORS: GeoxMirrorSet = GHFAST_TOP;
-
-export function withGeodataMirrors(generated: GeneratedConfig, mirrorIndex = 0): GeneratedConfig {
-  const set = GEOX_MIRROR_SETS[mirrorIndex];
-  if (!set) throw new Error(`internal error: unknown geodata mirror index ${mirrorIndex}`);
-  const doc = asCoreConfigDocument(YAML.parse(generated.yaml));
-  doc["geox-url"] = { ...set };
-  return { ...generated, yaml: YAML.stringify(doc, { indent: 2 }) };
-}
+export const GEOX_MIRROR_SETS = [GHFAST_TOP, GH_PROXY] as const;
 
 const MANAGED_KEYS = new Set([
   "mixed-port",
@@ -261,16 +249,20 @@ export function overlayManagedKeys(
   return out;
 }
 
+export function countProxies(document: Record<string, unknown>): number {
+  const proxies = document.proxies;
+  return Array.isArray(proxies) ? proxies.length : 0;
+}
+
 export function renderConfig(
   base: Record<string, unknown>,
   settings: SashSettings,
   source: GeneratedConfig["source"],
 ): GeneratedConfig {
   const merged = overlayManagedKeys(base, settings);
-  const proxies = merged.proxies;
   return {
     yaml: YAML.stringify(merged, { indent: 2 }),
-    proxyCount: Array.isArray(proxies) ? proxies.length : 0,
+    proxyCount: countProxies(merged),
     source,
   };
 }

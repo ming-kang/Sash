@@ -1,10 +1,8 @@
 import { findExecutableOnPath, windowsSystemExecutable } from "../process.js";
 import { formatHostPort, normalizeEnableOptions, parseProxyString, runCmd } from "./common.js";
-import { snapshotsCompatible, snapshotsEquivalent, windowsSnapshot } from "./snapshot.js";
 import type {
   EnableOptions,
   SystemProxyBackend,
-  SystemProxySnapshot,
   SystemProxyState,
   WindowsRegistryProxyValues,
   WindowsSystemProxySnapshot,
@@ -232,10 +230,9 @@ async function applyWindowsValue(
 }
 
 export async function applyWindowsSnapshot(
-  value: unknown,
+  snapshot: WindowsSystemProxySnapshot,
   run: CommandRunner = runCmd,
 ): Promise<void> {
-  const snapshot = windowsSnapshot(value);
   try {
     // Disable/restore PAC metadata before enabling the manual proxy, and keep
     // ProxyEnable last so a partial write does not become active first. AutoDetect
@@ -250,11 +247,7 @@ export async function applyWindowsSnapshot(
   }
 }
 
-export function createWindowsTarget(
-  original: SystemProxySnapshot,
-  opts: EnableOptions,
-): WindowsSystemProxySnapshot {
-  windowsSnapshot(original);
+export function createWindowsTarget(opts: EnableOptions): WindowsSystemProxySnapshot {
   const normalized = normalizeEnableOptions(opts);
   return {
     version: SYSTEM_PROXY_SNAPSHOT_VERSION,
@@ -269,8 +262,7 @@ export function createWindowsTarget(
   };
 }
 
-export function windowsState(value: unknown): SystemProxyState {
-  const snapshot = windowsSnapshot(value);
+export function windowsState(snapshot: WindowsSystemProxySnapshot): SystemProxyState {
   const enabled = snapshot.proxyEnable === 1;
   if (enabled) {
     return snapshot.proxyServer
@@ -297,11 +289,7 @@ export function createSystemProxyBackend(
     return {
       supported: true,
       capture: captureWindowsSnapshot,
-      createTarget: createWindowsTarget,
       apply: applyWindowsSnapshot,
-      equivalent: snapshotsEquivalent,
-      compatible: snapshotsCompatible,
-      state: windowsState,
     };
   const unavailable = (): never => {
     throw new Error("System proxy integration is available on Windows only");
@@ -309,14 +297,6 @@ export function createSystemProxyBackend(
   return {
     supported: false,
     capture: async () => unavailable(),
-    createTarget: unavailable,
     apply: async () => unavailable(),
-    equivalent: snapshotsEquivalent,
-    compatible: snapshotsCompatible,
-    state: () => ({
-      supported: false,
-      enabled: false,
-      details: "System proxy integration is available on Windows only",
-    }),
   };
 }

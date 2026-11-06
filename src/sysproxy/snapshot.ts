@@ -4,7 +4,7 @@ import type { SystemProxySnapshot } from "./types.js";
 
 const MANAGED_KEYS = ["proxyEnable", "proxyServer", "proxyOverride", "autoConfigUrl"] as const;
 
-/** Parse every journal or OS snapshot before it can authorize a registry write. */
+/** Normalize an untrusted persisted snapshot before it can authorize a registry write. */
 export function parseSystemProxySnapshot(value: unknown): SystemProxySnapshot {
   if (
     !isPlainObject(value) ||
@@ -28,20 +28,12 @@ export function parseSystemProxySnapshot(value: unknown): SystemProxySnapshot {
   };
 }
 
-export { parseSystemProxySnapshot as windowsSnapshot };
-
 /** AutoDetect is observed but Windows owns it; never include it in managed comparisons. */
 export function snapshotsEquivalent(
   left: SystemProxySnapshot,
   right: SystemProxySnapshot,
 ): boolean {
-  try {
-    const a = parseSystemProxySnapshot(left);
-    const b = parseSystemProxySnapshot(right);
-    return MANAGED_KEYS.every((key) => a[key] === b[key]);
-  } catch {
-    return false;
-  }
+  return MANAGED_KEYS.every((key) => left[key] === right[key]);
 }
 
 /** Partial writes may be restored only when every field still matches either owned value. */
@@ -50,12 +42,7 @@ export function snapshotsCompatible(
   original: SystemProxySnapshot,
   target: SystemProxySnapshot,
 ): boolean {
-  try {
-    const now = parseSystemProxySnapshot(current);
-    const before = parseSystemProxySnapshot(original);
-    const after = parseSystemProxySnapshot(target);
-    return MANAGED_KEYS.every((key) => now[key] === before[key] || now[key] === after[key]);
-  } catch {
-    return false;
-  }
+  return MANAGED_KEYS.every(
+    (key) => current[key] === original[key] || current[key] === target[key],
+  );
 }

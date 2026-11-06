@@ -13,6 +13,7 @@ import {
   MIHOMO_REPO,
   type ReleaseAsset,
   resolveLatestTag,
+  selectReleaseAsset,
   validateCoreReleaseTag,
 } from "./github.js";
 import type { ProxyFallbackListener } from "./http.js";
@@ -128,9 +129,10 @@ export async function extractCoreArchive(
   const transforms: Transform[] = [];
   try {
     signal?.throwIfAborted();
-    if (!assetName.endsWith(".zip") && !assetName.endsWith(".gz"))
+    const archiveName = assetName.toLowerCase();
+    if (!archiveName.endsWith(".zip") && !archiveName.endsWith(".gz"))
       throw new Error(`Unsupported archive type: ${assetName}`);
-    if (assetName.endsWith(".zip")) {
+    if (archiveName.endsWith(".zip")) {
       zip = await openPromise(archivePath, {
         autoClose: false,
         strictFileNames: true,
@@ -140,12 +142,8 @@ export async function extractCoreArchive(
       let executable: Entry | undefined;
       for await (const entry of zip.eachEntry()) {
         signal?.throwIfAborted();
-        if (
-          entry.fileName.split(/[\\/]/).includes("..") ||
-          /^(?:[\\/]|[A-Za-z]:)/.test(entry.fileName) ||
-          entry.fileName.includes("\0")
-        )
-          throw new Error("Core archive contains an unsafe path");
+        // yauzl already rejects traversal and absolute paths before yielding entries.
+        if (entry.fileName.includes("\0")) throw new Error("Core archive contains an unsafe path");
         if (
           !executable &&
           !entry.fileName.endsWith("/") &&
@@ -203,7 +201,6 @@ export interface StagedCore {
   version: string;
   exe: string;
   dir: string;
-  assetName?: string;
   source?: "live" | "pinned";
 }
 
@@ -261,7 +258,7 @@ export async function resolveCoreRelease(
     if (manifest && (pinned === undefined || pinned === manifest.core.tag)) {
       return {
         tag: manifest.core.tag,
-        assets: manifestReleaseAssets(MIHOMO_REPO, manifest.core),
+        assets: manifestReleaseAssets(manifest.core),
         candidates: mihomoAssetCandidates(manifest.core.tag, process.platform, process.arch),
         source: "pinned",
       };
@@ -317,12 +314,7 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
   let resolution = opts.release;
   if (!resolution) {
     opts.onStage?.("resolving");
-    resolution = await resolveCoreRelease({
-      ...(opts.tag !== undefined ? { tag: opts.tag } : {}),
-      ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
-      ...(opts.proxyUri !== undefined ? { proxyUri: opts.proxyUri } : {}),
-      ...(opts.onProxyFallback !== undefined ? { onProxyFallback: opts.onProxyFallback } : {}),
-    });
+    resolution = await resolveCoreRelease(opts);
   }
   const { tag, assets, candidates, source } = resolution;
 
@@ -332,36 +324,37 @@ export async function stageCore(opts: CoreInstallOptions = {}): Promise<StagedCo
   const exe = path.join(dir, path.basename(layout.coreExe));
   let staged = false;
   try {
-    const available = candidates.filter((name) => assets.some((asset) => asset.name === name));
+    const available = candidates
+      .map((name) => selectReleaseAsset(assets, [name]))
+      .filter((asset) => asset !== undefined);
     if (available.length === 0) {
       throw new Error(
         `No trusted release asset matched ${candidates.join(", ")} for ${MIHOMO_REPO}@${tag}`,
       );
     }
-    for (const assetName of available) {
+    for (const asset of available) {
       opts.onStage?.("downloading", tag);
       await downloadReleaseAsset({
         signal: opts.signal,
         repo: MIHOMO_REPO,
         tag,
-        assets,
-        candidates: [assetName],
+        asset,
         dest: archivePath,
-        ...(opts.proxyUri !== undefined ? { proxyUri: opts.proxyUri } : {}),
+        proxyUri: opts.proxyUri,
         onProgress: opts.onProgress,
         onProxyFallback: opts.onProxyFallback,
       });
       opts.onStage?.("extracting", tag);
-      await extractCoreArchive(archivePath, assetName, exe, opts.signal);
+      await extractCoreArchive(archivePath, asset.name, exe, opts.signal);
       opts.signal?.throwIfAborted();
       if (await coreBinaryRuns(exe)) {
         staged = true;
-        return { version: tag, exe, dir, assetName, source };
+        return { version: tag, exe, dir, source };
       }
       fs.rmSync(exe, { force: true });
     }
     throw new Error(
-      `No published Core build runs on this processor (tried ${available.join(", ")}).`,
+      `No published Core build runs on this processor (tried ${available.map((asset) => asset.name).join(", ")}).`,
     );
   } finally {
     if (!staged) fs.rmSync(dir, { recursive: true, force: true });

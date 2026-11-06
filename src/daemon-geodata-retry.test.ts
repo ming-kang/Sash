@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import YAML from "yaml";
 import type { DaemonStatus } from "./contracts.js";
-import { GEOX_MIRRORS, type GeneratedConfig } from "./mihomo-config.js";
+import { GEOX_MIRROR_SETS, type GeneratedConfig } from "./mihomo-config.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 const GEODATA_FAILURE =
@@ -35,7 +35,7 @@ describe("daemon geodata mirror retry", () => {
     const firstDoc = YAML.parse(validated[0]?.generated.yaml ?? "") as Record<string, unknown>;
     assert.equal("geox-url" in firstDoc, false);
     const retriedDoc = YAML.parse(validated[1]?.generated.yaml ?? "") as Record<string, unknown>;
-    assert.deepEqual(retriedDoc["geox-url"], { ...GEOX_MIRRORS });
+    assert.deepEqual(retriedDoc["geox-url"], GEOX_MIRROR_SETS[0]);
 
     const applied = h.instance?.lifecycle.configuration();
     assert.ok(applied, "the daemon must hold an applied configuration after the retry");
@@ -48,7 +48,7 @@ describe("daemon geodata mirror retry", () => {
     const publishedText = fs.readFileSync(publishedPath, "utf8");
     assert.match(publishedText, /ghfast\.top/);
     const published = YAML.parse(publishedText) as Record<string, unknown>;
-    assert.deepEqual(published["geox-url"], { ...GEOX_MIRRORS });
+    assert.deepEqual(published["geox-url"], GEOX_MIRROR_SETS[0]);
   });
 
   it("walks the mirror list when the first mirror also fails", async () => {

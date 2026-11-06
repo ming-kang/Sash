@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import {
   buildSanitizedEnv,
-  classifyProcessIdentity,
+  classifyProcessIdentityAsync,
   killProcessGracefully,
   runSanitizedCommand,
 } from "./process.js";
@@ -126,8 +126,8 @@ for (const withDelay of [false, true]) {
         assert.equal(
           await killProcessGracefully(pid, {
             timeoutMs: 4000,
-            verify: () =>
-              classifyProcessIdentity(pid, process.execPath) === "match" &&
+            verify: async () =>
+              (await classifyProcessIdentityAsync(pid, process.execPath)) === "match" &&
               pathArgumentMatches(pid, pathToFileURL(preload).href)
                 ? "match"
                 : "unknown",

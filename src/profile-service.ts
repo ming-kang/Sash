@@ -13,7 +13,11 @@ import {
 } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import { pruneProfileFiles } from "./profile-cleanup.js";
-import { parseProfileOffThread, renderProfileOffThread } from "./profile-work.js";
+import {
+  inspectProfileOffThread,
+  type ProfileSummary,
+  renderProfileOffThread,
+} from "./profile-work.js";
 import {
   getActiveProfile,
   MAX_PROFILE_INTERVAL_HOURS,
@@ -64,9 +68,11 @@ export interface ProfileUpdateAllResult {
   applied: boolean;
 }
 
-async function profileInput(content: string): Promise<Record<string, unknown>> {
+type ProfileDraft = Omit<ProfileMeta, "revision">;
+
+async function profileInput(content: string): Promise<ProfileSummary> {
   try {
-    return await parseProfileOffThread(content);
+    return await inspectProfileOffThread(content);
   } catch (error) {
     throw new ProfileInputError(errorMessage(error));
   }
@@ -193,7 +199,7 @@ export class ProfileService {
 
   private async publishSource(
     index: ProfilesIndex,
-    profile: ProfileMeta,
+    profile: ProfileDraft,
     text: string,
     select: boolean,
   ): Promise<ProfileMeta> {
@@ -205,11 +211,12 @@ export class ProfileService {
         unchanged = readProfileText(this.options.layout, previous) === text;
       } catch {}
     }
-    let revision = profile.revision;
-    if (unchanged && previous) revision = previous.revision;
-    else
-      while (fs.existsSync(profileFilePath(this.options.layout, profile.id, revision)))
+    let revision = previous?.revision ?? 0;
+    if (!unchanged) {
+      do {
         revision += 1;
+      } while (fs.existsSync(profileFilePath(this.options.layout, profile.id, revision)));
+    }
     const next = { ...profile, revision };
     const file = profileFilePath(this.options.layout, next.id, next.revision);
     if (!unchanged) await atomicWriteFile(file, text);
@@ -231,14 +238,13 @@ export class ProfileService {
   }
 
   private fetchedMeta(
-    profile: ProfileMeta,
+    profile: ProfileDraft,
     fetched: SubscriptionFetch,
     attemptedAt: string,
-  ): ProfileMeta {
+  ): ProfileDraft {
     const interval = fetched.intervalHours;
     return {
       ...profile,
-      revision: profile.revision + 1,
       updatedAt: new Date().toISOString(),
       ...(fetched.subInfo ? { subInfo: fetched.subInfo } : {}),
       ...(fetched.homePage ? { homePage: fetched.homePage } : {}),
@@ -270,9 +276,8 @@ export class ProfileService {
       const existing = known ? this.recheck(index, known) : undefined;
       if (!known && index.profiles.some((profile) => profile.url === normalized))
         throw new StateConflictError("Profile was added during download");
-      const base: ProfileMeta = existing ?? {
+      const base: ProfileDraft = existing ?? {
         id: allocateProfileId(index, this.options.layout),
-        revision: 0,
         name: validName(opts.name ?? fetched.name?.slice(0, 120) ?? profileNameFromUrl(normalized)),
         url: normalized,
         intervalHours: 24,
@@ -301,7 +306,6 @@ export class ProfileService {
         index,
         {
           id: allocateProfileId(index, this.options.layout),
-          revision: 1,
           name: displayName,
           url: "",
           intervalHours: 0,
@@ -337,7 +341,6 @@ export class ProfileService {
         index,
         {
           ...before,
-          revision: before.revision + 1,
           updatedAt: new Date().toISOString(),
           lastError: undefined,
           failureCount: 0,
@@ -353,7 +356,9 @@ export class ProfileService {
     id: string | null,
   ): Promise<{ activeId: string | null; proxyCount: number; applied: boolean }> {
     const before = id === null ? null : this.requireProfile(this.list(), id);
-    const doc = before ? await profileInput(readProfileText(this.options.layout, before)) : null;
+    const summary = before
+      ? await profileInput(readProfileText(this.options.layout, before))
+      : null;
     await this.options.commit(async () => {
       const state = this.options.state.snapshot();
       if (before) this.recheck(state.profiles, before);
@@ -365,7 +370,7 @@ export class ProfileService {
     });
     return {
       activeId: id,
-      proxyCount: Array.isArray(doc?.proxies) ? doc.proxies.length : 0,
+      proxyCount: summary?.proxyCount ?? 0,
       applied: await this.reconcileRuntime(),
     };
   }

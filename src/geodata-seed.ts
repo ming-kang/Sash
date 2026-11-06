@@ -8,6 +8,7 @@ import {
   listReleaseAssets,
   type ReleaseAsset,
   resolveLatestTag,
+  selectReleaseAsset,
   validateCoreReleaseTag,
 } from "./github.js";
 import type { ProxyFallbackListener } from "./http.js";
@@ -56,7 +57,7 @@ async function resolveGeodataRelease(
     if (manifest) {
       return {
         tag: manifest.geodata.tag,
-        assets: manifestReleaseAssets(GEODATA_REPO, manifest.geodata),
+        assets: manifestReleaseAssets(manifest.geodata),
         source: "pinned",
       };
     }
@@ -73,6 +74,9 @@ export async function seedGeodataFile(
     throw new Error(`internal error: refusing to seed unknown geodata file ${file}`);
   }
   const { tag, assets, source } = await resolveGeodataRelease(options);
+  const asset = selectReleaseAsset(assets, [file]);
+  if (!asset)
+    throw new Error(`No trusted release asset matched ${file} for ${GEODATA_REPO}@${tag}`);
   fs.mkdirSync(layout.tempDir, { recursive: true });
   const directory = fs.mkdtempSync(path.join(layout.tempDir, "geodata-download-"));
   const dest = path.join(directory, file);
@@ -81,10 +85,9 @@ export async function seedGeodataFile(
       signal: options.signal,
       repo: GEODATA_REPO,
       tag,
-      assets,
-      candidates: [file],
+      asset,
       dest,
-      ...(options.proxyUri !== undefined ? { proxyUri: options.proxyUri } : {}),
+      proxyUri: options.proxyUri,
       onProxyFallback: options.onProxyFallback,
     });
     // Same-volume rename: the file appears in the data folder atomically.

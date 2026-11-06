@@ -76,7 +76,6 @@ h.settings.controller = `127.0.0.1:${core.port}`;
 await h.startServer({
   supervisor,
   fetchProfile: async () => ({
-    doc,
     yamlText: content,
     name: "订阅配置",
     subInfo: { upload: 100, download: 2000, total: 60000, expire: 1792537200 },

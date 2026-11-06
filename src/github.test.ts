@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MockAgent } from "undici";
-import { listReleaseAssets, parseSha256Digest, resolveLatestTag } from "./github.js";
+import {
+  listReleaseAssets,
+  parseSha256Digest,
+  RELEASE_ASSET_SIZE_LIMIT,
+  releaseAssetDigest,
+  resolveLatestTag,
+  selectReleaseAsset,
+} from "./github.js";
 import { ERROR_BODY_LIMIT, proxyAwareDispatcher } from "./http.js";
 
 describe("github", () => {
@@ -42,6 +49,26 @@ describe("github", () => {
       .reply(404, "x".repeat(ERROR_BODY_LIMIT + 1));
     await assert.rejects(resolveLatestTag("example/project"), /HTTP 403/);
     await assert.rejects(listReleaseAssets("example/project", "v1.0.0"), /HTTP 404/);
+  });
+
+  it("selects assets by candidate priority using the same case-insensitive matching", () => {
+    const asset = (name: string) => ({ name, size: 1, digest: `sha256:${"a".repeat(64)}` });
+    const v1 = asset("mihomo-v1.gz");
+    const v3 = asset("MIHOMO-v3.gz");
+    assert.equal(selectReleaseAsset([v1, v3], ["mihomo-v3.gz", "mihomo-v1.gz"]), v3);
+    assert.equal(selectReleaseAsset([v1], ["mihomo-v3.gz", "mihomo-v1.gz"]), v1);
+    assert.equal(selectReleaseAsset([v1], ["missing.gz"]), undefined);
+  });
+
+  it("shares the release size and digest policy between checking and downloading", () => {
+    const digest = "a".repeat(64);
+    const asset = { name: "core.gz", size: 1024, digest: `sha256:${digest}` };
+    assert.equal(releaseAssetDigest(asset), digest);
+    assert.throws(
+      () => releaseAssetDigest({ ...asset, size: RELEASE_ASSET_SIZE_LIMIT + 1 }),
+      /byte safety limit/,
+    );
+    assert.throws(() => releaseAssetDigest({ ...asset, digest: "bad" }), /invalid SHA-256 digest/);
   });
 
   it("parses only canonical SHA-256 release digests", () => {

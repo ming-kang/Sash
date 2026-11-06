@@ -206,7 +206,6 @@ export const en: Messages = {
     resolving: "Checking Release",
     downloading: "Downloading Core",
     extracting: "Extracting",
-    verifying: "Checking Executable",
     validating: "Checking Configuration",
     waiting: "Waiting for Other Operations",
     installing: "Installing and Checking Core",

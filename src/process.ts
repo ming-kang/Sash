@@ -71,44 +71,6 @@ function imageMatchesExpectedExe(imageOrComm: string, expectedExe: string): bool
   return false;
 }
 
-let cachedPowerShell: string | undefined;
-
-function runPowerShell(script: string, timeoutMs = 5000): string | undefined {
-  const windowsPowerShell = windowsSystemExecutable(
-    path.join("WindowsPowerShell", "v1.0", "powershell.exe"),
-  );
-  const pwsh = findExecutableOnPath("pwsh.exe");
-  const candidates = [...(pwsh ? [pwsh] : []), windowsPowerShell];
-  const shells = cachedPowerShell
-    ? [cachedPowerShell, ...candidates.filter((shell) => shell !== cachedPowerShell)]
-    : candidates;
-  for (const shell of shells) {
-    try {
-      const output = runSanitizedCommand(
-        shell,
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); ${script}`,
-        ],
-        { timeoutMs },
-      ).trim();
-      cachedPowerShell = shell;
-      if (output) return output;
-    } catch {}
-  }
-  return undefined;
-}
-
-function readWindowsExecutablePath(pid: number): string | undefined {
-  const script = [
-    `$process = Get-Process -Id ${pid} -ErrorAction Stop`,
-    "if ($process.Path) { [Console]::Out.Write($process.Path) }",
-  ].join("; ");
-  return runPowerShell(script);
-}
-
 function classifyDarwinComm(commOutput: string, expectedExe: string): ProcessIdentity {
   const out = commOutput.trim();
   if (!out) return "mismatch";
@@ -118,48 +80,6 @@ function classifyDarwinComm(commOutput: string, expectedExe: string): ProcessIde
     return "mismatch";
   }
   return imageMatchesExpectedExe(out, expectedExe) ? "unknown" : "mismatch";
-}
-
-export function classifyProcessIdentity(pid: number, expectedExe: string): ProcessIdentity {
-  if (!isProcessAlive(pid)) return "mismatch";
-  const expected = expectedExe || "";
-  if (!expected) return "unknown";
-
-  try {
-    if (process.platform === "linux") {
-      try {
-        const exeLink = fs.readlinkSync(`/proc/${pid}/exe`);
-        return exePathsMatch(exeLink, expected) ? "match" : "mismatch";
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        return code === "ENOENT" ? "mismatch" : "unknown";
-      }
-    }
-
-    if (process.platform === "win32") {
-      const executable = readWindowsExecutablePath(pid);
-      if (executable) {
-        return exePathsMatch(executable, expected) ? "match" : "mismatch";
-      }
-      // An unreadable path stays "unknown", and every caller then refuses to signal.
-      return "unknown";
-    }
-
-    if (process.platform === "darwin") {
-      try {
-        const out = runSanitizedCommand("/bin/ps", ["-ww", "-p", String(pid), "-o", "comm="], {
-          timeoutMs: 3000,
-        });
-        return classifyDarwinComm(out, expected);
-      } catch {
-        return "unknown";
-      }
-    }
-  } catch {
-    return "unknown";
-  }
-
-  return "unknown";
 }
 
 export async function classifyProcessIdentityAsync(

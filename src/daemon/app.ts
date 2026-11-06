@@ -8,8 +8,7 @@ import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
 import { ProfileService } from "../profile-service.js";
-import { getActiveProfile } from "../profiles.js";
-import { RuntimeLifecycle, runtimeDelta } from "../runtime-lifecycle.js";
+import { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
@@ -136,14 +135,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     mutate,
     settings: { committed: settings, runtime: () => lifecycle.settings() },
     stateRevision: () => state.snapshot().revision,
-    pendingApply: () => {
-      const saved = state.snapshot();
-      const active = getActiveProfile(saved.profiles);
-      return runtimeDelta(lifecycle.configuration(), {
-        profile: active ? { id: active.id, revision: active.revision } : null,
-        settings: saved.settings,
-      }).pending;
-    },
+    pendingApply: () => coreControl.pendingApply,
     core: coreControl,
     shutdown: () => gate.shutdown(),
     closeListener: () => Promise.reject(new Error("Listener is not ready")),

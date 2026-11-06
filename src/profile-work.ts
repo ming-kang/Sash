@@ -1,21 +1,35 @@
 import fs from "node:fs";
 import { Worker } from "node:worker_threads";
-import type { GeneratedConfig } from "./mihomo-config.js";
+import type { GeneratedConfig, GeoxMirrorSet } from "./mihomo-config.js";
 import { buildSanitizedEnv } from "./process.js";
 import type { SashSettings } from "./settings.js";
 
-export interface ProfileWork {
-  id: number;
-  text: string;
-  settings?: SashSettings;
-}
+export type ProfileSummary = Pick<GeneratedConfig, "proxyCount">;
+
+type ProfileTask =
+  | { kind: "inspect"; text: string }
+  | {
+      kind: "render";
+      text: string;
+      settings: SashSettings;
+    }
+  | { kind: "mirrors"; generated: GeneratedConfig; mirrors: GeoxMirrorSet };
+
+export type ProfileWork = ProfileTask & { id: number };
+type ProfileWorkResult = ProfileSummary | GeneratedConfig;
+export type ProfileWorkReply =
+  | { id: number; value: ProfileWorkResult }
+  | { id: number; error: string };
 
 let worker: Worker | undefined;
 let sequence = 0;
 let idle: ReturnType<typeof setTimeout> | undefined;
-const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+const pending = new Map<
+  number,
+  { resolve(value: ProfileWorkResult): void; reject(error: Error): void }
+>();
 
-function work(text: string, settings?: SashSettings): Promise<unknown> {
+function work(task: ProfileTask): Promise<ProfileWorkResult> {
   clearTimeout(idle);
   if (!worker) {
     const compiled = new URL("./profile-worker.js", import.meta.url);
@@ -26,10 +40,10 @@ function work(text: string, settings?: SashSettings): Promise<unknown> {
       },
     );
     worker = instance;
-    instance.on("message", (result: { id: number; value?: unknown; error?: string }) => {
+    instance.on("message", (result: ProfileWorkReply) => {
       const request = pending.get(result.id);
       pending.delete(result.id);
-      if (result.error) request?.reject(new Error(result.error));
+      if ("error" in result) request?.reject(new Error(result.error));
       else request?.resolve(result.value);
       if (pending.size === 0) {
         instance.unref();
@@ -58,17 +72,24 @@ function work(text: string, settings?: SashSettings): Promise<unknown> {
   const instance = worker;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    instance.postMessage({ id, text, settings } satisfies ProfileWork);
+    instance.postMessage({ id, ...task } satisfies ProfileWork);
   });
 }
 
-export async function parseProfileOffThread(text: string): Promise<Record<string, unknown>> {
-  return (await work(text)) as Record<string, unknown>;
+export async function inspectProfileOffThread(text: string): Promise<ProfileSummary> {
+  return (await work({ kind: "inspect", text })) as ProfileSummary;
 }
 
 export async function renderProfileOffThread(
   text: string,
   settings: SashSettings,
 ): Promise<GeneratedConfig> {
-  return (await work(text, settings)) as GeneratedConfig;
+  return (await work({ kind: "render", text, settings })) as GeneratedConfig;
+}
+
+export async function renderGeodataMirrorsOffThread(
+  generated: GeneratedConfig,
+  mirrors: GeoxMirrorSet,
+): Promise<GeneratedConfig> {
+  return (await work({ kind: "mirrors", generated, mirrors })) as GeneratedConfig;
 }

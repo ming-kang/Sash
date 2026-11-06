@@ -39,8 +39,8 @@ export interface RuntimeLifecycleOptions {
 }
 
 /**
- * True when listener-level settings differ: the Core re-binds its inbound
- * listeners on a restart only, never on a configuration reload.
+ * Sash uses non-forced configuration reloads, so changes to its managed
+ * listener port or LAN binding take the restart path.
  */
 export function listenerSettingsChanged(
   applied: Pick<SashSettings, "mixedPort" | "allowLan">,
@@ -141,9 +141,9 @@ export class RuntimeLifecycle {
   /**
    * Apply a configuration to the running Core without restarting it: the Core
    * swaps proxies, rules and DNS in place, so connections established before
-   * the reload keep their current outbound. Listener-level settings (ports,
-   * LAN binding, the controller) are not part of a reload, so callers fall
-   * back to `apply` when those differ.
+   * the reload keep their current outbound. Sash does not request forced
+   * listener rebinding, so ports and LAN settings take the `apply` path;
+   * the Core controller is never changed by a reload.
    */
   async reload(
     configuration: RuntimeConfiguration,

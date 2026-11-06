@@ -42,7 +42,7 @@ describe("daemon browser authorization", () => {
   it("keeps subscription credentials private while CLI and browser reads remain authorized", async () => {
     const url = "https://example.test/subscription?token=private-query";
     await h.startServer({
-      fetchProfile: async () => ({ doc: { proxies: [] }, yamlText: "proxies: []\n" }),
+      fetchProfile: async () => ({ yamlText: "proxies: []\n" }),
     });
     assert.equal(
       (await h.apiRequest("/sash/profiles", { method: "POST", body: { url, activate: true } }))
