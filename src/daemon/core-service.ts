@@ -11,24 +11,18 @@ import {
   stageCore,
 } from "../core.js";
 import {
-  CONFIG_TEST_GEODATA_TIMEOUT_MS,
-  geodataFileForFailure,
-  isGeodataDownloadFailure,
-  validateCoreConfig,
-} from "../core-config-validation.js";
-import {
   type CoreUpdateProgress,
   type CoreUpdateResult,
   type CoreUpdateStage,
   readCoreUpdateTransaction,
 } from "../core-update.js";
+import { type CoreEngine, mihomoEngine } from "../engine/index.js";
 import { errorMessage } from "../error-utils.js";
 import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
 import { type DownloadTransport, envProxyUri, formatProxyFallbackWarning } from "../http.js";
-import { countProxies, GEOX_MIRROR_SETS, type GeneratedConfig } from "../mihomo-config.js";
+import { countProxies, type GeneratedConfig } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
 import type { PluginGenerateContext } from "../plugins/index.js";
-import { renderActiveConfig } from "../profile-service.js";
 import { renderGeodataMirrorsOffThread } from "../profile-work.js";
 import { getActiveProfile } from "../profiles.js";
 import type {
@@ -42,6 +36,7 @@ import type { CoreSupervisor } from "../supervisor.js";
 export interface CoreControlServiceOptions {
   layout: SashLayout;
   state: SashStateStore;
+  engine?: CoreEngine;
   supervisor: CoreSupervisor;
   lifecycle: RuntimeLifecycle;
   commit: <T>(action: () => T | Promise<T>) => Promise<T>;
@@ -78,7 +73,11 @@ export class CoreControlService {
   private operation: CoreUpdateProgress | null = null;
   private lastProgressNotify = 0;
 
-  constructor(private readonly options: CoreControlServiceOptions) {}
+  private readonly engine: CoreEngine;
+
+  constructor(private readonly options: CoreControlServiceOptions) {
+    this.engine = options.engine ?? mihomoEngine;
+  }
 
   get progress(): CoreUpdateProgress | null {
     return this.operation ? { ...this.operation } : null;
@@ -130,7 +129,7 @@ export class CoreControlService {
     return Promise.resolve(
       this.options.validateConfigFn
         ? this.options.validateConfigFn(generated, executable, signal)
-        : validateCoreConfig(executable, generated.yaml, this.options.layout, {
+        : this.engine.validateConfig(executable, generated.yaml, this.options.layout, {
             signal,
             ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           }),
@@ -175,10 +174,10 @@ export class CoreControlService {
       await this.validate(configuration.generated, executable, signal);
       return configuration;
     } catch (error) {
-      if (!isGeodataDownloadFailure(error)) throw error;
+      if (!this.engine.geodata.isDownloadFailure(error)) throw error;
       const seen = new Set([configuration.generated.yaml]);
       let lastError = error;
-      for (const mirrors of GEOX_MIRROR_SETS) {
+      for (const mirrors of this.engine.geodata.mirrorSets) {
         const retried: RuntimeConfiguration = {
           ...configuration,
           generated: await renderGeodataMirrorsOffThread(configuration.generated, mirrors),
@@ -192,11 +191,11 @@ export class CoreControlService {
             retried.generated,
             executable,
             signal,
-            CONFIG_TEST_GEODATA_TIMEOUT_MS,
+            this.engine.geodata.testTimeoutMs,
           );
           return retried;
         } catch (mirrorError) {
-          if (!isGeodataDownloadFailure(mirrorError)) throw mirrorError;
+          if (!this.engine.geodata.isDownloadFailure(mirrorError)) throw mirrorError;
           lastError = mirrorError;
         }
       }
@@ -206,7 +205,7 @@ export class CoreControlService {
       // the Core skips downloads for files already in the data folder.
       const seeded = new Set<string>();
       for (;;) {
-        const file = geodataFileForFailure(lastError);
+        const file = this.engine.geodata.fileForFailure(lastError);
         if (!file || seeded.has(file)) break;
         seeded.add(file);
         try {
@@ -226,7 +225,7 @@ export class CoreControlService {
           await this.validate(configuration.generated, executable, signal);
           return configuration;
         } catch (retryError) {
-          if (!isGeodataDownloadFailure(retryError)) throw retryError;
+          if (!this.engine.geodata.isDownloadFailure(retryError)) throw retryError;
           lastError = retryError;
         }
       }
@@ -256,7 +255,7 @@ export class CoreControlService {
     const meta = profile
       ? { id: profile.id, revision: profile.revision, name: profile.name, url: profile.url }
       : null;
-    const generated = await renderActiveConfig(snapshot, this.options.layout);
+    const generated = await this.engine.renderActiveConfig(snapshot, this.options.layout);
     return {
       generated: await this.applyGeneratePlugins(generated, {
         settings: snapshot.settings,

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { SashStateStore } from "../app-state.js";
 import { AutostartService, type AutostartServiceOptions } from "../autostart/service.js";
 import type { resolveCoreRelease, stageCore } from "../core.js";
+import { type CoreEngine, mihomoEngine } from "../engine/index.js";
 import { errorMessage } from "../error-utils.js";
 import type { GeodataSeedResult } from "../geodata-seed.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
@@ -39,6 +40,7 @@ export interface DaemonDeps {
   resolveCoreReleaseFn?: typeof resolveCoreRelease;
   seedGeodataFn?: (file: string, options: { signal: AbortSignal }) => Promise<GeodataSeedResult>;
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
+  engine?: CoreEngine;
   plugins?: PluginRegistry | null;
   onShutdown?: () => void;
   scheduler?: DaemonScheduler;
@@ -59,6 +61,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   const settings = () => state.snapshot().settings;
   const token = deps.token ?? crypto.randomBytes(24).toString("hex");
   const systemProxy = deps.systemProxy ?? new SystemProxyManager({ layout });
+  const engine = deps.engine ?? mihomoEngine;
   let lifecycle: RuntimeLifecycle;
   let gate: DaemonGate;
   let profiles: ProfileService;
@@ -68,6 +71,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     deps.supervisor ??
     new CoreSupervisor({
       layout,
+      engine,
       settings: () => lifecycle?.settings() ?? settings(),
       onExit: () =>
         gate
@@ -81,6 +85,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     supervisor,
     systemProxy,
     settings,
+    engine,
     controllerProbe: deps.controllerProbe,
   });
   const cancelPreparations = (): void => {
@@ -104,6 +109,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   coreControl = new CoreControlService({
     layout,
     state,
+    engine,
     supervisor,
     lifecycle,
     commit: mutate,
@@ -119,6 +125,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
 
   const context: DaemonContext = {
     layout,
+    engine,
     state,
     token,
     startedAt: new Date().toISOString(),

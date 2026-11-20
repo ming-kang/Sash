@@ -21,7 +21,6 @@ import type {
 import { validateCoreReleaseTag } from "../core.js";
 import { validateDelayTarget } from "../core-delay.js";
 import { errorMessage } from "../error-utils.js";
-import { MihomoApi } from "../mihomo-api.js";
 import { ProfileInputError } from "../profile-service.js";
 import { publicSettings } from "../settings.js";
 import type { DaemonContext } from "./context.js";
@@ -276,7 +275,7 @@ export async function setCoreMode(ctx: DaemonContext, req: DaemonRequest): Promi
     const owner = ctx.supervisor.ownedCoreSnapshot();
     if (!owner) throw new HttpError(409, "A running owned Core is required to change routing mode");
     const settings = ctx.settings.runtime();
-    await new MihomoApi(settings.controller, settings.secret).setMode(body.data.mode);
+    await ctx.engine.api(settings.controller, settings.secret).setMode(body.data.mode);
     if (!ctx.supervisor.ownsCore(owner))
       throw new HttpError(409, "Core changed during the mode request; inspect its current mode");
   });
@@ -300,10 +299,9 @@ export async function testCoreDelay(
     const owner = ctx.supervisor.ownedCoreSnapshot();
     if (!owner) throw new HttpError(409, "A running owned Core is required for a delay test");
     const settings = ctx.settings.runtime();
-    const result = await new MihomoApi(settings.controller, settings.secret).delay(
-      name,
-      req.signal,
-    );
+    const result = await ctx.engine
+      .api(settings.controller, settings.secret)
+      .delay(name, req.signal);
     if (!ctx.supervisor.ownsCore(owner))
       throw new HttpError(409, "Core changed during the delay test; try again");
     return result;

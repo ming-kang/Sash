@@ -3,10 +3,10 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertCoreBinaryFile } from "./core.js";
+import { type CoreEngine, mihomoEngine } from "./engine/index.js";
 import { errnoCode, errorMessage } from "./error-utils.js";
 import { durableRenameSync } from "./fs-atomic.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
-import { MihomoApi } from "./mihomo-api.js";
 import type { SashLayout } from "./paths.js";
 import type { ProcessIdentity, ProcessIdentityVerifier } from "./process.js";
 import {
@@ -37,6 +37,7 @@ export interface CoreOwnershipSnapshot {
 export interface CoreSupervisorOptions {
   layout: SashLayout;
   settings: () => SashSettings;
+  engine?: CoreEngine;
   spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   waitHealthyMs?: number;
   isAliveFn?: typeof isProcessAlive;
@@ -84,6 +85,7 @@ export class CoreSupervisor {
   private childStartedAt: string | undefined;
   private stopping = false;
   private readonly layout: SashLayout;
+  private readonly engine: CoreEngine;
   private readonly getSettings: () => SashSettings;
   private readonly spawnFn: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   private readonly waitHealthyMs: number;
@@ -97,6 +99,7 @@ export class CoreSupervisor {
 
   constructor(opts: CoreSupervisorOptions) {
     this.layout = opts.layout;
+    this.engine = opts.engine ?? mihomoEngine;
     this.getSettings = opts.settings;
     this.waitHealthyMs = opts.waitHealthyMs ?? 10_000;
     this.isAlive = opts.isAliveFn ?? isProcessAlive;
@@ -125,7 +128,7 @@ export class CoreSupervisor {
       layout.coreLogFile,
       layout.coreErrLogFile,
       ({ stdoutFd, stderrFd }) =>
-        spawn(layout.coreExe, ["-d", layout.root, "-f", layout.configFile], {
+        spawn(layout.coreExe, this.engine.spawnArguments(layout), {
           cwd: layout.root,
           stdio: ["ignore", stdoutFd, stderrFd],
           windowsHide: true,
@@ -207,7 +210,7 @@ export class CoreSupervisor {
       throw new Error(`Failed to persist Core PID ownership: ${(err as Error).message}${cleanup}`);
     }
 
-    const api = new MihomoApi(settings.controller, settings.secret);
+    const api = this.engine.api(settings.controller, settings.secret);
     const deadline = Date.now() + this.waitHealthyMs;
     let version: string | undefined;
 
@@ -299,7 +302,7 @@ export class CoreSupervisor {
 
   private async probeStatus(ownership: CoreOwnershipSnapshot): Promise<CoreState> {
     const settings = this.getSettings();
-    const api = new MihomoApi(settings.controller, settings.secret);
+    const api = this.engine.api(settings.controller, settings.secret);
     let healthy = false;
     let version: string | undefined;
     try {

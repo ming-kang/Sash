@@ -1,5 +1,6 @@
 import type { SashStateStore } from "../app-state.js";
 import type { AutostartController } from "../autostart/service.js";
+import type { CoreEngine } from "../engine/index.js";
 import type { SashLayout } from "../paths.js";
 import type { ProfileService } from "../profile-service.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
@@ -107,6 +108,7 @@ export class DaemonGate {
 
 export interface DaemonContext {
   readonly layout: SashLayout;
+  readonly engine: CoreEngine;
   readonly state: SashStateStore;
   readonly token: string;
   readonly startedAt: string;

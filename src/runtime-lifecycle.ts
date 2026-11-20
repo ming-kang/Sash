@@ -7,9 +7,9 @@ import {
   recoverBinaryUnlockProbe,
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
+import { type CoreEngine, mihomoEngine } from "./engine/index.js";
 import { atomicWriteFile } from "./fs-atomic.js";
 import { isRequestDeadlineError } from "./http.js";
-import { MihomoApi } from "./mihomo-api.js";
 import type { GeneratedConfig } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
@@ -36,6 +36,7 @@ export interface RuntimeLifecycleOptions {
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
   settings: () => SashSettings;
+  engine?: CoreEngine;
 }
 
 /**
@@ -65,11 +66,13 @@ export function runtimeDelta(
 
 /** All calls enter the daemon's single mutation queue. This class owns Core and proxy order. */
 export class RuntimeLifecycle {
+  private readonly engine: CoreEngine;
   private runtimeRevision = 0;
   private applied: RuntimeConfiguration | undefined;
   private runtimeSettings: SashSettings;
 
   constructor(private readonly options: RuntimeLifecycleOptions) {
+    this.engine = options.engine ?? mihomoEngine;
     this.runtimeSettings = { ...options.settings() };
   }
 
@@ -94,10 +97,9 @@ export class RuntimeLifecycle {
   private async requireVacantController(): Promise<void> {
     const reachable = this.options.controllerProbe
       ? await this.options.controllerProbe(this.runtimeSettings)
-      : await new MihomoApi(
-          this.runtimeSettings.controller,
-          this.runtimeSettings.secret,
-        ).isReachable();
+      : await this.engine
+          .api(this.runtimeSettings.controller, this.runtimeSettings.secret)
+          .isReachable();
     if (reachable)
       throw new Error(
         "An unowned Core controller is still active; refusing to replace its runtime",
@@ -156,7 +158,7 @@ export class RuntimeLifecycle {
     const { controller, secret } = this.runtimeSettings;
     const reloadConfig =
       this.options.reloadConfig ??
-      ((path, signal) => new MihomoApi(controller, secret).reloadConfig(path, signal));
+      ((path, signal) => this.engine.api(controller, secret).reloadConfig(path, signal));
     try {
       await reloadConfig(this.options.layout.configFile, signal);
     } catch (error) {
