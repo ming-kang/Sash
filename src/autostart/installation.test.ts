@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { installationIssue } from "../autostart/service.js";
 import { testAutostartContext } from "../testing/autostart-context.js";
 import { autostartContext } from "./context.js";

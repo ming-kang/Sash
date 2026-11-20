@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { it } from "node:test";
+import { it, onTestFinished } from "vitest";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { acquireStateLock } from "./state-lock.js";
 import { type CliRuntimeStatus, collectRuntimeStatus } from "./status.js";
@@ -23,7 +23,7 @@ async function until(
   throw new Error("Expected status was not observed");
 }
 
-it("watches profile changes over events and reconnects after daemon replacement without starting Core", async (t) => {
+it("watches profile changes over events and reconnects after daemon replacement without starting Core", async () => {
   const instance = await harness.startServer();
   let lease = await acquireStateLock(harness.layout.daemonLeaseFile, {
     purpose: "status watch fixture",
@@ -42,7 +42,7 @@ it("watches profile changes over events and reconnects after daemon replacement 
   };
   record();
   const controller = new AbortController();
-  t.after(() => {
+  onTestFinished(() => {
     controller.abort();
     lease.release();
   });

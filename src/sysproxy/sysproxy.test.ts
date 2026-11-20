@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { isSystemProxySupported, runCmd } from "./common.js";
 import { snapshotsCompatible, snapshotsEquivalent } from "./snapshot.js";
 import { DEFAULT_BYPASS_LIST } from "./types.js";

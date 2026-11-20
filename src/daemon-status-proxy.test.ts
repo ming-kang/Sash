@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, onTestFinished } from "vitest";
 import { loadSettings } from "./app-state.js";
 import { writeInstallRecord } from "./core.js";
 import type { DaemonScheduler } from "./daemon/scheduler.js";
@@ -11,10 +11,10 @@ describe("daemon server", () => {
   const h = useDaemonTestHarness();
 
   describe("GET /sash/status", () => {
-    it("never publishes proxy URL credentials, including to authenticated clients", async (t) => {
+    it("never publishes proxy URL credentials, including to authenticated clients", async () => {
       const previous = process.env.HTTPS_PROXY;
       process.env.HTTPS_PROXY = "http://fixture-user:fixture-password@127.0.0.1:19876";
-      t.after(() => {
+      onTestFinished(() => {
         if (previous === undefined) delete process.env.HTTPS_PROXY;
         else process.env.HTTPS_PROXY = previous;
       });

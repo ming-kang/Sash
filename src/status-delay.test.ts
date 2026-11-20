@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
 import { setTimeout as pause } from "node:timers/promises";
+import { it, onTestFinished } from "vitest";
 import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, type CoreDelayResult } from "./core-delay.js";
 import type { CliRuntimeStatus } from "./status.js";
 import { observeStatusDelay, watchStatusWithDelay, withStatusDelay } from "./status-delay.js";
@@ -80,11 +80,11 @@ it("does not probe stopped/unhealthy instances and keeps delay failures separate
   assert.equal(withStatusDelay(original, measurement(12)).complete, true);
 });
 
-it("coalesces status changes without issuing additional probes", { timeout: 5000 }, async (t) => {
+it("coalesces status changes without issuing additional probes", { timeout: 5000 }, async () => {
   const original = await status();
   const changes = deferred();
   const cancellation = new AbortController();
-  t.after(() => cancellation.abort());
+  onTestFinished(() => cancellation.abort());
   let probes = 0;
   const iterator = watchStatusWithDelay(context, "group", {
     signal: cancellation.signal,
@@ -111,12 +111,12 @@ it("coalesces status changes without issuing additional probes", { timeout: 5000
 
 it("samples a quiet watch periodically without overlapping an in-flight probe", {
   timeout: 5000,
-}, async (t) => {
+}, async () => {
   const original = await status();
   const entered = deferred();
   const release = deferred();
   const cancellation = new AbortController();
-  t.after(() => {
+  onTestFinished(() => {
     cancellation.abort();
     release.resolve();
   });
@@ -150,12 +150,12 @@ it("samples a quiet watch periodically without overlapping an in-flight probe", 
 
 it("cancels stale probes on Core replacement and discards their late results", {
   timeout: 5000,
-}, async (t) => {
+}, async () => {
   const original = await status();
   const entered = deferred();
   const replace = deferred();
   const cancellation = new AbortController();
-  t.after(() => {
+  onTestFinished(() => {
     cancellation.abort();
     replace.resolve();
   });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import net from "node:net";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import YAML from "yaml";
 import { readState } from "./app-state.js";
 import type {

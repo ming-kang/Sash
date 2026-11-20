@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import {
   currentCoreVersion,
   parseInstallRecord,
@@ -21,7 +21,7 @@ describe("Core install record codec", () => {
   });
 
   afterEach(() => {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -70,13 +70,13 @@ describe("Core install record codec", () => {
     writeInstallRecord({ coreVersion: "v1.0.0" }, layout);
     assert.deepEqual(readInstallRecord(layout), { coreVersion: "v1.0.0" });
 
-    const readSpy = mock.method(fs, "readFileSync");
+    const readSpy = vi.spyOn(fs, "readFileSync");
     try {
       const firstCalls = readSpy.mock.calls.length;
       readInstallRecord(layout);
       assert.ok(readSpy.mock.calls.length > firstCalls, "repeated read hit the disk");
     } finally {
-      readSpy.mock.restore();
+      readSpy.mockRestore();
     }
 
     const sameMtime = fs.statSync(layout.installFile);

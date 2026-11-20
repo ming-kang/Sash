@@ -4,8 +4,8 @@ import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
 import zlib from "node:zlib";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { ZipFile } from "yazl";
 import {
   assertCoreInstallationConsistent,
@@ -318,18 +318,20 @@ describe("core", () => {
       }
     });
 
-    it("cancels decompression and removes only the temporary output it created", async (t) => {
+    it("cancels decompression and removes only the temporary output it created", async () => {
       const archive = path.join(tmpDir, "cancel.gz");
       const target = path.join(tmpDir, "core");
       fs.writeFileSync(archive, zlib.gzipSync(crypto.randomBytes(128 * 1024)));
       fs.writeFileSync(target, "previous core");
       const cancellation = new AbortController();
       const read = fs.createReadStream;
-      t.mock.method(fs, "createReadStream", (...args: Parameters<typeof fs.createReadStream>) => {
-        const stream = read(...args);
-        stream.once("data", () => cancellation.abort());
-        return stream;
-      });
+      vi.spyOn(fs, "createReadStream").mockImplementation(
+        (...args: Parameters<typeof fs.createReadStream>) => {
+          const stream = read(...args);
+          stream.once("data", () => cancellation.abort());
+          return stream;
+        },
+      );
       await assert.rejects(
         extractCoreArchive(archive, "core.gz", target, cancellation.signal),
         /abort/i,

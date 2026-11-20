@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
 import { Window as HappyWindow } from "happy-dom";
+import { describe, it, vi } from "vitest";
 import { testStatus as healthyStatus } from "../../src/testing/state.js";
 
 describe("minimal Vue behavior harness", () => {
@@ -82,7 +82,7 @@ describe("minimal Vue behavior harness", () => {
     }
   });
 
-  it("pauses periodic Core resource polling while document is hidden and refreshes on visible", async (t) => {
+  it("pauses periodic Core resource polling while document is hidden and refreshes on visible", async () => {
     const window = new HappyWindow({ url: "http://127.0.0.1:19090/ui/" });
     const globalKeys = [
       "window",
@@ -106,7 +106,7 @@ describe("minimal Vue behavior harness", () => {
       Reflect.set(globalThis, key, Reflect.get(window, key));
     }
 
-    t.mock.timers.enable({ apis: ["setTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     window.setTimeout = globalThis.setTimeout;
     window.clearTimeout = globalThis.clearTimeout;
 
@@ -178,9 +178,9 @@ describe("minimal Vue behavior harness", () => {
       await flush();
       assert.equal(configReads, 1, "initial read on visible startup");
 
-      t.mock.timers.tick(2000);
+      vi.advanceTimersByTime(2000);
       await flush();
-      t.mock.timers.tick(2000);
+      vi.advanceTimersByTime(2000);
       await flush();
       assert.equal(configReads, 2, "periodic polling occurs while visible");
 
@@ -188,7 +188,7 @@ describe("minimal Vue behavior harness", () => {
       window.document.dispatchEvent(new window.Event("visibilitychange"));
       await flush();
 
-      t.mock.timers.tick(10_000);
+      vi.advanceTimersByTime(10_000);
       await flush();
       assert.equal(configReads, 2, "no polls occur while document is hidden");
 
@@ -197,16 +197,16 @@ describe("minimal Vue behavior harness", () => {
       await flush();
       assert.equal(configReads, 3, "immediately refreshes resources when document becomes visible");
 
-      t.mock.timers.tick(2000);
+      vi.advanceTimersByTime(2000);
       await flush();
-      t.mock.timers.tick(2000);
+      vi.advanceTimersByTime(2000);
       await flush();
       assert.equal(configReads, 4, "periodic ticking resumes after becoming visible");
 
       Object.defineProperty(window.document, "hidden", { value: true, configurable: true });
       window.document.dispatchEvent(new window.Event("visibilitychange"));
       await flush();
-      t.mock.timers.tick(10_000);
+      vi.advanceTimersByTime(10_000);
       await flush();
       assert.equal(configReads, 4, "polling pauses again when hidden a second time");
 
@@ -233,7 +233,7 @@ describe("minimal Vue behavior harness", () => {
     }
   });
 
-  it("does not poll on startup when document is already hidden until visible", async (t) => {
+  it("does not poll on startup when document is already hidden until visible", async () => {
     const window = new HappyWindow({ url: "http://127.0.0.1:19090/ui/" });
     Object.defineProperty(window.document, "hidden", { value: true, configurable: true });
 
@@ -259,7 +259,7 @@ describe("minimal Vue behavior harness", () => {
       Reflect.set(globalThis, key, Reflect.get(window, key));
     }
 
-    t.mock.timers.enable({ apis: ["setTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     window.setTimeout = globalThis.setTimeout;
     window.clearTimeout = globalThis.clearTimeout;
 
@@ -331,7 +331,7 @@ describe("minimal Vue behavior harness", () => {
       await flush();
       assert.equal(configReads, 0, "no initial read when document is hidden at start");
 
-      t.mock.timers.tick(10_000);
+      vi.advanceTimersByTime(10_000);
       await flush();
       assert.equal(configReads, 0, "no polls while staying hidden");
 
@@ -340,9 +340,9 @@ describe("minimal Vue behavior harness", () => {
       await flush();
       assert.equal(configReads, 1, "immediate forced refresh upon becoming visible");
 
-      t.mock.timers.tick(2000);
+      vi.advanceTimersByTime(2000);
       await flush();
-      t.mock.timers.tick(2000);
+      vi.advanceTimersByTime(2000);
       await flush();
       assert.equal(configReads, 2, "periodic ticking resumes after initial visibility");
     } finally {
@@ -361,7 +361,7 @@ describe("minimal Vue behavior harness", () => {
     }
   });
 
-  it("allows in-flight poll to complete on hide without scheduling further ticks", async (t) => {
+  it("allows in-flight poll to complete on hide without scheduling further ticks", async () => {
     const window = new HappyWindow({ url: "http://127.0.0.1:19090/ui/" });
     const globalKeys = [
       "window",
@@ -385,7 +385,7 @@ describe("minimal Vue behavior harness", () => {
       Reflect.set(globalThis, key, Reflect.get(window, key));
     }
 
-    t.mock.timers.enable({ apis: ["setTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     window.setTimeout = globalThis.setTimeout;
     window.clearTimeout = globalThis.clearTimeout;
 
@@ -477,7 +477,7 @@ describe("minimal Vue behavior harness", () => {
       resolveFirst();
       await flush();
 
-      t.mock.timers.tick(10_000);
+      vi.advanceTimersByTime(10_000);
       await flush();
       assert.equal(configReads, 1, "no further polls scheduled after in-flight tick completed");
     } finally {

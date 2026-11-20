@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it } from "vitest";
 import { sashLayout } from "../paths.js";
 import { testProfile, testSettings } from "../testing/state.js";
 import { CliProfiles, resolveProfileReference } from "./profile.js";

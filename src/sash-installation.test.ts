@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it, onTestFinished } from "vitest";
 import {
   assertAbsolutePath,
   inspectInstallation,
@@ -10,9 +10,9 @@ import {
   npmPrefixForPackage,
 } from "./sash-installation.js";
 
-it("recognizes a direct npm prefix and refuses local and mismatched layouts", (t) => {
+it("recognizes a direct npm prefix and refuses local and mismatched layouts", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-installation-test-"));
-  t.after(() => {
+  onTestFinished(() => {
     fs.rmSync(root, { recursive: true, force: true });
   });
   const prefix = path.join(root, "npm prefix 空间");
@@ -40,9 +40,9 @@ it("recognizes a direct npm prefix and refuses local and mismatched layouts", (t
     assert.match(mismatched.reason, /outside an npm global installation/);
 });
 
-it("rejects incomplete, relative and non-absolute installation paths", (t) => {
+it("rejects incomplete, relative and non-absolute installation paths", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-installation-layout-"));
-  t.after(() => {
+  onTestFinished(() => {
     fs.rmSync(root, { recursive: true, force: true });
   });
   const prefix = path.join(root, "prefix");

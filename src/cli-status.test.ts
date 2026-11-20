@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it, type TestContext } from "node:test";
+import { it, onTestFinished, type TestContext, vi } from "vitest";
 import { printStatus } from "./cli-status.js";
 import { runStatus } from "./commands/status.js";
 import { writeInstallRecord } from "./core.js";
@@ -11,9 +11,9 @@ import { sashLayout } from "./paths.js";
 import { cliStatusFromDaemonStatus } from "./status.js";
 import { testSettings, testStatus } from "./testing/state.js";
 
-function context(t: TestContext) {
+function context(_t: TestContext) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-cli-status-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
   const layout = sashLayout(root);
   writeInstallRecord({ coreVersion: "v1.0.0" }, layout);
   fs.mkdirSync(layout.uiDir, { recursive: true });
@@ -30,7 +30,7 @@ it("renders six aligned summary rows and preserves detail in verbose and JSON ou
     reason: null,
   });
   const lines: string[] = [];
-  t.mock.method(console, "log", (line: string) => lines.push(line));
+  vi.spyOn(console, "log").mockImplementation((line: string) => lines.push(line));
   printStatus(status);
   assert.equal(lines.length, 6);
   assert.deepEqual(
@@ -56,8 +56,8 @@ it("does not present stopped or unobserved endpoints as available, and preserves
   });
   const lines: string[] = [];
   const warnings: string[] = [];
-  t.mock.method(console, "log", (line: string) => lines.push(line));
-  t.mock.method(console, "warn", (line: string) => warnings.push(line));
+  vi.spyOn(console, "log").mockImplementation((line: string) => lines.push(line));
+  vi.spyOn(console, "warn").mockImplementation((line: string) => warnings.push(line));
   status.core.running = false;
   status.systemProxy.osObserved.enabled = true;
   printStatus(status);

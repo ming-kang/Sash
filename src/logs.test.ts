@@ -4,7 +4,7 @@ import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it, vi } from "vitest";
 import { runLogs } from "./commands/logs.js";
 import {
   followLogFile,
@@ -29,16 +29,18 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void
 }
 
 describe("log line counts", () => {
-  it("reads all diagnostic logs while settings are corrupt without modifying state", async (t) => {
+  it("reads all diagnostic logs while settings are corrupt without modifying state", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-logs-corrupt-test-"));
     const previousHome = process.env.SASH_HOME;
     process.env.SASH_HOME = root;
     const layout = sashLayout();
     const chunks: string[] = [];
-    const output = t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
-      chunks.push(String(chunk));
-      return true;
-    });
+    const output = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        chunks.push(String(chunk));
+        return true;
+      });
     try {
       fs.writeFileSync(layout.settingsFile, "{ broken");
       fs.mkdirSync(layout.logsDir);
@@ -57,7 +59,7 @@ describe("log line counts", () => {
       }
       assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), "{ broken");
     } finally {
-      output.mock.restore();
+      output.mockRestore();
       if (previousHome === undefined) delete process.env.SASH_HOME;
       else process.env.SASH_HOME = previousHome;
       fs.rmSync(root, { recursive: true, force: true });
@@ -105,7 +107,7 @@ describe("log file growth", () => {
 
 describe("followLogFile", () => {
   for (const change of ["append", "rotate"] as const) {
-    it(`prints each line once when ${change} occurs between tail capture and follow`, async (t) => {
+    it(`prints each line once when ${change} occurs between tail capture and follow`, async () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-log-handoff-"));
       const previousHome = process.env.SASH_HOME;
       process.env.SASH_HOME = root;
@@ -114,7 +116,7 @@ describe("followLogFile", () => {
       fs.writeFileSync(file, "before\n");
       const original = fs.fstatSync;
       let changed = false;
-      t.mock.method(fs, "fstatSync", ((...args: Parameters<typeof fs.fstatSync>) => {
+      vi.spyOn(fs, "fstatSync").mockImplementation(((...args: Parameters<typeof fs.fstatSync>) => {
         const stat = original(...args);
         if (!changed) {
           changed = true;
@@ -124,10 +126,12 @@ describe("followLogFile", () => {
         return stat;
       }) as typeof fs.fstatSync);
       let text = "";
-      const output = t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
-        text += String(chunk);
-        return true;
-      });
+      const output = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((chunk: string | Uint8Array) => {
+          text += String(chunk);
+          return true;
+        });
       const listeners = process.listeners("SIGINT");
       const following = runLogs({ follow: true });
       try {
@@ -138,7 +142,7 @@ describe("followLogFile", () => {
         const stop = process.listeners("SIGINT").find((listener) => !listeners.includes(listener));
         stop?.call(process, "SIGINT");
         await following;
-        output.mock.restore();
+        output.mockRestore();
         if (previousHome === undefined) delete process.env.SASH_HOME;
         else process.env.SASH_HOME = previousHome;
         await fs.promises.rm(root, { recursive: true, force: true });
@@ -197,7 +201,7 @@ describe("followLogFile", () => {
     }
   });
 
-  it("watches the native canonical directory when following an aliased path", async (t) => {
+  it("watches the native canonical directory when following an aliased path", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-logs-alias-test-"));
     const directory = path.join(root, "logs");
     const alias = path.join(root, "alias");
@@ -206,7 +210,7 @@ describe("followLogFile", () => {
     try {
       fs.mkdirSync(directory);
       fs.symlinkSync(directory, alias, process.platform === "win32" ? "junction" : "dir");
-      const watch = t.mock.method(fs, "watch");
+      const watch = vi.spyOn(fs, "watch");
       let output = "";
       following = followLogFile(path.join(alias, "follow.log"), {
         signal: controller.signal,
@@ -214,8 +218,8 @@ describe("followLogFile", () => {
           output += chunk.toString("utf8");
         },
       });
-      assert.equal(watch.mock.callCount(), 1);
-      assert.equal(watch.mock.calls[0]?.arguments[0], fs.realpathSync.native(directory));
+      assert.equal(watch.mock.calls.length, 1);
+      assert.equal(watch.mock.calls[0]?.[0], fs.realpathSync.native(directory));
       fs.writeFileSync(path.join(directory, "follow.log"), "created through alias\n");
       await waitFor(() => output === "created through alias\n");
     } finally {

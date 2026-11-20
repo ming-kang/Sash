@@ -3,7 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import { RequestDeadlineError } from "./http.js";
 import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle, runtimeDelta } from "./runtime-lifecycle.js";

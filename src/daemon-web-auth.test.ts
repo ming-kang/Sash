@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import type { DaemonStatus, HealthInfo, WebBootstrapInfo, WebSessionInfo } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 

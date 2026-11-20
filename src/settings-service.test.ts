@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { readState } from "./app-state.js";
 import { DaemonGate } from "./daemon/context.js";
 import { sashLayout } from "./paths.js";
@@ -17,7 +17,7 @@ describe("saved settings", () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-settings-service-test-"));
   });
   afterEach(() => {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   });
   function fixture(systemProxy = false) {
@@ -116,11 +116,13 @@ describe("saved settings", () => {
   it("does not change OS state when durable preference publication fails", async () => {
     const f = fixture(true);
     const rename = fs.promises.rename;
-    mock.method(fs.promises, "rename", async (from: fs.PathLike, to: fs.PathLike) => {
-      if (String(to) === f.layout.settingsFile)
-        throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
-      return rename(from, to);
-    });
+    vi.spyOn(fs.promises, "rename").mockImplementation(
+      async (from: fs.PathLike, to: fs.PathLike) => {
+        if (String(to) === f.layout.settingsFile)
+          throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+        return rename(from, to);
+      },
+    );
     await assert.rejects(f.service.apply({ systemProxy: false }), /disk full/);
     assert.equal(f.releases(), 0);
     assert.equal(f.state.snapshot().settings.systemProxy, true);
@@ -137,7 +139,7 @@ describe("saved settings", () => {
   });
   it("can retry an already-saved proxy-off intent without another disk write", async () => {
     const f = fixture();
-    mock.method(fs.promises, "rename", async () => {
+    vi.spyOn(fs.promises, "rename").mockImplementation(async () => {
       throw new Error("unexpected state write");
     });
     await f.service.apply({ systemProxy: false });

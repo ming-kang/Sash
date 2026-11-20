@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred } from "./testing/state.js";
 

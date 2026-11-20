@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it, onTestFinished, vi } from "vitest";
 import { WEB_BOOTSTRAP_TTL_MS, WebAuthManager } from "./auth.js";
 
 const WEB_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -46,10 +46,10 @@ describe("WebAuthManager", () => {
     assert.equal(auth.isSession(expired.token, now), false);
   });
 
-  it("keeps a session across daemon restarts through the persisted session file", (t) => {
+  it("keeps a session across daemon restarts through the persisted session file", () => {
     const parent = fs.realpathSync(os.tmpdir());
     const root = fs.mkdtempSync(path.join(parent, "sash-web-auth-continuation-"));
-    t.after(() => {
+    onTestFinished(() => {
       fs.rmSync(root, { recursive: true, force: true });
     });
     const file = path.join(root, "web-sessions.json");
@@ -72,10 +72,10 @@ describe("WebAuthManager", () => {
     assert.equal(new WebAuthManager(file).isSession(session, now), false);
   });
 
-  it("batches renewal writes and persists activity beyond the original lifetime", (t) => {
+  it("batches renewal writes and persists activity beyond the original lifetime", () => {
     const parent = fs.realpathSync(os.tmpdir());
     const file = tempSessionsFile(parent, "sash-web-auth-active-");
-    t.after(() => {
+    onTestFinished(() => {
       fs.rmSync(path.dirname(file), { recursive: true, force: true });
     });
     const start = Date.now();
@@ -89,14 +89,14 @@ describe("WebAuthManager", () => {
         start + WEB_SESSION_TTL_MS + (hour >= 7 ? 7 * 3_600_000 : 0),
       );
     }
-    t.mock.method(Date, "now", () => start + 13 * 3_600_000);
+    vi.spyOn(Date, "now").mockImplementation(() => start + 13 * 3_600_000);
     assert.equal(new WebAuthManager(file).isSession(token), true);
   });
 
-  it("tolerates a missing or unreadable session file", (t) => {
+  it("tolerates a missing or unreadable session file", () => {
     const parent = fs.realpathSync(os.tmpdir());
     const file = tempSessionsFile(parent, "sash-web-auth-unreadable-");
-    t.after(() => {
+    onTestFinished(() => {
       fs.rmSync(path.dirname(fs.realpathSync(file)), { recursive: true, force: true });
     });
     fs.writeFileSync(file, "{ not a session file");

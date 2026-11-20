@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it } from "vitest";
 import { assertCoreBinaryFile } from "./core.js";
 
 it("requires a nonempty regular Core file", () => {

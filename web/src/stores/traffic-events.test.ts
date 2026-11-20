@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
 import { Window as HappyWindow } from "happy-dom";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import { nextTick } from "vue";
 import { testStatus } from "../../../src/testing/state.js";
 import { api, sessionReady } from "../api/index.js";

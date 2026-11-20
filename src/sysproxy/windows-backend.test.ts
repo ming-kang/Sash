@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, vi } from "vitest";
 import type { WindowsSystemProxySnapshot } from "./types.js";
 import { applyWindowsSnapshot, captureWindowsSnapshot } from "./windows.js";
 
@@ -40,9 +40,9 @@ function isPowerShell(command: string): boolean {
 }
 
 describe("Windows system proxy backend", () => {
-  it("keeps registry results and reports how to recover when neither notification host is available", async (t) => {
+  it("keeps registry results and reports how to recover when neither notification host is available", async () => {
     const warnings: string[] = [];
-    t.mock.method(console, "warn", (message: string) => warnings.push(message));
+    vi.spyOn(console, "warn").mockImplementation((message: string) => warnings.push(message));
     const writes: string[] = [];
     await applyWindowsSnapshot(windowsSnapshot(), async (command, args) => {
       if (isPowerShell(command)) throw Object.assign(new Error("host missing"), { code: "ENOENT" });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { it } from "node:test";
+import { it } from "vitest";
 import { windowsSystemExecutable } from "../process.js";
 import { testAutostartContext } from "../testing/autostart-context.js";
 import { requireCommandSuccess, runAutostartCommand } from "./context.js";

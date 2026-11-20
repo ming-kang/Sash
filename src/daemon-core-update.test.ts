@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { afterAll, beforeAll, describe, it } from "vitest";
 import type { DaemonStatus } from "./contracts.js";
 import { readInstallRecord } from "./core.js";
 import { type CoreUpdateProgress, readCoreUpdateTransaction } from "./core-update.js";
@@ -25,11 +25,11 @@ const PROXY_ENV_KEYS = [
 describe("daemon-owned Core updates", () => {
   const h = useDaemonTestHarness();
   let savedProxyEnv: Array<[string, string | undefined]>;
-  before(() => {
+  beforeAll(() => {
     savedProxyEnv = PROXY_ENV_KEYS.map((key) => [key, process.env[key]]);
     for (const key of PROXY_ENV_KEYS) delete process.env[key];
   });
-  after(() => {
+  afterAll(() => {
     for (const [key, value] of savedProxyEnv) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

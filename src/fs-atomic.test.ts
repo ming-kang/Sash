@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import {
   atomicWriteFile,
   atomicWriteFileSync,
@@ -42,7 +42,7 @@ describe("fs-atomic", () => {
     });
   });
 
-  it("keeps the old file intact while an asynchronous publication is pending or fails", async (t) => {
+  it("keeps the old file intact while an asynchronous publication is pending or fails", async () => {
     const target = path.join(tmpDir, "online.json");
     atomicWriteFileSync(target, "old");
     const rename = fs.promises.rename;
@@ -54,18 +54,20 @@ describe("fs-atomic", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    t.mock.method(fs.promises, "rename", async (from: fs.PathLike, to: fs.PathLike) => {
-      entered();
-      await held;
-      return rename(from, to);
-    });
+    vi.spyOn(fs.promises, "rename").mockImplementation(
+      async (from: fs.PathLike, to: fs.PathLike) => {
+        entered();
+        await held;
+        return rename(from, to);
+      },
+    );
     const writing = atomicWriteFile(target, "new");
     await waiting;
     assert.equal(fs.readFileSync(target, "utf8"), "old");
     release();
     await writing;
     assert.equal(fs.readFileSync(target, "utf8"), "new");
-    t.mock.method(fs.promises, "rename", async () => {
+    vi.spyOn(fs.promises, "rename").mockImplementation(async () => {
       throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
     });
     await assert.rejects(atomicWriteFile(target, "lost"), /disk full/);

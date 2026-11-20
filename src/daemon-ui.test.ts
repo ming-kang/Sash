@@ -3,8 +3,8 @@ import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { describe, it } from "node:test";
 import { request } from "undici";
+import { describe, it, vi } from "vitest";
 import { serveStaticUi } from "./daemon/static.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import { type SashLayout, sashLayout } from "./paths.js";
@@ -14,7 +14,7 @@ describe("daemon server", () => {
   const h = useDaemonTestHarness();
 
   describe("web UI serving", () => {
-    it("uses one descriptor for the asset size and body across an atomic path replacement", async (t) => {
+    it("uses one descriptor for the asset size and body across an atomic path replacement", async () => {
       fs.mkdirSync(h.layout.uiDir, { recursive: true });
       fs.writeFileSync(path.join(h.layout.uiDir, "index.html"), "<html>ui</html>");
       const file = path.join(h.layout.uiDir, "asset.js");
@@ -24,26 +24,28 @@ describe("daemon server", () => {
       await h.startServer();
       const open = fs.openSync;
       let opens = 0;
-      t.mock.method(fs, "openSync", (target: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
-        // Model a descriptor bound to the previous inode. Windows may forbid
-        // replacing an actually open destination, unlike POSIX rename.
-        const fd = open(String(target) === file ? previous : target, flags, mode);
-        if (String(target) === file) {
-          opens++;
-          atomicWriteFileSync(file, "replacement with a different length");
-        }
-        return fd;
-      });
+      vi.spyOn(fs, "openSync").mockImplementation(
+        (target: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode | null) => {
+          // Model a descriptor bound to the previous inode. Windows may forbid
+          // replacing an actually open destination, unlike POSIX rename.
+          const fd = open(String(target) === file ? previous : target, flags, mode);
+          if (String(target) === file) {
+            opens++;
+            atomicWriteFileSync(file, "replacement with a different length");
+          }
+          return fd;
+        },
+      );
       const response = await request(`http://127.0.0.1:${h.boundPort}/ui/asset.js`);
       assert.equal(await response.body.text(), "original");
       assert.equal(response.headers["content-length"], "8");
       assert.equal(opens, 1);
     });
 
-    it("explains missing dashboard assets with a 404", async (t) => {
+    it("explains missing dashboard assets with a 404", async () => {
       await h.startServer();
       const exists = fs.existsSync;
-      t.mock.method(fs, "existsSync", (file: fs.PathLike) =>
+      vi.spyOn(fs, "existsSync").mockImplementation((file: fs.PathLike) =>
         String(file).endsWith("index.html") ? false : exists(file),
       );
       const response = await request(`http://127.0.0.1:${h.boundPort}/ui/`);

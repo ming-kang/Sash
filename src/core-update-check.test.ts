@@ -2,22 +2,22 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
 import { MockAgent } from "undici";
+import { it, vi } from "vitest";
 import { mihomoAssetCandidates, writeInstallRecord } from "./core.js";
 import { checkCoreUpdate } from "./core-update.js";
 import { proxyAwareDispatcher } from "./http.js";
 import { sashLayout } from "./paths.js";
 
 for (const target of ["v1.0.0", "v2.0.0"]) {
-  it(`checks Core ${target} using metadata without installing or initializing application state`, async (t) => {
+  it(`checks Core ${target} using metadata without installing or initializing application state`, async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-core-check-"));
     const layout = sashLayout(root);
     writeInstallRecord({ coreVersion: "v1.0.0" }, layout);
     const saved = fs.readFileSync(layout.installFile);
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
     agent
       .get("https://github.com")
       .intercept({ path: "/MetaCubeX/mihomo/releases/latest" })

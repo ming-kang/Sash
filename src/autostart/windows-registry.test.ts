@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { it } from "node:test";
+import { it, onTestFinished } from "vitest";
 import { findExecutableOnPath, windowsSystemExecutable } from "../process.js";
 import { testAutostartContext } from "../testing/autostart-context.js";
 import { requireCommandSuccess, runAutostartCommand } from "./context.js";
@@ -169,7 +169,7 @@ it("executes the Windows registry scripts in a disposable, non-startup registry 
     requireCommandSuccess(result);
     return result.stdout;
   };
-  t.after(async () => {
+  onTestFinished(async () => {
     // The generated key is never a real Run/StartupApproved path.
     assert.match(key, /^Software\\SashAutostartTest-[a-f0-9-]{36}$/);
     await runScript(`[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree('${key}', $false)`);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import type { DaemonStatus, ProfileActionResponse } from "../contracts.js";
 import { readInstallRecord } from "../core.js";
 import { readCoreUpdateTransaction } from "../core-update.js";

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
+import { it } from "vitest";
 import YAML from "yaml";
 import { GEOX_MIRROR_SETS, PROFILE_DOWNLOAD_SIZE_LIMIT, renderConfig } from "./mihomo-config.js";
 import {

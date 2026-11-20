@@ -3,7 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { sashLayout } from "../paths.js";
 import { acquireStateLock } from "../state-lock.js";
 import { createTestState, testSettings } from "../testing/state.js";
@@ -80,17 +80,19 @@ describe("lifecycle commands", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it("starts Core through the observed daemon port and prints that endpoint", async (t) => {
+  it("starts Core through the observed daemon port and prints that endpoint", async () => {
     const output: string[] = [];
-    t.mock.method(console, "log", (...args: unknown[]) => output.push(args.map(String).join(" ")));
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) =>
+      output.push(args.map(String).join(" ")),
+    );
     await runStart();
     assert.equal(requests.filter((request) => request.url === "/sash/core/start").length, 1);
     assert.ok(output.some((line) => line.includes("WebUI") && line.includes(`127.0.0.1:${port}`)));
   });
 
-  it("prints Core download progress while the daemon installs", async (t) => {
+  it("prints Core download progress while the daemon installs", async () => {
     const lines: string[] = [];
-    t.mock.method(process.stderr, "write", ((chunk: unknown) => {
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
       lines.push(String(chunk));
       return true;
     }) as typeof process.stderr.write);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
 import { Window as HappyWindow } from "happy-dom";
+import { describe, it } from "vitest";
 import { type Ref, ref } from "vue";
 
 const globalKeys = [

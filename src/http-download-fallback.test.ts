@@ -3,13 +3,13 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { afterAll, beforeAll, describe, it } from "vitest";
 import { downloadToFile } from "./http-download.js";
 
 /**
  * Loopback proxy refusal fallback in downloadToFile. HTTP_PROXY must point at
  * the dead port before the first proxied request creates the cached dispatcher,
- * so the environment is pinned in before() for the whole file.
+ * so the environment is pinned in beforeAll() for the whole file.
  */
 
 const PROXY_ENV_KEYS = [
@@ -30,7 +30,7 @@ describe("downloadToFile loopback proxy fallback", () => {
   let deadPort = 0;
   let savedProxyEnv: Array<[string, string | undefined]>;
 
-  before(async () => {
+  beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-download-fallback-"));
     server = http.createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/octet-stream" });
@@ -52,7 +52,7 @@ describe("downloadToFile loopback proxy fallback", () => {
     process.env.HTTP_PROXY = `http://127.0.0.1:${deadPort}`;
   });
 
-  after(async () => {
+  afterAll(async () => {
     for (const [key, value] of savedProxyEnv) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

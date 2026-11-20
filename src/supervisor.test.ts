@@ -6,7 +6,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import test, { mock } from "node:test";
+import { test, vi } from "vitest";
 import { sashLayout } from "./paths.js";
 import { classifyProcessIdentityAsync, readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
@@ -380,13 +380,13 @@ test("PID write failure preserves uncertain ownership when termination fails", a
       /Failed to persist Core PID ownership:.*could not be confirmed stopped/,
     );
     assert.equal(supervisor.isRunning(), true);
-    mock.method(fs, "rmSync", (..._args: unknown[]): void => {
+    vi.spyOn(fs, "rmSync").mockImplementation((..._args: unknown[]): void => {
       rmCalls++;
     });
     child.emit("exit", 1, null);
     assert.equal(rmCalls, 0);
   } finally {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -567,14 +567,14 @@ test("rotateCoreLogs: rotation failure does not throw and logs a sashd warning",
   fs.ftruncateSync(fd, CORE_LOG_ROTATE_BYTES);
   fs.closeSync(fd);
 
-  mock.method(fs, "renameSync", () => {
+  vi.spyOn(fs, "renameSync").mockImplementation(() => {
     const err = new Error("EBUSY: resource busy or locked, rename");
     (err as NodeJS.ErrnoException).code = "EBUSY";
     throw err;
   });
 
   const loggedErrors: string[] = [];
-  mock.method(console, "error", (msg: unknown) => {
+  vi.spyOn(console, "error").mockImplementation((msg: unknown) => {
     loggedErrors.push(String(msg));
   });
 
@@ -586,7 +586,7 @@ test("rotateCoreLogs: rotation failure does not throw and logs a sashd warning",
     assert.match(loggedErrors[0] ?? "", /\[sashd\] Could not rotate Core log.*EBUSY/);
     assert.equal(fs.existsSync(layout.coreLogFile), true);
   } finally {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -596,7 +596,7 @@ test("rotateCoreLogs: absent log files are safely ignored", () => {
   const layout = sashLayout(root);
 
   const loggedErrors: string[] = [];
-  mock.method(console, "error", (msg: unknown) => {
+  vi.spyOn(console, "error").mockImplementation((msg: unknown) => {
     loggedErrors.push(String(msg));
   });
 
@@ -606,7 +606,7 @@ test("rotateCoreLogs: absent log files are safely ignored", () => {
     });
     assert.equal(loggedErrors.length, 0);
   } finally {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

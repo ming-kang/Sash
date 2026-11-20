@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it, vi } from "vitest";
 import { runSanitizedCommandAsync } from "../process.js";
 import { testAutostartContext } from "../testing/autostart-context.js";
 import { type AutoController, runAuto } from "./auto.js";
 
 describe("sash auto", () => {
-  it("reports Sash startup before a failing write and keeps JSON output structured", async (t) => {
+  it("reports Sash startup before a failing write and keeps JSON output structured", async () => {
     const logs: string[] = [];
-    t.mock.method(console, "log", (...args: unknown[]) => logs.push(args.map(String).join(" ")));
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) =>
+      logs.push(args.map(String).join(" ")),
+    );
     const controller: AutoController = {
       inspect: async () => ({ state: "off", canEnable: true, reason: null }),
       set: async (_enabled, onStarted) => {
@@ -20,7 +22,7 @@ describe("sash auto", () => {
     await assert.rejects(runAuto("on", controller), /registration failed/);
     assert.ok(logs.some((line) => /Starting Sash to change the login startup entry/.test(line)));
     let output = "";
-    t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
       output += String(chunk);
       return true;
     });
@@ -29,8 +31,8 @@ describe("sash auto", () => {
     assert.deepEqual(JSON.parse(output), { state: "off", canEnable: true, reason: null });
     assert.deepEqual(logs, []);
   });
-  it("does not inspect state before explicit off and keeps status read-only", async (t) => {
-    t.mock.method(console, "log", () => {});
+  it("does not inspect state before explicit off and keeps status read-only", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
     const writes: boolean[] = [];
     const controller = {
       inspect: async () => ({ state: "off" as const, canEnable: true, reason: null }),
@@ -39,14 +41,14 @@ describe("sash auto", () => {
         return { state: "off" as const, canEnable: true, reason: null };
       },
     };
-    const inspect = t.mock.method(controller, "inspect");
+    const inspect = vi.spyOn(controller, "inspect");
     await runAuto("off", controller);
-    assert.equal(inspect.mock.callCount(), 0);
+    assert.equal(inspect.mock.calls.length, 0);
     await runAuto("status", controller);
-    assert.equal(inspect.mock.callCount(), 1);
+    assert.equal(inspect.mock.calls.length, 1);
     await runAuto(undefined, controller);
     assert.deepEqual(writes, [false]);
-    assert.equal(inspect.mock.callCount(), 2);
+    assert.equal(inspect.mock.calls.length, 2);
   });
 
   it("renders command help without creating any autostart registration", async (t) => {

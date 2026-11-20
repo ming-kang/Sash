@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, type TestContext } from "node:test";
 import { MockAgent } from "undici";
+import { describe, it, onTestFinished, type TestContext, vi } from "vitest";
 import type { AutostartStatus } from "./autostart/contract.js";
 import { directDispatcherForLoopback, proxyAwareDispatcher } from "./http.js";
 import { inspectInstallation, type NpmInstallation, npmPackageRoot } from "./sash-installation.js";
@@ -19,10 +19,10 @@ import { deferred } from "./testing/state.js";
 const SASH_PACKAGE_NAME = "@astralyn/sash";
 const REGISTRY = "https://registry.npmjs.org";
 
-function tempRoot(t: TestContext, label: string): string {
+function tempRoot(_t: TestContext, label: string): string {
   const parent = fs.realpathSync(os.tmpdir());
   const root = fs.mkdtempSync(path.join(parent, label));
-  t.after(() => {
+  onTestFinished(() => {
     fs.rmSync(root, { recursive: true, force: true });
   });
   return root;
@@ -53,10 +53,10 @@ function packageManifest(version: string, nodeRange = ">=24") {
   };
 }
 
-function interceptRegistry(t: TestContext): MockAgent {
+function interceptRegistry(_t: TestContext): MockAgent {
   const agent = new MockAgent();
   agent.disableNetConnect();
-  t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
+  vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
   return agent;
 }
 
@@ -224,21 +224,19 @@ describe("Sash upgrade inspection", () => {
     }
   });
 
-  it("falls back to direct request when loopback proxy is refused", async (t) => {
+  it("falls back to direct request when loopback proxy is refused", async () => {
     const proxyError = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:7890"), {
       code: "ECONNREFUSED",
       address: "127.0.0.1",
       port: 7890,
     });
-    t.mock.method(proxyAwareDispatcher(), "dispatch", () => {
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(() => {
       throw proxyError;
     });
 
     const directAgent = new MockAgent();
     directAgent.disableNetConnect();
-    t.mock.method(
-      directDispatcherForLoopback(),
-      "dispatch",
+    vi.spyOn(directDispatcherForLoopback(), "dispatch").mockImplementation(
       directAgent.dispatch.bind(directAgent),
     );
 
@@ -255,11 +253,11 @@ describe("Sash upgrade inspection", () => {
 });
 
 describe("npm registry resolution", () => {
-  function stubRegistryEnv(t: TestContext, value: string | undefined): void {
+  function stubRegistryEnv(_t: TestContext, value: string | undefined): void {
     const saved = process.env.npm_config_registry;
     if (value === undefined) delete process.env.npm_config_registry;
     else process.env.npm_config_registry = value;
-    t.after(() => {
+    onTestFinished(() => {
       if (saved === undefined) delete process.env.npm_config_registry;
       else process.env.npm_config_registry = saved;
     });

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it } from "vitest";
 import { downloadToFile } from "./http-download.js";
 
 it("authenticates the streamed SHA-256, removes mismatches and keeps archives private", async () => {

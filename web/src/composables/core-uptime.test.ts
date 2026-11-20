@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, it } from "node:test";
+import { afterEach, it, vi } from "vitest";
 import { effectScope, nextTick } from "vue";
 import { testStatus } from "../../../src/testing/state.js";
 import { setLocale } from "../i18n/index.js";
@@ -12,9 +12,9 @@ afterEach(() => {
   setLocale("zh");
 });
 
-it("advances without a status refresh and follows Core stops and starts", async (t) => {
+it("advances without a status refresh and follows Core stops and starts", async () => {
   const now = Date.UTC(2026, 8, 15, 12, 0, 59);
-  t.mock.timers.enable({ apis: ["setInterval", "Date"], now });
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], now });
   setLocale("en");
   adoptDaemonStatus({
     ...testStatus(),
@@ -28,21 +28,21 @@ it("advances without a status refresh and follows Core stops and starts", async 
   assert.ok(uptime);
   assert.equal(uptime.value, "00:00:00");
 
-  t.mock.timers.tick(1000);
+  vi.advanceTimersByTime(1000);
   assert.equal(uptime.value, "00:00:01");
 
   adoptDaemonStatus({ ...testStatus(), core: { running: false } });
   await nextTick();
   assert.equal(uptime.value, "--:--:--");
 
-  t.mock.timers.tick(60_000);
+  vi.advanceTimersByTime(60_000);
   adoptDaemonStatus({
     ...testStatus(),
     core: { ...testStatus().core, startedAt: new Date(Date.now()).toISOString() },
   });
   await nextTick();
   assert.equal(uptime.value, "00:00:00");
-  t.mock.timers.tick(1000);
+  vi.advanceTimersByTime(1000);
   assert.equal(uptime.value, "00:00:00");
   scope.stop();
 });

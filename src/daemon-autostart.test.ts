@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { describe, it } from "node:test";
+import { describe, it, vi } from "vitest";
 import type { AutostartStatus } from "./autostart/contract.js";
 import { AutostartUnavailableError } from "./autostart/service.js";
 import { createDaemonClient } from "./sash-client-node.js";
@@ -65,7 +65,7 @@ describe("autostart HTTP API", () => {
     assert.equal(writes, 0);
   });
 
-  it("changes the OS registration through CLI and browser clients", async (t) => {
+  it("changes the OS registration through CLI and browser clients", async () => {
     let enabled = false;
     const instance = await h.startServer({
       autostart: {
@@ -78,8 +78,8 @@ describe("autostart HTTP API", () => {
         checkInstallation: () => null,
       },
     });
-    const starts = t.mock.method(instance.supervisor, "start");
-    const stops = t.mock.method(instance.supervisor, "stop");
+    const starts = vi.spyOn(instance.supervisor, "start");
+    const stops = vi.spyOn(instance.supervisor, "stop");
     const settings = fs.readFileSync(h.layout.settingsFile, "utf8");
     const client = createDaemonClient(h.boundPort, h.settings.daemonSecret);
     assert.equal((await client.autostartStatus()).state, "off");
@@ -91,8 +91,8 @@ describe("autostart HTTP API", () => {
       webToken: session,
     });
     assert.equal((response.data as AutostartStatus).state, "off");
-    assert.equal(starts.mock.callCount(), 0);
-    assert.equal(stops.mock.callCount(), 0);
+    assert.equal(starts.mock.calls.length, 0);
+    assert.equal(stops.mock.calls.length, 0);
     assert.equal(fs.readFileSync(h.layout.settingsFile, "utf8"), settings);
   });
 

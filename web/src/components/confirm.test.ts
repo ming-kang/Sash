@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, describe, it } from "vitest";
 import { confirmDialog, confirmState, settleConfirm } from "./confirm.js";
 
 describe("confirm dialog state", () => {

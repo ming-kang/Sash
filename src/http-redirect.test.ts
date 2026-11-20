@@ -3,7 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { afterAll, beforeAll, describe, it } from "vitest";
 import { proxyAwareDispatcher, USER_AGENT } from "./http.js";
 import { downloadToFile } from "./http-download.js";
 
@@ -12,7 +12,7 @@ describe("downloadToFile redirect allowlist", () => {
   let baseUrl: string;
   let tmpDir: string;
 
-  before(async () => {
+  beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-http-test-"));
     server = http.createServer((req, res) => {
       const url = req.url ?? "/";
@@ -55,7 +55,7 @@ describe("downloadToFile redirect allowlist", () => {
     baseUrl = `http://127.0.0.1:${address.port}`;
   });
 
-  after(async () => {
+  afterAll(async () => {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     fs.rmSync(tmpDir, { recursive: true, force: true });

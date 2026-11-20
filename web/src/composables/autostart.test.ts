@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, onTestFinished, vi } from "vitest";
 import { effectScope, nextTick, ref } from "vue";
 import type { AutostartStatus } from "../../../src/autostart/contract.js";
 import { api } from "../api/index.js";
@@ -29,12 +29,12 @@ describe("autostart UI observations", () => {
     assert.equal(visibleAutostartReason(null), null);
   });
 
-  it("waits for a committed response and prevents overlapping switches", async (t) => {
-    t.mock.method(api, "getAutostart", async () => off);
+  it("waits for a committed response and prevents overlapping switches", async () => {
+    vi.spyOn(api, "getAutostart").mockImplementation(async () => off);
     const mutation = deferred<AutostartStatus>();
-    const setter = t.mock.method(api, "setAutostart", () => mutation.promise);
+    const setter = vi.spyOn(api, "setAutostart").mockImplementation(() => mutation.promise);
     const scope = effectScope();
-    t.after(() => scope.stop());
+    onTestFinished(() => scope.stop());
     const control = scope.run(() => useAutostart(ref("daemon-a")));
     assert.ok(control);
     await nextTick();
@@ -43,19 +43,21 @@ describe("autostart UI observations", () => {
     assert.equal(control.status.value?.state, "off");
     assert.equal(control.busy.value, true);
     assert.equal(await control.setEnabled(false), false);
-    assert.equal(setter.mock.callCount(), 1);
+    assert.equal(setter.mock.calls.length, 1);
     mutation.resolve(on);
     assert.equal(await saving, true);
     assert.equal(control.status.value?.state, "on");
     assert.equal(control.busy.value, false);
   });
 
-  it("discards a slow response from an earlier daemon and never fetches while disconnected", async (t) => {
+  it("discards a slow response from an earlier daemon and never fetches while disconnected", async () => {
     const old = deferred<AutostartStatus>();
     let reads = 0;
-    t.mock.method(api, "getAutostart", () => (++reads === 1 ? old.promise : Promise.resolve(off)));
+    vi.spyOn(api, "getAutostart").mockImplementation(() =>
+      ++reads === 1 ? old.promise : Promise.resolve(off),
+    );
     const scope = effectScope();
-    t.after(() => scope.stop());
+    onTestFinished(() => scope.stop());
     const owner = ref<string | null>(null);
     const control = scope.run(() => useAutostart(owner));
     assert.ok(control);
@@ -73,15 +75,15 @@ describe("autostart UI observations", () => {
     assert.equal(reads, 2);
   });
 
-  it("re-reads a partial write after an HTTP failure instead of reverting to a guessed state", async (t) => {
+  it("re-reads a partial write after an HTTP failure instead of reverting to a guessed state", async () => {
     let reads = 0;
-    t.mock.method(api, "getAutostart", async () => (++reads === 1 ? off : on));
+    vi.spyOn(api, "getAutostart").mockImplementation(async () => (++reads === 1 ? off : on));
     const failure = new Error("response lost");
-    t.mock.method(api, "setAutostart", async () => {
+    vi.spyOn(api, "setAutostart").mockImplementation(async () => {
       throw failure;
     });
     const scope = effectScope();
-    t.after(() => scope.stop());
+    onTestFinished(() => scope.stop());
     const control = scope.run(() => useAutostart(ref("daemon")));
     assert.ok(control);
     await nextTick();
@@ -90,10 +92,10 @@ describe("autostart UI observations", () => {
     assert.equal(control.busy.value, false);
   });
 
-  it("does not adopt a late successful mutation after the view is disposed", async (t) => {
-    t.mock.method(api, "getAutostart", async () => off);
+  it("does not adopt a late successful mutation after the view is disposed", async () => {
+    vi.spyOn(api, "getAutostart").mockImplementation(async () => off);
     const mutation = deferred<AutostartStatus>();
-    t.mock.method(api, "setAutostart", () => mutation.promise);
+    vi.spyOn(api, "setAutostart").mockImplementation(() => mutation.promise);
     const scope = effectScope();
     const control = scope.run(() => useAutostart(ref("daemon")));
     assert.ok(control);

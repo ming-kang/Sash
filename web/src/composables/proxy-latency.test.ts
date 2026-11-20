@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { deferredValue } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
 import { store } from "../stores/state.js";
@@ -10,11 +10,10 @@ const originalGroupDelay = api.testGroupDelay;
 const originalProxyDelay = api.testProxyDelay;
 let originalGeneration = 0;
 
-beforeEach((t) => {
-  assert.ok("mock" in t);
-  t.mock.method(toast, "success", () => {});
-  t.mock.method(toast, "warning", () => {});
-  t.mock.method(toast, "error", () => {});
+beforeEach(() => {
+  vi.spyOn(toast, "success").mockImplementation(() => {});
+  vi.spyOn(toast, "warning").mockImplementation(() => {});
+  vi.spyOn(toast, "error").mockImplementation(() => {});
   originalGeneration = store.runtimeGeneration;
   store.proxies = {
     node: { name: "node", type: "Direct", udp: true, history: [] },
@@ -31,9 +30,9 @@ afterEach(() => {
 });
 
 describe("proxy latency ownership", () => {
-  it("distinguishes measured timeouts from request failures and preserves the error message", async (t) => {
+  it("distinguishes measured timeouts from request failures and preserves the error message", async () => {
     const messages: string[] = [];
-    t.mock.method(toast, "error", (message: string) => messages.push(message));
+    vi.spyOn(toast, "error").mockImplementation((message: string) => messages.push(message));
     const latency = useProxyLatency();
     api.testProxyDelay = async () => ({ delay: 0 });
     await latency.testSingle("node");

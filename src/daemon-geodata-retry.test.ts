@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import YAML from "yaml";
 import type { DaemonStatus } from "./contracts.js";
 import { GEOX_MIRROR_SETS, type GeneratedConfig } from "./mihomo-config.js";

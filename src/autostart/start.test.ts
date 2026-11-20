@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { sashLayout } from "../paths.js";
 import { runSanitizedCommandAsync } from "../process.js";
 import { testAutostartContext } from "../testing/autostart-context.js";

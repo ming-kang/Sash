@@ -33,10 +33,15 @@ function work(task: ProfileTask): Promise<ProfileWorkResult> {
   clearTimeout(idle);
   if (!worker) {
     const compiled = new URL("./profile-worker.js", import.meta.url);
+    const source = !fs.existsSync(compiled);
     const instance = new Worker(
-      fs.existsSync(compiled) ? compiled : new URL("./profile-worker.ts", import.meta.url),
+      source ? new URL("./profile-worker.ts", import.meta.url) : compiled,
       {
         env: buildSanitizedEnv(),
+        // Source checkouts run the TypeScript worker through tsx: `.js`
+        // specifiers inside it must resolve to neighboring `.ts` files, which
+        // plain `node` cannot do.
+        ...(source ? { execArgv: ["--import", "tsx"] } : {}),
       },
     );
     worker = instance;

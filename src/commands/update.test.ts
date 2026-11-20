@@ -3,7 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, onTestFinished, vi } from "vitest";
 import { sashLayout } from "../paths.js";
 import { acquireStateLock } from "../state-lock.js";
 import { createTestState, testSettings } from "../testing/state.js";
@@ -90,9 +90,11 @@ describe("update command cancellation", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it("cancels the daemon download with --cancel and reports it", async (t) => {
+  it("cancels the daemon download with --cancel and reports it", async () => {
     const output: string[] = [];
-    t.mock.method(console, "log", (...args: unknown[]) => output.push(args.map(String).join(" ")));
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) =>
+      output.push(args.map(String).join(" ")),
+    );
     await runUpdate({ cancel: true });
     assert.deepEqual(
       requests.filter((request) => request.method === "DELETE"),
@@ -122,20 +124,24 @@ describe("update command cancellation", () => {
     assert.deepEqual(requests, []);
   });
 
-  it("reports an already installed release without claiming an update", async (t) => {
+  it("reports an already installed release without claiming an update", async () => {
     updateResponse = { version: "v1.19.31", alreadyCurrent: true };
     const output: string[] = [];
-    t.mock.method(console, "log", (...args: unknown[]) => output.push(args.map(String).join(" ")));
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) =>
+      output.push(args.map(String).join(" ")),
+    );
     await runUpdate({});
     assert.ok(output.some((line) => line.includes("Core v1.19.31 is up to date")));
     assert.ok(!output.some((line) => line.includes("Core Updated to")));
   });
 
-  it("cancels the download and exits 130 when Ctrl+C interrupts an update", async (t) => {
+  it("cancels the download and exits 130 when Ctrl+C interrupts an update", async () => {
     const output: string[] = [];
-    t.mock.method(console, "log", (...args: unknown[]) => output.push(args.map(String).join(" ")));
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) =>
+      output.push(args.map(String).join(" ")),
+    );
     const errors: string[] = [];
-    t.mock.method(process.stderr, "write", ((chunk: unknown) => {
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
       errors.push(String(chunk));
       return true;
     }) as typeof process.stderr.write);
@@ -166,18 +172,18 @@ describe("update command cancellation", () => {
     assert.ok(output.some((line) => line.includes("Core Download Cancelled")));
   });
 
-  it("does not claim cancellation succeeded when Sash refuses it", async (t) => {
+  it("does not claim cancellation succeeded when Sash refuses it", async () => {
     refuseCancellation = true;
     const output: string[] = [];
     const warnings: string[] = [];
-    t.mock.method(console, "log", (line: string) => output.push(line));
-    t.mock.method(console, "warn", (line: string) => warnings.push(line));
+    vi.spyOn(console, "log").mockImplementation((line: string) => output.push(line));
+    vi.spyOn(console, "warn").mockImplementation((line: string) => warnings.push(line));
     updateGate = new Promise<void>((resolve) => {
       releaseUpdate = resolve;
     });
     progressResponse = { stage: "downloading" };
     const previousExit = process.exitCode;
-    t.after(() => {
+    onTestFinished(() => {
       process.exitCode = previousExit;
     });
     const updating = runUpdate({});
@@ -188,9 +194,9 @@ describe("update command cancellation", () => {
     assert.ok(!output.some((line) => line.includes("Core Download Cancelled")));
   });
 
-  it("keeps a plain interrupt when no Core download is running", async (t) => {
+  it("keeps a plain interrupt when no Core download is running", async () => {
     const errors: string[] = [];
-    t.mock.method(process.stderr, "write", ((chunk: unknown) => {
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
       errors.push(String(chunk));
       return true;
     }) as typeof process.stderr.write);

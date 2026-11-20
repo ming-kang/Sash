@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, it } from "node:test";
 import { MockAgent } from "undici";
+import { afterEach, describe, it, onTestFinished, vi } from "vitest";
 import { OFFLINE_CORE_INSTALL_URL, resolveCoreRelease } from "./core.js";
 import { proxyAwareDispatcher } from "./http.js";
 
@@ -52,11 +52,11 @@ describe("resolveCoreRelease manifest fallback", () => {
     process.env.SASH_BOOTSTRAP_MANIFEST = path.join(manifestDir, "bootstrap-manifest.json");
   }
 
-  function mockApiDown(t: import("node:test").TestContext): MockAgent {
+  function mockApiDown(_t: import("vitest").TestContext): MockAgent {
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     const failure = new Error("getaddrinfo ENOTFOUND github.com");
     agent.get("https://github.com").intercept({ path: LATEST }).replyWithError(failure).times(2);
     agent
@@ -95,15 +95,15 @@ describe("resolveCoreRelease manifest fallback", () => {
     agent.assertNoPendingInterceptors();
   });
 
-  it("serves an explicit pin matching the manifest tag without the live API", async (t) => {
+  it("serves an explicit pin matching the manifest tag without the live API", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     delete process.env.SASH_CORE_VERSION;
     savedManifest = process.env.SASH_BOOTSTRAP_MANIFEST;
     writeManifest("v9.9.9");
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     const failure = new Error("getaddrinfo ENOTFOUND api.github.com");
     agent
       .get("https://api.github.com")
@@ -115,7 +115,7 @@ describe("resolveCoreRelease manifest fallback", () => {
     assert.equal(resolved.source, "pinned");
   });
 
-  it("refuses to substitute the manifest for a different pinned tag", async (t) => {
+  it("refuses to substitute the manifest for a different pinned tag", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     delete process.env.SASH_CORE_VERSION;
     savedManifest = process.env.SASH_BOOTSTRAP_MANIFEST;
@@ -123,8 +123,8 @@ describe("resolveCoreRelease manifest fallback", () => {
     const failure = new Error("getaddrinfo ENOTFOUND api.github.com");
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     agent
       .get("https://api.github.com")
       .intercept({ path: `${API_TAGS}/v1.0.0` })
@@ -142,15 +142,15 @@ describe("resolveCoreRelease manifest fallback", () => {
     await assert.rejects(resolveCoreRelease(), /cannot reach GitHub/);
   });
 
-  it("marks live resolutions as live", async (t) => {
+  it("marks live resolutions as live", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     process.env.SASH_CORE_VERSION = "v9.9.9";
     savedManifest = process.env.SASH_BOOTSTRAP_MANIFEST;
     writeManifest("v0.0.1");
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     agent
       .get("https://api.github.com")
       .intercept({ path: `${API_TAGS}/v9.9.9` })
@@ -169,13 +169,13 @@ describe("resolveCoreRelease failure guidance", () => {
     savedCoreVersion = undefined;
   });
 
-  it("points rate-limited release lookups at GITHUB_TOKEN", async (t) => {
+  it("points rate-limited release lookups at GITHUB_TOKEN", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     delete process.env.SASH_CORE_VERSION;
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     agent.get("https://github.com").intercept({ path: LATEST }).reply(200, "not a redirect");
     agent.get("https://api.github.com").intercept({ path: API_LATEST }).reply(403, "rate limited");
     await assert.rejects(
@@ -184,13 +184,13 @@ describe("resolveCoreRelease failure guidance", () => {
     );
   });
 
-  it("points plain network failures at a proxy or the manual installation", async (t) => {
+  it("points plain network failures at a proxy or the manual installation", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     delete process.env.SASH_CORE_VERSION;
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     const failure = new Error("getaddrinfo ENOTFOUND github.com");
     agent.get("https://github.com").intercept({ path: LATEST }).replyWithError(failure).times(2);
     agent
@@ -209,13 +209,13 @@ describe("resolveCoreRelease failure guidance", () => {
     });
   });
 
-  it("leaves proxy-refused remedies alone", async (t) => {
+  it("leaves proxy-refused remedies alone", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     delete process.env.SASH_CORE_VERSION;
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     const refused = Object.assign(new Error("connect ECONNREFUSED"), {
       code: "ECONNREFUSED",
       address: "10.0.0.1",
@@ -234,13 +234,13 @@ describe("resolveCoreRelease failure guidance", () => {
     });
   });
 
-  it("pins the tag from SASH_CORE_VERSION and skips the latest lookup", async (t) => {
+  it("pins the tag from SASH_CORE_VERSION and skips the latest lookup", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     process.env.SASH_CORE_VERSION = "v9.9.9";
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     agent
       .get("https://api.github.com")
       .intercept({ path: `${API_TAGS}/v9.9.9` })
@@ -250,13 +250,13 @@ describe("resolveCoreRelease failure guidance", () => {
     agent.assertNoPendingInterceptors();
   });
 
-  it("rejects an invalid SASH_CORE_VERSION without network guidance", async (t) => {
+  it("rejects an invalid SASH_CORE_VERSION without network guidance", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     process.env.SASH_CORE_VERSION = "not a tag!";
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     await assert.rejects(resolveCoreRelease(), /^Error: Invalid Core release tag: not a tag!$/);
   });
 });

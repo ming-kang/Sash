@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it, onTestFinished } from "vitest";
 import { runSanitizedCommandAsync } from "./process.js";
 
-it("documents every command without starting Sash or initializing application state", async (t) => {
+it("documents every command without starting Sash or initializing application state", async () => {
   const parent = fs.realpathSync(os.tmpdir());
   const root = fs.mkdtempSync(path.join(parent, "sash-help-copy-"));
-  t.after(() => {
+  onTestFinished(() => {
     fs.rmSync(root, { recursive: true, force: true });
   });
   const commands = [

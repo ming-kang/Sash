@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
+import { it, onTestFinished, vi } from "vitest";
 import { formatCliError, withCliErrors } from "./cli-errors.js";
 import { commandOutput } from "./cli-output.js";
 
-it("clarifies CLI errors without changing their JSON message", async (t) => {
+it("clarifies CLI errors without changing their JSON message", async () => {
   const failure = new Error("--cancel checks nothing; drop --check to cancel a download");
   assert.equal(
     formatCliError(failure),
@@ -11,10 +11,10 @@ it("clarifies CLI errors without changing their JSON message", async (t) => {
   );
   let output = "";
   const previous = process.exitCode;
-  t.after(() => {
+  onTestFinished(() => {
     process.exitCode = previous;
   });
-  t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
+  vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
     output += String(chunk);
     return true;
   });
@@ -28,14 +28,14 @@ it("clarifies CLI errors without changing their JSON message", async (t) => {
   assert.deepEqual(JSON.parse(output), { error: failure.message });
 });
 
-it("scopes stack traces to SASH_DEBUG and leaves JSON errors on stdout", async (t) => {
+it("scopes stack traces to SASH_DEBUG and leaves JSON errors on stdout", async () => {
   const originalDebug = process.env.DEBUG;
   const originalSashDebug = process.env.SASH_DEBUG;
   const originalExit = process.exitCode;
   const errors: string[] = [];
   let output = "";
-  t.mock.method(console, "error", (message: unknown) => errors.push(String(message)));
-  t.mock.method(process.stdout, "write", (chunk: string | Uint8Array) => {
+  vi.spyOn(console, "error").mockImplementation((message: unknown) => errors.push(String(message)));
+  vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
     output += String(chunk);
     return true;
   });

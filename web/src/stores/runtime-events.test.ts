@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import { nextTick } from "vue";
 import { SashApiError } from "../../../src/sash-client.js";
 import type { DaemonEvent } from "../../../src/sash-events.js";

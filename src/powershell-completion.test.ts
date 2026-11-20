@@ -3,14 +3,14 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { it } from "vitest";
 import { buildSanitizedEnv, findExecutableOnPath } from "./process.js";
 
 const shell = findExecutableOnPath(process.platform === "win32" ? "pwsh.exe" : "pwsh");
 
 it("completes commands, enums and contextual options in PowerShell without executing Sash", {
-  skip: shell ? false : "PowerShell 7 is not installed",
+  skip: !shell,
 }, async () => {
   assert.ok(shell);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-completion-"));

@@ -3,8 +3,8 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
 import { promisify } from "node:util";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import {
   acquireStateLock,
   type StateLockRecord,

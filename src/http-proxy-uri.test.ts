@@ -3,7 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { afterAll, beforeAll, describe, it } from "vitest";
 import { envProxyUri, proxyDispatcherFor } from "./http.js";
 import { downloadToFile } from "./http-download.js";
 
@@ -32,7 +32,7 @@ describe("explicit proxy URI downloads", () => {
   let savedProxyEnv: Array<[string, string | undefined]>;
   let proxiedRequests: string[];
 
-  before(async () => {
+  beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-proxy-uri-"));
     origin = http.createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/octet-stream" });
@@ -58,7 +58,7 @@ describe("explicit proxy URI downloads", () => {
     for (const key of PROXY_ENV_KEYS) delete process.env[key];
   });
 
-  after(async () => {
+  afterAll(async () => {
     for (const [key, value] of savedProxyEnv) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

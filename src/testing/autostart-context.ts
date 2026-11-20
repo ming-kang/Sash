@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { TestContext } from "node:test";
+import { onTestFinished, type TestContext } from "vitest";
 import {
   type AutostartCommand,
   type AutostartOptions,
@@ -11,14 +11,14 @@ import {
 import { sashLayout } from "../paths.js";
 
 export function testAutostartContext(
-  t: TestContext,
+  _t: TestContext,
   platform: NodeJS.Platform,
   runCommand: AutostartCommand = async () => {
     throw new Error("Unexpected OS command");
   },
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-autostart-test-"));
-  t.after(() => {
+  onTestFinished(() => {
     assert.equal(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()));
     assert.ok(path.basename(root).startsWith("sash-autostart-test-"));
     fs.rmSync(root, { recursive: true, force: true });

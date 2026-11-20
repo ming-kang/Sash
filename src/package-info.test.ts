@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it, onTestFinished } from "vitest";
 import {
   exactSashVersion,
   parseSashPackageInfo,
@@ -45,9 +45,9 @@ it("verifies package identity and the full Node engine range", () => {
     assert.throws(() => parseSashPackageInfo({ ...manifest, ...patch }));
 });
 
-it("bounds package metadata reads and does not initialize application state", (t) => {
+it("bounds package metadata reads and does not initialize application state", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-package-info-test-"));
-  t.after(() => {
+  onTestFinished(() => {
     fs.rmSync(root, { recursive: true, force: true });
   });
   const file = path.join(root, "package.json");

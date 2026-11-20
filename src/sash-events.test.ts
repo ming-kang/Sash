@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
+import { it } from "vitest";
 import { readSashEvents, SashApiError, SashClient } from "./sash-client.js";
 import { decodeDaemonEvents, parseDaemonEvent } from "./sash-events.js";
 import { testStatus } from "./testing/state.js";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { createDaemonClient } from "./sash-client-node.js";
 import { testProfile } from "./testing/state.js";
 

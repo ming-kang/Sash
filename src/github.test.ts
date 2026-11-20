@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
 import { MockAgent } from "undici";
+import { describe, it, onTestFinished, vi } from "vitest";
 import {
   listReleaseAssets,
   parseSha256Digest,
@@ -12,11 +12,11 @@ import {
 import { ERROR_BODY_LIMIT, proxyAwareDispatcher } from "./http.js";
 
 describe("github", () => {
-  it("preserves AbortError without falling back to another release endpoint", async (t) => {
+  it("preserves AbortError without falling back to another release endpoint", async () => {
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     const error = new DOMException("cancelled release lookup", "AbortError");
     agent
       .get("https://github.com")
@@ -31,11 +31,11 @@ describe("github", () => {
     assert.equal(agent.pendingInterceptors().length, 1, "the fallback must remain unused");
   });
 
-  it("reports the HTTP status when release error bodies exceed the read limit", async (t) => {
+  it("reports the HTTP status when release error bodies exceed the read limit", async () => {
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     agent
       .get("https://github.com")
       .intercept({ path: "/example/project/releases/latest" })

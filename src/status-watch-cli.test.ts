@@ -3,8 +3,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { it } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { it, onTestFinished } from "vitest";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 import {
   buildSanitizedEnv,
@@ -74,7 +74,7 @@ for (const withDelay of [false, true]) {
     const lease = await acquireStateLock(harness.layout.daemonLeaseFile, {
       purpose: "CLI watch fixture",
     });
-    t.after(() => lease.release());
+    onTestFinished(() => lease.release());
     atomicWriteFileSync(
       harness.layout.daemonPidFile,
       JSON.stringify({
@@ -120,7 +120,7 @@ for (const withDelay of [false, true]) {
         },
       },
     );
-    t.after(async () => {
+    onTestFinished(async () => {
       if (child.pid && child.exitCode === null && child.signalCode === null) {
         const pid = child.pid;
         assert.equal(

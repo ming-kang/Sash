@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
+import { it, onTestFinished } from "vitest";
 import { shallowRef } from "vue";
 import { useProxyGroupCollapse } from "./proxy-group-collapse.js";
 
-it("remembers explicit expanded and collapsed choices while defaulting only excess groups", (t) => {
+it("remembers explicit expanded and collapsed choices while defaulting only excess groups", () => {
   let saved = "{}";
   const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   Object.defineProperty(globalThis, "localStorage", {
@@ -15,7 +15,7 @@ it("remembers explicit expanded and collapsed choices while defaulting only exce
       },
     },
   });
-  t.after(() => {
+  onTestFinished(() => {
     if (original) Object.defineProperty(globalThis, "localStorage", original);
     else Reflect.deleteProperty(globalThis, "localStorage");
   });

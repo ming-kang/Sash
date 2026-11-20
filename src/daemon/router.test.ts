@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { parseDaemonRequestTarget } from "./http.js";
 import { coreApiTarget } from "./proxy.js";
 import { matchRoute, matchWebSocketUpgrade } from "./router.js";

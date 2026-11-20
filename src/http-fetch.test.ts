@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it } from "vitest";
 import {
   extractConnectRefusedEndpoint,
   fetchWithRetry,
@@ -203,7 +203,7 @@ describe("loopback proxy fallback", () => {
   let deadPort = 0;
   let savedProxyEnv: Array<[string, string | undefined]>;
 
-  before(async () => {
+  beforeAll(async () => {
     server = http.createServer((_req, res) => {
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("direct-ok");
@@ -218,7 +218,7 @@ describe("loopback proxy fallback", () => {
     process.env.HTTP_PROXY = `http://127.0.0.1:${deadPort}`;
   });
 
-  after(async () => {
+  afterAll(async () => {
     for (const [key, value] of savedProxyEnv) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

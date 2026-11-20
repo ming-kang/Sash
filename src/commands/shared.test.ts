@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it } from "vitest";
 import { createTestState } from "../testing/state.js";
 import { runtimeContext } from "./shared.js";
 

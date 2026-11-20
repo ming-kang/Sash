@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import net from "node:net";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { useDaemonTestHarness } from "../testing/daemon-harness.js";
 
 function openUpgrade(

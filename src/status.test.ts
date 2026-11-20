@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import type { AutostartStatus } from "./autostart/contract.js";
 import { withCliErrors } from "./cli-errors.js";
 import { runStatus } from "./commands/status.js";

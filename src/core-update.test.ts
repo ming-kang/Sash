@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { readInstallRecord, writeInstallRecord } from "./core.js";
 import {
   binaryUnlockProbePath,
@@ -25,7 +25,7 @@ describe("Core binary transaction", () => {
     fs.mkdirSync(layout.stateDir, { recursive: true });
   });
   afterEach(() => {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   });
   function seed() {
@@ -248,7 +248,7 @@ describe("Core binary transaction", () => {
   it("reports success and retains cleanup work when deleting the journal fails", async () => {
     seed();
     const unlink = fs.unlinkSync;
-    mock.method(fs, "unlinkSync", (file: fs.PathLike) => {
+    vi.spyOn(fs, "unlinkSync").mockImplementation((file: fs.PathLike) => {
       if (String(file) === layout.coreUpdateTransactionFile)
         throw Object.assign(new Error("cleanup failed"), { code: "ENOSPC" });
       return unlink(file);
@@ -263,7 +263,7 @@ describe("Core binary transaction", () => {
     );
     assert.equal(readCoreUpdateTransaction(layout)?.verified, true);
     assert.equal(fs.readFileSync(layout.coreExe, "utf8"), "v2-core");
-    mock.restoreAll();
+    vi.restoreAllMocks();
     recoverCoreUpdateTransaction(layout);
     assert.equal(readCoreUpdateTransaction(layout), undefined);
   });

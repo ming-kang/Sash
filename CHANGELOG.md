@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- The test suite now runs on Vitest instead of the Node test runner and a custom orchestration script. Tests keep their colocated `*.test.ts` layout, the temporary `SASH_HOME` isolation, and Windows concurrency limits; `npm test` covers both the daemon and the WebUI, and `npm run test:watch` adds watch mode.
+
 ## [0.5.3] - 2026-11-06
 
 ### Fixed

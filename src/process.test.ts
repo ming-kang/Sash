@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import {
   buildSanitizedEnv,
   classifyProcessIdentityAsync,
@@ -25,7 +25,7 @@ describe("process utilities", () => {
   });
 
   afterEach(() => {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch {}
@@ -310,7 +310,7 @@ describe("process utilities", () => {
       const originalOpenSync = fs.openSync as unknown as (...args: unknown[]) => number;
       let calls = 0;
       let stdoutFd: number | undefined;
-      mock.method(fs, "openSync", (...args: unknown[]): number => {
+      vi.spyOn(fs, "openSync").mockImplementation((...args: unknown[]): number => {
         calls++;
         if (calls === 1) {
           stdoutFd = originalOpenSync(...args);
@@ -338,7 +338,7 @@ describe("process utilities", () => {
       const closed: number[] = [];
       let descriptors: readonly [number, number] | undefined;
       let first = true;
-      mock.method(fs, "closeSync", (fd: number): void => {
+      vi.spyOn(fs, "closeSync").mockImplementation((fd: number): void => {
         closed.push(fd);
         originalCloseSync(fd);
         if (first) {

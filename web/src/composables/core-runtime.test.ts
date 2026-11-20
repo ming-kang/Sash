@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, describe, it } from "vitest";
 import { testStatus } from "../../../src/testing/state.js";
 import { setLocale } from "../i18n/index.js";
 import { markDaemonOffline } from "../stores/runtime-actions.js";

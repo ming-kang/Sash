@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { loadSettings, readState, SashStateStore } from "./app-state.js";
 import { sashLayout } from "./paths.js";
 import { createTestState, testProfile } from "./testing/state.js";
@@ -13,7 +13,7 @@ describe("canonical Sash state", () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-state-test-"));
   });
   afterEach(() => {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -114,7 +114,7 @@ describe("canonical Sash state", () => {
     const layout = sashLayout(root);
     const state = createTestState(layout);
     const rename = fs.renameSync;
-    mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+    vi.spyOn(fs, "renameSync").mockImplementation((from: fs.PathLike, to: fs.PathLike) => {
       if (String(to) === layout.settingsBackupFile)
         throw Object.assign(new Error("backup disk full"), { code: "ENOSPC" });
       return rename(from, to);
@@ -133,7 +133,7 @@ describe("canonical Sash state", () => {
     const before = fs.readFileSync(layout.settingsFile, "utf8");
     const snapshot = state.snapshot();
     const rename = fs.renameSync;
-    mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+    vi.spyOn(fs, "renameSync").mockImplementation((from: fs.PathLike, to: fs.PathLike) => {
       if (String(to) === layout.settingsFile)
         throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
       return rename(from, to);

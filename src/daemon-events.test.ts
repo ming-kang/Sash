@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { request } from "undici";
+import { it, onTestFinished } from "vitest";
 import { DaemonEvents } from "./daemon/events.js";
 import { directDispatcherForLoopback } from "./http.js";
 import { createDaemonClient } from "./sash-client-node.js";
@@ -11,7 +11,7 @@ import { deferredValue, FakeCoreSupervisor, testStatus } from "./testing/state.j
 
 const harness = useDaemonTestHarness();
 
-it("reuses completed desktop observations during repeated state notifications", async (t) => {
+it("reuses completed desktop observations during repeated state notifications", async () => {
   let checks = 0;
   await harness.startServer({
     autostart: {
@@ -26,7 +26,7 @@ it("reuses completed desktop observations during repeated state notifications", 
     },
   });
   const controller = new AbortController();
-  t.after(() => controller.abort());
+  onTestFinished(() => controller.abort());
   const events = createDaemonClient(harness.boundPort, harness.settings.daemonSecret).events(
     controller.signal,
   );
@@ -41,7 +41,7 @@ it("reuses completed desktop observations during repeated state notifications", 
   await events.return(undefined);
 });
 
-it("keeps runtime events flowing while one desktop inspection is pending", async (t) => {
+it("keeps runtime events flowing while one desktop inspection is pending", async () => {
   const backendInspection = deferredValue<"off" | "on">();
   let checks = 0;
   await harness.startServer({
@@ -59,7 +59,7 @@ it("keeps runtime events flowing while one desktop inspection is pending", async
     },
   });
   const controller = new AbortController();
-  t.after(() => {
+  onTestFinished(() => {
     controller.abort();
     backendInspection.resolve("on");
   });
@@ -79,7 +79,7 @@ it("keeps runtime events flowing while one desktop inspection is pending", async
   await events.return(undefined);
 });
 
-it("shares snapshots, pushes committed revisions and accepts authenticated browser streams", async (t) => {
+it("shares snapshots, pushes committed revisions and accepts authenticated browser streams", async () => {
   const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
   let observations = 0;
   supervisor.onStatus = () => {
@@ -87,7 +87,7 @@ it("shares snapshots, pushes committed revisions and accepts authenticated brows
   };
   await harness.startServer({ supervisor });
   const controller = new AbortController();
-  t.after(() => controller.abort());
+  onTestFinished(() => controller.abort());
   const client = createDaemonClient(harness.boundPort, harness.settings.daemonSecret);
   const first = client.events(controller.signal);
   const second = client.events(controller.signal);
@@ -137,7 +137,7 @@ it("rejects missing or query credentials, foreign origins and unsupported method
   assert.equal((await harness.apiRequest("/sash/events", { method: "POST" })).statusCode, 405);
 });
 
-it("observes external changes only while subscribed and suppresses unchanged idle samples", async (t) => {
+it("observes external changes only while subscribed and suppresses unchanged idle samples", async () => {
   let calls = 0;
   let status = testStatus();
   const events: DaemonEvent[] = [];
@@ -145,7 +145,7 @@ it("observes external changes only while subscribed and suppresses unchanged idl
     calls++;
     return { status, autostart: { state: "off", canEnable: true, reason: null } };
   }, 50);
-  t.after(() => hub.close());
+  onTestFinished(() => hub.close());
   const stop = hub.subscribe(
     (event) => events.push(event),
     () => {},
@@ -162,10 +162,10 @@ it("observes external changes only while subscribed and suppresses unchanged idl
   assert.equal(calls, stoppedAt);
 });
 
-it("closes active streams during daemon shutdown and releases observation timers", async (t) => {
+it("closes active streams during daemon shutdown and releases observation timers", async () => {
   const instance = await harness.startServer();
   const controller = new AbortController();
-  t.after(() => controller.abort());
+  onTestFinished(() => controller.abort());
   const events = createDaemonClient(harness.boundPort, harness.settings.daemonSecret).events(
     controller.signal,
   );

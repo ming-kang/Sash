@@ -3,8 +3,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, it } from "node:test";
 import { MockAgent } from "undici";
+import { afterEach, describe, it, onTestFinished, vi } from "vitest";
 import { seedGeodataFile } from "./geodata-seed.js";
 import { proxyAwareDispatcher } from "./http.js";
 import { sashLayout } from "./paths.js";
@@ -22,11 +22,11 @@ describe("seedGeodataFile", () => {
     return sashLayout(dir);
   }
 
-  function mockAgent(t: import("node:test").TestContext): MockAgent {
+  function mockAgent(_t: import("vitest").TestContext): MockAgent {
     const agent = new MockAgent();
     agent.disableNetConnect();
-    t.mock.method(proxyAwareDispatcher(), "dispatch", agent.dispatch.bind(agent));
-    t.after(() => agent.close());
+    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
+    onTestFinished(() => agent.close());
     return agent;
   }
 

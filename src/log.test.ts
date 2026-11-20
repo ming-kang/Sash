@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
+import { it, vi } from "vitest";
 import { displayWidth, log } from "./log.js";
 
-it("aligns Unicode columns and escapes terminal control characters", (t) => {
+it("aligns Unicode columns and escapes terminal control characters", () => {
   const lines: string[] = [];
-  t.mock.method(console, "log", (line: string) => lines.push(line));
+  vi.spyOn(console, "log").mockImplementation((line: string) => lines.push(line));
   log.table([
     ["名称", "Value"],
     ["Name", "\x1b[31mvalue"],

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { CORE_DELAY_TIMEOUT_MS, CORE_DELAY_URL, validateDelayTarget } from "./core-delay.js";
 import { MihomoApi } from "./mihomo-api.js";
 import { createDaemonClient } from "./sash-client-node.js";

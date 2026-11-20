@@ -3,7 +3,7 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { it } from "node:test";
+import { it } from "vitest";
 import { writeInstallRecord } from "./core.js";
 import { diagnoseSash, inspectListenerPort } from "./doctor.js";
 import type { DownloadTransport } from "./http.js";

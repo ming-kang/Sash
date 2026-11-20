@@ -4,7 +4,7 @@ import http from "node:http";
 import net, { type AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import {
   DEFAULT_DAEMON_START_TIMEOUT_MS,
   daemonSpawnEnv,

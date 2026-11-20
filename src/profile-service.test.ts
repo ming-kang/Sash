@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { readState, type SashStateStore } from "./app-state.js";
 import { DaemonGate } from "./daemon/context.js";
 import type { SubscriptionFetch } from "./mihomo-config.js";
@@ -34,7 +34,7 @@ describe("saved profiles", () => {
     );
   });
   afterEach(() => {
-    mock.restoreAll();
+    vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   });
   function service(
@@ -138,16 +138,18 @@ describe("saved profiles", () => {
     const a = (await profiles.importLocal("a", yamlA)).profile;
     const before = fs.readFileSync(layout.settingsFile, "utf8");
     const rename = fs.promises.rename;
-    mock.method(fs.promises, "rename", async (from: fs.PathLike, to: fs.PathLike) => {
-      if (String(to) === layout.settingsFile)
-        throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
-      return rename(from, to);
-    });
+    vi.spyOn(fs.promises, "rename").mockImplementation(
+      async (from: fs.PathLike, to: fs.PathLike) => {
+        if (String(to) === layout.settingsFile)
+          throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+        return rename(from, to);
+      },
+    );
     await assert.rejects(profiles.writeContent(a.id, yamlB, a.revision), /disk full/);
     assert.equal(fs.readFileSync(layout.settingsFile, "utf8"), before);
     assert.equal(profiles.readContent(a.id).content, yamlA);
     assert.equal(fs.readFileSync(profileFilePath(layout, a.id, a.revision + 1), "utf8"), yamlB);
-    mock.restoreAll();
+    vi.restoreAllMocks();
     const updated = await profiles.writeContent(a.id, yamlB, a.revision);
     assert.ok(updated.profile.revision > a.revision + 1);
   });

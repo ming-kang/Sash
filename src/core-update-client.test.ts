@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { it } from "vitest";
 import {
   type CoreUpdateProgress,
   coreUpdateProgressText,

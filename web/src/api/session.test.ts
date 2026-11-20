@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
 import { Window as HappyWindow } from "happy-dom";
+import { afterEach, beforeEach, describe, it } from "vitest";
 import type { HealthInfo } from "../../../src/contracts.js";
 import { browserFetch, SashClient } from "../../../src/sash-client.js";
 import { sessionReady, webSession } from "./session.js";

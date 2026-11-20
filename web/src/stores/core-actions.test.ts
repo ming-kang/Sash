@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, onTestFinished, vi } from "vitest";
 import { deferredValue, testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
 import type { ConnectionItem } from "../types/index.js";
@@ -39,12 +39,14 @@ function testConnection(id: string): ConnectionItem {
 
 describe("web Core actions", () => {
   for (const fail of [false, true])
-    it(`ignores a replaced runtime's pending resource response (failure=${fail})`, async (t) => {
+    it(`ignores a replaced runtime's pending resource response (failure=${fail})`, async () => {
       const original = { ...store };
-      t.after(() => Object.assign(store, original));
+      onTestFinished(() => {
+        Object.assign(store, original);
+      });
       store.status = testStatus();
       const response = deferredValue<Awaited<ReturnType<typeof api.getRules>>>();
-      t.mock.method(api, "getRules", () => response.promise);
+      vi.spyOn(api, "getRules").mockImplementation(() => response.promise);
       const refreshing = refreshRules();
       resetCoreState();
       if (fail) response.reject(new Error("old runtime failed"));
@@ -55,9 +57,11 @@ describe("web Core actions", () => {
       assert.deepEqual(store.resourceErrors, {});
     });
 
-  it("reuses identical proxy snapshots but honors a local selection and a reset", async (t) => {
+  it("reuses identical proxy snapshots but honors a local selection and a reset", async () => {
     const original = { ...store };
-    t.after(() => Object.assign(store, original));
+    onTestFinished(() => {
+      Object.assign(store, original);
+    });
     store.status = testStatus();
     const proxies = {
       PROXY: { name: "PROXY", type: "Selector", udp: true, history: [], all: ["a", "b"], now: "a" },
@@ -68,7 +72,7 @@ describe("web Core actions", () => {
     assert.equal(store.proxies, proxies);
     assert.equal(store.proxyGroups, groups);
 
-    t.mock.method(api, "selectProxy", async () => {});
+    vi.spyOn(api, "selectProxy").mockImplementation(async () => {});
     await selectGroupProxy("PROXY", "b");
     assert.equal(store.proxies.PROXY?.now, "b");
     setProxies(structuredClone(proxies));
@@ -81,7 +85,9 @@ describe("web Core actions", () => {
 
     const current = store.proxies;
     store.resourceErrors = { proxies: "Transient failure" };
-    t.mock.method(api, "getProxies", async () => ({ proxies: structuredClone(proxies) }));
+    vi.spyOn(api, "getProxies").mockImplementation(async () => ({
+      proxies: structuredClone(proxies),
+    }));
     await refreshProxies();
     assert.equal(store.proxies, current);
     assert.equal(store.resourceErrors.proxies, undefined, "unchanged success clears the error");
@@ -92,14 +98,16 @@ describe("web Core actions", () => {
   });
 
   for (const all of [false, true])
-    it(`drops connections after the Core confirms the close (all=${all})`, async (t) => {
+    it(`drops connections after the Core confirms the close (all=${all})`, async () => {
       const originalStatus = store.status;
       const originalConnections = store.connections;
-      t.after(() => {
+      onTestFinished(() => {
         store.status = originalStatus;
         store.connections = originalConnections;
       });
-      t.mock.method(api, all ? "closeAllConnections" : "closeConnection", async () => {});
+      vi.spyOn(api, all ? "closeAllConnections" : "closeConnection").mockImplementation(
+        async () => {},
+      );
       store.status = testStatus();
       store.connections = [testConnection("one"), testConnection("two")];
 
@@ -112,9 +120,11 @@ describe("web Core actions", () => {
       );
     });
 
-  it("resolves a group's delay through its selected chain and survives cycles", (t) => {
+  it("resolves a group's delay through its selected chain and survives cycles", () => {
     const original = { ...store };
-    t.after(() => Object.assign(store, original));
+    onTestFinished(() => {
+      Object.assign(store, original);
+    });
     const node = (name: string, delay?: number) => ({
       name,
       type: "Trojan",
