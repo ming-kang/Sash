@@ -34,6 +34,7 @@ export interface SashLayout {
   settingsFile: string;
   settingsBackupFile: string;
   profilesDir: string;
+  pluginsDir: string;
   uiDir: string;
   stateDir: string;
   pidFile: string;
@@ -73,6 +74,7 @@ export function sashLayout(root: string = sashRoot()): SashLayout {
     settingsFile: path.join(root, "sash.json"),
     settingsBackupFile: path.join(root, "sash.json.bak"),
     profilesDir: path.join(root, "profiles"),
+    pluginsDir: path.join(root, "plugins"),
     uiDir: path.join(root, "ui"),
     stateDir: path.join(root, "state"),
     pidFile: path.join(root, "state", "sash.pid"),

@@ -7,6 +7,7 @@ import type { GeodataSeedResult } from "../geodata-seed.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
+import { PluginRegistry } from "../plugins/index.js";
 import { ProfileService } from "../profile-service.js";
 import { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { SashSettings } from "../settings.js";
@@ -38,6 +39,7 @@ export interface DaemonDeps {
   resolveCoreReleaseFn?: typeof resolveCoreRelease;
   seedGeodataFn?: (file: string, options: { signal: AbortSignal }) => Promise<GeodataSeedResult>;
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
+  plugins?: PluginRegistry | null;
   onShutdown?: () => void;
   scheduler?: DaemonScheduler;
 }
@@ -111,6 +113,8 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     ...(deps.stageCoreFn ? { stageCoreFn: deps.stageCoreFn } : {}),
     ...(deps.resolveCoreReleaseFn ? { resolveCoreReleaseFn: deps.resolveCoreReleaseFn } : {}),
     ...(deps.seedGeodataFn ? { seedGeodataFn: deps.seedGeodataFn } : {}),
+    plugins:
+      deps.plugins === null ? undefined : (deps.plugins ?? new PluginRegistry(layout.pluginsDir)),
   });
 
   const context: DaemonContext = {

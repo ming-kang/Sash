@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import YAML from "yaml";
 import { type SashStateStore, StateConflictError } from "../app-state.js";
 import type { CoreStartResult } from "../contracts.js";
 import {
@@ -24,8 +25,9 @@ import {
 import { errorMessage } from "../error-utils.js";
 import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
 import { type DownloadTransport, envProxyUri, formatProxyFallbackWarning } from "../http.js";
-import { GEOX_MIRROR_SETS, type GeneratedConfig } from "../mihomo-config.js";
+import { countProxies, GEOX_MIRROR_SETS, type GeneratedConfig } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
+import type { PluginGenerateContext } from "../plugins/index.js";
 import { renderActiveConfig } from "../profile-service.js";
 import { renderGeodataMirrorsOffThread } from "../profile-work.js";
 import { getActiveProfile } from "../profiles.js";
@@ -56,6 +58,12 @@ export interface CoreControlServiceOptions {
     file: string,
     options: { signal: AbortSignal; proxyUri?: string },
   ) => Promise<GeodataSeedResult>;
+  plugins?: {
+    applyGenerated(
+      config: Record<string, unknown>,
+      context: PluginGenerateContext,
+    ): Promise<Record<string, unknown>>;
+  };
 }
 
 const PROGRESS_NOTIFY_INTERVAL_MS = 250;
@@ -226,16 +234,37 @@ export class CoreControlService {
     }
   }
 
+  private async applyGeneratePlugins(
+    generated: GeneratedConfig,
+    context: PluginGenerateContext,
+  ): Promise<GeneratedConfig> {
+    const plugins = this.options.plugins;
+    if (!plugins) return generated;
+    const document = YAML.parse(generated.yaml) as Record<string, unknown>;
+    const patched = await plugins.applyGenerated(document, context);
+    return {
+      yaml: YAML.stringify(patched, { indent: 2 }),
+      proxyCount: countProxies(patched),
+      source: generated.source,
+    };
+  }
+
   private async savedConfiguration(
     snapshot = this.options.state.snapshot(),
   ): Promise<RuntimeConfiguration> {
     const profile = getActiveProfile(snapshot.profiles);
+    const meta = profile
+      ? { id: profile.id, revision: profile.revision, name: profile.name, url: profile.url }
+      : null;
+    const generated = await renderActiveConfig(snapshot, this.options.layout);
     return {
-      generated: await renderActiveConfig(snapshot, this.options.layout),
+      generated: await this.applyGeneratePlugins(generated, {
+        settings: snapshot.settings,
+        profile: meta,
+        source: generated.source,
+      }),
       settings: snapshot.settings,
-      profile: profile
-        ? { id: profile.id, revision: profile.revision, name: profile.name, url: profile.url }
-        : null,
+      profile: meta,
     };
   }
 

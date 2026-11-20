@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The daemon's HTTP routing now runs on Fastify instead of a hand-written URLPattern dispatcher, and request-body validation uses Zod schemas defined in `src/api-schemas.ts`. Wire behavior is unchanged: loopback and request-target checks still run before routing, SSE/Web UI/Core proxying keep their custom implementations, and error envelopes, `Allow` ordering, body limits and authentication ordering are preserved.
 - The WebUI now uses vue-router, Pinia and vue-i18n instead of hand-written hash routing, a shared reactive store and a dictionary walker. Route components still load lazily with their loading/error shell, `navigate`/`currentRoute`/`store`/`t` keep their existing signatures for callers, and the visible behavior — hash URLs, unknown-route fallback, locale persistence — is unchanged.
 
+### Added
+
+- JavaScript plugins can rewrite the generated Core configuration. Any `*.js` file placed under `plugins/` inside `SASH_HOME` is evaluated in a sandboxed `node:vm` context (no `require`, `process`, `fetch` or host globals); a plugin exports `{ name, onGenerate(config, context) }` and either returns a replacement document or mutates the clone it is given. Hooks run in sorted-file order on every start/apply/reconcile/update path, receive `{ settings, profile, source }`, and failures or timeouts are logged and skipped so a bad plugin can never break Core startup.
+
 ## [0.5.3] - 2026-11-06
 
 ### Fixed
