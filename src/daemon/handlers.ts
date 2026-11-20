@@ -1,23 +1,36 @@
-import { parseAutostartEnabled } from "../autostart/contract.js";
 import {
-  type HealthInfo,
-  isRoutingMode,
-  type SettingsPatch,
-  type SystemProxyStatusResponse,
-  type WebBootstrapInfo,
-  type WebSessionInfo,
+  coreDelayBodySchema,
+  coreModeBodySchema,
+  coreUpdateBodySchema,
+  profileActivateBodySchema,
+  profileAddBodySchema,
+  profileContentBodySchema,
+  profileImportBodySchema,
+  profileRenameBodySchema,
+  profilesReorderBodySchema,
+  settingsPatchBodySchema,
+} from "../api-schemas.js";
+import { parseAutostartEnabled } from "../autostart/contract.js";
+import type {
+  HealthInfo,
+  SettingsPatch,
+  SystemProxyStatusResponse,
+  WebBootstrapInfo,
+  WebSessionInfo,
 } from "../contracts.js";
 import { validateCoreReleaseTag } from "../core.js";
 import { validateDelayTarget } from "../core-delay.js";
 import { errorMessage } from "../error-utils.js";
-import { isPlainObject } from "../json-shape.js";
 import { MihomoApi } from "../mihomo-api.js";
 import { ProfileInputError } from "../profile-service.js";
 import { publicSettings } from "../settings.js";
 import type { DaemonContext } from "./context.js";
-import { HttpError, requiredParam, routePath } from "./http.js";
-import type { RouteDef, RouteRequest, RouteResponse } from "./router.js";
+import { HttpError, routePath } from "./http.js";
+import type { DaemonRequest, RouteDef, RouteResponse } from "./router.js";
 import { readDaemonStatus } from "./status.js";
+
+const JSON_KB = 1024;
+const PROFILE_BODY_LIMIT = 8 * 1024 * 1024;
 
 export function sashApiRoutes(): readonly RouteDef[] {
   return [
@@ -51,6 +64,7 @@ export function sashApiRoutes(): readonly RouteDef[] {
       methods: ["POST"],
       pattern: routePath("/sash/web/session"),
       auth: "public",
+      bodyLimit: JSON_KB,
       handler: redeemWebBootstrap,
     },
     {
@@ -63,12 +77,14 @@ export function sashApiRoutes(): readonly RouteDef[] {
       methods: ["PUT"],
       pattern: routePath("/sash/core/mode"),
       auth: "control",
+      bodyLimit: JSON_KB,
       handler: setCoreMode,
     },
     {
       methods: ["POST"],
       pattern: routePath("/sash/core/delay"),
       auth: "control",
+      bodyLimit: 4096,
       handler: testCoreDelay,
     },
     {
@@ -87,6 +103,7 @@ export function sashApiRoutes(): readonly RouteDef[] {
       methods: ["POST"],
       pattern: routePath("/sash/core/update"),
       auth: "control",
+      bodyLimit: JSON_KB,
       handler: updateCore,
     },
     {
@@ -148,6 +165,7 @@ export function sashApiRoutes(): readonly RouteDef[] {
       methods: ["POST"],
       pattern: routePath("/sash/profiles/import"),
       auth: "control",
+      bodyLimit: PROFILE_BODY_LIMIT,
       handler: importProfile,
     },
     {
@@ -178,6 +196,7 @@ export function sashApiRoutes(): readonly RouteDef[] {
       methods: ["PUT"],
       pattern: routePath("/sash/profiles/:id([0-9]+)/content"),
       auth: "control",
+      bodyLimit: PROFILE_BODY_LIMIT,
       handler: writeProfileContent,
     },
     {
@@ -195,13 +214,19 @@ export function sashApiRoutes(): readonly RouteDef[] {
   ];
 }
 
+function requiredParam(req: DaemonRequest, name: string): string {
+  const value = req.params[name];
+  if (value === undefined) throw new Error(`Missing route parameter: ${name}`);
+  return value;
+}
+
 export async function readAutostart(ctx: DaemonContext): Promise<RouteResponse> {
   return { status: 200, json: await ctx.autostart.inspect() };
 }
 
 export async function writeAutostart(
   ctx: DaemonContext,
-  req: RouteRequest,
+  req: DaemonRequest,
 ): Promise<RouteResponse> {
   const body = await req.readJson();
   let enabled: boolean;
@@ -231,46 +256,42 @@ export async function cancelCoreUpdate(ctx: DaemonContext): Promise<RouteRespons
   ctx.core.cancel();
   return { status: 204 };
 }
-export async function updateCore(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
-  const body = await req.readJson(1024);
-  if (
-    Object.keys(body).some((key) => key !== "version") ||
-    (body.version !== undefined && typeof body.version !== "string")
-  ) {
-    throw new HttpError(400, "Expected an optional Core version string");
-  }
+export async function updateCore(ctx: DaemonContext, req: DaemonRequest): Promise<RouteResponse> {
+  const body = coreUpdateBodySchema.safeParse(await req.readJson());
+  if (!body.success) throw new HttpError(400, "Expected an optional Core version string");
   let version: string | undefined;
   try {
-    version = typeof body.version === "string" ? validateCoreReleaseTag(body.version) : undefined;
+    version =
+      body.data.version !== undefined ? validateCoreReleaseTag(body.data.version) : undefined;
   } catch (error) {
     throw new HttpError(400, errorMessage(error));
   }
   return { status: 200, json: await ctx.core.update(version) };
 }
 
-export async function setCoreMode(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
-  const body = await req.readJson(1024);
-  const mode = body.mode;
-  if (Object.keys(body).some((key) => key !== "mode") || !isRoutingMode(mode))
-    throw new HttpError(400, "Invalid routing mode");
+export async function setCoreMode(ctx: DaemonContext, req: DaemonRequest): Promise<RouteResponse> {
+  const body = coreModeBodySchema.safeParse(await req.readJson());
+  if (!body.success) throw new HttpError(400, "Invalid routing mode");
   await ctx.gate.runLiveMutation(async () => {
     const owner = ctx.supervisor.ownedCoreSnapshot();
     if (!owner) throw new HttpError(409, "A running owned Core is required to change routing mode");
     const settings = ctx.settings.runtime();
-    await new MihomoApi(settings.controller, settings.secret).setMode(mode);
+    await new MihomoApi(settings.controller, settings.secret).setMode(body.data.mode);
     if (!ctx.supervisor.ownsCore(owner))
       throw new HttpError(409, "Core changed during the mode request; inspect its current mode");
   });
   return { status: 204 };
 }
 
-export async function testCoreDelay(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
-  const body = await req.readJson(4096);
+export async function testCoreDelay(
+  ctx: DaemonContext,
+  req: DaemonRequest,
+): Promise<RouteResponse> {
+  const body = coreDelayBodySchema.safeParse(await req.readJson());
   let name: string;
   try {
-    if (Object.keys(body).some((key) => key !== "name"))
-      throw new TypeError("Expected only a node or group name");
-    name = validateDelayTarget(body.name);
+    if (!body.success) throw new TypeError("Expected only a node or group name");
+    name = validateDelayTarget(body.data.name);
   } catch (error) {
     throw new HttpError(400, errorMessage(error));
   }
@@ -311,9 +332,9 @@ export function createWebBootstrap(ctx: DaemonContext): RouteResponse {
 
 export async function redeemWebBootstrap(
   ctx: DaemonContext,
-  req: RouteRequest,
+  req: DaemonRequest,
 ): Promise<RouteResponse> {
-  const body = await req.readJson(1024);
+  const body = await req.readJson();
   const token = typeof body.token === "string" ? body.token.trim() : "";
   const session = ctx.webAuth.redeemBootstrap(token);
   if (!session) throw new HttpError(401, "Invalid or expired bootstrap token");
@@ -321,7 +342,7 @@ export async function redeemWebBootstrap(
   return { status: 200, json: response };
 }
 
-export async function daemonStatus(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
+export async function daemonStatus(ctx: DaemonContext, req: DaemonRequest): Promise<RouteResponse> {
   const fresh = req.searchParams.get("fresh") === "1";
   if (fresh && !req.authorized)
     throw new HttpError(401, "Fresh status requires control authentication");
@@ -353,42 +374,44 @@ export function listProfiles(ctx: DaemonContext): RouteResponse {
 
 export async function reorderProfiles(
   ctx: DaemonContext,
-  req: RouteRequest,
+  req: DaemonRequest,
 ): Promise<RouteResponse> {
-  const { ids } = await req.readJson();
-  if (!Array.isArray(ids) || !ids.every((id): id is string => typeof id === "string")) {
-    throw new ProfileInputError("Missing profile ids array");
-  }
-  return { status: 200, json: await ctx.profiles.reorder(ids) };
+  const body = profilesReorderBodySchema.safeParse(await req.readJson());
+  if (!body.success) throw new ProfileInputError("Missing profile ids array");
+  return { status: 200, json: await ctx.profiles.reorder(body.data.ids) };
 }
 
-export async function addProfile(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
-  const body = await req.readJson();
-  const url = typeof body.url === "string" ? body.url.trim() : "";
-  const name = typeof body.name === "string" ? body.name.trim() : undefined;
+export async function addProfile(ctx: DaemonContext, req: DaemonRequest): Promise<RouteResponse> {
+  const body = profileAddBodySchema.safeParse(await req.readJson());
+  const data = body.success ? body.data : {};
+  const url = typeof data.url === "string" ? data.url.trim() : "";
+  const name = typeof data.name === "string" ? data.name.trim() : undefined;
   const result = await ctx.profiles.addRemote(url, {
     ...(name ? { name } : {}),
-    activate: body.activate === true,
+    activate: data.activate === true,
   });
   return { status: 200, json: result };
 }
 
-export async function importProfile(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
-  const body = await req.readJson(8 * 1024 * 1024);
-  const name = typeof body.name === "string" ? body.name : "imported";
-  const content = typeof body.content === "string" ? body.content : "";
+export async function importProfile(
+  ctx: DaemonContext,
+  req: DaemonRequest,
+): Promise<RouteResponse> {
+  const body = profileImportBodySchema.safeParse(await req.readJson());
+  const data = body.success ? body.data : {};
+  const name = typeof data.name === "string" ? data.name : "imported";
+  const content = typeof data.content === "string" ? data.content : "";
   const result = await ctx.profiles.importLocal(name, content);
   return { status: 200, json: result };
 }
 
 export async function activateProfile(
   ctx: DaemonContext,
-  req: RouteRequest,
+  req: DaemonRequest,
 ): Promise<RouteResponse> {
-  const body = await req.readJson();
-  const id = body.id === null ? null : typeof body.id === "string" ? body.id : undefined;
-  if (id === undefined) throw new ProfileInputError("Missing profile id string or null");
-  const result = await ctx.profiles.activate(id);
+  const body = profileActivateBodySchema.safeParse(await req.readJson());
+  if (!body.success) throw new ProfileInputError("Missing profile id string or null");
+  const result = await ctx.profiles.activate(body.data.id);
   return { status: 200, json: result };
 }
 
@@ -399,41 +422,52 @@ export async function updateAllProfiles(ctx: DaemonContext): Promise<RouteRespon
   return { status: 200, json: result };
 }
 
-export async function updateProfile(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
+export async function updateProfile(
+  ctx: DaemonContext,
+  req: DaemonRequest,
+): Promise<RouteResponse> {
   const result = await ctx.profiles.update(requiredParam(req, "id"));
   return { status: 200, json: result };
 }
 
-export function readProfileContent(ctx: DaemonContext, req: RouteRequest): RouteResponse {
+export function readProfileContent(ctx: DaemonContext, req: DaemonRequest): RouteResponse {
   return { status: 200, json: ctx.profiles.readContent(requiredParam(req, "id")) };
 }
 
 export async function writeProfileContent(
   ctx: DaemonContext,
-  req: RouteRequest,
+  req: DaemonRequest,
 ): Promise<RouteResponse> {
-  const body = await req.readJson(8 * 1024 * 1024);
-  const content = typeof body.content === "string" ? body.content : "";
-  const revision = body.revision;
-  if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1)
-    throw new ProfileInputError("A positive profile revision is required");
-  const result = await ctx.profiles.writeContent(requiredParam(req, "id"), content, revision);
+  const body = profileContentBodySchema.safeParse(await req.readJson());
+  if (!body.success) throw new ProfileInputError("A positive profile revision is required");
+  const content = typeof body.data.content === "string" ? body.data.content : "";
+  const result = await ctx.profiles.writeContent(
+    requiredParam(req, "id"),
+    content,
+    body.data.revision,
+  );
   return { status: 200, json: result };
 }
 
-export async function renameProfile(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
-  const body = await req.readJson();
-  const name = typeof body.name === "string" ? body.name : "";
+export async function renameProfile(
+  ctx: DaemonContext,
+  req: DaemonRequest,
+): Promise<RouteResponse> {
+  const body = profileRenameBodySchema.safeParse(await req.readJson());
+  const name = body.success && typeof body.data.name === "string" ? body.data.name : "";
   const result = await ctx.profiles.rename(requiredParam(req, "id"), name);
   return { status: 200, json: result };
 }
 
-export async function removeProfile(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
+export async function removeProfile(
+  ctx: DaemonContext,
+  req: DaemonRequest,
+): Promise<RouteResponse> {
   const result = await ctx.profiles.remove(requiredParam(req, "id"));
   return { status: 200, json: result };
 }
 
-export async function proxyStatus(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
+export async function proxyStatus(ctx: DaemonContext, req: DaemonRequest): Promise<RouteResponse> {
   const fresh = req.searchParams.get("fresh") === "1";
   if (fresh && !req.authorized)
     throw new HttpError(401, "Fresh status requires control authentication");
@@ -449,21 +483,27 @@ export async function proxyStatus(ctx: DaemonContext, req: RouteRequest): Promis
   return { status: 200, json: body };
 }
 
-const PATCHABLE_KEYS = ["expectedRevision", "mixedPort", "allowLan", "systemProxy"];
-
 function readSettingsPatch(body: unknown): SettingsPatch {
-  const source = isPlainObject(body) ? body : {};
-  for (const key of Object.keys(source)) {
-    if (!PATCHABLE_KEYS.includes(key)) throw new HttpError(400, `Unknown settings field: ${key}`);
+  const parsed = settingsPatchBodySchema.safeParse(body);
+  if (!parsed.success) {
+    const unknownKey = parsed.error.issues.find((issue) => issue.code === "unrecognized_keys")
+      ?.keys?.[0];
+    throw new HttpError(
+      400,
+      unknownKey !== undefined ? `Unknown settings field: ${unknownKey}` : "Invalid settings patch",
+    );
   }
-  return source as SettingsPatch;
+  return parsed.data as SettingsPatch;
 }
 
 export function readSettings(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: publicSettings(ctx.settings.committed()) };
 }
 
-export async function patchSettings(ctx: DaemonContext, req: RouteRequest): Promise<RouteResponse> {
+export async function patchSettings(
+  ctx: DaemonContext,
+  req: DaemonRequest,
+): Promise<RouteResponse> {
   const result = await ctx.settingsService.apply(readSettingsPatch(await req.readJson()));
   return {
     status: 200,

@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ApiErrorCode } from "../contracts.js";
 import type { SashLayout } from "../paths.js";
 import { resolveUiDir } from "../webui.js";
 import type { DaemonContext } from "./context.js";
-import { type ParsedDaemonRequestTarget, sendError } from "./http.js";
+import { daemonTargetOf, sendError } from "./http.js";
 
 const UI_SECURITY_HEADERS = {
   "Content-Security-Policy": "frame-ancestors 'none'",
@@ -48,10 +49,12 @@ function sendUiError(
 
 export function serveUiIndexOrRedirect(
   ctx: DaemonContext,
-  req: IncomingMessage,
-  res: ServerResponse,
-  target: ParsedDaemonRequestTarget,
+  request: FastifyRequest,
+  reply: FastifyReply,
 ): void {
+  const target = daemonTargetOf(request.raw);
+  const res = reply.raw;
+  reply.hijack();
   // Route matching strips trailing slashes, so the redirect decision uses the
   // unnormalized pathname to tell /ui and /ui/ apart.
   if (target.pathname === "/ui") {
@@ -59,14 +62,24 @@ export function serveUiIndexOrRedirect(
     res.end();
     return;
   }
-  serveUiAsset(ctx, req, res, target);
+  serveStaticUiOr404(ctx, request.raw, res, target);
 }
 
 export function serveUiAsset(
   ctx: DaemonContext,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): void {
+  const res = reply.raw;
+  reply.hijack();
+  serveStaticUiOr404(ctx, request.raw, res, daemonTargetOf(request.raw));
+}
+
+function serveStaticUiOr404(
+  ctx: DaemonContext,
   req: IncomingMessage,
   res: ServerResponse,
-  target: ParsedDaemonRequestTarget,
+  target: { pathname: string; routePathname: string },
 ): void {
   if (!serveStaticUi(req, res, target.pathname, ctx.layout)) {
     sendError(res, 404, "not_found", `Not found: ${req.method} ${target.routePathname}`);

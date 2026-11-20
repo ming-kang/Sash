@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The test suite now runs on Vitest instead of the Node test runner and a custom orchestration script. Tests keep their colocated `*.test.ts` layout, the temporary `SASH_HOME` isolation, and Windows concurrency limits; `npm test` covers both the daemon and the WebUI, and `npm run test:watch` adds watch mode.
 - The `dist` bundles are built by tsdown instead of a hand-written Vite SSR orchestration script. The emitted layout is unchanged: six self-contained entries, shebang launchers that enable the V8 compile cache, per-entry license notices, and a build-time whitelist that fails if an unlisted dependency is bundled.
+- The daemon's HTTP routing now runs on Fastify instead of a hand-written URLPattern dispatcher, and request-body validation uses Zod schemas defined in `src/api-schemas.ts`. Wire behavior is unchanged: loopback and request-target checks still run before routing, SSE/Web UI/Core proxying keep their custom implementations, and error envelopes, `Allow` ordering, body limits and authentication ordering are preserved.
 
 ## [0.5.3] - 2026-11-06
 

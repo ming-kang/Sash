@@ -1,4 +1,4 @@
-import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import type { SashLayout } from "../paths.js";
@@ -6,9 +6,15 @@ import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
 import { isWebSocketRequestAuthorized } from "./auth.js";
-import { parseRequestTarget, sendSocketError } from "./http.js";
+import { buildDaemonApp } from "./fastify-app.js";
+import {
+  type ParsedDaemonRequestTarget,
+  parseRequestTarget,
+  sendError,
+  sendSocketError,
+} from "./http.js";
 import { forwardWsToCore } from "./proxy.js";
-import { checkLoopbackBoundary, dispatch, matchWebSocketUpgrade } from "./router.js";
+import { checkLoopbackBoundary, matchWebSocketUpgrade } from "./router.js";
 import { buildRoutes } from "./routes.js";
 import { type ProfileUpdateScheduler, startProfileUpdateScheduler } from "./scheduler.js";
 
@@ -38,18 +44,29 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
   const app: DaemonApp = buildDaemonContext(deps);
   const { context } = app;
   const routes = buildRoutes();
+  const fastify = buildDaemonApp(context, routes);
+  fastify.ready((err) => {
+    if (err) console.error("[sashd] Fastify initialization failed:", err);
+  });
 
-  const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
-    void dispatch(context, routes, req, res).catch((err: unknown) => {
-      console.error("[sashd] unhandled HTTP request error:", err);
-      if (res.writableEnded || res.destroyed) return;
-      if (res.headersSent) {
-        res.destroy();
-        return;
-      }
-      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ error: { code: "internal", message: "Internal server error" } }));
-    });
+  const server = http.createServer((req: IncomingMessage, res) => {
+    const boundary = checkLoopbackBoundary(req);
+    if (boundary) {
+      sendError(res, boundary.status, boundary.code, boundary.message);
+      return;
+    }
+    const parsed = parseRequestTarget(req);
+    if (!parsed.ok) {
+      sendError(res, 400, "http", parsed.message);
+      return;
+    }
+    req.method = req.method?.toUpperCase() ?? "GET";
+    (req as IncomingMessage & { daemonTarget?: ParsedDaemonRequestTarget }).daemonTarget =
+      parsed.target;
+    // Route matching happens on the canonical target (trailing slashes folded),
+    // the original stays on the request for raw handlers and upstream targets.
+    req.url = parsed.target.routePathname + parsed.target.search;
+    fastify.routing(req, res);
   });
 
   const upgradedSockets = new Set<Duplex>();

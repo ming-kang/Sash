@@ -1,4 +1,5 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import type { DaemonEvent } from "../sash-events.js";
 import type { DaemonContext } from "./context.js";
 import { sendError } from "./http.js";
@@ -122,9 +123,11 @@ export class DaemonEvents {
 
 export function streamDaemonEvents(
   ctx: DaemonContext,
-  _req: IncomingMessage,
-  res: ServerResponse,
+  _request: FastifyRequest,
+  reply: FastifyReply,
 ): void {
+  const res: ServerResponse = reply.raw;
+  reply.hijack();
   if (ctx.gate.isClosing || ctx.events.size >= 64) {
     sendError(res, 503, "shutting_down", "Sash event stream is unavailable; reconnect shortly");
     return;

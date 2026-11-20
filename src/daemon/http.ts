@@ -48,6 +48,14 @@ export function parseDaemonRequestTarget(
   };
 }
 
+/** The canonical target the outer listener stamped on the raw request. */
+export function daemonTargetOf(req: IncomingMessage): ParsedDaemonRequestTarget {
+  const target = (req as IncomingMessage & { daemonTarget?: ParsedDaemonRequestTarget })
+    .daemonTarget;
+  if (!target) throw new Error("Daemon request target is missing");
+  return target;
+}
+
 export type RequestTargetResult =
   | { ok: true; target: ParsedDaemonRequestTarget }
   | { ok: false; message: string };
@@ -65,15 +73,6 @@ export function parseRequestTarget(req: IncomingMessage): RequestTargetResult {
 
 export function routePath(pathname: string): URLPattern {
   return new URLPattern({ pathname });
-}
-
-export function requiredParam(
-  req: { params: Record<string, string | undefined> },
-  name: string,
-): string {
-  const value = req.params[name];
-  if (value === undefined) throw new Error(`Missing route parameter: ${name}`);
-  return value;
 }
 
 function parseJsonBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<unknown> {

@@ -1,6 +1,7 @@
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { parseControllerAddress } from "../settings.js";
 import {
   coreWebSocketProtocols,
@@ -9,7 +10,12 @@ import {
 } from "./auth.js";
 import type { DaemonContext } from "./context.js";
 import { defaultCodeForStatus } from "./errors.js";
-import { type ParsedDaemonRequestTarget, sendError, sendSocketError } from "./http.js";
+import {
+  daemonTargetOf,
+  type ParsedDaemonRequestTarget,
+  sendError,
+  sendSocketError,
+} from "./http.js";
 
 function parseHostPort(address: string): { host: string; port: number } {
   const parsed = parseControllerAddress(address);
@@ -60,10 +66,13 @@ function segmentsSurviveDecoding(pathname: string): boolean {
 
 export async function forwardToCore(
   ctx: DaemonContext,
-  req: IncomingMessage,
-  res: ServerResponse,
-  target: ParsedDaemonRequestTarget,
+  request: FastifyRequest,
+  reply: FastifyReply,
 ): Promise<void> {
+  const req = request.raw;
+  const res = reply.raw;
+  const target = daemonTargetOf(req);
+  reply.hijack();
   const method = req.method?.toUpperCase() ?? "GET";
   const pathname = coreApiTarget(target).split("?")[0] ?? "/";
   const allowedMutation =
