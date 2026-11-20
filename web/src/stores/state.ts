@@ -1,4 +1,5 @@
-import { computed, shallowReactive } from "vue";
+import { createPinia, defineStore, getActivePinia, type Pinia } from "pinia";
+import { computed, toRaw } from "vue";
 import { currentRoute } from "../router.js";
 import type {
   ConnectionItem,
@@ -56,41 +57,77 @@ export interface StoreState {
 
 export const HISTORY_LEN = 60;
 
-// Large collections are replaced by reference; their entries do not need deep Vue proxies.
-export const store = shallowReactive<StoreState>({
-  status: null,
-  daemonOnline: true,
-  lastStateRevision: null,
-  resourceLoaded: {},
-  resourceErrors: {},
-  mode: "rule",
-  traffic: {
-    up: 0,
-    down: 0,
-    historyUp: Array(HISTORY_LEN).fill(0),
-    historyDown: Array(HISTORY_LEN).fill(0),
+function initialState(): StoreState {
+  return {
+    status: null,
+    daemonOnline: true,
+    lastStateRevision: null,
+    resourceLoaded: {},
+    resourceErrors: {},
+    mode: "rule",
+    traffic: {
+      up: 0,
+      down: 0,
+      historyUp: Array(HISTORY_LEN).fill(0),
+      historyDown: Array(HISTORY_LEN).fill(0),
+    },
+    proxies: {},
+    proxyGroups: [],
+    manualProxyDelays: {},
+    runtimeGeneration: 0,
+    connections: [],
+    connectionsUploadTotal: 0,
+    connectionsDownloadTotal: 0,
+    rules: [],
+    logs: [],
+    profiles: [],
+    profilesLoaded: false,
+    activeProfileId: null,
+    activeGroup: "",
+    operations: {
+      profileMutation: false,
+      mode: false,
+      systemProxy: false,
+      networkSetting: false,
+      proxySelections: {},
+    },
+    toasts: [],
+  };
+}
+
+export const useAppStore = defineStore("app", { state: initialState });
+
+// Standalone contexts (tests, workers) never install the app Pinia; they get a
+// lazily-created singleton so `store` keeps its old shared-module semantics.
+let fallbackPinia: Pinia | undefined;
+function appStore(): ReturnType<typeof useAppStore> {
+  let pinia = getActivePinia() ?? fallbackPinia;
+  if (!pinia) {
+    pinia = createPinia();
+    fallbackPinia = pinia;
+  }
+  return useAppStore(pinia);
+}
+
+// Compatibility facade over the Pinia store: existing `store.field` reads,
+// writes and `Object.assign` snapshots keep working while Pinia owns state.
+// toRaw unwraps Pinia's deep proxies so nested reads keep the legacy
+// shallowReactive identity semantics (callers see their own objects back).
+export const store = new Proxy({} as StoreState, {
+  get: (_target, key: string | symbol) =>
+    toRaw((appStore() as unknown as Record<string | symbol, unknown>)[key]),
+  set: (_target, key: string | symbol, value: unknown) => {
+    (appStore() as unknown as Record<string | symbol, unknown>)[key] = value;
+    return true;
   },
-  proxies: {},
-  proxyGroups: [],
-  manualProxyDelays: {},
-  runtimeGeneration: 0,
-  connections: [],
-  connectionsUploadTotal: 0,
-  connectionsDownloadTotal: 0,
-  rules: [],
-  logs: [],
-  profiles: [],
-  profilesLoaded: false,
-  activeProfileId: null,
-  activeGroup: "",
-  operations: {
-    profileMutation: false,
-    mode: false,
-    systemProxy: false,
-    networkSetting: false,
-    proxySelections: {},
-  },
-  toasts: [],
+  has: (_target, key: string | symbol) => key in appStore().$state,
+  ownKeys: () => Reflect.ownKeys(appStore().$state),
+  getOwnPropertyDescriptor: (_target, key: string | symbol) => ({
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value: (appStore() as unknown as Record<string | symbol, unknown>)[key],
+  }),
 });
 
 export function isCoreHealthy(status: SashStatus | null): boolean {

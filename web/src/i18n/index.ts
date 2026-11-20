@@ -1,6 +1,7 @@
-import { ref } from "vue";
+import type { Ref } from "vue";
+import { createI18n } from "vue-i18n";
 import { en } from "./en.js";
-import { type Messages, zh } from "./zh.js";
+import { zh } from "./zh.js";
 
 export type Locale = "zh" | "en";
 
@@ -16,9 +17,16 @@ function detectLocale(): Locale {
   return "zh";
 }
 
-export const locale = ref<Locale>(detectLocale());
+export const i18n = createI18n({
+  legacy: false,
+  locale: detectLocale(),
+  fallbackLocale: "zh",
+  missingWarn: false,
+  fallbackWarn: false,
+  messages: { zh, en },
+});
 
-const dicts: Record<Locale, Messages> = { zh, en };
+export const locale = i18n.global.locale as unknown as Ref<Locale>;
 
 export function setLocale(next: Locale): void {
   locale.value = next;
@@ -34,20 +42,10 @@ if (hasDOM) {
   document.documentElement.lang = locale.value === "zh" ? "zh-CN" : "en";
 }
 
+// Single-brace `{name}` interpolation is vue-i18n's default format, so the
+// existing dictionaries and all `t(path, params)` call sites keep working.
 export function t(path: string, params?: Record<string, string | number>): string {
-  let node: unknown = dicts[locale.value];
-  for (const key of path.split(".")) {
-    if (node === null || typeof node !== "object") {
-      node = undefined;
-      break;
-    }
-    node = (node as Record<string, unknown>)[key];
-  }
-  let text = typeof node === "string" ? node : path;
-  if (params) {
-    for (const [placeholder, value] of Object.entries(params)) {
-      text = text.replaceAll(`{${placeholder}}`, String(value));
-    }
-  }
-  return text;
+  return params === undefined
+    ? i18n.global.t(path)
+    : i18n.global.t(path, params as Record<string, unknown>);
 }

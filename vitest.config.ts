@@ -1,3 +1,4 @@
+import vue from "@vitejs/plugin-vue";
 import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,7 @@ const noProxy = [
 ].join(",");
 
 export default defineConfig({
+  plugins: [vue()],
   test: {
     include: ["src/**/*.test.ts", "web/src/**/*.test.ts"],
     environment: "node",

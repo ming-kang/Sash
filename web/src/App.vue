@@ -26,11 +26,7 @@
           :class="`page-${sessionReady ? currentRoute : 'connect'}`"
         >
           <ConnectionView v-if="!sessionReady" />
-          <OverviewView v-else-if="currentRoute === 'overview'" />
-          <ProfilesView v-else-if="currentRoute === 'profiles'" />
-          <LogsView v-else-if="currentRoute === 'logs'" />
-          <ConnectionsView v-else-if="currentRoute === 'connections'" />
-          <RulesView v-else-if="currentRoute === 'rules'" />
+          <RouterView v-else />
         </div>
       </main>
 
@@ -44,7 +40,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { api, sessionReady } from "./api/index.js";
 import AppSidebar from "./components/AppSidebar.vue";
-import { asyncView } from "./components/async-view.js";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import Icon from "./components/Icon.vue";
 import ToastHost from "./components/ToastHost.vue";
@@ -60,18 +55,12 @@ import {
   startTrafficEvents,
   store,
 } from "./stores/index.js";
-import OverviewView from "./views/OverviewView.vue";
 import ConnectionView from "./views/ConnectionView.vue";
 
 // Without a session the connection page already explains what to do; an offline Sash still gets the banner.
 const bannerNotice = computed(() =>
   sessionReady.value || !store.daemonOnline ? runtimeNotice.value : null,
 );
-
-const ConnectionsView = asyncView(() => import("./views/ConnectionsView.vue"));
-const LogsView = asyncView(() => import("./views/LogsView.vue"));
-const ProfilesView = asyncView(() => import("./views/ProfilesView.vue"));
-const RulesView = asyncView(() => import("./views/RulesView.vue"));
 
 let stopRuntime: (() => void) | null = null;
 let stopTraffic: (() => void) | null = null;
