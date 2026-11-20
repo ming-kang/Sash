@@ -18,7 +18,8 @@
   "scripts": {
     "clean:build": "node scripts/clean-build.mjs",
     "build:ui": "node scripts/build-ui.mjs",
-    "build": "npm run clean:build && node scripts/build-dist.mjs && npm run build:ui",
+    "build:dist": "tsdown",
+    "build": "npm run clean:build && npm run build:dist && npm run build:ui",
     "dev": "tsx src/cli.ts",
     "typecheck:server": "tsc --noEmit",
     "typecheck:web": "vue-tsc -p web/tsconfig.json --noEmit",
