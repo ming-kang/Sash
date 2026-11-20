@@ -218,14 +218,14 @@ async function closeOne(id: string): Promise<void> {
 
 async function closeAll(): Promise<void> {
   const count = store.connections.length;
-  const ok = await confirmDialog({
+  const confirmed = await confirmDialog({
     title: t("connections.closeAll"),
     message: t("connections.closeAllConfirm", { n: count }),
     confirmText: t("common.confirm"),
     cancelText: t("common.cancel"),
     danger: true,
   });
-  if (!ok) return;
+  if (!confirmed) return;
   try {
     await closeAllConnections();
     pausedSnapshot.value = [];

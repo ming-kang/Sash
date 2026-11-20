@@ -2,16 +2,16 @@ import { locale, t } from "../i18n/index.js";
 
 export function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return "0 B";
-  const k = 1024;
+  const scale = 1024;
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), units.length - 1);
-  const value = bytes / k ** i;
-  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
+  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(scale)), units.length - 1);
+  const value = bytes / scale ** unitIndex;
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unitIndex]}`;
 }
 
 /** Groups thousands for counts such as "1,234 rules"; ports and versions stay unformatted. */
-export function formatCount(n: number): string {
-  return n.toLocaleString(locale.value === "zh" ? "zh-CN" : "en-US");
+export function formatCount(count: number): string {
+  return count.toLocaleString(locale.value === "zh" ? "zh-CN" : "en-US");
 }
 
 export function formatSpeed(bytesPerSec: number): string {
@@ -31,8 +31,8 @@ export function formatUptime(startIso: string | undefined, now = Date.now()): st
 }
 
 export function formatTime(date: Date = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 export function formatAgo(iso: string): string {
@@ -52,9 +52,9 @@ export function formatAgo(iso: string): string {
 }
 
 export function formatDate(epochSec: number): string {
-  const d = new Date(epochSec * 1000);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  const date = new Date(epochSec * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 const LEADING_FLAG = /^\s*([\u{1F1E6}-\u{1F1FF}]{2})\s*/u;

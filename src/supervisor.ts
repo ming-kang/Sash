@@ -72,9 +72,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function managedPathsMatch(a: string, b: string): boolean {
-  const left = path.resolve(a);
-  const right = path.resolve(b);
+function managedPathsMatch(leftPath: string, rightPath: string): boolean {
+  const left = path.resolve(leftPath);
+  const right = path.resolve(rightPath);
   return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 

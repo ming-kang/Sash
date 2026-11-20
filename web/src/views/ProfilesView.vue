@@ -2,12 +2,12 @@
   <div class="profiles-view">
     <PageHeader :title="t('page.profiles')" />
 
-    <div class="dl-panel" :aria-busy="downloading || updatingAll || importing || profileBusy">
-      <div class="dl-input-wrap">
+    <div class="download-panel" :aria-busy="downloading || updatingAll || importing || profileBusy">
+      <div class="download-input-wrap">
         <input
-          v-model="dlUrl"
+          v-model="downloadUrl"
           type="url"
-          class="input dl-input"
+          class="input download-input"
           :placeholder="t('profiles.downloadPlaceholder')"
           :aria-label="t('profiles.downloadPlaceholder')"
           :disabled="downloading || profileBusy"
@@ -16,7 +16,7 @@
         />
         <button
           type="button"
-          class="icon-btn dl-paste"
+          class="icon-btn download-paste"
           :title="t('profiles.paste')"
           :aria-label="t('profiles.paste')"
           :disabled="downloading || profileBusy"
@@ -25,11 +25,11 @@
           <Icon name="clipboard" :size="15" />
         </button>
       </div>
-      <div class="dl-actions">
+      <div class="download-actions">
         <button
           type="button"
-          class="btn btn-primary dl-action-primary"
-          :disabled="downloading || profileBusy || !dlUrl.trim()"
+          class="btn btn-primary download-action-primary"
+          :disabled="downloading || profileBusy || !downloadUrl.trim()"
           @click="download"
         >
           <Icon name="download" :size="14" />
@@ -99,13 +99,13 @@
       @contextmenu="chosenId && $event.preventDefault()"
     >
       <ProfileCard
-        v-for="p in profiles"
-        :key="p.id"
-        :profile="p"
-        :is-active="p.id === store.activeProfileId"
+        v-for="profile in profiles"
+        :key="profile.id"
+        :profile="profile"
+        :is-active="profile.id === store.activeProfileId"
         :is-busy="profileBusy"
-        :is-chosen="chosenId === p.id"
-        :is-updating="updatingId === p.id"
+        :is-chosen="chosenId === profile.id"
+        :is-updating="updatingId === profile.id"
         :can-reorder="profiles.length > 1"
         @select="selectProfile"
         @update="updateOne"
@@ -161,7 +161,7 @@ const ProfileEditorDialog = asyncView(
   () => import("../components/ProfileEditorDialog.vue"),
 );
 
-const dlUrl = ref("");
+const downloadUrl = ref("");
 const downloading = ref(false);
 const updatingAll = ref(false);
 const importing = ref(false);
@@ -178,7 +178,7 @@ const { profiles, chosenId, busy: orderBusy, onPointerdown, onClick, moveWithKey
     computed(() => store.profiles),
     computed(() => store.operations.profileMutation),
   );
-const hasRemote = computed(() => store.profiles.some((p) => p.url !== ""));
+const hasRemote = computed(() => store.profiles.some((profile) => profile.url !== ""));
 const profileBusy = computed(() => store.operations.profileMutation || orderBusy.value);
 
 async function loadProfiles(): Promise<void> {
@@ -195,7 +195,7 @@ onMounted(() => {
 });
 
 async function download(): Promise<void> {
-  const url = dlUrl.value.trim();
+  const url = downloadUrl.value.trim();
   if (!url || downloading.value) return;
   if (!/^https?:\/\/.+/.test(url)) {
     toast.warning(t("profiles.invalidUrl"));
@@ -204,7 +204,7 @@ async function download(): Promise<void> {
   downloading.value = true;
   try {
     const res = await addProfile(url);
-    dlUrl.value = "";
+    downloadUrl.value = "";
     toast.success(t("toast.profileAdded", { name: res.profile.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
@@ -213,12 +213,12 @@ async function download(): Promise<void> {
   }
 }
 
-async function updateOne(p: ProfileMeta): Promise<void> {
+async function updateOne(profile: ProfileMeta): Promise<void> {
   if (updatingId.value) return;
-  updatingId.value = p.id;
+  updatingId.value = profile.id;
   try {
-    await updateProfile(p.id);
-    toast.success(t("toast.profileUpdated", { name: p.name }));
+    await updateProfile(profile.id);
+    toast.success(t("toast.profileUpdated", { name: profile.name }));
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   } finally {
@@ -243,10 +243,10 @@ async function updateAll(): Promise<void> {
   }
 }
 
-async function selectProfile(p: ProfileMeta): Promise<void> {
-  if (profileBusy.value || p.id === store.activeProfileId) return;
+async function selectProfile(profile: ProfileMeta): Promise<void> {
+  if (profileBusy.value || profile.id === store.activeProfileId) return;
   try {
-    await activateProfile(p.id);
+    await activateProfile(profile.id);
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   }
@@ -257,18 +257,18 @@ function openEditor(profile: ProfileMeta): void {
   editorProfile.value = profile;
 }
 
-async function removeProfile(p: ProfileMeta): Promise<void> {
+async function removeProfile(profile: ProfileMeta): Promise<void> {
   if (profileBusy.value) return;
-  const ok = await confirmDialog({
+  const confirmed = await confirmDialog({
     title: t("profiles.deleteConfirmTitle"),
-    message: t("profiles.deleteConfirmMsg", { name: p.name }),
+    message: t("profiles.deleteConfirmMsg", { name: profile.name }),
     confirmText: t("common.confirm"),
     cancelText: t("common.cancel"),
     danger: true,
   });
-  if (!ok) return;
+  if (!confirmed) return;
   try {
-    await deleteProfile(p.id);
+    await deleteProfile(profile.id);
   } catch (err) {
     toast.error(t("toast.failed", { msg: errorText(err) }));
   }
@@ -297,7 +297,7 @@ function onImportFile(event: Event): void {
 async function pasteFromClipboard(): Promise<void> {
   try {
     const text = await navigator.clipboard.readText();
-    if (text.trim()) dlUrl.value = text.trim();
+    if (text.trim()) downloadUrl.value = text.trim();
   } catch {
     toast.error(t("toast.pasteFailed"));
   }
@@ -308,7 +308,7 @@ async function pasteFromClipboard(): Promise<void> {
 .profiles-view {
   min-height: 100%;
 }
-.dl-panel {
+.download-panel {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto;
   align-items: center;
@@ -316,18 +316,18 @@ async function pasteFromClipboard(): Promise<void> {
   margin-bottom: 20px;
   padding: 0;
 }
-.dl-input-wrap {
+.download-input-wrap {
   position: relative;
   min-width: 0;
 }
-.dl-input {
+.download-input {
   width: 100%;
   min-height: 40px;
   padding-right: 42px;
   font-family: var(--font-mono);
   font-size: 13px;
 }
-.dl-paste {
+.download-paste {
   position: absolute;
   top: 50%;
   right: 4px;
@@ -335,12 +335,12 @@ async function pasteFromClipboard(): Promise<void> {
   height: 30px;
   transform: translateY(-50%);
 }
-.dl-actions {
+.download-actions {
   display: flex;
   align-items: center;
   gap: 7px;
 }
-.dl-actions .btn {
+.download-actions .btn {
   min-height: 40px;
   padding-inline: 12px;
 }
@@ -374,20 +374,20 @@ async function pasteFromClipboard(): Promise<void> {
 }
 
 @media (max-width: 1100px) {
-  .dl-panel {
+  .download-panel {
     grid-template-columns: 1fr;
   }
-  .dl-actions {
+  .download-actions {
     justify-content: flex-end;
   }
 }
 
 @media (max-width: 820px) {
-  .dl-actions {
+  .download-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .dl-actions .btn {
+  .download-actions .btn {
     min-width: 0;
   }
 }
@@ -399,20 +399,20 @@ async function pasteFromClipboard(): Promise<void> {
 }
 
 @media (max-width: 480px) {
-  .dl-panel {
+  .download-panel {
     gap: 10px;
   }
-  .dl-actions {
+  .download-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .dl-action-primary {
+  .download-action-primary {
     grid-column: 1 / -1;
   }
-  .dl-actions .btn,
-  .dl-input {
+  .download-actions .btn,
+  .download-input {
     min-height: 44px;
   }
-  .dl-paste {
+  .download-paste {
     width: 38px;
     height: 38px;
   }

@@ -127,25 +127,25 @@ const emit = defineEmits<{
 }>();
 
 const sourceLabel = computed(() => {
-  const p = props.profile;
-  if (!p.url) return t("profiles.localFile");
+  const profile = props.profile;
+  if (!profile.url) return t("profiles.localFile");
   try {
-    return new URL(p.url).hostname || p.url;
+    return new URL(profile.url).hostname || profile.url;
   } catch {
-    return p.url;
+    return profile.url;
   }
 });
 
 const updatedLabel = computed(() => {
-  const p = props.profile;
-  const ms = new Date(p.updatedAt).getTime();
+  const profile = props.profile;
+  const ms = new Date(profile.updatedAt).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return t("profiles.neverUpdated");
-  return formatAgo(p.updatedAt);
+  return formatAgo(profile.updatedAt);
 });
 
 const usedBytes = computed(() => {
-  const p = props.profile;
-  return (p.subInfo?.upload ?? 0) + (p.subInfo?.download ?? 0);
+  const profile = props.profile;
+  return (profile.subInfo?.upload ?? 0) + (profile.subInfo?.download ?? 0);
 });
 
 const usagePct = computed(() => {

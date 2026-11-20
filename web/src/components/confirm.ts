@@ -11,7 +11,7 @@ interface ConfirmOptions {
 
 interface ConfirmState extends ConfirmOptions {
   visible: boolean;
-  resolve: ((ok: boolean) => void) | null;
+  resolve: ((confirmed: boolean) => void) | null;
 }
 
 export const confirmState = reactive<ConfirmState>({
@@ -40,8 +40,8 @@ export function confirmDialog(
   });
 }
 
-export function settleConfirm(ok: boolean): void {
+export function settleConfirm(confirmed: boolean): void {
   confirmState.visible = false;
-  confirmState.resolve?.(ok);
+  confirmState.resolve?.(confirmed);
   confirmState.resolve = null;
 }

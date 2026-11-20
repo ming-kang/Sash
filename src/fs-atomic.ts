@@ -76,28 +76,28 @@ export function pathEntryExists(target: string): boolean {
 export function atomicWriteFileSync(target: string, data: string | Buffer, mode = 0o600): void {
   const dir = path.dirname(target);
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(
+  const tempPath = path.join(
     dir,
     `.${path.basename(target)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`,
   );
-  const fd = fs.openSync(tmp, "wx", mode);
+  const fd = fs.openSync(tempPath, "wx", mode);
   try {
     fs.writeFileSync(fd, data);
     fs.fsyncSync(fd);
   } catch (err) {
     try {
       fs.closeSync(fd);
-      fs.rmSync(tmp, { force: true });
+      fs.rmSync(tempPath, { force: true });
     } catch {}
     throw err;
   }
   fs.closeSync(fd);
   try {
-    renameWithRetrySync(tmp, target);
+    renameWithRetrySync(tempPath, target);
   } catch (err) {
     // This temp file is owned here, unlike a caller-owned durableRename source, so cleanup is safe.
     try {
-      fs.rmSync(tmp, { force: true });
+      fs.rmSync(tempPath, { force: true });
     } catch {}
     throw err;
   }
@@ -138,11 +138,11 @@ export async function atomicWriteFile(
 ): Promise<void> {
   const dir = path.dirname(target);
   await fs.promises.mkdir(dir, { recursive: true });
-  const tmp = path.join(
+  const tempPath = path.join(
     dir,
     `.${path.basename(target)}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`,
   );
-  const handle = await fs.promises.open(tmp, "wx", mode);
+  const handle = await fs.promises.open(tempPath, "wx", mode);
   try {
     try {
       await handle.writeFile(data);
@@ -150,10 +150,10 @@ export async function atomicWriteFile(
     } finally {
       await handle.close();
     }
-    await retryFileOperation(() => fs.promises.rename(tmp, target));
+    await retryFileOperation(() => fs.promises.rename(tempPath, target));
     await syncDirectory(dir);
   } catch (error) {
-    await fs.promises.rm(tmp, { force: true }).catch(() => undefined);
+    await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
     throw error;
   }
 }

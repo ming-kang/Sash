@@ -106,10 +106,13 @@ describe("clock formatting", () => {
   });
 
   it("formats epoch seconds as a padded local date", () => {
-    const p = (n: number) => String(n).padStart(2, "0");
+    const pad = (n: number) => String(n).padStart(2, "0");
     for (const sec of [0, 1_000_000_000, 1_782_475_200]) {
-      const d = new Date(sec * 1000);
-      assert.equal(formatDate(sec), `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
+      const date = new Date(sec * 1000);
+      assert.equal(
+        formatDate(sec),
+        `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+      );
     }
   });
 });

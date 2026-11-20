@@ -45,8 +45,8 @@ export function t(path: string, params?: Record<string, string | number>): strin
   }
   let text = typeof node === "string" ? node : path;
   if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      text = text.replaceAll(`{${k}}`, String(v));
+    for (const [placeholder, value] of Object.entries(params)) {
+      text = text.replaceAll(`{${placeholder}}`, String(value));
     }
   }
   return text;

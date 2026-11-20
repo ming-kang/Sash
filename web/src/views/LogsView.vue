@@ -53,7 +53,7 @@
       <div v-if="filteredLogs.length === 0" class="log-empty text-muted">
         {{ !isCoreRunning ? t('logs.coreStopped') : store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
       </div>
-      <div v-for="log in filteredLogs" :key="log.id" class="log-line" :class="`lv-${log.type.toLowerCase()}`">
+      <div v-for="log in filteredLogs" :key="log.id" class="log-line" :class="`log-${log.type.toLowerCase()}`">
         <span v-if="log.time" class="log-time mono">{{ log.time }}</span>
         <Icon :name="levelIcon(log.type)" :size="13" class="log-icon" />
         <span class="log-payload">{{ log.payload }}</span>
@@ -219,19 +219,19 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.5;
 }
-.lv-info .log-icon {
+.log-info .log-icon {
   color: var(--success);
 }
-.lv-warning .log-icon,
-.lv-warning .log-payload {
+.log-warning .log-icon,
+.log-warning .log-payload {
   color: var(--warning);
 }
-.lv-error .log-icon,
-.lv-error .log-payload {
+.log-error .log-icon,
+.log-error .log-payload {
   color: var(--danger);
 }
-.lv-debug .log-icon,
-.lv-debug .log-payload {
+.log-debug .log-icon,
+.log-debug .log-payload {
   color: var(--log-debug);
 }
 
