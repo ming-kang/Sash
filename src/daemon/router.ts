@@ -6,6 +6,10 @@ import type { DaemonContext } from "./context.js";
 import type { JsonObject, ParsedDaemonRequestTarget } from "./http.js";
 import { coreApiTarget } from "./proxy.js";
 
+// "public" serves unauthenticated GET/HEAD responses; "control" requires a
+// daemon credential; "gateway" proxies to the Core controller — it still
+// requires daemon control auth, then injects the Core secret upstream so the
+// WebUI never has to know it.
 export type RouteAuth = "public" | "control" | "gateway";
 
 /** The parsed request view JSON handlers see; mirrors the legacy RouteRequest. */

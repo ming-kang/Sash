@@ -177,8 +177,16 @@ export class RuntimeLifecycle {
       }
       // The Core answered with a refusal, so it still runs the previous
       // configuration; keep the file telling the same story so a later restart
-      // cannot pick up a rejected one.
-      await atomicWriteFile(this.options.layout.configFile, applied.generated.yaml);
+      // cannot pick up a rejected one. A failed restore must not mask the
+      // original refusal: report both so the stale file is not a surprise.
+      try {
+        await atomicWriteFile(this.options.layout.configFile, applied.generated.yaml);
+      } catch (writeError) {
+        throw new Error(
+          `Core refused the configuration reload, and the previous configuration could not be restored to disk: ${errorMessage(writeError)}`,
+          { cause: writeError },
+        );
+      }
       throw error;
     }
     this.applied = configuration;

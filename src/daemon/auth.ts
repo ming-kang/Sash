@@ -157,6 +157,10 @@ export function isLoopbackHostHeader(value: string | undefined): boolean {
 }
 
 export function isLoopbackOriginHeader(value: string | undefined): boolean {
+  // Same-origin browser requests and non-browser CLI clients do not send an
+  // Origin header. The boundary defense is the loopback Host check plus
+  // per-request credentials, neither of which is ambient, so a missing Origin
+  // is accepted here — a cross-origin browser request always carries Origin.
   if (!value) return true;
   try {
     return isLoopbackHostname(new URL(value).hostname);

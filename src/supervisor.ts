@@ -227,6 +227,10 @@ export class CoreSupervisor {
       }
 
       if (!this.isAlive(pid)) {
+        if (this.child === child) {
+          this.child = null;
+          this.childStartedAt = undefined;
+        }
         this.clearOwnedPidRecord(child);
         const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
           maxLines: 20,

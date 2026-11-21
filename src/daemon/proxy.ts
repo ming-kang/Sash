@@ -86,8 +86,16 @@ export async function forwardToCore(
   const runtime = ctx.settings.runtime();
   const forward = () =>
     forwardHttpToCore(req, res, coreApiTarget(target), runtime.controller, runtime.secret);
-  if (isControlMutation(method)) await ctx.gate.runLiveMutation(forward);
-  else await forward();
+  // The reply is already hijacked, so a proxy failure cannot fall back to the
+  // Fastify error handler; report it on the raw response instead.
+  try {
+    if (isControlMutation(method)) await ctx.gate.runLiveMutation(forward);
+    else await forward();
+  } catch (error) {
+    if (!res.destroyed && !res.headersSent) {
+      sendError(res, 502, "internal", `Core controller unavailable: ${errorMessage(error)}`);
+    } else if (!res.destroyed) res.destroy();
+  }
 }
 
 export function forwardHttpToCore(

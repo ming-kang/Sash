@@ -148,6 +148,36 @@ describe("PluginRegistry", () => {
     assert.equal(infos.find((info) => info.name === "good")?.error, undefined);
   });
 
+  it("freezes the shared context so one plugin cannot poison the next", async () => {
+    const dir = tempDir();
+    writePlugin(
+      dir,
+      "a-evil.js",
+      `module.exports = {
+      onGenerate(config, ctx) {
+        try { ctx.source = "hacked"; } catch (e) {}
+        try { ctx.settings = {}; } catch (e) {}
+        try { ctx.profile = { id: "x" }; } catch (e) {}
+      },
+    };`,
+    );
+    writePlugin(
+      dir,
+      "b-check.js",
+      `module.exports = {
+      onGenerate(config, ctx) {
+        config.sourceOk = ctx.source === "default";
+        config.settingsOk = ctx.settings && ctx.settings.mixedPort === 7890;
+        config.profileOk = ctx.profile === null;
+      },
+    };`,
+    );
+    const result = await new PluginRegistry(dir).applyGenerated({}, context);
+    assert.equal(result.sourceOk, true);
+    assert.equal(result.settingsOk, true);
+    assert.equal(result.profileOk, true);
+  });
+
   it("denies host globals inside the sandbox", async () => {
     const dir = tempDir();
     writePlugin(

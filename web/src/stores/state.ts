@@ -113,6 +113,8 @@ function appStore(): ReturnType<typeof useAppStore> {
 // writes and `Object.assign` snapshots keep working while Pinia owns state.
 // toRaw unwraps Pinia's deep proxies so nested reads keep the legacy
 // shallowReactive identity semantics (callers see their own objects back).
+// Rule: only replace top-level fields — in-place mutation of a nested object
+// returns the raw (untracked) value and will not trigger Vue computeds.
 export const store = new Proxy({} as StoreState, {
   get: (_target, key: string | symbol) =>
     toRaw((appStore() as unknown as Record<string | symbol, unknown>)[key]),

@@ -16,7 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- JavaScript plugins can rewrite the generated Core configuration. Any `*.js` file placed under `plugins/` inside `SASH_HOME` is evaluated in a sandboxed `node:vm` context (no `require`, `process`, `fetch` or host globals); a plugin exports `{ name, onGenerate(config, context) }` and either returns a replacement document or mutates the clone it is given. Hooks run in sorted-file order on every start/apply/reconcile/update path, receive `{ settings, profile, source }`, and failures or timeouts are logged and skipped so a bad plugin can never break Core startup.
+- JavaScript plugins can rewrite the generated Core configuration. Any `*.js` file placed under `plugins/` inside `SASH_HOME` is evaluated in a `node:vm` context with no host globals (no `require`, `process` or `fetch`; `node:vm` is not a hard security boundary — plugins are trusted, first-party code). A plugin exports `{ name, onGenerate(config, context) }` and either returns a replacement document or mutates the clone it is given. Hooks run in sorted-file order on every start/apply/reconcile/update path, receive a deep-frozen `{ settings, profile, source }` snapshot where `settings` holds only public fields (secrets are never exposed), and failures or timeouts are logged and skipped so a bad plugin can never break Core startup.
+
+### Fixed
+
+- Core gateway proxying reports upstream failures on the raw response after the reply is hijacked instead of relying on the Fastify error handler.
+- A failed restore write during Core configuration reload no longer masks the Core's refusal or silently leaves the rejected configuration on disk.
+- A Core that exits during the startup health window no longer leaves a stale child handle behind.
 
 ## [0.5.3] - 2026-11-06
 

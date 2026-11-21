@@ -11,6 +11,7 @@ export interface PluginProfileInfo {
 }
 
 export interface PluginGenerateContext {
+  /** Sanitized public settings; daemon and Core secrets are never exposed. */
   readonly settings: unknown;
   readonly profile: PluginProfileInfo | null;
   readonly source: "subscription" | "default";
@@ -36,12 +37,22 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  }
+  return value;
+}
+
 /**
  * Plugins are plain CommonJS-style modules under `<SASH_HOME>/plugins/*.js`,
- * evaluated in a vm context with no host globals. A plugin exports an object
- * with an optional `onGenerate(config, context)` hook; returning a plain
- * object replaces the merged Core configuration document, and returning
- * nothing keeps the (possibly mutated) document.
+ * evaluated in a vm context with no host globals. Node's `vm` is not a hard
+ * security boundary — plugins are trusted, first-party code; the context only
+ * prevents accidental access to ambient globals like `process` or `require`.
+ * A plugin exports an object with an optional `onGenerate(config, context)`
+ * hook; returning a plain object replaces the merged Core configuration
+ * document, and returning nothing keeps the (possibly mutated) document.
  */
 export class PluginRegistry {
   private readonly infos: PluginInfo[] = [];
@@ -140,19 +151,22 @@ export class PluginRegistry {
   /**
    * Run every loaded onGenerate hook in sorted-file order. Each hook receives
    * a clone of the current document so a failing plugin cannot corrupt state
-   * for the plugins after it; failures are logged and skipped.
+   * for the plugins after it; the shared context is deep-frozen so a plugin
+   * cannot leak mutations into the hooks that run after it. Failures are
+   * logged and skipped.
    */
   async applyGenerated(
     config: Record<string, unknown>,
     context: PluginGenerateContext,
   ): Promise<Record<string, unknown>> {
+    const frozenContext = deepFreeze(context);
     let current = config;
     for (const plugin of await this.ensureLoaded()) {
       if (!plugin.onGenerate) continue;
       const clone = structuredClone(current);
       try {
         const result = await this.withTimeout(
-          plugin.onGenerate(clone, context),
+          plugin.onGenerate(clone, frozenContext),
           `plugin ${plugin.name}`,
         );
         current = isPlainObject(result) ? result : clone;

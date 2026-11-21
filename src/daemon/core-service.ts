@@ -31,6 +31,7 @@ import type {
   RuntimeTarget,
 } from "../runtime-lifecycle.js";
 import { runtimeDelta } from "../runtime-lifecycle.js";
+import { publicSettings } from "../settings.js";
 import type { CoreSupervisor } from "../supervisor.js";
 
 export interface CoreControlServiceOptions {
@@ -258,7 +259,7 @@ export class CoreControlService {
     const generated = await this.engine.renderActiveConfig(snapshot, this.options.layout);
     return {
       generated: await this.applyGeneratePlugins(generated, {
-        settings: snapshot.settings,
+        settings: publicSettings(snapshot.settings),
         profile: meta,
         source: generated.source,
       }),
