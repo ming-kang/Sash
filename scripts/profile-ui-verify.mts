@@ -201,12 +201,10 @@ try {
               const visible = delayBox.width > 0 && delayBox.height > 0;
               const firstLine = nameBox.top + Number.parseFloat(getComputedStyle(name).lineHeight) / 2;
               return {
-                // Multi-column cards truncate on purpose; the title must then carry the full name.
                 fits:
                   name.scrollWidth <= name.clientWidth + 1 ||
                   (getComputedStyle(name).textOverflow === "ellipsis" &&
                     (card.querySelector(".node-main")?.getAttribute("title") ?? "").includes(
-                      // Text nodes only: the region chip replaces the flag in the raw name.
                       Array.from(name.childNodes, (node) =>
                         node.nodeType === Node.TEXT_NODE ? node.textContent : "",
                       ).join("") || "\u0000",
@@ -218,7 +216,6 @@ try {
                   nameBox.bottom > delayBox.top,
                 cardFits: card.scrollWidth <= card.clientWidth + 1,
                 visible,
-                // The delay sits beside the name's first line, whichever line count the name uses.
                 delayAligned:
                   !visible || Math.abs((delayBox.top + delayBox.bottom) / 2 - firstLine) <= 3,
               };
@@ -334,7 +331,6 @@ try {
         200,
       );
       await page.locator(".pending-config").waitFor();
-      // A rejected selection leaves a sticky error toast beside the pending Apply dock.
       await page.route("**/sash/profiles/active", (route) =>
         route.fulfill({
           status: 500,
@@ -370,7 +366,6 @@ try {
             )
           )
             return "toast overlaps pending bar";
-          // On phones the dock is fixed above the navigation; the page reserves its height.
           const covers =
             last.left < bar.right && last.right > bar.left && last.bottom > bar.top + 1;
           return covers ? "pending bar covers content" : null;

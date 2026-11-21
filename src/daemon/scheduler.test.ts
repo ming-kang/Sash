@@ -73,7 +73,6 @@ function fakeProfiles() {
   return { service, calls, hooks };
 }
 
-/** Drain the microtask queue so settled scheduler promises run their continuations. */
 async function flush(rounds = 2): Promise<void> {
   for (let i = 0; i < rounds; i += 1) await new Promise<void>((resolve) => setImmediate(resolve));
 }
@@ -313,7 +312,6 @@ describe("startProfileUpdateScheduler", () => {
       fs.mkdirSync(layout.tempDir, { recursive: true });
       const state = createTestState(layout);
 
-      // Create a stale profile file (> 24 hours old, not active revision)
       const staleFile = path.join(profileDir, "99.yaml");
       fs.writeFileSync(staleFile, "rules: [MATCH,DIRECT]\n");
       const staleTime = new Date(Date.now() - 48 * 60 * 60 * 1000);

@@ -39,15 +39,13 @@ export function pruneProfileFiles(
       return [];
     }
   };
-  const removeOld = (file: string): void => {
+  const tryRemoveOld = (file: string): void => {
     try {
       const stat = fs.lstatSync(file);
       if (!stat.isFile() || stat.mtimeMs > cutoff) return;
       durableRemoveFileSync(file);
       removed++;
-    } catch {
-      /* A locked or concurrently removed orphan can wait until the next sweep. */
-    }
+    } catch {}
   };
   const removeEmptyOldDirectory = (directory: string): void => {
     try {
@@ -64,7 +62,7 @@ export function pruneProfileFiles(
     for (const file of entries(location)) {
       if (file.name === revisions.get(directory.name)) continue;
       if (REVISION.test(file.name) || ATOMIC_REVISION.test(file.name))
-        removeOld(path.join(location, file.name));
+        tryRemoveOld(path.join(location, file.name));
     }
     if (!revisions.has(directory.name)) removeEmptyOldDirectory(location);
   }
@@ -76,10 +74,10 @@ export function pruneProfileFiles(
     ]);
     for (const entry of entries(layout.tempDir)) {
       const location = path.join(layout.tempDir, entry.name);
-      if (entry.isFile() && VALIDATION_FILE.test(entry.name)) removeOld(location);
+      if (entry.isFile() && VALIDATION_FILE.test(entry.name)) tryRemoveOld(location);
       if (entry.isDirectory() && /^core-(?:staged|download)-[A-Za-z0-9]{6}$/.test(entry.name)) {
         for (const file of entries(location))
-          if (coreNames.has(file.name)) removeOld(path.join(location, file.name));
+          if (coreNames.has(file.name)) tryRemoveOld(path.join(location, file.name));
         removeEmptyOldDirectory(location);
       }
     }

@@ -57,7 +57,6 @@ import {
 } from "./stores/index.js";
 import ConnectionView from "./views/ConnectionView.vue";
 
-// Without a session the connection page already explains what to do; an offline Sash still gets the banner.
 const bannerNotice = computed(() =>
   sessionReady.value || !store.daemonOnline ? runtimeNotice.value : null,
 );

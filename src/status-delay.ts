@@ -89,6 +89,54 @@ interface DelayWatchOptions {
   intervalMs?: number;
 }
 
+class SerialProbe {
+  private inFlight: AbortController | undefined;
+  private again = false;
+  private timer: NodeJS.Timeout | undefined;
+
+  constructor(
+    private readonly intervalMs: number,
+    private readonly signal: AbortSignal,
+    private readonly run: (probeSignal: AbortSignal) => Promise<void>,
+    private readonly notify: () => void,
+  ) {}
+
+  request(): void {
+    if (this.signal.aborted) return;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    if (this.inFlight) {
+      this.again = true;
+      this.inFlight.abort();
+      return;
+    }
+    const pending = new AbortController();
+    this.inFlight = pending;
+    const probeSignal = AbortSignal.any([this.signal, pending.signal]);
+    void (async () => {
+      try {
+        await this.run(probeSignal);
+      } finally {
+        this.inFlight = undefined;
+        this.notify();
+        if (!this.signal.aborted) {
+          if (this.again) {
+            this.again = false;
+            this.request();
+          } else {
+            this.timer = setTimeout(() => this.request(), this.intervalMs);
+          }
+        }
+      }
+    })();
+  }
+
+  stop(): void {
+    clearTimeout(this.timer);
+    this.inFlight?.abort();
+  }
+}
+
 export async function* watchStatusWithDelay(
   context: () => StatusObservationContext,
   name: string,
@@ -111,51 +159,35 @@ export async function* watchStatusWithDelay(
   };
   signal.addEventListener("abort", notify, { once: true });
 
-  // Probes run strictly one at a time; a runtime-identity change aborts the
-  // in-flight probe and re-probes immediately instead of waiting out the interval.
-  let probing = false;
-  let probeAgain = false;
-  let probeAbort: AbortController | undefined;
-  let timer: NodeJS.Timeout | undefined;
-
-  const runProbe = async (status: CliRuntimeStatus): Promise<void> => {
-    probing = true;
-    const pending = new AbortController();
-    probeAbort = pending;
-    const probeSignal = AbortSignal.any([signal, pending.signal]);
-    try {
-      const result = await observeStatusDelay(context(), status, name, probeSignal, options.probe);
-      if (!pending.signal.aborted) observation = result;
-    } catch (error) {
-      if (!pending.signal.aborted && !signal.aborted) {
-        failed = error;
-        hasFailed = true;
-      }
-    } finally {
-      probing = false;
-      probeAbort = undefined;
-      notify();
-      if (!signal.aborted) {
-        if (probeAgain) {
-          probeAgain = false;
-          requestProbe();
-        } else {
-          timer = setTimeout(requestProbe, intervalMs);
+  const probes = new SerialProbe(
+    intervalMs,
+    signal,
+    async (probeSignal) => {
+      const status = latest;
+      if (!status) return;
+      try {
+        const result = await observeStatusDelay(
+          context(),
+          status,
+          name,
+          probeSignal,
+          options.probe,
+        );
+        if (!probeSignal.aborted) observation = result;
+      } catch (error) {
+        if (!probeSignal.aborted && !signal.aborted) {
+          failed = error;
+          hasFailed = true;
         }
       }
-    }
-  };
+    },
+    notify,
+  );
 
   function requestProbe(): void {
-    if (signal.aborted) return;
     const status = latest;
     if (!status || initialObservation(status, name).state === "unavailable") return;
-    if (probing) {
-      probeAgain = true;
-      probeAbort?.abort();
-      return;
-    }
-    void runProbe(status);
+    probes.request();
   }
 
   const producer = (async () => {
@@ -175,7 +207,6 @@ export async function* watchStatusWithDelay(
         if (nextOwner !== owner) {
           owner = nextOwner;
           observation = initialObservation(status, name);
-          clearTimeout(timer);
           requestProbe();
         }
         notify();
@@ -205,8 +236,7 @@ export async function* watchStatusWithDelay(
     }
   } finally {
     controller.abort();
-    clearTimeout(timer);
-    probeAbort?.abort();
+    probes.stop();
     signal.removeEventListener("abort", notify);
     await producer;
   }

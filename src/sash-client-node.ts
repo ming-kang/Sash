@@ -27,9 +27,7 @@ const daemonFetch: SashClientFetch = async (url, init) => {
   };
 };
 
-// Event streams are deliberately long-lived; they use the direct dispatcher, with
-// no redirects or mutation retries.
-const daemonEventFetch: SashEventFetch = async (url, init) => {
+const rawDaemonEventFetch: SashEventFetch = async (url, init) => {
   const response = await request(url, {
     method: "GET",
     ...init,
@@ -53,6 +51,6 @@ export function createDaemonClient(port: number, secret: string): SashDaemonClie
     baseUrl: `http://127.0.0.1:${port}`,
     token: () => trimmed,
     fetchFn: daemonFetch,
-    eventFetchFn: daemonEventFetch,
+    eventFetchFn: rawDaemonEventFetch,
   });
 }

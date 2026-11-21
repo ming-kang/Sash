@@ -10,19 +10,17 @@ export function buildBrowserSpawnOptions(sourceEnv: NodeJS.ProcessEnv = process.
   };
 }
 
-export function openInBrowser(url: string): void {
+export function tryOpenInBrowser(url: string): void {
   const command =
     process.platform === "win32"
       ? { cmd: windowsSystemExecutable("rundll32.exe"), args: ["url.dll,FileProtocolHandler", url] }
       : process.platform === "darwin"
         ? { cmd: "/usr/bin/open", args: [url] }
         : { cmd: findExecutableOnPath("xdg-open") ?? "xdg-open", args: [url] };
+  const ignoreSpawnFailure = (): void => {};
   try {
     const child = spawn(command.cmd, command.args, buildBrowserSpawnOptions());
-    // Headless environments have no browser; the caller already printed the URL.
-    child.on("error", () => {});
+    child.on("error", ignoreSpawnFailure);
     child.unref();
-  } catch {
-    // The caller prints the URL as a fallback.
-  }
+  } catch {}
 }

@@ -52,7 +52,6 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     locale: uiLocale === "zh" ? "zh-CN" : "en-US",
   });
   const started = uiLocale === "zh" ? "启动核心" : "Start Core";
-  /** The top edge of the desktop sidebar's Core controls. */
   const topEdge = async (selector: string) => {
     const box = await page.locator(selector).first().boundingBox();
     if (!box) throw new Error(`missing ${selector}`);
@@ -83,11 +82,9 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
       uiLocale === "zh"
         ? "正在下载核心 (v9.9.9): 5.0 / 10.0 MiB 取消下载"
         : "Downloading Core (v9.9.9): 5.0 / 10.0 MiB Cancel download";
-    // The row is one flex line, so innerText separates its items by a newline.
     assert.equal((await progress.innerText()).replace(/\s+/g, " ").trim(), expected);
     await page.screenshot({ path: path.join(outDir, `${name}-${uiLocale}-core-update.png`) });
 
-    // Progress expands the bottom-anchored panel upwards without moving the Core controls.
     assert.equal(await topEdge(coreHeading), coreControlsTop, "the Core controls stay where they were");
     const controls = await page.locator(coreHeading).boundingBox();
     const row = await progress.boundingBox();

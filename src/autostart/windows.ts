@@ -68,8 +68,6 @@ export function windowsAutostart(ctx: AutostartContext): AutostartBackend {
     },
     async set(enabled) {
       if (enabled) {
-        // Verify the script engine before registering a launcher Windows cannot
-        // execute. This probe never starts Sash or changes the login registration.
         const probe = path.join(ctx.controlDir, `launcher-check-${crypto.randomUUID()}.vbs`);
         try {
           await atomicWriteFile(probe, 'WScript.StdOut.Write "sash-launcher-ready"\r\n');
@@ -87,7 +85,6 @@ export function windowsAutostart(ctx: AutostartContext): AutostartBackend {
         }
         await registerFile(file, contents(), () => setWindowsRegistration(ctx, launcherCommand()));
       } else {
-        // Explicit off never depends on a readable/current launcher or an inspection.
         await setWindowsRegistration(ctx, null);
         removeRegistration(file);
       }

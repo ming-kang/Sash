@@ -38,7 +38,6 @@ const routes: RouteRecordRaw[] = [
     name: "rules",
     component: asyncView(() => import("./views/RulesView.vue")),
   },
-  // Unknown hashes land on the overview, matching the legacy hash parser.
   { path: "/:pathMatch(.*)*", redirect: { name: "overview" } },
 ];
 
@@ -58,8 +57,6 @@ function routeName(value: unknown): Route {
     : "overview";
 }
 
-// The router owns navigation state; this narrows the current name to the
-// pages the UI knows, defaulting to the overview for anything unmapped.
 export const currentRoute: ComputedRef<Route> = computed(() =>
   routeName(router.currentRoute.value.name),
 );

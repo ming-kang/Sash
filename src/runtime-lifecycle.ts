@@ -40,10 +40,6 @@ export interface RuntimeLifecycleOptions {
   engine?: CoreEngine;
 }
 
-/**
- * Sash uses non-forced configuration reloads, so changes to its managed
- * listener port or LAN binding take the restart path.
- */
 export function listenerSettingsChanged(
   applied: Pick<SashSettings, "mixedPort" | "allowLan">,
   target: Pick<SashSettings, "mixedPort" | "allowLan">,
@@ -65,7 +61,6 @@ export function runtimeDelta(
   return { pending: profilePending || restartRequired, restartRequired };
 }
 
-/** All calls enter the daemon's single mutation queue. This class owns Core and proxy order. */
 export class RuntimeLifecycle {
   private readonly engine: CoreEngine;
   private runtimeRevision = 0;
@@ -163,23 +158,13 @@ export class RuntimeLifecycle {
     try {
       await reloadConfig(this.options.layout.configFile, signal);
     } catch (error) {
-      // Cancellation, like a deadline, cannot prove the Core rejected the file.
-      // Keep the candidate on disk; the queued stop owns subsequent cleanup.
       signal?.throwIfAborted();
       if (isRequestDeadlineError(error)) {
-        // A spent budget says nothing about the outcome: the Core only answers
-        // once it finished applying, so the new configuration may already be live.
-        // Keep the new file so the next reconciliation reloads it rather than
-        // dropping the change the user asked for.
         throw new Error(
           `The Core did not answer the configuration reload within ${error.deadlineMs}ms — it may already be running the new configuration; Sash keeps it and reconciles on the next change`,
           { cause: error },
         );
       }
-      // The Core answered with a refusal, so it still runs the previous
-      // configuration; keep the file telling the same story so a later restart
-      // cannot pick up a rejected one. A failed restore must not mask the
-      // original refusal: report both so the stale file is not a surprise.
       try {
         await atomicWriteFile(this.options.layout.configFile, applied.generated.yaml);
       } catch (writeError) {
@@ -206,7 +191,6 @@ export class RuntimeLifecycle {
   }
 
   async stop(): Promise<void> {
-    // A failed proxy release must leave a healthy owned Core available.
     await this.options.systemProxy.release();
     await this.options.supervisor.stop();
     this.runtimeRevision += 1;
@@ -245,10 +229,7 @@ export class RuntimeLifecycle {
           await this.stop();
           await this.requireVacantController();
         },
-        // The installed path already holds the right binary, and the generated
-        // configuration is version-independent, so the runtime starts the same
-        // way for the install and for the rollback.
-        startAndVerify: async (_version) => {
+        startAndVerify: async () => {
           await this.startCore();
           this.applied = configuration;
         },

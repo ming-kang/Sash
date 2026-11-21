@@ -108,7 +108,6 @@ import { formatAgo, formatBytes } from "../utils/format.js";
 
 const PAGE_SIZE = 80;
 type SortKey = "time" | "upload" | "download" | "host";
-// Listed in column order: host first, then the right-aligned traffic and age columns.
 const sortOptions = [
   { key: "host", label: "connections.sortHost", short: "connections.sortHostShort" },
   { key: "download", label: "connections.sortDownload", short: "connections.sortDownloadShort" },
@@ -352,7 +351,6 @@ async function closeAll(): Promise<void> {
   }
 }
 
-/* Phones: an icon-only pause keeps totals and actions on one line under the search box. */
 @media (max-width: 480px) {
   .btn-pause {
     min-width: 38px;

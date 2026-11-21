@@ -119,8 +119,6 @@ export default entries.map((spec) => {
     bin: false,
     dts: false,
     checks: { bundlerTimings: false },
-    // Zero-runtime-dependency guard: anything bundled beyond this list fails
-    // the build instead of silently shipping in dist.
     deps: {
       onlyBundle: [
         "@fastify/ajv-compiler",

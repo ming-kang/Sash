@@ -249,7 +249,6 @@ export interface AppendLogFds {
   stderrFd: number;
 }
 
-/** Append with 0o600, refusing symlinks and non-regular files; an existing loose mode is tightened. */
 function openPrivateAppendLogFd(filePath: string): number {
   try {
     if (!fs.lstatSync(filePath).isFile()) {

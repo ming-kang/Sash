@@ -45,8 +45,8 @@ describe("Core binary transaction", () => {
       stop: async () => {
         events.push("stop");
       },
-      startAndVerify: async (version) => {
-        events.push(`start:${version}`);
+      startAndVerify: async () => {
+        events.push(`start:${readInstallRecord(layout)?.coreVersion}`);
       },
       applySystemProxy: async () => {
         events.push("proxy");
@@ -90,8 +90,8 @@ describe("Core binary transaction", () => {
     seed();
     const events: string[] = [];
     const live = runtime(events);
-    live.startAndVerify = async (version) => {
-      events.push(`start:${version}`);
+    live.startAndVerify = async () => {
+      events.push(`start:${readInstallRecord(layout)?.coreVersion}`);
       assert.equal(fs.existsSync(`${layout.coreExe}.bak`), true);
     };
     live.applySystemProxy = async () => {
@@ -127,7 +127,8 @@ describe("Core binary transaction", () => {
     const events: string[] = [];
     const live = runtime(events);
     const failure = new TypeError("candidate unhealthy");
-    live.startAndVerify = async (version) => {
+    live.startAndVerify = async () => {
+      const version = readInstallRecord(layout)?.coreVersion;
       events.push(`start:${version}`);
       if (version === "v2") throw failure;
     };

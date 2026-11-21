@@ -17,7 +17,7 @@ export class HttpError extends Error {
 export type JsonObject = Record<string, unknown>;
 
 export interface ParsedDaemonRequestTarget {
-  pathname: string;
+  originalPathname: string;
   routePathname: string;
   search: string;
   searchParams: URLSearchParams;
@@ -41,7 +41,7 @@ export function parseDaemonRequestTarget(
     throw new Error("Invalid HTTP origin-form request target");
   }
   return {
-    pathname: url.pathname,
+    originalPathname: url.pathname,
     routePathname: url.pathname.replace(/\/+$/, "") || "/",
     search: url.search,
     searchParams: url.searchParams,

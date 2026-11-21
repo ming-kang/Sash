@@ -34,7 +34,7 @@ it("watches profile changes over events and reconnects after daemon replacement 
       harness.layout.daemonPidFile,
       JSON.stringify({
         pid: process.pid,
-        token: harness.instance.token,
+        token: harness.instance.bootId,
         port: harness.boundPort,
         startedAt: harness.instance.startedAt,
       }),

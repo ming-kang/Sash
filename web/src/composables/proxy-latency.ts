@@ -74,7 +74,6 @@ export function useProxyLatency() {
         Array.from({ length: Math.min(GROUP_CONCURRENCY, targets.length) }, () => worker()),
       );
       if (generation !== store.runtimeGeneration) return;
-      // Each card already shows its delay or timeout; only request failures need a summary.
       const timeouts = results.filter((delay) => delay === 0).length;
       const failures = results.filter((delay) => delay === "failed").length;
       if (failures) {

@@ -57,12 +57,7 @@ export interface CoreUpdateTransaction {
 export interface CoreUpdateRuntime {
   wasRunning: boolean;
   stop(): Promise<void>;
-  /**
-   * Start whatever binary now occupies the installed path and prove it healthy.
-   * `version` only names the release that path is expected to hold; it selects
-   * nothing, the swap already decided which binary runs.
-   */
-  startAndVerify(version: string): Promise<void>;
+  startAndVerify(): Promise<void>;
   applySystemProxy(): Promise<void>;
 }
 
@@ -84,7 +79,6 @@ export interface CoreUpdateCheck {
   asset: string;
 }
 
-/** Lenient read: a damaged journal reads as absent, so it can never block daemon startup. */
 export function readCoreUpdateTransaction(layout: SashLayout): CoreUpdateTransaction | undefined {
   let text: string;
   try {
@@ -98,11 +92,11 @@ export function readCoreUpdateTransaction(layout: SashLayout): CoreUpdateTransac
     const previous = value.previous === null ? null : parseInstallRecord(value.previous);
     const target = parseInstallRecord(value.target);
     if (previous === undefined || !target) throw new Error("Missing install records");
+    const legacyVerifiedPhase = value.phase === "verified";
     return {
       previous,
       target,
-      // Legacy journals recorded the phase as "verified" instead of a flag.
-      ...(value.verified === true || value.phase === "verified" ? { verified: true } : {}),
+      ...(value.verified === true || legacyVerifiedPhase ? { verified: true } : {}),
     };
   } catch {
     return undefined;
@@ -120,7 +114,6 @@ function clearJournal(layout: SashLayout): void {
   durableRemoveFileSync(layout.coreUpdateTransactionFile);
 }
 
-/** A missing backup only means the swap never began; the recorded previous state is written either way. */
 function restoreTransaction(layout: SashLayout, transaction: CoreUpdateTransaction): void {
   const backup = `${layout.coreExe}.bak`;
   if (transaction.previous) {
@@ -289,7 +282,7 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
     if (previous) durableRenameSync(layout.coreExe, `${layout.coreExe}.bak`);
     durableRenameSync(staged.exe, layout.coreExe);
     writeInstallRecord(transaction.target, layout);
-    await runtime.startAndVerify(staged.version);
+    await runtime.startAndVerify();
     if (runtime.wasRunning) await runtime.applySystemProxy();
     else await runtime.stop();
     writeCoreUpdateTransaction(layout, { ...transaction, verified: true });
@@ -297,19 +290,27 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
     return { version: staged.version };
   } catch (error) {
     try {
-      // Never replace a binary while candidate termination is uncertain.
-      await runtime.stop();
-      restoreTransaction(layout, transaction);
-      if (runtime.wasRunning && previous) {
-        await runtime.startAndVerify(previous.coreVersion);
-        await runtime.applySystemProxy();
-      }
+      await rollbackTransaction(layout, transaction, runtime, previous);
     } catch (rollback) {
       throw new Error(`${errorMessage(error)}; Core rollback failed: ${errorMessage(rollback)}`, {
         cause: error,
       });
     }
     throw error;
+  }
+}
+
+async function rollbackTransaction(
+  layout: SashLayout,
+  transaction: CoreUpdateTransaction,
+  runtime: CoreUpdateRuntime,
+  previous: InstallRecord | null,
+): Promise<void> {
+  await runtime.stop();
+  restoreTransaction(layout, transaction);
+  if (runtime.wasRunning && previous) {
+    await runtime.startAndVerify();
+    await runtime.applySystemProxy();
   }
 }
 

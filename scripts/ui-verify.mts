@@ -121,23 +121,19 @@ async function verify(engine: BrowserType, name: string) {
     for (const title of ["偏好设置", "运行信息"]) await page.getByRole("region", { name: title, exact: true }).waitFor();
     const portFocused = () => page.waitForFunction(() => document.activeElement?.id === "mixed-port");
     const committedPort = await port.inputValue();
-    // The port edits in place: a bad value is reported and linked only while it stands.
     await port.fill("70000");
     await page.locator("#mixed-port-hint").waitFor();
     assert.equal(await port.getAttribute("aria-describedby"), "mixed-port-hint");
     await port.press("Escape");
     assert.equal(await port.inputValue(), committedPort);
     assert.equal(await port.getAttribute("aria-describedby"), null);
-    // Leaving the field discards a bad value instead of leaving it behind in red.
     await port.fill("70000");
     await page.locator(".brand-name").click();
     assert.equal(await port.inputValue(), committedPort);
     assert.equal(await page.locator("#mixed-port-hint").count(), 0);
-    // Saving from the field (Enter) keeps keyboard focus where it was; the row shows no extra button.
     const starts = core.starts; await port.fill("18888"); await port.press("Enter");
     await page.locator(".pending-config").waitFor(); assert.equal(core.starts, starts);
     await portFocused();
-    // Leaving the field with a valid port saves it as well.
     await port.fill("18889"); await page.locator(".brand-name").click();
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const { settings } = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;

@@ -16,8 +16,6 @@ interface DialogEntry {
   onEscape: () => void;
 }
 
-// Reference-counted scroll lock on body + documentElement so nested dialogs
-// (e.g. ConfirmDialog over CodeEditorModal) do not unlock prematurely.
 let lockCount = 0;
 let previousBodyOverflow: string | null = null;
 let previousRootOverflow: string | null = null;
@@ -44,8 +42,6 @@ function releaseScrollLock(): void {
   previousRootOverflow = null;
 }
 
-// Open dialogs stack; only the topmost one receives ESC/Tab handling so nested
-// dialogs (ConfirmDialog over CodeEditorModal) do not both react to one keypress.
 const stack: DialogEntry[] = [];
 let listenerAttached = false;
 

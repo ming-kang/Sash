@@ -26,15 +26,15 @@ describe("daemon browser authorization", () => {
       assert.ok(method && pathname);
       for (const credentials of [
         { token: "" },
-        { token: health.token },
-        { webToken: health.token },
+        { token: health.bootId },
+        { webToken: health.bootId },
       ]) {
         const result = await h.apiRequest(pathname, { method, body: {}, ...credentials });
         assert.equal(result.statusCode, 401, `${method} ${pathname}`);
       }
     }
     const upgrade = await h.rawWebSocketUpgrade("/core/api/logs", {
-      "Sec-WebSocket-Protocol": `sash, sash-token.${health.token}`,
+      "Sec-WebSocket-Protocol": `sash, sash-token.${health.bootId}`,
     });
     assert.match(upgrade, /^HTTP\/1\.1 401 /);
   });
@@ -75,7 +75,7 @@ describe("daemon browser authorization", () => {
     });
     assert.match(raw, /\r\nCache-Control: no-store\r\n/i);
     const bootstrap = JSON.parse(raw.split("\r\n\r\n")[1] ?? "") as WebBootstrapInfo;
-    assert.notEqual(bootstrap.token, instance.token);
+    assert.notEqual(bootstrap.token, instance.bootId);
     const responses = await Promise.all(
       [0, 1].map(() =>
         h.apiRequest("/sash/web/session", {
@@ -89,7 +89,7 @@ describe("daemon browser authorization", () => {
     const success = responses.find((response) => response.statusCode === 200);
     assert.ok(success);
     const session = success.data as WebSessionInfo;
-    assert.equal(session.daemonToken, instance.token);
+    assert.equal(session.daemonToken, instance.bootId);
     assert.notEqual(session.token, bootstrap.token);
     assert.equal(
       (await h.apiRequest("/sash/autostart", { webToken: session.token })).statusCode,
@@ -151,7 +151,7 @@ describe("daemon browser authorization", () => {
       .data as WebBootstrapInfo;
     await before.close();
     const after = await h.startServer();
-    assert.notEqual(after.token, before.token);
+    assert.notEqual(after.bootId, before.bootId);
     assert.equal((await h.apiRequest("/sash/autostart", { webToken: session })).statusCode, 200);
     assert.equal(
       (await h.apiRequest("/sash/web/session", { method: "POST", token: "", body: bootstrap }))

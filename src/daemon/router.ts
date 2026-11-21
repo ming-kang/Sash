@@ -9,14 +9,14 @@ import { coreApiTarget } from "./proxy.js";
 // "public" serves unauthenticated GET/HEAD responses; "control" requires a
 // daemon credential; "gateway" proxies to the Core controller — it still
 // requires daemon control auth, then injects the Core secret upstream so the
-// WebUI never has to know it.
-export type RouteAuth = "public" | "control" | "gateway";
+// WebUI never has to know it; "bootstrap" is unauthenticated because the
+// one-time token in the request body is the credential being redeemed.
+export type RouteAuth = "public" | "control" | "gateway" | "bootstrap";
 
-/** The parsed request view JSON handlers see; mirrors the legacy RouteRequest. */
 export interface DaemonRequest {
   readonly authorized: boolean;
   readonly method: string;
-  readonly pathname: string;
+  readonly originalPathname: string;
   readonly routePathname: string;
   readonly params: Record<string, string | undefined>;
   readonly search: string;

@@ -296,7 +296,6 @@ function readLocalStatusFacts(context: StatusObservationContext, observer: Statu
   };
 }
 
-/** One projection for HTTP observations, disconnected observations, and SSE snapshots. */
 function projectRuntimeStatus(
   context: StatusObservationContext,
   observation: RuntimeStatusObservation,

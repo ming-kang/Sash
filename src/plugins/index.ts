@@ -75,7 +75,6 @@ export class PluginRegistry {
     return [...this.infos];
   }
 
-  /** Whether any loaded plugin exports an onGenerate hook. */
   async hasGenerateHooks(): Promise<boolean> {
     return (await this.ensureLoaded()).some((plugin) => plugin.onGenerate !== undefined);
   }

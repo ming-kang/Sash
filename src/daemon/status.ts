@@ -31,9 +31,8 @@ export async function readDaemonStatus(
   } catch (err) {
     proxyQueryError = errorMessage(err);
   }
-  // Read saved values and their revision together after asynchronous observations.
-  const settings = ctx.settings.committed();
-  const active = ctx.profiles.active();
+  const committedSettings = ctx.settings.committed();
+  const activeProfile = ctx.profiles.active();
   if (core.running && (!ownership || !ctx.supervisor.ownsCore(ownership)))
     core = { running: false };
   const applied = ctx.lifecycle.configuration();
@@ -55,9 +54,9 @@ export async function readDaemonStatus(
     downloadTransport: transport,
     daemon: {
       pid: process.pid,
-      bootId: ctx.token,
+      bootId: ctx.bootId,
       startedAt: ctx.startedAt,
-      port: settings.daemonPort,
+      port: committedSettings.daemonPort,
       version: ctx.version,
     },
     revisions: {
@@ -73,15 +72,17 @@ export async function readDaemonStatus(
     },
     core,
     systemProxy: {
-      desired: settings.systemProxy,
+      desired: committedSettings.systemProxy,
       applied: proxyApplied,
       actual: actualProxy,
       appliedKnown: proxyAppliedKnown,
       stateKnown: proxyStateKnown,
       ...(proxyQueryError ? { queryError: proxyQueryError } : {}),
     },
-    settings: publicSettings(settings),
-    activeProfile: active ? { id: active.id, name: active.name, url: active.url } : null,
+    settings: publicSettings(committedSettings),
+    activeProfile: activeProfile
+      ? { id: activeProfile.id, name: activeProfile.name, url: activeProfile.url }
+      : null,
   };
   return status;
 }

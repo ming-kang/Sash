@@ -100,20 +100,13 @@ export async function evaluateDaemon(
   try {
     const client = createDaemonClient(record.port, (settings ?? loadSettings(layout)).daemonSecret);
     const health = await client.health();
-    if (health.token === record.token && health.pid === record.pid) {
+    if (health.bootId === record.token && health.pid === record.pid) {
       return { kind: "healthy", running: true, healthy: true, pid: record.pid, port: record.port };
     }
-  } catch {
-    /* A live but unverified process must not be treated as stopped. */
-  }
+  } catch {}
   return { kind: "unhealthy", running: true, healthy: false, pid: record.pid, port: record.port };
 }
 
-/**
- * Arguments for the management daemon: the compiled entry bundled next to this
- * module, or the source checkout's entry under tsx. Returning the whole argument
- * list keeps the loader decision in one place instead of re-inspecting the path.
- */
 function daemonNodeArgs(): string[] {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const compiled = path.join(here, "daemon-entry.js");
@@ -127,11 +120,6 @@ function daemonStartupDiagnostics(layout: SashLayout, cursor: LogFileCursor): st
   return `${details ? `\nRecent errors:\n${details}` : ""}\nCheck logs at: ${layout.daemonErrLogFile}`;
 }
 
-/**
- * Environment of the management daemon: fully scrubbed except for the GitHub
- * token, which only this process needs for release metadata and asset
- * downloads. The Core and every helper never receive it.
- */
 export function daemonSpawnEnv(
   layout: SashLayout,
   sourceEnv: NodeJS.ProcessEnv = process.env,
@@ -167,8 +155,6 @@ async function spawnDaemonUnlocked(
   fs.mkdirSync(layout.logsDir, { recursive: true });
   fs.mkdirSync(layout.stateDir, { recursive: true });
 
-  // Every spawn argument is computed before opening log descriptors, so a
-  // synchronous failure cannot leak them.
   const nodeArgs = daemonNodeArgs();
 
   const errLogCursor = logTailCursor(layout.daemonErrLogFile);
@@ -217,7 +203,7 @@ async function spawnDaemonUnlocked(
       const record = readDaemonPidRecord(layout);
       if (record) {
         const health = await client.health();
-        if (record.pid === pid && health.token === record.token && health.pid === pid) {
+        if (record.pid === pid && health.bootId === record.token && health.pid === pid) {
           return { pid };
         }
       }
@@ -226,8 +212,6 @@ async function spawnDaemonUnlocked(
     await sleep(200);
   }
 
-  // Timed out waiting for healthy daemon. Preserve ownership records unless
-  // termination is positively confirmed by the owned child handle.
   const terminated = await killProcessGracefully(pid, {
     timeoutMs: 3000,
     verify: async () =>

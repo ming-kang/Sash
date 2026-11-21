@@ -54,8 +54,6 @@ export function startTrafficEvents(intervalMs = 100): () => void {
         () => {
           if (generation !== store.runtimeGeneration || staleTimer !== null) return;
           clearPending();
-          // A broken socket is different from a hidden tab: show no stale live rate,
-          // but retain the recent curve while the transport reconnects.
           store.traffic = { ...store.traffic, up: 0, down: 0 };
           staleTimer = window.setTimeout(() => {
             staleTimer = null;

@@ -39,7 +39,6 @@ it("parses REG_SZ and REG_BINARY values, preserving data exactly", () => {
       APPROVAL_KEY,
       { type: "REG_BINARY", data: Buffer.from([6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) },
     ],
-    // Unexpected types survive parsing so callers can reject them.
     [
       `\r\n${RUN_HEADER}\r\n    Sash    REG_DWORD    0x1\r\n\r\n`,
       RUN_KEY,

@@ -79,7 +79,7 @@ for (const withDelay of [false, true]) {
       harness.layout.daemonPidFile,
       JSON.stringify({
         pid: process.pid,
-        token: instance.token,
+        token: instance.bootId,
         port: harness.boundPort,
         startedAt: instance.startedAt,
       }),

@@ -52,9 +52,7 @@ export function serveUiIndexOrRedirect(
   res: ServerResponse,
   target: ParsedDaemonRequestTarget,
 ): void {
-  // Route matching strips trailing slashes, so the redirect decision uses the
-  // unnormalized pathname to tell /ui and /ui/ apart.
-  if (target.pathname === "/ui") {
+  if (target.originalPathname === "/ui") {
     res.writeHead(302, { Location: `/ui/${target.search}` });
     res.end();
     return;
@@ -75,9 +73,9 @@ function serveStaticUiOr404(
   ctx: DaemonContext,
   req: IncomingMessage,
   res: ServerResponse,
-  target: { pathname: string; routePathname: string },
+  target: ParsedDaemonRequestTarget,
 ): void {
-  if (!serveStaticUi(req, res, target.pathname, ctx.layout)) {
+  if (!serveStaticUi(req, res, target.originalPathname, ctx.layout)) {
     sendError(res, 404, "not_found", `Not found: ${req.method} ${target.routePathname}`);
   }
 }

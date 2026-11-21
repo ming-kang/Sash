@@ -3,7 +3,6 @@ import { store } from "../stores/index.js";
 import type { SashStatus } from "../types/index.js";
 import { useCoreControl } from "./core-runtime.js";
 
-/** What the Core panel reports. */
 export type CoreDisplayState = "stopping" | "starting" | "unresponsive" | "running" | "stopped";
 
 export function coreDisplayState(input: {
@@ -14,7 +13,6 @@ export function coreDisplayState(input: {
   if (input.stopping) return "stopping";
   const core = input.status?.core;
   if (!core?.running) return input.starting ? "starting" : "stopped";
-  // The supervisor marks Core healthy only after its controller answers a version probe.
   return core.healthy ? "running" : "unresponsive";
 }
 

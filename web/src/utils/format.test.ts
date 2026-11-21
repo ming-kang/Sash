@@ -68,7 +68,6 @@ describe("core uptime", () => {
     [iso(NOW - 86_400_000), "01:00:00"],
     [iso(NOW - (3 * 86_400 + 5 * 3600 + 42 * 60) * 1000), "03:05:42"],
     [iso(NOW - 58 * 86_400_000), "58:00:00"],
-    // A clock that moved backwards never shows a negative uptime.
     [iso(NOW + 60_000), "00:00:00"],
   ];
   it("formats DD:HH:MM and reads as unknown without a start", () => {

@@ -23,7 +23,7 @@ export interface ApiErrorBody {
   error: { code: string; message: string };
 }
 export interface HealthInfo {
-  token: string;
+  bootId: string;
   pid: number;
   startedAt: string;
   version: string;

@@ -12,8 +12,10 @@ import type { RoutingMode } from "./contracts.js";
 import { errorMessage } from "./error-utils.js";
 import { parseLogLineCount } from "./log-follow.js";
 
-// Command modules load lazily inside each action so `sash version` / `--help`
-// never pay for the network, YAML and archive modules they do not use.
+const lazyCommand = <Args extends unknown[]>(
+  action: (...args: Args) => Promise<void> | void,
+): ((...args: Args) => Promise<void>) => withCliErrors(action);
+
 function packageVersion(): string {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
@@ -63,14 +65,14 @@ Run sash <command> --help for details.`,
 program
   .command("start")
   .description("Start Sash and Core. Install Core if needed.")
-  .action(withCliErrors(async () => (await import("./commands/lifecycle.js")).runStart()));
+  .action(lazyCommand(async () => (await import("./commands/lifecycle.js")).runStart()));
 
 program
   .command("stop")
   .description("Restore the previous system proxy settings, then stop Sash and Core.")
   .option("--core", "Stop Core only; keep Sash and WebUI running")
   .action(
-    withCliErrors(async (opts: { core?: boolean }) =>
+    lazyCommand(async (opts: { core?: boolean }) =>
       (await import("./commands/lifecycle.js")).runStop(opts),
     ),
   );
@@ -78,7 +80,7 @@ program
 program
   .command("restart")
   .description("Apply the saved configuration to Core.")
-  .action(withCliErrors(async () => (await import("./commands/lifecycle.js")).runRestart()));
+  .action(lazyCommand(async () => (await import("./commands/lifecycle.js")).runRestart()));
 
 program
   .command("auto")
@@ -88,7 +90,7 @@ program
   )
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (mode: AutoMode | undefined, opts: { json?: boolean }) =>
+    lazyCommand(async (mode: AutoMode | undefined, opts: { json?: boolean }) =>
       (await import("./commands/auto.js")).runAuto(mode, undefined, opts),
     ),
   );
@@ -112,7 +114,7 @@ program
   .description("Diagnose installation, runtime, ports and Windows integration.")
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (opts: { json?: boolean }) =>
+    lazyCommand(async (opts: { json?: boolean }) =>
       (await import("./commands/doctor.js")).runDoctor(opts),
     ),
   );
@@ -120,13 +122,13 @@ program
 const profile = program
   .command("profile")
   .description("Manage saved profiles. With no command, list profiles.")
-  .action(withCliErrors(async () => (await import("./commands/profile.js")).runProfileList()));
+  .action(lazyCommand(async () => (await import("./commands/profile.js")).runProfileList()));
 profile
   .command("list")
   .description("List saved profiles and the selected profile.")
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (opts: { json?: boolean }) =>
+    lazyCommand(async (opts: { json?: boolean }) =>
       (await import("./commands/profile.js")).runProfileList(opts),
     ),
   );
@@ -148,7 +150,7 @@ profile
   .option("--use", "Select the profile after saving")
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (url: string, opts: { name?: string; use?: boolean; json?: boolean }) =>
+    lazyCommand(async (url: string, opts: { name?: string; use?: boolean; json?: boolean }) =>
       (await import("./commands/profile.js")).runProfileAdd(url, opts),
     ),
   );
@@ -160,7 +162,7 @@ profile
   .option("--all", "Refresh all remote profiles")
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (reference: string | undefined, opts: { all?: boolean; json?: boolean }) =>
+    lazyCommand(async (reference: string | undefined, opts: { all?: boolean; json?: boolean }) =>
       (await import("./commands/profile.js")).runProfileUpdate(reference, opts),
     ),
   );
@@ -169,7 +171,7 @@ profile
   .description("Rename a saved profile by ID or exact name.")
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (reference: string, name: string, opts: { json?: boolean }) =>
+    lazyCommand(async (reference: string, name: string, opts: { json?: boolean }) =>
       (await import("./commands/profile.js")).runProfileRename(reference, name, opts),
     ),
   );
@@ -178,7 +180,7 @@ profile
   .description("Remove a saved profile by ID or exact name.")
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (reference: string, opts: { json?: boolean }) =>
+    lazyCommand(async (reference: string, opts: { json?: boolean }) =>
       (await import("./commands/profile.js")).runProfileRemove(reference, opts),
     ),
   );
@@ -195,7 +197,7 @@ program
   )
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (action: ProxyAction | undefined, opts: { json?: boolean }) =>
+    lazyCommand(async (action: ProxyAction | undefined, opts: { json?: boolean }) =>
       (await import("./commands/proxy.js")).runProxy(action, opts),
     ),
   );
@@ -205,7 +207,7 @@ program
   .addArgument(new Argument("<mode>", "Routing mode").choices(["rule", "global", "direct"]))
   .option("--json", "Output JSON")
   .action(
-    withCliErrors(async (mode: RoutingMode, opts: { json?: boolean }) =>
+    lazyCommand(async (mode: RoutingMode, opts: { json?: boolean }) =>
       (await import("./commands/mode.js")).runMode(mode, opts),
     ),
   );
@@ -272,7 +274,7 @@ program
   .description("Open an authorized WebUI session.")
   .option("--no-open", "Print the URL without opening or authorizing a browser")
   .action(
-    withCliErrors(async (opts: { open: boolean }) =>
+    lazyCommand(async (opts: { open: boolean }) =>
       (await import("./commands/web.js")).runWeb({ noOpen: !opts.open }),
     ),
   );
@@ -363,7 +365,7 @@ function parseLines(value: string): number {
 async function main(): Promise<void> {
   try {
     if (process.argv.length <= 2) {
-      await withCliErrors(async () => (await import("./commands/status.js")).runStatus())();
+      await lazyCommand(async () => (await import("./commands/status.js")).runStatus())();
       return;
     }
     await program.parseAsync(process.argv);

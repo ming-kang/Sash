@@ -102,7 +102,7 @@ async function invokeJson(
   const daemonRequest: DaemonRequest = {
     authorized: request.authorized,
     method,
-    pathname: target.pathname,
+    originalPathname: target.originalPathname,
     routePathname: target.routePathname,
     params: request.params as Record<string, string | undefined>,
     search: target.search,
@@ -139,8 +139,6 @@ export function buildDaemonApp(ctx: DaemonContext, routes: readonly RouteDef[]):
     if (!FASTIFY_BUILTIN_METHODS.has(method)) app.addHttpMethod(method, { hasBody: true });
   }
 
-  // Any Content-Type may carry a JSON object body, exactly like the legacy
-  // reader; raw routes leave the stream untouched so the proxy can pipe it.
   app.removeContentTypeParser("application/json");
   app.addContentTypeParser("*", (request, payload, done) => {
     const config = request.routeOptions.config as DaemonRouteConfig | undefined;
@@ -157,11 +155,10 @@ export function buildDaemonApp(ctx: DaemonContext, routes: readonly RouteDef[]):
   app.addHook("onRequest", async (request, reply) => {
     request.authorized = isControlRequestAuthorized(request.raw, controlAuthorization(ctx));
     const config = request.routeOptions.config as DaemonRouteConfig | undefined;
-    // Authentication covers protected routes plus any mutation, so
-    // unauthenticated probes cannot distinguish unknown paths from existing
-    // ones.
     const requiresAuth =
-      config?.auth === undefined ? isControlMutation(request.method) : config.auth !== "public";
+      config?.auth === undefined
+        ? isControlMutation(request.method)
+        : config.auth !== "public" && config.auth !== "bootstrap";
     if (requiresAuth && !request.authorized) return unauthorized(reply);
     if (isControlMutation(request.method) && ctx.gate.isClosing) return sendGateClosed(reply);
   });
@@ -170,7 +167,6 @@ export function buildDaemonApp(ctx: DaemonContext, routes: readonly RouteDef[]):
     if (isControlMutation(request.method)) ctx.gate.assertMutable();
   });
 
-  // API responses are never cacheable; raw handlers own their own headers.
   app.addHook("onSend", async (_request, reply) => {
     if (!reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
   });

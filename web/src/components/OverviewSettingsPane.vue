@@ -98,7 +98,6 @@ function switchLocale(next: Locale): void {
 .preferences-card {
   container-type: inline-size;
 }
-/* Keep option positions stable when the locale changes. */
 .preference-control {
   display: inline-grid;
   width: 224px;
@@ -137,7 +136,6 @@ function switchLocale(next: Locale): void {
   padding: 8px 6px;
   transition: background var(--motion-fast) var(--ease-standard);
 }
-/* Separators sit above each following row, so a trailing hint or error never leaves a stray rule. */
 .setting-row + .setting-row,
 .info-item + .info-item {
   border-top: 1px solid var(--border);

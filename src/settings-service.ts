@@ -36,6 +36,10 @@ export interface SettingsServiceOptions {
 export class SettingsService {
   constructor(private readonly options: SettingsServiceOptions) {}
 
+  private async applyCommittedSystemProxy(): Promise<void> {
+    await this.options.lifecycle.reconcileSystemProxy();
+  }
+
   async apply(patch: SettingsPatch): Promise<SettingsApplyResult> {
     return this.options.commit(async () => {
       const state = this.options.state.snapshot();
@@ -59,8 +63,7 @@ export class SettingsService {
         settings.systemProxy !== state.settings.systemProxy;
       const saved = changed ? await this.options.state.commitAsync({ ...state, settings }) : state;
       if (patch.systemProxy !== undefined) {
-        // Desired state stays visible on failure; the proxy journal retains the recovery data.
-        await this.options.lifecycle.reconcileSystemProxy();
+        await this.applyCommittedSystemProxy();
       }
       const running = this.options.lifecycle.settings();
       return {

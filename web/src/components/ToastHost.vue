@@ -45,7 +45,6 @@ function iconFor(kind: ToastItem["kind"]): string {
 </script>
 
 <style scoped>
-/* Notices rise from the bottom edge, away from page headers and their controls. */
 .toast-host {
   position: fixed;
   right: max(24px, env(safe-area-inset-right, 0px));
@@ -123,7 +122,6 @@ function iconFor(kind: ToastItem["kind"]): string {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-/* Self-dismissing notices show their close button only on hover or keyboard focus; errors always do. */
 @media (hover: hover) and (pointer: fine) {
   .toast:not(.toast-error) .toast-close {
     opacity: 0;
@@ -151,7 +149,6 @@ function iconFor(kind: ToastItem["kind"]): string {
   opacity: 0;
 }
 
-/* Phones stack notices above the bottom navigation and the Apply dock. */
 @media (max-width: 899px) {
   .toast-host {
     right: max(12px, env(safe-area-inset-right, 0px));

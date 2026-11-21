@@ -184,7 +184,6 @@ onBeforeUnmount(() => {
   font-size: 14px;
   text-align: center;
 }
-/* Time leads the row so entries scan chronologically and wrap without a separate time line on phones. */
 .log-line {
   display: grid;
   min-height: 27px;
@@ -235,7 +234,6 @@ onBeforeUnmount(() => {
   color: var(--log-debug);
 }
 
-/* Fill the space above the fixed bottom navigation and Apply dock; the header keeps its natural height. */
 @media (max-width: 899px) {
   .logs-view {
     height: calc(100dvh - 78px - var(--dock-h, 0px) - env(safe-area-inset-bottom, 0px));

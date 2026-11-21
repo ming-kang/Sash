@@ -97,11 +97,6 @@ test("management startup errors propagate without opening a browser", async () =
 test("authorizes a browser end to end against a freshly spawned daemon", {
   timeout: 90_000,
 }, async () => {
-  // The real chain: ensureDaemonSession starts a new daemon process, the CLI
-  // writes the handoff file from the daemon's clock-stamped grant, and the
-  // live daemon redeems it. A daemon process can read its wall clock a few
-  // milliseconds ahead of the CLI, which used to fail this flow before the
-  // handoff was ever written.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-web-end-to-end-"));
   const layout = sashLayout(root);
   const probe = net.createServer();

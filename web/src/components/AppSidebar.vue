@@ -5,7 +5,6 @@
       <span class="brand-name">Sash</span>
     </div>
 
-    <!-- Until a session exists the pages cannot load and Core state is unknown. -->
     <nav v-if="sessionReady" class="side-nav" :aria-label="t('app.navigation')">
       <RouterLink
         v-for="item in navItems"
@@ -142,7 +141,6 @@ const navItems: Array<{ route: Route; icon: string }> = [
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Saved changes wait beside the Core state instead of floating over the page. */
 .side-foot {
   display: flex;
   margin-top: auto;
@@ -176,7 +174,6 @@ const navItems: Array<{ route: Route; icon: string }> = [
 .pending-config :deep(.btn) {
   flex: 1;
 }
-/* Fade in only: once applied, the prompt leaves at once instead of lingering. */
 .dock-enter-active {
   transition: opacity var(--motion-normal) var(--ease-standard);
 }
@@ -191,7 +188,6 @@ const navItems: Array<{ route: Route; icon: string }> = [
   box-shadow: 0 1px 2px var(--accent-shadow);
   transition: border-color var(--motion-normal) var(--ease-standard);
 }
-/* A Core that cannot answer tints the card's edge, so it reads from the corner of the eye. */
 .core-panel[data-state="unresponsive"] {
   border-color: var(--warning-border);
 }

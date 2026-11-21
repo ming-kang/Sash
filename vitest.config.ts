@@ -7,9 +7,7 @@ import { defineConfig } from "vitest/config";
 const isolation = mkdtempSync(path.join(os.tmpdir(), "sash-test-run-"));
 process.env.SASH_TEST_ISOLATION = isolation;
 
-// Local fixtures must never be sent through a developer's configured proxy
-// (which may itself be a running Sash/Core instance).
-const noProxy = [
+const fixtureProxyBypass = [
   ...new Set(
     [process.env.NO_PROXY, process.env.no_proxy, "127.0.0.1", "localhost", "::1"]
       .filter(Boolean)
@@ -30,8 +28,8 @@ export default defineConfig({
     hookTimeout: 60_000,
     globalSetup: "./src/testing/vitest-global.ts",
     env: {
-      NO_PROXY: noProxy,
-      no_proxy: noProxy,
+      NO_PROXY: fixtureProxyBypass,
+      no_proxy: fixtureProxyBypass,
       SASH_HOME: path.join(isolation, "data"),
       LOCALAPPDATA: path.join(isolation, "local"),
       XDG_STATE_HOME: path.join(isolation, "xdg-state"),

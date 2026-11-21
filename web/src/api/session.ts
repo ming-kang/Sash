@@ -50,8 +50,6 @@ function setCredential(value: WebSessionInfo | null, ready = value !== null): vo
 
 /** Consume the captured fragment before any network request, including invalid handoffs. */
 function takeBootstrapToken(): string | null {
-  // Tests and partial-DOM harnesses may install `window` after this module
-  // loaded; fall back to the live fragment when nothing was captured.
   const live = typeof window !== "undefined" && window.location ? window.location.hash : null;
   const hash = pendingBootHash ?? live;
   pendingBootHash = null;
@@ -107,7 +105,6 @@ export const webSession = {
   },
 
   reject(token: string): void {
-    // An old request's 401 must not revoke a newer browser authorization.
     if (token && token === credential?.token && sessionReady.value) {
       generation += 1;
       setCredential(null);
@@ -119,8 +116,6 @@ export const webSession = {
     const current = () => isActive() && request === generation;
     const bootstrap = isActive() ? takeBootstrapToken() : null;
     if (bootstrap) pendingExchange = client.redeemWebBootstrap(bootstrap);
-    // Concurrent polls share a single-use exchange. Only the current poll may
-    // adopt it, and explicit session clearing invalidates all pending results.
     const exchange = pendingExchange;
     let candidate = credential ?? readStoredSession();
     try {
@@ -132,7 +127,7 @@ export const webSession = {
         // hashes at boot, so a restart only changes the boot identity. An
         // expired or revoked token surfaces as a 401 and clears the session.
         setCredential(
-          candidate && health.token ? { ...candidate, daemonToken: health.token } : null,
+          candidate && health.bootId ? { ...candidate, daemonToken: health.bootId } : null,
         );
         daemonStartedAt = health.startedAt;
       }

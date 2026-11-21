@@ -47,7 +47,7 @@ describe("profile and runtime CLI controls", () => {
         result = {
           ok: true,
           pid: process.pid,
-          token: lease.record.token,
+          bootId: lease.record.token,
           startedAt: "2026-09-09T00:00:00.000Z",
         };
       else if (url === "/sash/profiles" && method === "GET") result = profiles;

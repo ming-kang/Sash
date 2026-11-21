@@ -274,8 +274,6 @@ describe("configuration reload", () => {
     try {
       const configFile = sashLayout(root).configFile;
       const f = fixture(`127.0.0.1:${standIn.port}`, async () => {
-        // The Core refuses; make the restore write fail too — a directory
-        // occupying the config path cannot be renamed onto.
         fs.rmSync(configFile);
         fs.mkdirSync(configFile);
         throw new Error("HTTP 400: bad rule");

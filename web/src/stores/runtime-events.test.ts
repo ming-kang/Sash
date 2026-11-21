@@ -82,7 +82,6 @@ function daemonEvent(status: SashStatus): DaemonEvent {
   };
 }
 
-/** api.events factory whose streams the test drives explicitly. */
 function eventChannel() {
   const streams: EventStream[] = [];
   const factory = (signal: AbortSignal): AsyncGenerator<DaemonEvent> => {
@@ -142,7 +141,7 @@ beforeEach(async () => {
   disconnected = 0;
   resourceReads = { configs: 0, proxies: 0, rules: 0, connections: 0 };
   api.initialize = async () => ({
-    token: "health",
+    bootId: "health",
     pid: 100,
     startedAt: "2026-01-01T00:00:00.000Z",
     version: "1.2.3",

@@ -91,8 +91,8 @@ const CORE_UPDATE_TIMEOUT_MS = 45 * 60_000;
 const CONFIG_VALIDATION_TIMEOUT_MS = 20_000 + 2 * 180_000;
 const CONFIG_RELOAD_TIMEOUT_MS = 180_000;
 const PROFILE_FETCH_TIMEOUT_MS = 30_000;
-const PROFILE_APPLY_TIMEOUT_MS = CONFIG_VALIDATION_TIMEOUT_MS + CONFIG_RELOAD_TIMEOUT_MS;
-const PROFILE_REFRESH_TIMEOUT_MS = PROFILE_APPLY_TIMEOUT_MS + PROFILE_FETCH_TIMEOUT_MS;
+const QUEUED_MUTATION_TIMEOUT_MS = CONFIG_VALIDATION_TIMEOUT_MS + CONFIG_RELOAD_TIMEOUT_MS;
+const PROFILE_REFRESH_TIMEOUT_MS = QUEUED_MUTATION_TIMEOUT_MS + PROFILE_FETCH_TIMEOUT_MS;
 const PROFILE_UPDATE_ALL_TIMEOUT_MS = 30 * 60_000;
 
 export class SashClient {
@@ -317,7 +317,7 @@ export class SashClient {
     return this.request<ProfilesIndex>("/sash/profiles/order", {
       method: "PUT",
       body: { ids },
-      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
+      timeoutMs: QUEUED_MUTATION_TIMEOUT_MS,
     });
   }
 
@@ -336,7 +336,7 @@ export class SashClient {
     return this.request<ProfileActionResponse>("/sash/profiles/import", {
       method: "POST",
       body: { name, content },
-      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
+      timeoutMs: QUEUED_MUTATION_TIMEOUT_MS,
     });
   }
 
@@ -344,7 +344,7 @@ export class SashClient {
     return this.request<ProfileActivateResponse>("/sash/profiles/active", {
       method: "PUT",
       body: { id },
-      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
+      timeoutMs: QUEUED_MUTATION_TIMEOUT_MS,
     });
   }
 
@@ -374,7 +374,7 @@ export class SashClient {
     return this.request<ProfileUpdateResponse>(`/sash/profiles/${id}/content`, {
       method: "PUT",
       body: { content, revision },
-      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
+      timeoutMs: QUEUED_MUTATION_TIMEOUT_MS,
     });
   }
 
@@ -382,16 +382,14 @@ export class SashClient {
     return this.request<ProfileRenameResponse>(`/sash/profiles/${id}`, {
       method: "PATCH",
       body: { name },
-      // A rename does no config work but still waits in the mutation queue
-      // behind a change that may run a full validation and reload.
-      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
+      timeoutMs: QUEUED_MUTATION_TIMEOUT_MS,
     });
   }
 
   async removeProfile(id: string): Promise<ProfileRemoveResponse> {
     return this.request<ProfileRemoveResponse>(`/sash/profiles/${id}`, {
       method: "DELETE",
-      timeoutMs: PROFILE_APPLY_TIMEOUT_MS,
+      timeoutMs: QUEUED_MUTATION_TIMEOUT_MS,
     });
   }
 }

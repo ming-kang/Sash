@@ -1,7 +1,6 @@
 import { errorMessage } from "./error-utils.js";
 import { log } from "./log.js";
 
-/** Display-only translations. Error messages carried by JSON remain unchanged. */
 export function formatCliError(error: unknown): string {
   const message = errorMessage(error);
   if (message === "on" || message === "off") return message === "on" ? "On" : "Off";

@@ -141,7 +141,6 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Shrink to the widest target and sit on the right edge; the payload takes the remaining width. */
 .rule-target {
   width: 1%;
   text-align: right;
@@ -155,7 +154,6 @@ watch(
   vertical-align: middle;
 }
 
-/* Phones: each rule becomes a two-line entry — type and index, then payload and target. */
 @media (max-width: 760px) {
   :deep(.page-head-actions) {
     flex-wrap: wrap;

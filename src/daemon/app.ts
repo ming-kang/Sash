@@ -29,7 +29,7 @@ export interface DaemonDeps {
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
   autostart?: AutostartServiceOptions;
-  token?: string;
+  bootId?: string;
   fetchProfileFn?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
   validateConfigFn?: (
     generated: GeneratedConfig,
@@ -50,7 +50,7 @@ export interface DaemonApp {
   context: DaemonContext;
   supervisor: CoreSupervisor;
   lifecycle: RuntimeLifecycle;
-  token: string;
+  bootId: string;
 }
 
 export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
@@ -59,7 +59,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   const packageInfo = readSashPackageInfo(packageRoot);
   const state = deps.state ?? new SashStateStore(layout, deps.settings);
   const settings = () => state.snapshot().settings;
-  const token = deps.token ?? crypto.randomBytes(24).toString("hex");
+  const bootId = deps.bootId ?? crypto.randomBytes(24).toString("hex");
   const systemProxy = deps.systemProxy ?? new SystemProxyManager({ layout });
   const engine = deps.engine ?? mihomoEngine;
   let lifecycle: RuntimeLifecycle;
@@ -126,7 +126,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     layout,
     engine,
     state,
-    token,
+    bootId,
     startedAt: new Date().toISOString(),
     version: packageInfo.version,
     webAuth: new WebAuthManager(layout.webSessionsFile),
@@ -151,5 +151,5 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     closeListener: () => Promise.reject(new Error("Listener is not ready")),
     ...(deps.onShutdown ? { onShutdown: deps.onShutdown } : {}),
   };
-  return { context, supervisor, lifecycle, token };
+  return { context, supervisor, lifecycle, bootId };
 }

@@ -49,7 +49,7 @@ async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
     });
     const record: DaemonPidRecord = {
       pid: process.pid,
-      token: current.token,
+      token: current.bootId,
       port,
     };
     atomicWriteFileSync(layout.daemonPidFile, `${JSON.stringify(record, null, 2)}\n`);

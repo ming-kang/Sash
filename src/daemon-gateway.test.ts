@@ -114,14 +114,11 @@ describe("daemon server", () => {
       assert.equal(closed.statusCode, 204);
       assert.deepEqual(upstream, ["PUT /proxies/PROXY", "DELETE /connections"]);
 
-      // An encoded separator reads as one segment here and two upstream, so it
-      // must not borrow the single-segment allowance.
       const smuggled = await h.apiRequest("/core/api/proxies/a%2Fb", {
         method: "PUT",
         body: { name: "DIRECT" },
       });
       assert.equal(smuggled.statusCode, 403);
-      // Configuration changes stay with Sash's own endpoints.
       const configs = await h.apiRequest("/core/api/configs", {
         method: "PATCH",
         body: { mode: "global" },

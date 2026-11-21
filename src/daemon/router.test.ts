@@ -16,7 +16,7 @@ const routes = buildRoutes();
 describe("daemon request-target parsing", () => {
   it("canonicalizes dot segments without decoding encoded slash data", () => {
     assert.deepEqual(target("/core/api/a/../proxies/a%2Fb?name=x%2Fy"), {
-      pathname: "/core/api/proxies/a%2Fb",
+      originalPathname: "/core/api/proxies/a%2Fb",
       routePathname: "/core/api/proxies/a%2Fb",
       search: "?name=x%2Fy",
       searchParams: new URLSearchParams("name=x%2Fy"),
@@ -57,7 +57,7 @@ describe("daemon HTTP route matching", () => {
       ["PATCH", "/sash/settings", "control"],
       ["PUT", "/sash/autostart", "control"],
       ["GET", "/sash/profiles", "control"],
-      ["POST", "/sash/web/session", "public"],
+      ["POST", "/sash/web/session", "bootstrap"],
       ["POST", "/sash/web/bootstrap", "control"],
       ["POST", "/sash/profiles/import", "control"],
       ["PUT", "/sash/profiles/active", "control"],

@@ -44,7 +44,7 @@ function endToEndHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
 
 export function coreApiTarget(target: ParsedDaemonRequestTarget): string {
   const prefix = "/core/api";
-  const suffix = target.pathname.slice(prefix.length);
+  const suffix = target.originalPathname.slice(prefix.length);
   const upstreamPath = suffix ? `/${suffix.replace(/^\/+/, "")}` : "/";
   return `${upstreamPath}${target.search}`;
 }
@@ -85,8 +85,6 @@ export async function forwardToCore(
     else await forward();
   } catch (error) {
     if (!res.destroyed && !res.headersSent) {
-      // A closing gate is daemon state, not an upstream failure — keep its
-      // 503 envelope instead of flattening it into a bad-gateway report.
       const mapping =
         error instanceof ShuttingDownError
           ? errorToHttp(error)

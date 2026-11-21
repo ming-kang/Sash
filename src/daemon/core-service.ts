@@ -65,10 +65,6 @@ export interface CoreControlServiceOptions {
 
 const PROGRESS_NOTIFY_INTERVAL_MS = 250;
 
-/**
- * Preparation stays outside the mutation queue; publication compares the
- * configuration it actually uses and the captured runtime epoch.
- */
 export class CoreControlService {
   private validationTail: Promise<void> = Promise.resolve();
   private preparation = new AbortController();
@@ -201,10 +197,7 @@ export class CoreControlService {
           lastError = mirrorError;
         }
       }
-      // Every mirror failed: fetch the missing databases through the verified
-      // pipeline (release-API digest, or the packaged bootstrap manifest when
-      // the API is unreachable), then revalidate the original configuration —
-      // the Core skips downloads for files already in the data folder.
+      // The Core skips downloads for files already in the data folder.
       const seeded = new Set<string>();
       for (;;) {
         const file = this.engine.geodata.fileForFailure(lastError);
@@ -240,9 +233,8 @@ export class CoreControlService {
     context: PluginGenerateContext,
   ): Promise<GeneratedConfig> {
     const plugins = this.options.plugins;
-    // No installed hooks: skip the YAML round-trip so the emitted config
-    // stays byte-identical to the render.
-    if (!plugins || !(await plugins.hasGenerateHooks())) return generated;
+    const hooksInstalled = plugins !== undefined && (await plugins.hasGenerateHooks());
+    if (!hooksInstalled) return generated;
     const document = YAML.parse(generated.yaml) as Record<string, unknown>;
     const patched = await plugins.applyGenerated(document, context);
     if (patched === document) return generated;
@@ -288,6 +280,19 @@ export class CoreControlService {
     return { snapshot: this.options.state.snapshot(), epoch: this.options.lifecycle.revision };
   }
 
+  private capturePlanAfterQueuedMutations(
+    intent: "start" | "apply" | "reconcile",
+    signal: AbortSignal,
+  ): Promise<CoreStartResult | ReturnType<CoreControlService["configurationPlan"]>> {
+    return this.options.commit(async () => {
+      signal.throwIfAborted();
+      this.requireRecoveredInstall();
+      if (intent === "start" && this.options.supervisor.isRunning())
+        return this.options.lifecycle.start();
+      return this.configurationPlan();
+    });
+  }
+
   private assertCurrentConfiguration(configuration: RuntimeConfiguration): void {
     if (runtimeDelta(configuration, this.savedTarget()).pending)
       throw new StateConflictError("Saved configuration changed during preparation; retry Apply");
@@ -302,10 +307,7 @@ export class CoreControlService {
       );
     this.requireRecoveredInstall();
     const { signal } = this.preparation;
-    // Chosen once: the transport must not change between metadata, archive and
-    // geodata fetches inside one operation.
-    const transport = this.downloadTransport();
-    const proxyUri = transport?.uri;
+    const pinnedProxyUri = this.downloadTransport()?.uri;
     const progress: CoreUpdateProgress = {
       stage: "checking",
       startedAt: new Date().toISOString(),
@@ -336,7 +338,7 @@ export class CoreControlService {
       const release = await (this.options.resolveCoreReleaseFn ?? resolveCoreRelease)({
         ...(version !== undefined ? { tag: version } : {}),
         signal,
-        ...(proxyUri !== undefined ? { proxyUri } : {}),
+        ...(pinnedProxyUri !== undefined ? { proxyUri: pinnedProxyUri } : {}),
         onProxyFallback: (info) => {
           const warning = formatProxyFallbackWarning(info);
           progress.note = warning;
@@ -345,8 +347,6 @@ export class CoreControlService {
         },
       });
       signal.throwIfAborted();
-      // The release is already installed: downloading it again would replace a
-      // healthy binary with the same bytes and pause the proxy for nothing.
       if (release.tag === currentCoreVersion(layout)) {
         progress.target = release.tag;
         return { version: release.tag, alreadyCurrent: true };
@@ -355,7 +355,7 @@ export class CoreControlService {
         layout,
         release,
         signal,
-        ...(proxyUri !== undefined ? { proxyUri } : {}),
+        ...(pinnedProxyUri !== undefined ? { proxyUri: pinnedProxyUri } : {}),
         onStage: setStage,
         onProgress: (downloaded, total) => {
           if (this.operation !== progress) return;
@@ -376,14 +376,14 @@ export class CoreControlService {
         configuration,
         staged.exe,
         signal,
-        proxyUri,
+        pinnedProxyUri,
       );
       const candidate = staged;
       setStage("waiting");
       return await this.options.commit(async () => {
         signal.throwIfAborted();
-        // A running update preserves the applied configuration, not pending saved edits.
-        if (!wasRunning) this.assertCurrentConfiguration(validated);
+        const installedOverStoppedCore = !wasRunning;
+        if (installedOverStoppedCore) this.assertCurrentConfiguration(validated);
         if (lifecycle.revision !== epoch)
           throw new StateConflictError("Core changed during download; retry the update");
         setStage("installing");
@@ -393,8 +393,6 @@ export class CoreControlService {
       signal.throwIfAborted();
       throw error;
     } finally {
-      // Only the operation still owning the observable state may clear it; a
-      // cancelled predecessor unwinds after its successor already started.
       if (this.operation === progress) {
         this.operation = null;
         this.options.onProgress();
@@ -419,7 +417,6 @@ export class CoreControlService {
     try {
       return Boolean(await this.applySavedConfiguration("reconcile"));
     } catch (error) {
-      // Saving already succeeded; a rejected configuration stays pending.
       console.warn(`[sashd] saved configuration was not applied: ${errorMessage(error)}`);
       return false;
     }
@@ -451,17 +448,10 @@ export class CoreControlService {
       }
     }
 
-    // Start/Apply capture after earlier queued lifecycle operations. A saved
-    // profile reconciliation already follows its publication and needs no read-only queue turn.
     const plan =
       intent === "reconcile"
         ? this.configurationPlan()
-        : await this.options.commit(async () => {
-            signal.throwIfAborted();
-            this.requireRecoveredInstall();
-            if (intent === "start" && supervisor.isRunning()) return lifecycle.start();
-            return this.configurationPlan();
-          });
+        : await this.capturePlanAfterQueuedMutations(intent, signal);
     if (!("snapshot" in plan)) return plan;
 
     if (intent === "reconcile") {
@@ -473,7 +463,6 @@ export class CoreControlService {
         return undefined;
     }
 
-    // All intents share rendering and preflight outside the state mutation queue.
     const configuration = await this.savedConfiguration(plan.snapshot);
     const validated = await this.validateConfiguration(
       configuration,
@@ -496,7 +485,6 @@ export class CoreControlService {
     });
   }
 
-  /** Sash uses non-forced reloads: listener changes take the restart path. */
   private async canReload(target: RuntimeTarget): Promise<boolean> {
     const applied = this.options.lifecycle.configuration();
     if (!applied || runtimeDelta(applied, target).restartRequired) return false;

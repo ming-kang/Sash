@@ -1,4 +1,4 @@
-import { openInBrowser } from "../browser.js";
+import { tryOpenInBrowser } from "../browser.js";
 import { ensureDaemonSession } from "../daemon-session.js";
 import { log } from "../log.js";
 import { writeBootstrapFile } from "../web-bootstrap.js";
@@ -10,7 +10,7 @@ export function dashboardUrl(port: number): string {
 export interface WebCommandDeps {
   runtimeContext?: typeof runtimeContext;
   ensureDaemonSession?: typeof ensureDaemonSession;
-  openInBrowser?: typeof openInBrowser;
+  openInBrowser?: typeof tryOpenInBrowser;
   writeBootstrap?: typeof writeBootstrapFile;
   log?: Pick<typeof log, "info" | "ok">;
 }
@@ -29,7 +29,7 @@ export async function runWeb(
       dashboardUrl: url,
       ...bootstrap,
     });
-    (deps.openInBrowser ?? openInBrowser)(file.fileUrl);
+    (deps.openInBrowser ?? tryOpenInBrowser)(file.fileUrl);
     logger.info("Opening WebUI");
   }
   logger.ok(url);

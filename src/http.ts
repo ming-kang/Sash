@@ -26,8 +26,6 @@ function getBaseProxyDispatcher(): Dispatcher {
     }
     const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? allProxy;
     const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? allProxy;
-    // allowH2: false keeps HTTP/1.1 wire behavior; the download path's
-    // stall-timeout and size-cap invariants are tested on h1.
     baseProxyDispatcher = new EnvHttpProxyAgent({
       allowH2: false,
       ...(httpProxy ? { httpProxy } : {}),
@@ -79,7 +77,6 @@ export interface DownloadTransport {
 }
 
 function pickDispatcher(opts: { direct?: boolean; proxyUri?: string }): Dispatcher {
-  // Loopback traffic never leaves through a proxy, whatever else is set.
   if (opts.direct) return getBaseDirectDispatcher();
   if (opts.proxyUri) return proxyDispatcherFor(opts.proxyUri);
   return getBaseProxyDispatcher();
@@ -175,7 +172,6 @@ export function formatProxyFallbackFailure(
   );
 }
 
-// Only a loopback refusal qualifies; a dead remote proxy is never bypassed silently.
 function loopbackRefusalOf(error: unknown): ConnectRefusedEndpoint | undefined {
   const endpoint = extractConnectRefusedEndpoint(error);
   return endpoint && isLoopbackHost(endpoint.address) ? endpoint : undefined;

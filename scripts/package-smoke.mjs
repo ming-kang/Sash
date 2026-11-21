@@ -142,7 +142,6 @@ function assertPackedFiles(files) {
   assert.ok(uiAssets.some((entry) => entry.path.endsWith(".css") && entry.size > 0));
 
   const manifestEntry = byPath.get("dist/bootstrap-manifest.json");
-  // CI packs the manifest between build and pack; local packs may omit it.
   if (process.env.SASH_PACKAGE_SMOKE_REQUIRE_BOOTSTRAP === "1") {
     assert.ok(
       manifestEntry,

@@ -12,7 +12,6 @@ export type CoreConfigTestRunner = (
   signal?: AbortSignal,
 ) => Promise<void> | void;
 
-/** Default budget for a configuration test; a geodata download needs the longer CONFIG_TEST_GEODATA_TIMEOUT_MS. */
 export const CONFIG_TEST_TIMEOUT_MS = 20_000;
 export const CONFIG_TEST_GEODATA_TIMEOUT_MS = 180_000;
 
@@ -112,7 +111,6 @@ function classifyGeodataFailure(error: unknown): "download" | "corrupt" | undefi
   const text = errorOutput(error);
   if (GEODATA_DOWNLOAD.test(text)) return "download";
   if (GEODATA_CORRUPT.test(text)) return "corrupt";
-  // Our own timeout kills a stalled download, leaving only the attempt line behind.
   const killed = typeof error === "object" && error !== null && "killed" in error;
   return killed && GEODATA_ATTEMPT.test(text) ? "download" : undefined;
 }
@@ -132,7 +130,6 @@ const GEODATA_CLASS_FILES: Record<string, string> = {
   asn: "GeoLite2-ASN.mmdb",
 };
 
-/** A mentioned known file name wins over the failure class, so non-default geox-url layouts still map. */
 export function geodataFileForFailure(error: unknown): string | undefined {
   if (!isGeodataDownloadFailure(error)) return undefined;
   const output = errorOutput(error);

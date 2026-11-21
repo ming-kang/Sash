@@ -36,7 +36,6 @@ describe("canonical Sash state", () => {
       revision: number;
       settings: Record<string, unknown>;
     };
-    // A blank value and an absent field both read leniently as "" before the repair.
     stored.settings.secret = "";
     delete stored.settings.daemonSecret;
     fs.writeFileSync(layout.settingsFile, JSON.stringify(stored));

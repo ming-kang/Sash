@@ -141,7 +141,7 @@ describe("minimal Vue behavior harness", () => {
     api.hasSession = () => true;
     api.isInitialized = () => true;
     api.initialize = async () => ({
-      token: "health",
+      bootId: "health",
       pid: 100,
       startedAt: "2026-01-01T00:00:00.000Z",
       version: "1.0.0",
@@ -294,7 +294,7 @@ describe("minimal Vue behavior harness", () => {
     api.hasSession = () => true;
     api.isInitialized = () => true;
     api.initialize = async () => ({
-      token: "health",
+      bootId: "health",
       pid: 100,
       startedAt: "2026-01-01T00:00:00.000Z",
       version: "1.0.0",
@@ -421,7 +421,7 @@ describe("minimal Vue behavior harness", () => {
     api.hasSession = () => true;
     api.isInitialized = () => true;
     api.initialize = async () => ({
-      token: "health",
+      bootId: "health",
       pid: 100,
       startedAt: "2026-01-01T00:00:00.000Z",
       version: "1.0.0",

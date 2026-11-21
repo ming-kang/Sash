@@ -227,7 +227,6 @@ export async function resolveCoreRelease(
   } = {},
 ): Promise<CoreReleaseResolution> {
   const pinned = options.tag ?? process.env.SASH_CORE_VERSION;
-  // An invalid explicit pin is a usage error, never a network problem.
   if (pinned !== undefined) validateCoreReleaseTag(pinned);
   try {
     const tag = validateCoreReleaseTag(

@@ -95,7 +95,6 @@ export function atomicWriteFileSync(target: string, data: string | Buffer, mode 
   try {
     renameWithRetrySync(tempPath, target);
   } catch (err) {
-    // This temp file is owned here, unlike a caller-owned durableRename source, so cleanup is safe.
     try {
       fs.rmSync(tempPath, { force: true });
     } catch {}
@@ -130,7 +129,6 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** Online writes keep the same durability contract without sleeping on the event loop. */
 export async function atomicWriteFile(
   target: string,
   data: string | Buffer,

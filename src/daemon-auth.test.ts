@@ -54,7 +54,7 @@ describe("daemon control authorization", () => {
       isControlRequestAuthorized(request({ "x-sash-token": "session-token" }), opts),
       true,
     );
-    // The public per-boot health token never authorizes control requests.
+    // The public per-boot health identity never authorizes control requests.
     assert.equal(
       isControlRequestAuthorized(request({ "x-sash-token": "boot-token" }), opts),
       false,

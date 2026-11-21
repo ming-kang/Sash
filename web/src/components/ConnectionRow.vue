@@ -47,7 +47,6 @@ const emit = defineEmits<{
   close: [id: string];
 }>();
 
-// Domain and IP targets both show their port, de-emphasized, so rows read the same way.
 const host = computed(() => {
   const meta = props.connection.metadata;
   return meta.host || meta.destinationIP;
@@ -197,7 +196,6 @@ const rule = computed(() => {
   color: var(--danger);
 }
 
-/* Narrow screens keep host and route readable; traffic moves under the metadata line. */
 @media (max-width: 760px) {
   .connection-row {
     grid-template-areas:
@@ -218,7 +216,6 @@ const rule = computed(() => {
   .meta-text {
     white-space: nowrap;
   }
-  /* A wrapped item would start its line with the dot, so spacing separates items instead. */
   .meta-text + .meta-text::before {
     content: none;
   }

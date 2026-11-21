@@ -110,7 +110,7 @@ export interface DaemonContext {
   readonly layout: SashLayout;
   readonly engine: CoreEngine;
   readonly state: SashStateStore;
-  readonly token: string;
+  readonly bootId: string;
   readonly startedAt: string;
   readonly version: string;
   readonly webAuth: WebAuthManager;

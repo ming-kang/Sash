@@ -15,7 +15,6 @@
           </div>
           <div class="general-value port-value" :title="t('settings.mixedPortTitle')">
             <span class="port-prefix mono">127.0.0.1:</span>
-            <!-- The underline is the field: the port edits in place instead of a second row. -->
             <input
               id="mixed-port"
               ref="portInput"
@@ -175,7 +174,6 @@ async function saveMixedPort(): Promise<void> {
   }
 }
 
-// Inline editing commits on its own: leaving the field saves a valid port and discards a bad one.
 function commitMixedPort(): void {
   if (portDirty.value && portInRange.value) void saveMixedPort();
   else resetMixedPort();
@@ -255,7 +253,6 @@ async function refreshActiveProfile(): Promise<void> {
 .mobile-core-status {
   display: none;
 }
-/* The port edits in place, so the row reads 127.0.0.1:[17891] with one underline. */
 .port-value {
   align-items: baseline;
   gap: 2px;
@@ -269,7 +266,6 @@ async function refreshActiveProfile(): Promise<void> {
   white-space: nowrap;
 }
 .port-input {
-  /* Room for five digits plus the inline padding; narrower clips the last one. */
   width: 6ch;
   flex-shrink: 0;
   padding: 1px 2px 2px;
@@ -414,7 +410,6 @@ async function refreshActiveProfile(): Promise<void> {
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
   }
-  /* The card centers its clock; the phone row keeps it close to the Core label. */
   .mobile-core-status :deep(.core-clock) {
     padding-left: 24px;
     text-align: left;

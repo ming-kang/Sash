@@ -26,7 +26,6 @@ function recordStart(layout: SashLayout, message: string): void {
       fs.writeSync(stdoutFd, line);
     });
   } catch (error) {
-    // Logging must not replace the original startup failure.
     console.error(`[sash] Could not write startup log: ${errorMessage(error)}`);
   }
 }
@@ -38,7 +37,6 @@ function recordOutcome(
   try {
     writeLoginStartRecord(layout, { at: new Date().toISOString(), ...record });
   } catch (error) {
-    // The record feeds status and doctor; losing it must not mask startup itself.
     console.error(`[sash] Could not write the login start record: ${errorMessage(error)}`);
   }
 }

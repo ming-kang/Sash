@@ -10,7 +10,6 @@
       <CoreControls />
     </div>
 
-    <!-- The dot and the clock carry the state; this line stays quiet and centered. -->
     <div class="core-clock mono" :title="coreTooltip">
       <span class="sr-only">{{ t(`app.coreState.${state}`) }}</span>
       {{ uptime }}
@@ -29,7 +28,6 @@ import CoreUpdateProgress from "./CoreUpdateProgress.vue";
 
 const uptime = useCoreUptime();
 const { state } = useCoreDisplay();
-// The card shows no state word, so the tooltip and the screen-reader text carry it.
 const coreTooltip = computed(() => {
   const status = t(`app.coreState.${state.value}`);
   return store.status?.core.pid ? `${status} · PID ${store.status.core.pid}` : status;
@@ -88,7 +86,6 @@ const coreTooltip = computed(() => {
 .core-status-row[data-state="stopped"] .core-dot {
   box-shadow: none;
 }
-/* A transition in progress breathes; settled states hold still. */
 .core-status-row[data-state="starting"] .core-dot,
 .core-status-row[data-state="stopping"] .core-dot {
   animation: core-pulse 1.2s var(--ease-standard) infinite;

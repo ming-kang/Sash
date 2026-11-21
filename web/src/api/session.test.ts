@@ -11,7 +11,7 @@ const STORAGE_KEY = "sash.control-token";
 const bootstrapToken = "b".repeat(64);
 const sessionToken = "a".repeat(64);
 const health: HealthInfo = {
-  token: "public-identity",
+  bootId: "public-identity",
   pid: 1234,
   startedAt: "2026-01-01T00:00:00.000Z",
   version: "1.2.3",
@@ -28,7 +28,6 @@ function storedSession(): unknown {
   return stored ? JSON.parse(stored) : null;
 }
 
-/** Redeem a valid bootstrap handoff against a healthy daemon. */
 async function authorize(token = sessionToken, identity = health): Promise<void> {
   window.location.hash = `boot=${bootstrapToken}`;
   globalThis.fetch = async (input, init) => {
@@ -37,7 +36,7 @@ async function authorize(token = sessionToken, identity = health): Promise<void>
       assert.equal(init?.method, "POST");
       assert.equal(new Headers(init?.headers).has("x-sash-token"), false);
       assert.deepEqual(JSON.parse(String(init?.body)), { token: bootstrapToken });
-      return respond({ token, daemonToken: identity.token });
+      return respond({ token, daemonToken: identity.bootId });
     }
     assert.ok(String(input).endsWith("/sash/daemon/health"));
     assert.equal(new Headers(init?.headers).has("x-sash-token"), false);
@@ -71,21 +70,21 @@ describe("bootstrap handoff", () => {
         assert.equal(init?.method, "POST");
         assert.equal(new Headers(init?.headers).has("x-sash-token"), false);
         assert.deepEqual(JSON.parse(String(init?.body)), { token: bootstrapToken });
-        return respond({ token: sessionToken, daemonToken: health.token });
+        return respond({ token: sessionToken, daemonToken: health.bootId });
       }
       assert.ok(url.endsWith("/sash/daemon/health"));
       assert.equal(new Headers(init?.headers).has("x-sash-token"), false);
       return respond(health);
     };
     const result = await webSession.initialize(client, () => true);
-    assert.equal(result.token, health.token);
+    assert.equal(result.bootId, health.bootId);
     assert.equal(result.startedAt, health.startedAt);
     assert.equal(requested.filter((url) => url.endsWith("/sash/web/session")).length, 1);
     assert.equal(webSession.token(), sessionToken);
     assert.equal(sessionReady.value, true);
     assert.equal(webSession.initialized(), true);
     assert.equal(webSession.startedAt(), health.startedAt);
-    assert.deepEqual(storedSession(), { token: sessionToken, daemonToken: health.token });
+    assert.deepEqual(storedSession(), { token: sessionToken, daemonToken: health.bootId });
   });
 
   it("scrubs a malformed fragment without redeeming it", async () => {
@@ -118,7 +117,7 @@ describe("bootstrap handoff", () => {
     window.location.hash = `boot=${bootstrapToken}`;
     globalThis.fetch = async (input) =>
       String(input).endsWith("/sash/web/session")
-        ? respond({ token: sessionToken, daemonToken: health.token })
+        ? respond({ token: sessionToken, daemonToken: health.bootId })
         : respond({ error: { code: "unavailable", message: "daemon down" } }, 503);
     await assert.rejects(webSession.initialize(client, () => true));
     assert.equal(sessionReady.value, false);
@@ -126,7 +125,7 @@ describe("bootstrap handoff", () => {
     assert.equal(webSession.initialized(), false);
     assert.deepEqual(
       storedSession(),
-      { token: sessionToken, daemonToken: health.token },
+      { token: sessionToken, daemonToken: health.bootId },
       "the dormant credential survives for the next poll",
     );
 
@@ -153,7 +152,7 @@ describe("stored session fallback", () => {
   it("restores a stored session for the same daemon without an exchange", async () => {
     window.sessionStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ token: sessionToken, daemonToken: health.token }),
+      JSON.stringify({ token: sessionToken, daemonToken: health.bootId }),
     );
     globalThis.fetch = async (input) => {
       assert.ok(String(input).endsWith("/sash/daemon/health"), "no exchange request");
@@ -177,7 +176,7 @@ describe("stored session fallback", () => {
     await webSession.initialize(client, () => true);
     assert.equal(webSession.token(), sessionToken);
     assert.equal(sessionReady.value, true);
-    assert.deepEqual(storedSession(), { token: sessionToken, daemonToken: health.token });
+    assert.deepEqual(storedSession(), { token: sessionToken, daemonToken: health.bootId });
   });
 
   it("rejects malformed stored credentials", async () => {
@@ -217,7 +216,7 @@ describe("exchange sharing", () => {
     };
     const first = webSession.initialize(client, () => true);
     const second = webSession.initialize(client, () => true);
-    pending.resolve(respond({ token: sessionToken, daemonToken: health.token }));
+    pending.resolve(respond({ token: sessionToken, daemonToken: health.bootId }));
     await Promise.all([first, second]);
     assert.equal(exchanges, 1, "concurrent polls reuse the pending exchange");
     assert.equal(webSession.token(), sessionToken);
@@ -231,7 +230,7 @@ describe("exchange sharing", () => {
       String(input).endsWith("/sash/web/session") ? pending.promise : respond(health);
     const initialization = webSession.initialize(client, () => true);
     webSession.clear();
-    pending.resolve(respond({ token: sessionToken, daemonToken: health.token }));
+    pending.resolve(respond({ token: sessionToken, daemonToken: health.bootId }));
     await initialization;
     assert.equal(webSession.token(), "");
     assert.equal(storedSession(), null);
@@ -251,7 +250,7 @@ describe("credential lifecycle", () => {
 
   it("matches only the current daemon identity", async () => {
     await authorize();
-    assert.equal(webSession.matches(health.token), true);
+    assert.equal(webSession.matches(health.bootId), true);
     assert.equal(webSession.matches("another-daemon"), false);
     assert.equal(webSession.token(), "", "a mismatch invalidates the session");
     assert.equal(sessionReady.value, false);
@@ -265,7 +264,7 @@ describe("credential lifecycle", () => {
     assert.equal(webSession.initialized(), false);
     assert.deepEqual(storedSession(), {
       token: sessionToken,
-      daemonToken: health.token,
+      daemonToken: health.bootId,
     });
   });
 

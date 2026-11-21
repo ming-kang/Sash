@@ -1,6 +1,5 @@
 <template>
   <div class="core-controls">
-    <!-- The Apply dock: a saved configuration waits, so the action reads as plain text. -->
     <button
       v-if="applyOnly"
       type="button"
@@ -70,7 +69,6 @@ const running = computed(() => Boolean(store.status?.core.running));
   justify-content: flex-end;
   gap: 6px;
 }
-/* Stopping drops every proxied connection, so the control stays quiet until it is aimed at. */
 .core-stop:hover:not(:disabled) {
   background: var(--danger-soft);
   color: var(--danger);

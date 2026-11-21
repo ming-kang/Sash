@@ -271,7 +271,6 @@ describe("daemon-owned Core updates", () => {
     );
     assert.equal((await h.apiRequest("/sash/core/update", { method: "DELETE" })).statusCode, 204);
     assert.equal((await h.apiRequest("/sash/core/update")).data, null);
-    // The cancelled operation must not clear its successor's state as it unwinds.
     const second = h.apiRequest("/sash/core/update", { method: "POST", body: { version: "v2" } });
     await secondEntered.promise;
     firstReleased.resolve();

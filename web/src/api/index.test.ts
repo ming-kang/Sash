@@ -10,7 +10,7 @@ const STORAGE_KEY = "sash.control-token";
 const bootstrapToken = "b".repeat(64);
 const sessionToken = "a".repeat(64);
 const health: HealthInfo = {
-  token: "public-identity",
+  bootId: "public-identity",
   pid: 1234,
   startedAt: "2026-01-01T00:00:00.000Z",
   version: "1.2.3",
@@ -29,7 +29,7 @@ async function authorize(token = sessionToken, identity = health): Promise<void>
       assert.equal(init?.method, "POST");
       assert.equal(new Headers(init?.headers).has("x-sash-token"), false);
       assert.deepEqual(JSON.parse(String(init?.body)), { token: bootstrapToken });
-      return respond({ token, daemonToken: identity.token });
+      return respond({ token, daemonToken: identity.bootId });
     }
     assert.ok(String(input).endsWith("/sash/daemon/health"));
     return respond(identity);
@@ -52,8 +52,8 @@ afterEach(async () => {
 
 describe("browser authorization", () => {
   it("keeps a dormant credential through disconnection and adopts the next daemon boot", async () => {
-    const source = { ...health, token: "b".repeat(48) };
-    const target = { ...health, token: "c".repeat(48) };
+    const source = { ...health, bootId: "b".repeat(48) };
+    const target = { ...health, bootId: "c".repeat(48) };
     await authorize(sessionToken, source);
     api.markDisconnected();
     globalThis.fetch = async () => {
@@ -62,19 +62,19 @@ describe("browser authorization", () => {
     await assert.rejects(api.initialize(), /connection refused/);
     assert.equal(api.hasSession(), false);
     assert.ok(window.sessionStorage.getItem(STORAGE_KEY));
-    assert.equal(api.sessionMatches(target.token), false);
+    assert.equal(api.sessionMatches(target.bootId), false);
     globalThis.fetch = async () => respond(target);
     await api.initialize();
     assert.equal(api.hasSession(), true);
     // The session token outlives the daemon; only the boot identity is refreshed.
     assert.deepEqual(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? ""), {
       token: sessionToken,
-      daemonToken: target.token,
+      daemonToken: target.bootId,
     });
   });
 
   it("does not resurrect an explicitly cleared credential when the next boot arrives", async () => {
-    const source = { ...health, token: "b".repeat(48) };
+    const source = { ...health, bootId: "b".repeat(48) };
     await authorize(sessionToken, source);
     const pending = Promise.withResolvers<Response>();
     const entered = Promise.withResolvers<void>();
@@ -85,7 +85,7 @@ describe("browser authorization", () => {
     const initialization = api.initialize();
     await entered.promise;
     api.clearSession();
-    pending.resolve(respond({ ...health, token: "c".repeat(48) }));
+    pending.resolve(respond({ ...health, bootId: "c".repeat(48) }));
     await initialization;
     assert.equal(api.hasSession(), false);
     assert.equal(window.sessionStorage.getItem(STORAGE_KEY), null);
@@ -110,7 +110,7 @@ describe("browser authorization", () => {
     assert.equal(api.getSessionDaemonStartedAt(), health.startedAt);
     assert.deepEqual(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? ""), {
       token: sessionToken,
-      daemonToken: health.token,
+      daemonToken: health.bootId,
     });
     globalThis.fetch = async (input, init) => {
       assert.equal(String(input).includes(sessionToken), false);
@@ -123,7 +123,7 @@ describe("browser authorization", () => {
   it("keeps a saved session when the daemon restarts", async () => {
     window.sessionStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ token: sessionToken, daemonToken: health.token }),
+      JSON.stringify({ token: sessionToken, daemonToken: health.bootId }),
     );
     globalThis.fetch = async (input, init) => {
       assert.ok(String(input).endsWith("/sash/daemon/health"));
@@ -132,7 +132,7 @@ describe("browser authorization", () => {
     };
     await api.initialize();
     assert.equal(api.hasSession(), true);
-    globalThis.fetch = async () => respond({ ...health, token: "restarted" });
+    globalThis.fetch = async () => respond({ ...health, bootId: "restarted" });
     await api.initialize();
     // The session survives the restart; only the boot identity is refreshed.
     assert.equal(api.hasSession(), true);
@@ -148,7 +148,7 @@ describe("browser authorization", () => {
       "legacy-boot-token",
       "null",
       "{}",
-      JSON.stringify({ token: health.token }),
+      JSON.stringify({ token: health.bootId }),
     ]) {
       window.sessionStorage.setItem(STORAGE_KEY, stored);
       await api.initialize();
@@ -195,7 +195,7 @@ describe("browser authorization", () => {
 
   it("clears an existing session when health no longer matches the stored daemon", async () => {
     await authorize();
-    globalThis.fetch = async () => respond({ ...health, token: "" });
+    globalThis.fetch = async () => respond({ ...health, bootId: "" });
     await api.initialize();
     assert.equal(api.hasSession(), false);
     assert.equal(window.sessionStorage.getItem(STORAGE_KEY), null);
@@ -216,7 +216,7 @@ describe("session request ownership", () => {
     };
     const old = api.initialize();
     const newer = api.initialize();
-    pending.resolve(respond({ token: sessionToken, daemonToken: health.token }));
+    pending.resolve(respond({ token: sessionToken, daemonToken: health.bootId }));
     await Promise.all([old, newer]);
     assert.equal(exchanges, 1);
     assert.equal(api.hasSession(), true);
@@ -229,7 +229,7 @@ describe("session request ownership", () => {
       String(input).endsWith("/sash/web/session") ? pending.promise : respond(health);
     const old = api.initialize();
     api.clearSession();
-    pending.resolve(respond({ token: sessionToken, daemonToken: health.token }));
+    pending.resolve(respond({ token: sessionToken, daemonToken: health.bootId }));
     await old;
     assert.equal(api.hasSession(), false);
     assert.equal(window.sessionStorage.getItem(STORAGE_KEY), null);
@@ -262,7 +262,7 @@ describe("session request ownership", () => {
       await authorize();
       if (cleared) api.clearSession();
       pending.resolve(
-        respond({ ...health, token: "old-identity", startedAt: "2025-01-01T00:00:00.000Z" }),
+        respond({ ...health, bootId: "old-identity", startedAt: "2025-01-01T00:00:00.000Z" }),
       );
       await old;
       assert.equal(api.getSessionDaemonStartedAt(), cleared ? null : health.startedAt);

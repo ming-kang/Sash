@@ -190,7 +190,7 @@ describe("daemon ownership evaluation", () => {
       res.end(
         JSON.stringify({
           ok: true,
-          token: "boot-token",
+          bootId: "boot-token",
           pid: process.pid,
           startedAt: "2026-01-01T00:00:00.000Z",
         }),
@@ -225,7 +225,7 @@ describe("daemon ownership evaluation", () => {
       res.end(
         JSON.stringify({
           ok: true,
-          token: "different-token",
+          bootId: "different-token",
           pid: process.pid,
           startedAt: "2026-01-01T00:00:00.000Z",
         }),
@@ -266,7 +266,7 @@ describe("daemon ownership evaluation", () => {
       res.end(
         JSON.stringify({
           ok: true,
-          token: "successor-token",
+          bootId: "successor-token",
           pid: process.pid,
           startedAt: "2026-01-01T00:00:00.000Z",
         }),

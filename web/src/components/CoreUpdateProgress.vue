@@ -1,7 +1,6 @@
 <template>
   <div v-if="coreUpdateText" class="core-update-progress">
     <span class="core-update-text">{{ coreUpdateText }}</span>
-    <!-- Determinate only while the download size is known; other stages just show activity. -->
     <span
       class="core-update-bar"
       :class="{ indeterminate: percent === null }"

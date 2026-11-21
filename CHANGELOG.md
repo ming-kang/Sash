@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Internal cleanup across the daemon, CLI and WebUI: implementation narration comments were replaced by names, types, extracted helpers and tests. The daemon's public health response now names its per-boot identity field `bootId` instead of `token`; the persisted daemon record format is unchanged.
+
 ## [0.5.4] - 2026-11-21
 
 ### Changed

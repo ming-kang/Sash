@@ -19,7 +19,7 @@ export interface DaemonInstance {
   server: Server;
   supervisor: CoreSupervisor;
   lifecycle: RuntimeLifecycle;
-  token: string;
+  bootId: string;
   port: number;
   version: string;
   startedAt: string;
@@ -57,8 +57,6 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     }
     req.method = req.method?.toUpperCase() ?? "GET";
     req.daemonTarget = parsed.target;
-    // Route matching happens on the canonical target (trailing slashes folded),
-    // the original stays on the request for raw handlers and upstream targets.
     req.url = parsed.target.routePathname + parsed.target.search;
     fastify.routing(req, res);
   });
@@ -170,7 +168,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
     server,
     supervisor: app.supervisor,
     lifecycle: app.lifecycle,
-    token: app.token,
+    bootId: app.bootId,
     port: context.settings.committed().daemonPort,
     version: context.version,
     startedAt: context.startedAt,

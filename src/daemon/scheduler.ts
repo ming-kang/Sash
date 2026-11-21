@@ -31,9 +31,7 @@ export function startProfileUpdateScheduler(
     if (stopped || running || !isActive()) return;
     running = true;
     try {
-      await profiles.updateDue();
-    } catch {
-      // Individual profile failures are recorded by ProfileService.
+      await profiles.updateDue().catch(() => undefined);
     } finally {
       if (!stopped && isActive()) await profiles.cleanup().catch(() => undefined);
       running = false;

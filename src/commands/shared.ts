@@ -24,31 +24,25 @@ export function installCoreUpdateInterrupt(
   const controller = new AbortController();
   let triggered = false;
   let cancelledDownload = false;
+  const interrupt = (): void => controller.abort(new Error("interrupted"));
+  const cancelDownloadOrInterrupt = async (): Promise<void> => {
+    const session = await resolveDaemonSession(ctx).catch(() => undefined);
+    if (session?.kind !== "daemon") return interrupt();
+    const progress = await session.client.coreUpdateProgress().catch(() => null);
+    if (!progress) return interrupt();
+    process.stderr.write("Cancelling Core Download\n");
+    try {
+      await session.client.cancelCoreUpdate();
+      cancelledDownload = true;
+    } catch (error) {
+      log.warn(`Core download was not cancelled: ${errorMessage(error)}`);
+    }
+    controller.abort(new Error("Core download cancelled"));
+  };
   const onSigint = (): void => {
     if (triggered) process.exit(130);
     triggered = true;
-    void (async () => {
-      const session = await resolveDaemonSession(ctx).catch(() => undefined);
-      if (session?.kind !== "daemon") {
-        controller.abort(new Error("interrupted"));
-        return;
-      }
-      const progress = await session.client.coreUpdateProgress().catch(() => null);
-      if (!progress) {
-        controller.abort(new Error("interrupted"));
-        return;
-      }
-      process.stderr.write("Cancelling Core Download\n");
-      try {
-        await session.client.cancelCoreUpdate();
-        cancelledDownload = true;
-      } catch (error) {
-        log.warn(`Core download was not cancelled: ${errorMessage(error)}`);
-      }
-      // Keep the existing interruption payload for JSON clients; only the
-      // confirmed result controls the human-readable success message.
-      controller.abort(new Error("Core download cancelled"));
-    })();
+    void cancelDownloadOrInterrupt();
   };
   process.on("SIGINT", onSigint);
   return {

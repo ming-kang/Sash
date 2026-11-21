@@ -1,34 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { coreCandidates, GEODATA_FILES } from "./bootstrap-manifest-data.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const outFile = path.join(root, "dist", "bootstrap-manifest.json");
 
 const MIHOMO_REPO = "MetaCubeX/mihomo";
 const GEODATA_REPO = "MetaCubeX/meta-rules-dat";
-
-/** Keep in sync with src/core-config-validation.ts GEODATA_FILE_NAMES. */
-const GEODATA_FILES = [
-  "geoip.dat",
-  "geoip.metadb",
-  "geosite.dat",
-  "country.mmdb",
-  "GeoLite2-ASN.mmdb",
-];
-
-/** Keep in sync with src/core.ts mihomoAssetCandidates across every platform. */
-function coreCandidates(tag) {
-  const names = [];
-  for (const os of ["windows", "linux", "darwin"]) {
-    const ext = os === "windows" ? "zip" : "gz";
-    for (const variant of ["v3", "", "v2", "v1", "compatible"]) {
-      names.push(`mihomo-${os}-amd64-${variant ? `${variant}-` : ""}${tag}.${ext}`);
-    }
-    names.push(`mihomo-${os}-arm64-${tag}.${ext}`);
-  }
-  return names;
-}
 
 async function fetchRelease(repo, tag) {
   const url = tag

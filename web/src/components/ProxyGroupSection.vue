@@ -177,7 +177,6 @@ const visibleMembers = computed(() => {
       cls: typeof delay === "number" ? `delay-${delayLevel(delay)}`
         : delay === "failed" ? "delay-bad" : "delay-none",
       ms: typeof delay === "number" && delay > 0 ? delay : undefined,
-      // Untested stays a quiet dash; the accessible label still spells it out.
       text: delay === undefined ? "—" : status,
       status,
     };
@@ -289,8 +288,6 @@ const visibleMemberBatches = computed(() => {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
   gap: 10px;
   content-visibility: auto;
-  /* Placeholder height before first paint, scaled to the batch so short groups do not reserve
-     a full batch of space. Assumes about three columns; the single-column query refines it. */
   contain-intrinsic-block-size: auto calc(var(--batch-size, 24) * 24px);
 }
 .node-card {
@@ -345,8 +342,6 @@ const visibleMemberBatches = computed(() => {
   cursor: wait;
   opacity: 0.68;
 }
-/* The card clips overflowing content, so the focus outline must be inset
-   instead of using the global positive offset. */
 .node-main:focus-visible {
   outline-offset: -2px;
 }
@@ -358,10 +353,8 @@ const visibleMemberBatches = computed(() => {
   min-width: 0;
   align-items: flex-start;
   gap: 6px;
-  /* Room for the delay button, which sits over the card's top-right corner. */
   padding-right: 58px;
 }
-/* One line in multi-column grids keeps rows even; the full name is in the card's title. */
 .node-name {
   min-width: 0;
   overflow: hidden;
@@ -457,7 +450,6 @@ const visibleMemberBatches = computed(() => {
   font-weight: 500;
   opacity: 0.75;
 }
-/* Hovering the card hints that the delay is its own retest button. */
 .node-card:hover .node-delay:not(:disabled) {
   background: var(--bg-inset);
 }
@@ -486,7 +478,6 @@ const visibleMemberBatches = computed(() => {
   font-weight: 500;
 }
 
-/* A single column has room to grow vertically, so long names get a second line. */
 @container (max-width: 449px) {
   .node-name {
     display: -webkit-box;

@@ -87,16 +87,16 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
     $command = ''
     $operands = [System.Collections.Generic.List[string]]::new()
     $used = @{}
-    $needsValue = $false
+    $expectsFlagValue = $false
     $endOptions = $false
     foreach ($argument in $arguments) {
-        if ($needsValue) { $needsValue = $false; continue }
+        if ($expectsFlagValue) { $expectsFlagValue = $false; continue }
         if ($argument -eq '--') { $endOptions = $true; continue }
         if (-not $endOptions -and $argument.StartsWith('-')) {
             $flag = ($argument -split '=', 2)[0]
             if ($aliases.ContainsKey($flag)) { $flag = $aliases[$flag] }
             $used[$flag] = $true
-            $needsValue = $valueFlags -contains $flag -and -not $argument.Contains('=')
+            $expectsFlagValue = $valueFlags -contains $flag -and -not $argument.Contains('=')
             continue
         }
         if (-not $command) {
@@ -108,8 +108,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
             $operands.Add($argument)
         }
     }
-    # Names, URLs, versions and counts are user input, not option positions.
-    if ($needsValue -or $wordToComplete -match '^--[^=]+=') { return }
+    if ($expectsFlagValue -or $wordToComplete -match '^--[^=]+=') { return }
     $prefix = $wordToComplete -replace '^["'']', '' -replace '["'']$', ''
     $candidates = [ordered]@{}
     if ($command -eq '' -or ($command -eq 'help' -and $operands.Count -eq 0)) {

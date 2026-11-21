@@ -75,7 +75,6 @@ const NETWORK_PROBES = [
   { name: "ghfast.top", url: "https://ghfast.top" },
 ] as const;
 
-/** A reachability probe needs a real time budget or a reachable mirror reads as unreachable. */
 const NETWORK_PROBE_TIMEOUT_MS = 15_000;
 
 async function probeHttpReachability(url: string, proxyUri?: string): Promise<boolean> {
@@ -258,8 +257,6 @@ export async function diagnoseSash(
           ? "Inspect sash logs --daemon --errors; do not stop an unverified process"
           : undefined,
       );
-      // A daemon keeps executing the code it started with, so a difference here
-      // means the installed package was replaced but not loaded yet.
       const runningVersion = runtime.daemon.version;
       if (runningVersion && installedVersion) {
         add(
@@ -321,7 +318,6 @@ export async function diagnoseSash(
       add("runtime", "warning", errorMessage(error), "Inspect sash status and sash logs --daemon");
     }
 
-    // A reachability result only means something next to the path it measured.
     const transport = runtime?.downloadTransport;
     const via = `via ${describeProbeTransport(transport)}`;
     const probe =

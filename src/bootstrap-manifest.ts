@@ -33,7 +33,6 @@ export interface BootstrapManifest {
 }
 
 export function defaultBootstrapManifestPath(): string {
-  // Bundled entries live flat in dist/; the CLI and daemon bundle resolve the same path.
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "bootstrap-manifest.json");
 }
 
@@ -76,7 +75,6 @@ function parseRelease(value: unknown): BootstrapRelease | undefined {
   return assets.length > 0 ? { tag, assets } : undefined;
 }
 
-/** Strict shape validation wrapped in the lenient-read contract. */
 export function parseBootstrapManifest(value: unknown): BootstrapManifest | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const manifest = value as Record<string, unknown>;
@@ -101,7 +99,6 @@ export function manifestReleaseAssets(release: BootstrapRelease): ReleaseAsset[]
   }));
 }
 
-/** Best-effort read; an unreadable manifest means "no offline fallback". */
 export function readBootstrapManifest(
   file: string = bootstrapManifestPath(),
 ): BootstrapManifest | undefined {

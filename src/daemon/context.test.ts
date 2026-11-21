@@ -37,7 +37,6 @@ describe("daemon mutation queue", () => {
     );
     write.resolve();
     await running;
-    // Cleanup must wait for the runtime RPC that shutdown already admitted.
     assert.equal(cleanups, 0);
     rpc.resolve();
     await live;

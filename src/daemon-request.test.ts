@@ -81,11 +81,11 @@ describe("daemon server", () => {
   });
 
   describe("authentication and namespaces", () => {
-    it("allows unauthenticated GET /sash/health returning token and pid", async () => {
+    it("allows unauthenticated GET /sash/health returning bootId and pid", async () => {
       await h.startServer();
       const res = await h.apiRequest("/sash/daemon/health", { token: "" });
       assert.equal(res.statusCode, 200);
-      const data = res.data as { token: string; pid: number };
+      const data = res.data as { bootId: string; pid: number };
       assert.equal(data.pid, process.pid);
     });
 
@@ -110,11 +110,11 @@ describe("daemon server", () => {
       const denied = await h.apiRequest("/sash/core/start", { method: "POST", token: "" });
       assert.equal(denied.statusCode, 401);
 
-      // The public per-boot health token is an identity nonce, not a credential.
+      // The public per-boot health identity is a nonce, not a credential.
       const bootTokenDenied = await h.apiRequest("/sash/settings", {
         method: "PATCH",
         token: "",
-        webToken: inst.token,
+        webToken: inst.bootId,
         body: { systemProxy: false },
       });
       assert.equal(bootTokenDenied.statusCode, 401);

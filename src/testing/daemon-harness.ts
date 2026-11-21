@@ -80,7 +80,6 @@ export class DaemonTestHarness {
     try {
       fs.rmSync(this.tmpDir, { recursive: true, force: true });
     } catch {
-      // best effort
     } finally {
       this.tmpDir = undefined;
     }
@@ -157,8 +156,6 @@ export class DaemonTestHarness {
         (async () => {
           throw new Error("A Core download adapter is required in tests");
         }),
-      // Matches the default staging adapter's release so version comparison
-      // tests see the same tag without reaching GitHub.
       resolveCoreReleaseFn:
         overrides.resolveCoreRelease ??
         (async () => ({

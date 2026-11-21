@@ -334,7 +334,6 @@ async function runSashUpgradeSequence(
   deps: SashUpgradeDeps,
   layout: SashLayout,
 ): Promise<SashUpgradeOutcome> {
-  // Captured before npm overwrites the package; rollback needs the old version.
   const previousVersion = readPreviousVersion(installation);
   await (deps.install ?? runNpmInstall)(installation, target.version, options);
 

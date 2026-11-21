@@ -186,7 +186,6 @@ export class CoreSupervisor {
     this.childStartedAt = new Date().toISOString();
 
     child.once("exit", (code, signal) => {
-      // A stale exit from a replaced child must not clobber the new handle or PID record.
       if (this.child !== child) return;
       const wasStopping = this.stopping;
       this.child = null;
@@ -247,7 +246,6 @@ export class CoreSupervisor {
       await sleep(250);
     }
 
-    // Keep the PID record unless termination is confirmed, so recovery can still identify the Core.
     const terminated = await this.abortStart(child, pid);
     const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
       maxLines: 20,
@@ -317,7 +315,6 @@ export class CoreSupervisor {
       healthy = false;
     }
 
-    // A controller probe can outlive its child or overlap a replacement; never attribute the result to another child.
     if (!this.ownsCore(ownership)) return { running: false };
 
     return {

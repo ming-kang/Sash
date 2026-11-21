@@ -46,7 +46,6 @@ it("folds identical toasts into a repeat counter and re-arms the timer", () => {
   assert.equal(store.toasts[0]?.count, 3);
   const duration = store.toasts[0]?.duration ?? 0;
   assert.ok(duration > 0);
-  // The last push re-armed the full duration at t=2000.
   vi.advanceTimersByTime(duration - 1);
   assert.equal(store.toasts.length, 1);
   vi.advanceTimersByTime(1);

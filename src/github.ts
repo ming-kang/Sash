@@ -15,11 +15,9 @@ export function validateCoreReleaseTag(tag: string): string {
   return normalized;
 }
 
-export const GITHUB_MIRRORS = [
-  "", // direct
-  "https://ghfast.top/",
-  "https://gh-proxy.com/",
-];
+const NO_MIRROR = "";
+
+export const GITHUB_MIRRORS = [NO_MIRROR, "https://ghfast.top/", "https://gh-proxy.com/"];
 
 export const GITHUB_DOWNLOAD_HOSTS: ReadonlySet<string> = new Set([
   "github.com",

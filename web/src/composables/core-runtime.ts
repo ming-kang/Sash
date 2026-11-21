@@ -10,7 +10,6 @@ export function normalizeCoreVersion(version: string | undefined): string {
 
 export const coreVersion = computed(() => normalizeCoreVersion(store.status?.core.version));
 
-// Start always applies the saved configuration, so only a running Core can be out of date.
 export const applyPending = computed(() =>
   Boolean(sessionReady.value && store.status?.core.running && store.status.configuration.pending),
 );
@@ -50,7 +49,6 @@ export function useCoreControl() {
     if (restarting.value || stopping.value || !store.status) return;
     restarting.value = true;
     const generation = ++actionGeneration;
-    // A started Core shows itself in the status; only an in-place Apply needs a confirmation.
     const reapplying = store.status.core.running;
     try {
       await api.restartCore();

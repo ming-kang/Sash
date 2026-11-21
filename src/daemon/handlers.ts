@@ -8,7 +8,7 @@ import {
   profileImportBodySchema,
   profileRenameBodySchema,
   profilesReorderBodySchema,
-  settingsPatchBodySchema,
+  unvalidatedSettingsPatchBodySchema,
 } from "../api-schemas.js";
 import { parseAutostartEnabled } from "../autostart/contract.js";
 import type {
@@ -57,12 +57,10 @@ export function sashApiRoutes(): readonly RouteDef[] {
       auth: "control",
       handler: createWebBootstrap,
     },
-    // The bootstrap exchange itself is public: the one-time token in the
-    // request body is the credential being redeemed.
     {
       methods: ["POST"],
       path: "/sash/web/session",
-      auth: "public",
+      auth: "bootstrap",
       bodyLimit: JSON_KB,
       handler: redeemWebBootstrap,
     },
@@ -310,11 +308,8 @@ export async function testCoreDelay(
 }
 
 export function health(ctx: DaemonContext): RouteResponse {
-  // The token is a per-boot identity nonce for daemon instance matching. It
-  // is deliberately not a credential: control requests require the CLI
-  // bearer or a WebUI session token from the bootstrap exchange below.
   const body: HealthInfo = {
-    token: ctx.token,
+    bootId: ctx.bootId,
     pid: process.pid,
     startedAt: ctx.startedAt,
     version: ctx.version,
@@ -336,7 +331,7 @@ export async function redeemWebBootstrap(
   const token = typeof body.token === "string" ? body.token.trim() : "";
   const session = ctx.webAuth.redeemBootstrap(token);
   if (!session) throw new HttpError(401, "Invalid or expired bootstrap token");
-  const response: WebSessionInfo = { token: session, daemonToken: ctx.token };
+  const response: WebSessionInfo = { token: session, daemonToken: ctx.bootId };
   return { status: 200, json: response };
 }
 
@@ -414,8 +409,6 @@ export async function activateProfile(
 }
 
 export async function updateAllProfiles(ctx: DaemonContext): Promise<RouteResponse> {
-  // Partial failures ride in the 200 body so callers can render per-profile
-  // errors without parsing an error envelope.
   const result = await ctx.profiles.updateAll();
   return { status: 200, json: result };
 }
@@ -482,7 +475,7 @@ export async function proxyStatus(ctx: DaemonContext, req: DaemonRequest): Promi
 }
 
 function readSettingsPatch(body: unknown): SettingsPatch {
-  const parsed = settingsPatchBodySchema.safeParse(body);
+  const parsed = unvalidatedSettingsPatchBodySchema.safeParse(body);
   if (!parsed.success) {
     const unknownKey = parsed.error.issues.find((issue) => issue.code === "unrecognized_keys")
       ?.keys?.[0];

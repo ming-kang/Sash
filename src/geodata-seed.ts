@@ -90,7 +90,6 @@ export async function seedGeodataFile(
       proxyUri: options.proxyUri,
       onProxyFallback: options.onProxyFallback,
     });
-    // Same-volume rename: the file appears in the data folder atomically.
     fs.renameSync(dest, path.join(layout.root, file));
     return { file, source };
   } finally {
