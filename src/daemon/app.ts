@@ -41,7 +41,7 @@ export interface DaemonDeps {
   seedGeodataFn?: (file: string, options: { signal: AbortSignal }) => Promise<GeodataSeedResult>;
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
   engine?: CoreEngine;
-  plugins?: PluginRegistry | null;
+  plugins?: PluginRegistry;
   onShutdown?: () => void;
   scheduler?: DaemonScheduler;
 }
@@ -119,8 +119,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     ...(deps.stageCoreFn ? { stageCoreFn: deps.stageCoreFn } : {}),
     ...(deps.resolveCoreReleaseFn ? { resolveCoreReleaseFn: deps.resolveCoreReleaseFn } : {}),
     ...(deps.seedGeodataFn ? { seedGeodataFn: deps.seedGeodataFn } : {}),
-    plugins:
-      deps.plugins === null ? undefined : (deps.plugins ?? new PluginRegistry(layout.pluginsDir)),
+    plugins: deps.plugins ?? new PluginRegistry(layout.pluginsDir),
   });
 
   const context: DaemonContext = {

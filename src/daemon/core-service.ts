@@ -55,6 +55,7 @@ export interface CoreControlServiceOptions {
     options: { signal: AbortSignal; proxyUri?: string },
   ) => Promise<GeodataSeedResult>;
   plugins?: {
+    hasGenerateHooks(): Promise<boolean>;
     applyGenerated(
       config: Record<string, unknown>,
       context: PluginGenerateContext,
@@ -239,9 +240,12 @@ export class CoreControlService {
     context: PluginGenerateContext,
   ): Promise<GeneratedConfig> {
     const plugins = this.options.plugins;
-    if (!plugins) return generated;
+    // No installed hooks: skip the YAML round-trip so the emitted config
+    // stays byte-identical to the render.
+    if (!plugins || !(await plugins.hasGenerateHooks())) return generated;
     const document = YAML.parse(generated.yaml) as Record<string, unknown>;
     const patched = await plugins.applyGenerated(document, context);
+    if (patched === document) return generated;
     return {
       yaml: YAML.stringify(patched, { indent: 2 }),
       proxyCount: countProxies(patched),

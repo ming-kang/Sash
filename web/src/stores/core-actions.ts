@@ -1,3 +1,4 @@
+import { toRaw } from "vue";
 import { isPlainObject } from "../../../src/json-shape.js";
 import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
@@ -43,7 +44,9 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
   )
     throw new Error(t("errors.coreProxies"));
   const text = JSON.stringify(proxies);
-  if (adoptedProxies?.value === store.proxies && adoptedProxies.text === text) return;
+  // $state reads hand back reactive proxies; compare against the stored raw
+  // object so an identical resubmission still short-circuits.
+  if (adoptedProxies?.value === toRaw(store.proxies) && adoptedProxies.text === text) return;
   const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
   const groups = Object.keys(proxies).filter(
     (name) => groupTypes.has(proxies[name]?.type ?? "") || Array.isArray(proxies[name]?.all),

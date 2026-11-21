@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, onTestFinished, vi } from "vitest";
+import { toRaw } from "vue";
 import { deferredValue, testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
 import type { ConnectionItem } from "../types/index.js";
@@ -69,7 +70,7 @@ describe("web Core actions", () => {
     setProxies(proxies);
     const groups = store.proxyGroups;
     setProxies(structuredClone(proxies));
-    assert.equal(store.proxies, proxies);
+    assert.equal(toRaw(store.proxies), proxies);
     assert.equal(store.proxyGroups, groups);
 
     vi.spyOn(api, "selectProxy").mockImplementation(async () => {});

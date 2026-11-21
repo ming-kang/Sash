@@ -72,18 +72,6 @@ function writeResponse(reply: FastifyReply, response: RouteResponse): void {
   void reply.code(response.status).send();
 }
 
-/**
- * Map a URLPattern pathname onto a find-my-way path. Constrained params like
- * `:id([0-9]+)` need `^…$` anchors because find-my-way matches the whole
- * segment and legacy patterns carried their own anchors.
- */
-function fastifyPathOf(pattern: URLPattern): string {
-  return pattern.pathname.replace(/:(\w+)\(([^)]+)\)/g, (_match, name: string, re: string) => {
-    const inner = re.replace(/^\^+/, "").replace(/\$+$/, "");
-    return `:${name}(^${inner}$)`;
-  });
-}
-
 function controlAuthorization(ctx: DaemonContext): ControlAuthorization {
   return {
     daemonSecret: ctx.settings.committed().daemonSecret,
@@ -187,11 +175,11 @@ export function buildDaemonApp(ctx: DaemonContext, routes: readonly RouteDef[]):
     if (!reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
   });
 
+  // Authentication and gate checks already ran in onRequest — 404s take the
+  // same hook path — so this handler only resolves the 405/404 distinction.
   app.setNotFoundHandler((request, reply) => {
     const method = request.method.toUpperCase();
     const target = daemonTargetOf(request.raw);
-    if (isControlMutation(method) && !request.authorized) return unauthorized(reply);
-    if (isControlMutation(method) && ctx.gate.isClosing) return sendGateClosed(reply);
     const match = matchRoute(routes, method, target.routePathname);
     if (match.kind === "methodNotAllowed") {
       return reply
@@ -227,14 +215,19 @@ export function buildDaemonApp(ctx: DaemonContext, routes: readonly RouteDef[]):
     const raw = def.raw;
     app.route({
       method: def.methods === "*" ? GATEWAY_METHODS : [...def.methods],
-      url: fastifyPathOf(def.pattern),
+      url: def.path,
       config: {
         auth: def.auth,
         daemonRaw: raw !== undefined,
         daemonBodyLimit: def.bodyLimit ?? JSON_BODY_LIMIT_DEFAULT,
       },
       handler: raw
-        ? (request, reply) => raw(ctx, request, reply)
+        ? (request, reply) => {
+            // Raw handlers own the socket; hijack once here so they keep a
+            // plain (req, res, target) contract and never see Fastify types.
+            reply.hijack();
+            return raw(ctx, request.raw, reply.raw, daemonTargetOf(request.raw));
+          }
         : (request, reply) => invokeJson(ctx, def, request, reply),
     });
   }

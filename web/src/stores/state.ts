@@ -1,5 +1,5 @@
-import { createPinia, defineStore, getActivePinia, type Pinia } from "pinia";
-import { computed, toRaw } from "vue";
+import { createPinia, defineStore, setActivePinia } from "pinia";
+import { computed } from "vue";
 import { currentRoute } from "../router.js";
 import type {
   ConnectionItem,
@@ -97,40 +97,15 @@ function initialState(): StoreState {
 
 export const useAppStore = defineStore("app", { state: initialState });
 
-// Standalone contexts (tests, workers) never install the app Pinia; they get a
-// lazily-created singleton so `store` keeps its old shared-module semantics.
-let fallbackPinia: Pinia | undefined;
-function appStore(): ReturnType<typeof useAppStore> {
-  let pinia = getActivePinia() ?? fallbackPinia;
-  if (!pinia) {
-    pinia = createPinia();
-    fallbackPinia = pinia;
-  }
-  return useAppStore(pinia);
-}
+// The store must resolve outside component setup too (module-level event
+// wiring, tests), so the app install and standalone contexts share one Pinia.
+export const pinia = createPinia();
+setActivePinia(pinia);
 
-// Compatibility facade over the Pinia store: existing `store.field` reads,
-// writes and `Object.assign` snapshots keep working while Pinia owns state.
-// toRaw unwraps Pinia's deep proxies so nested reads keep the legacy
-// shallowReactive identity semantics (callers see their own objects back).
-// Rule: only replace top-level fields — in-place mutation of a nested object
-// returns the raw (untracked) value and will not trigger Vue computeds.
-export const store = new Proxy({} as StoreState, {
-  get: (_target, key: string | symbol) =>
-    toRaw((appStore() as unknown as Record<string | symbol, unknown>)[key]),
-  set: (_target, key: string | symbol, value: unknown) => {
-    (appStore() as unknown as Record<string | symbol, unknown>)[key] = value;
-    return true;
-  },
-  has: (_target, key: string | symbol) => key in appStore().$state,
-  ownKeys: () => Reflect.ownKeys(appStore().$state),
-  getOwnPropertyDescriptor: (_target, key: string | symbol) => ({
-    enumerable: true,
-    configurable: true,
-    writable: true,
-    value: (appStore() as unknown as Record<string | symbol, unknown>)[key],
-  }),
-});
+// The store's plain-object view: `store.field` reads and writes reach the
+// reactive state directly — no wrapper semantics. New code may prefer the
+// idiomatic useAppStore() API; both point at the same state.
+export const store: StoreState = useAppStore().$state;
 
 export function isCoreHealthy(status: SashStatus | null): boolean {
   return Boolean(status?.core.running && status.core.healthy);

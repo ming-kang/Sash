@@ -1,4 +1,4 @@
-import { type Ref, ref } from "vue";
+import { type ComputedRef, computed } from "vue";
 import {
   createMemoryHistory,
   createRouter,
@@ -58,13 +58,11 @@ function routeName(value: unknown): Route {
     : "overview";
 }
 
-// Components and tests address the route through this ref; the router syncs
-// it after each navigation and direct writes stay cheap for test fixtures.
-export const currentRoute: Ref<Route> = ref(routeName(router.currentRoute.value.name));
-
-router.afterEach((to) => {
-  currentRoute.value = routeName(to.name);
-});
+// The router owns navigation state; this narrows the current name to the
+// pages the UI knows, defaulting to the overview for anything unmapped.
+export const currentRoute: ComputedRef<Route> = computed(() =>
+  routeName(router.currentRoute.value.name),
+);
 
 export function navigate(route: Route): void {
   if (currentRoute.value === route) return;

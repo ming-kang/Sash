@@ -37,6 +37,16 @@ describe("daemon server", () => {
       assert.doesNotMatch(response, /x-upstream-hop|proxy-authenticate/i);
       assert.match(response, /x-end-to-end: retained/i);
     });
+    it("reports an unreachable upstream on the hijacked reply", async () => {
+      h.settings.controller = "127.0.0.1:1";
+      await h.startServer();
+      const res = await h.apiRequest("/core/api/version");
+      assert.equal(res.statusCode, 502);
+      const body = res.data as { error?: { code?: string; message?: string } };
+      assert.equal(body.error?.code, "internal");
+      assert.match(body.error?.message ?? "", /Core controller unavailable/);
+    });
+
     it("rejects every unauthenticated Core GET before opening an upstream request", async () => {
       let upstreamRequests = 0;
       await h.startMockCore((_req, res) => {

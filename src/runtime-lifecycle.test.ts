@@ -269,6 +269,34 @@ describe("configuration reload", () => {
     }
   });
 
+  it("reports a failed restore write alongside the Core's refusal", async () => {
+    const standIn = await coreStandIn(() => ({ status: 204 }));
+    try {
+      const configFile = sashLayout(root).configFile;
+      const f = fixture(`127.0.0.1:${standIn.port}`, async () => {
+        // The Core refuses; make the restore write fail too — a directory
+        // occupying the config path cannot be renamed onto.
+        fs.rmSync(configFile);
+        fs.mkdirSync(configFile);
+        throw new Error("HTTP 400: bad rule");
+      });
+      await f.lifecycle.apply(f.applied);
+      const next = {
+        ...f.applied,
+        generated: { ...f.applied.generated, yaml: "rules: [\n" },
+      };
+      await assert.rejects(f.lifecycle.reload(next), (error: Error) => {
+        assert.match(error.message, /Core refused the configuration reload/);
+        assert.match(error.message, /could not be restored to disk/);
+        assert.ok(error.cause instanceof Error);
+        return true;
+      });
+      assert.equal(fs.statSync(configFile).isDirectory(), true);
+    } finally {
+      await standIn.close();
+    }
+  });
+
   it("refuses a reload when no configuration was ever applied", async () => {
     const standIn = await coreStandIn(() => ({ status: 204 }));
     try {

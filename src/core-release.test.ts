@@ -52,7 +52,7 @@ describe("resolveCoreRelease manifest fallback", () => {
     process.env.SASH_BOOTSTRAP_MANIFEST = path.join(manifestDir, "bootstrap-manifest.json");
   }
 
-  function mockApiDown(_t: import("vitest").TestContext): MockAgent {
+  function mockApiDown(): MockAgent {
     const agent = new MockAgent();
     agent.disableNetConnect();
     vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
@@ -78,12 +78,12 @@ describe("resolveCoreRelease manifest fallback", () => {
     manifestDir = undefined;
   });
 
-  it("falls back to the packaged manifest when the release API is unreachable", async (t) => {
+  it("falls back to the packaged manifest when the release API is unreachable", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     delete process.env.SASH_CORE_VERSION;
     savedManifest = process.env.SASH_BOOTSTRAP_MANIFEST;
     writeManifest("v9.9.9");
-    const agent = mockApiDown(t);
+    const agent = mockApiDown();
     const resolved = await resolveCoreRelease();
     assert.equal(resolved.tag, "v9.9.9");
     assert.equal(resolved.source, "pinned");
@@ -133,12 +133,12 @@ describe("resolveCoreRelease manifest fallback", () => {
     await assert.rejects(resolveCoreRelease({ tag: "v1.0.0" }), /cannot reach GitHub/);
   });
 
-  it("still reports the offline guidance when no manifest is packaged", async (t) => {
+  it("still reports the offline guidance when no manifest is packaged", async () => {
     savedCoreVersion = process.env.SASH_CORE_VERSION;
     delete process.env.SASH_CORE_VERSION;
     savedManifest = process.env.SASH_BOOTSTRAP_MANIFEST;
     delete process.env.SASH_BOOTSTRAP_MANIFEST;
-    mockApiDown(t);
+    mockApiDown();
     await assert.rejects(resolveCoreRelease(), /cannot reach GitHub/);
   });
 

@@ -11,6 +11,22 @@ let initialized = false;
 
 export const sessionReady = ref(false);
 
+// Boot links hand off `#boot=<token>` through the location fragment. A same-tab
+// fragment change reaches popstate/hashchange listeners in registration order,
+// and vue-router installs later — it rewrites the fragment into a route and the
+// token is lost before any session code can read it. Capture at module load so
+// this listener runs before the router's own navigation handlers.
+let pendingBootHash: string | null = null;
+function captureBootHash(): void {
+  if (typeof window === "undefined" || !window.location) return;
+  if (/(?:^#|&)boot=/.test(window.location.hash)) pendingBootHash = window.location.hash;
+}
+if (typeof window !== "undefined" && window.addEventListener) {
+  captureBootHash();
+  window.addEventListener("popstate", captureBootHash);
+  window.addEventListener("hashchange", captureBootHash);
+}
+
 function readStoredSession(): WebSessionInfo | null {
   try {
     const stored = window.sessionStorage.getItem(STORAGE_KEY);
@@ -32,19 +48,38 @@ function setCredential(value: WebSessionInfo | null, ready = value !== null): vo
   } catch {}
 }
 
-/** Consume the fragment before any network request, including invalid handoffs. */
+/** Consume the captured fragment before any network request, including invalid handoffs. */
 function takeBootstrapToken(): string | null {
-  if (typeof window === "undefined" || !window.location) return null;
-  const params = new URLSearchParams(window.location.hash.slice(1));
+  // Tests and partial-DOM harnesses may install `window` after this module
+  // loaded; fall back to the live fragment when nothing was captured.
+  const live = typeof window !== "undefined" && window.location ? window.location.hash : null;
+  const hash = pendingBootHash ?? live;
+  pendingBootHash = null;
+  if (hash === null) return null;
+  const params = new URLSearchParams(hash.slice(1).replace(/^\//, ""));
   if (!params.has("boot")) return null;
   const token = params.get("boot") ?? "";
-  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/`);
+  // Scrub the credential from the address bar — unless the router already
+  // rewrote the fragment, in which case the location is left alone.
+  if (
+    typeof window !== "undefined" &&
+    window.location &&
+    /(?:^#|&)boot=/.test(window.location.hash)
+  ) {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/`);
+  }
   return /^[a-f0-9]{64}$/.test(token) ? token : null;
 }
 
 export const webSession = {
   initialized: (): boolean =>
-    initialized && !(typeof window !== "undefined" && /(?:^#|&)boot=/.test(window.location.hash)),
+    initialized &&
+    pendingBootHash === null &&
+    !(
+      typeof window !== "undefined" &&
+      window.location &&
+      /(?:^#|&)boot=/.test(window.location.hash)
+    ),
   markDisconnected(): void {
     initialized = false;
     sessionReady.value = false;
@@ -66,6 +101,7 @@ export const webSession = {
     initialized = false;
     generation += 1;
     pendingExchange = null;
+    pendingBootHash = null;
     daemonStartedAt = null;
     setCredential(null);
   },

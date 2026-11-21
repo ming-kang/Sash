@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { errorMessage } from "../error-utils.js";
+import type { PublicSashSettings } from "../settings.js";
 
 export interface PluginProfileInfo {
   id: string;
@@ -12,7 +13,7 @@ export interface PluginProfileInfo {
 
 export interface PluginGenerateContext {
   /** Sanitized public settings; daemon and Core secrets are never exposed. */
-  readonly settings: unknown;
+  readonly settings: PublicSashSettings;
   readonly profile: PluginProfileInfo | null;
   readonly source: "subscription" | "default";
 }
@@ -72,6 +73,11 @@ export class PluginRegistry {
   list(): PluginInfo[] {
     void this.ensureLoaded();
     return [...this.infos];
+  }
+
+  /** Whether any loaded plugin exports an onGenerate hook. */
+  async hasGenerateHooks(): Promise<boolean> {
+    return (await this.ensureLoaded()).some((plugin) => plugin.onGenerate !== undefined);
   }
 
   private prefixedConsole(name: string): Record<string, (...args: unknown[]) => void> {
@@ -135,6 +141,10 @@ export class PluginRegistry {
     return plugins;
   }
 
+  // The timeout bounds how long the daemon waits on a hook's result; it
+  // cannot preempt a synchronously looping hook, which still runs on the
+  // daemon thread. Plugins are trusted code, so this guards async stalls,
+  // not hostile code.
   private withTimeout<T>(value: T | Promise<T>, label: string): Promise<T> {
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
@@ -153,15 +163,18 @@ export class PluginRegistry {
    * a clone of the current document so a failing plugin cannot corrupt state
    * for the plugins after it; the shared context is deep-frozen so a plugin
    * cannot leak mutations into the hooks that run after it. Failures are
-   * logged and skipped.
+   * logged and skipped. When no plugin exports onGenerate the input is
+   * returned untouched — callers can skip serializing by comparing identity.
    */
   async applyGenerated(
     config: Record<string, unknown>,
     context: PluginGenerateContext,
   ): Promise<Record<string, unknown>> {
+    const plugins = await this.ensureLoaded();
+    if (!plugins.some((plugin) => plugin.onGenerate)) return config;
     const frozenContext = deepFreeze(context);
     let current = config;
-    for (const plugin of await this.ensureLoaded()) {
+    for (const plugin of plugins) {
       if (!plugin.onGenerate) continue;
       const clone = structuredClone(current);
       try {

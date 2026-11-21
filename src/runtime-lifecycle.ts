@@ -8,6 +8,7 @@ import {
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
 import { type CoreEngine, mihomoEngine } from "./engine/index.js";
+import { errorMessage } from "./error-utils.js";
 import { atomicWriteFile } from "./fs-atomic.js";
 import { isRequestDeadlineError } from "./http.js";
 import type { GeneratedConfig } from "./mihomo-config.js";

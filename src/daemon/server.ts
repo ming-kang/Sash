@@ -7,12 +7,7 @@ import type { CoreSupervisor } from "../supervisor.js";
 import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
 import { isWebSocketRequestAuthorized } from "./auth.js";
 import { buildDaemonApp } from "./fastify-app.js";
-import {
-  type ParsedDaemonRequestTarget,
-  parseRequestTarget,
-  sendError,
-  sendSocketError,
-} from "./http.js";
+import { parseRequestTarget, sendError, sendSocketError } from "./http.js";
 import { forwardWsToCore } from "./proxy.js";
 import { checkLoopbackBoundary, matchWebSocketUpgrade } from "./router.js";
 import { buildRoutes } from "./routes.js";
@@ -61,8 +56,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
     req.method = req.method?.toUpperCase() ?? "GET";
-    (req as IncomingMessage & { daemonTarget?: ParsedDaemonRequestTarget }).daemonTarget =
-      parsed.target;
+    req.daemonTarget = parsed.target;
     // Route matching happens on the canonical target (trailing slashes folded),
     // the original stays on the request for raw handlers and upstream targets.
     req.url = parsed.target.routePathname + parsed.target.search;

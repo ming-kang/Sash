@@ -21,7 +21,13 @@ function writePlugin(dir: string, name: string, code: string): void {
 }
 
 const context: PluginGenerateContext = {
-  settings: { mixedPort: 7890 },
+  settings: {
+    mixedPort: 7890,
+    controller: "127.0.0.1:9090",
+    allowLan: false,
+    daemonPort: 19090,
+    systemProxy: false,
+  },
   profile: null,
   source: "default",
 };
@@ -32,6 +38,15 @@ describe("PluginRegistry", () => {
     const doc = { mode: "rule" };
     assert.equal(await registry.applyGenerated(doc, context), doc);
     assert.deepEqual(registry.list(), []);
+  });
+
+  it("returns the input document untouched when no plugin exports onGenerate", async () => {
+    const dir = tempDir();
+    writePlugin(dir, "passive.js", `module.exports = { name: "passive" };`);
+    const registry = new PluginRegistry(dir);
+    const doc = { untouched: true };
+    assert.equal(await registry.applyGenerated(doc, context), doc);
+    assert.equal(await registry.hasGenerateHooks(), false);
   });
 
   it("applies onGenerate hooks in sorted file order and threads context", async () => {
@@ -63,6 +78,7 @@ describe("PluginRegistry", () => {
       };`,
     );
     const registry = new PluginRegistry(dir);
+    assert.equal(await registry.hasGenerateHooks(), true);
     const result = await registry.applyGenerated({}, context);
     assert.equal(result.order, "12");
     assert.deepEqual(

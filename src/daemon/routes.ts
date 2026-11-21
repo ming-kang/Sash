@@ -1,6 +1,5 @@
 import { streamDaemonEvents } from "./events.js";
 import { sashApiRoutes } from "./handlers.js";
-import { routePath } from "./http.js";
 import { forwardToCore } from "./proxy.js";
 import type { RouteDef } from "./router.js";
 import { serveUiAsset, serveUiIndexOrRedirect } from "./static.js";
@@ -12,40 +11,40 @@ export function buildRoutes(): readonly RouteDef[] {
     ...sashApiRoutes(),
     {
       methods: ["GET"],
-      pattern: routePath("/sash/events"),
+      path: "/sash/events",
       auth: "control",
       raw: streamDaemonEvents,
     },
     // The Core gateway proxies everything under /core/api/* straight to the
-    // external controller; two patterns because URLPattern wildcards do not
+    // external controller; two paths because a find-my-way wildcard does not
     // match the bare prefix itself.
     {
       methods: "*",
-      pattern: routePath(CORE_API_PREFIX),
+      path: CORE_API_PREFIX,
       auth: "gateway",
       raw: forwardToCore,
     },
     {
       methods: "*",
-      pattern: routePath(`${CORE_API_PREFIX}/*`),
+      path: `${CORE_API_PREFIX}/*`,
       auth: "gateway",
       raw: forwardToCore,
     },
     {
       methods: ["GET", "HEAD"],
-      pattern: routePath("/"),
+      path: "/",
       auth: "public",
       handler: (_ctx, req) => ({ status: 302, location: `/ui/${req.search}` }),
     },
     {
       methods: ["GET", "HEAD"],
-      pattern: routePath("/ui"),
+      path: "/ui",
       auth: "public",
       raw: serveUiIndexOrRedirect,
     },
     {
       methods: ["GET", "HEAD"],
-      pattern: routePath("/ui/*"),
+      path: "/ui/*",
       auth: "public",
       raw: serveUiAsset,
     },

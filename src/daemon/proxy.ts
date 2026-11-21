@@ -1,7 +1,7 @@
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
 import http from "node:http";
 import type { Duplex } from "node:stream";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import { errorMessage } from "../error-utils.js";
 import { parseControllerAddress } from "../settings.js";
 import {
   coreWebSocketProtocols,
@@ -9,13 +9,8 @@ import {
   webSocketAuthResponseProtocol,
 } from "./auth.js";
 import type { DaemonContext } from "./context.js";
-import { defaultCodeForStatus } from "./errors.js";
-import {
-  daemonTargetOf,
-  type ParsedDaemonRequestTarget,
-  sendError,
-  sendSocketError,
-} from "./http.js";
+import { defaultCodeForStatus, errorToHttp, ShuttingDownError } from "./errors.js";
+import { type ParsedDaemonRequestTarget, sendError, sendSocketError } from "./http.js";
 
 function parseHostPort(address: string): { host: string; port: number } {
   const parsed = parseControllerAddress(address);
@@ -66,13 +61,10 @@ function segmentsSurviveDecoding(pathname: string): boolean {
 
 export async function forwardToCore(
   ctx: DaemonContext,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  req: IncomingMessage,
+  res: ServerResponse,
+  target: ParsedDaemonRequestTarget,
 ): Promise<void> {
-  const req = request.raw;
-  const res = reply.raw;
-  const target = daemonTargetOf(req);
-  reply.hijack();
   const method = req.method?.toUpperCase() ?? "GET";
   const pathname = coreApiTarget(target).split("?")[0] ?? "/";
   const allowedMutation =
@@ -93,7 +85,17 @@ export async function forwardToCore(
     else await forward();
   } catch (error) {
     if (!res.destroyed && !res.headersSent) {
-      sendError(res, 502, "internal", `Core controller unavailable: ${errorMessage(error)}`);
+      // A closing gate is daemon state, not an upstream failure — keep its
+      // 503 envelope instead of flattening it into a bad-gateway report.
+      const mapping =
+        error instanceof ShuttingDownError
+          ? errorToHttp(error)
+          : {
+              status: 502,
+              code: "internal" as const,
+              message: `Core controller unavailable: ${errorMessage(error)}`,
+            };
+      sendError(res, mapping.status, mapping.code, mapping.message);
     } else if (!res.destroyed) res.destroy();
   }
 }

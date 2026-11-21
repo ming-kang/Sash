@@ -48,12 +48,16 @@ export function parseDaemonRequestTarget(
   };
 }
 
-/** The canonical target the outer listener stamped on the raw request. */
+declare module "node:http" {
+  interface IncomingMessage {
+    /** The canonical request target stamped by the outer listener. */
+    daemonTarget?: ParsedDaemonRequestTarget;
+  }
+}
+
 export function daemonTargetOf(req: IncomingMessage): ParsedDaemonRequestTarget {
-  const target = (req as IncomingMessage & { daemonTarget?: ParsedDaemonRequestTarget })
-    .daemonTarget;
-  if (!target) throw new Error("Daemon request target is missing");
-  return target;
+  if (!req.daemonTarget) throw new Error("Daemon request target is missing");
+  return req.daemonTarget;
 }
 
 export type RequestTargetResult =
@@ -69,10 +73,6 @@ export function parseRequestTarget(req: IncomingMessage): RequestTargetResult {
   } catch {
     return { ok: false, message: "Invalid request target" };
   }
-}
-
-export function routePath(pathname: string): URLPattern {
-  return new URLPattern({ pathname });
 }
 
 function parseJsonBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<unknown> {

@@ -1,4 +1,4 @@
-import type { Ref } from "vue";
+import { computed } from "vue";
 import { createI18n } from "vue-i18n";
 import { en } from "./en.js";
 import { zh } from "./zh.js";
@@ -26,7 +26,12 @@ export const i18n = createI18n({
   messages: { zh, en },
 });
 
-export const locale = i18n.global.locale as unknown as Ref<Locale>;
+export const locale = computed<Locale>({
+  get: () => i18n.global.locale.value as Locale,
+  set: (value) => {
+    i18n.global.locale.value = value;
+  },
+});
 
 export function setLocale(next: Locale): void {
   locale.value = next;

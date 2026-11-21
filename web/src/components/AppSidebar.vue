@@ -7,18 +7,17 @@
 
     <!-- Until a session exists the pages cannot load and Core state is unknown. -->
     <nav v-if="sessionReady" class="side-nav" :aria-label="t('app.navigation')">
-      <button
+      <RouterLink
         v-for="item in navItems"
         :key="item.route"
-        type="button"
+        :to="{ name: item.route }"
         class="side-nav-item"
         :class="{ active: currentRoute === item.route }"
         :aria-current="currentRoute === item.route ? 'page' : undefined"
-        @click="navigate(item.route)"
       >
         <span class="nav-icon"><Icon :name="item.icon" :size="19" /></span>
         <span class="nav-label">{{ t(`nav.${item.route}`) }}</span>
-      </button>
+      </RouterLink>
     </nav>
 
     <div class="side-foot">
@@ -40,7 +39,7 @@
 import { sessionReady } from "../api/index.js";
 import { applyPending } from "../composables/core-runtime.js";
 import { t } from "../i18n/index.js";
-import { currentRoute, navigate, type Route } from "../router.js";
+import { currentRoute, type Route } from "../router.js";
 import CoreControls from "./CoreControls.vue";
 import CoreStatus from "./CoreStatus.vue";
 import Icon from "./Icon.vue";
@@ -111,6 +110,7 @@ const navItems: Array<{ route: Route; icon: string }> = [
   font-size: 14px;
   font-weight: 500;
   text-align: left;
+  text-decoration: none;
   transition:
     background var(--motion-fast) var(--ease-standard),
     color var(--motion-fast) var(--ease-standard),

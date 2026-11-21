@@ -7,10 +7,6 @@ import { z } from "zod";
  * validation messages; these schemas exist so shape checks and inferred
  * types share one source instead of hand-rolled key scans.
  */
-export const apiErrorBodySchema = z.object({
-  error: z.object({ code: z.string(), message: z.string() }),
-});
-
 export const coreUpdateBodySchema = z.object({ version: z.string().optional() }).strict();
 
 export const coreModeBodySchema = z.object({ mode: z.enum(["rule", "global", "direct"]) }).strict();
@@ -44,13 +40,6 @@ export const profileContentBodySchema = z.object({
 export const profileRenameBodySchema = z.object({
   name: z.unknown().optional(),
 });
-
-export const SETTINGS_PATCHABLE_KEYS = [
-  "expectedRevision",
-  "mixedPort",
-  "allowLan",
-  "systemProxy",
-] as const;
 
 // Values stay unvalidated: SettingsService owns range/type rules and its
 // error messages; the API boundary only enforces the patchable key set.

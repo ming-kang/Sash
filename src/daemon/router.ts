@@ -1,5 +1,5 @@
-import type { IncomingMessage } from "node:http";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import FindMyWay from "find-my-way";
 import type { ApiErrorCode } from "../contracts.js";
 import { isLoopbackHostHeader, isLoopbackOriginHeader } from "./auth.js";
 import type { DaemonContext } from "./context.js";
@@ -41,13 +41,15 @@ export type JsonRouteHandler = (
 
 export type RawRouteHandler = (
   ctx: DaemonContext,
-  request: FastifyRequest,
-  reply: FastifyReply,
+  req: IncomingMessage,
+  res: ServerResponse,
+  target: ParsedDaemonRequestTarget,
 ) => void | Promise<void>;
 
 export interface RouteDef {
   readonly methods: readonly string[] | "*";
-  readonly pattern: URLPattern;
+  /** Route path in find-my-way syntax: statics, `:param(regex)`, `*` wildcard. */
+  readonly path: string;
   readonly auth: RouteAuth;
   readonly bodyLimit?: number;
   readonly handler?: JsonRouteHandler;
@@ -66,24 +68,65 @@ type RouteMatch =
   | { kind: "methodNotAllowed"; allow: readonly string[] }
   | { kind: "notFound" };
 
-// Fastify performs actual routing; this matcher survives so 405 Allow headers
-// keep their deterministic ordering and tests can inspect the route table.
+interface RouteLookupHit {
+  defs: readonly RouteDef[];
+  params: Record<string, string | undefined>;
+}
+
+// find-my-way keys matches on (method, path). Mirroring the route table into a
+// shadow tree under one sentinel method lets a single find() answer "which
+// route defs own this pathname?" — the 405 Allow decision and the WebSocket
+// upgrade check both need exactly that, while Fastify does real dispatch.
+const LOOKUP_METHOD = "ACL";
+const lookupHandler = (): void => undefined;
+
+function buildRouteLookup(routes: readonly RouteDef[]) {
+  const router = FindMyWay();
+  const byPath = new Map<string, RouteDef[]>();
+  for (const def of routes) {
+    const group = byPath.get(def.path);
+    if (group) {
+      group.push(def);
+    } else {
+      const defs = [def];
+      byPath.set(def.path, defs);
+      router.on(LOOKUP_METHOD, def.path, lookupHandler, { defs });
+    }
+  }
+  return (pathname: string): RouteLookupHit | undefined => {
+    const found = router.find(LOOKUP_METHOD, pathname);
+    if (!found) return undefined;
+    return {
+      defs: (found.store as { defs: readonly RouteDef[] }).defs,
+      params: found.params,
+    };
+  };
+}
+
+const routeLookups = new WeakMap<readonly RouteDef[], ReturnType<typeof buildRouteLookup>>();
+
+function routeLookup(routes: readonly RouteDef[]): ReturnType<typeof buildRouteLookup> {
+  let lookup = routeLookups.get(routes);
+  if (!lookup) {
+    lookup = buildRouteLookup(routes);
+    routeLookups.set(routes, lookup);
+  }
+  return lookup;
+}
+
 export function matchRoute(
   routes: readonly RouteDef[],
   method: string,
   pathname: string,
 ): RouteMatch {
+  const hit = routeLookup(routes)(pathname);
+  if (!hit) return { kind: "notFound" };
   const allowed = new Set<string>();
-  let found = false;
-  for (const route of routes) {
-    const result = route.pattern.exec({ pathname });
-    if (!result) continue;
-    found = true;
+  for (const route of hit.defs) {
     if (route.methods === "*" || route.methods.includes(method))
-      return { kind: "matched", route, params: result.pathname.groups };
+      return { kind: "matched", route, params: hit.params };
     for (const allowedMethod of route.methods) allowed.add(allowedMethod);
   }
-  if (!found) return { kind: "notFound" };
   const allow = [...allowed].sort((left, right) => methodOrder(left) - methodOrder(right));
   return { kind: "methodNotAllowed", allow };
 }
@@ -112,9 +155,8 @@ export function matchWebSocketUpgrade(
   method: string,
   target: ParsedDaemonRequestTarget,
 ): WebSocketRouteMatch {
-  const gateway = routes.some(
-    (route) => route.auth === "gateway" && route.pattern.test({ pathname: target.routePathname }),
-  );
+  const hit = routeLookup(routes)(target.routePathname);
+  const gateway = hit?.defs.some((route) => route.auth === "gateway") ?? false;
   if (!gateway) return { kind: "notFound" };
   if (method.toUpperCase() !== "GET") return { kind: "methodNotAllowed", allow: ["GET"] };
   return { kind: "gateway", target: coreApiTarget(target) };

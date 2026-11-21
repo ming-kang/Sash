@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "vitest";
-import { nextTick } from "vue";
+import { nextTick, toRaw } from "vue";
 import { SashApiError } from "../../../src/sash-client.js";
 import type { DaemonEvent } from "../../../src/sash-events.js";
 import { testProfile, testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
-import { currentRoute } from "../router.js";
+import { router } from "../router.js";
 import type { SashStatus } from "../types/index.js";
 import { markDaemonOffline } from "./runtime-actions.js";
 import { startRuntimeEvents } from "./runtime-events.js";
@@ -137,7 +137,7 @@ let dom: FakeWindow;
 let disconnected: number;
 let resourceReads: Record<"configs" | "proxies" | "rules" | "connections", number>;
 
-beforeEach(() => {
+beforeEach(async () => {
   dom = installFakeWindow();
   disconnected = 0;
   resourceReads = { configs: 0, proxies: 0, rules: 0, connections: 0 };
@@ -172,18 +172,18 @@ beforeEach(() => {
   };
   markDaemonOffline();
   disconnected = 0;
-  currentRoute.value = "overview";
+  await router.push({ name: "overview" });
   store.profiles = [];
   store.lastStateRevision = null;
   store.resourceLoaded = {};
   store.resourceErrors = {};
 });
 
-afterEach(() => {
+afterEach(async () => {
   markDaemonOffline();
   Object.assign(api, originalApi);
   dom.restore();
-  currentRoute.value = "overview";
+  await router.push({ name: "overview" });
 });
 
 describe("runtime event subscription", () => {
@@ -207,7 +207,7 @@ describe("runtime event subscription", () => {
       const status = runtimeStatus(3);
       channel.streams[0]?.send(status);
       await flush();
-      assert.equal(store.status, status, "snapshot adopted into the store");
+      assert.equal(toRaw(store.status), status, "snapshot adopted into the store");
       assert.equal(store.daemonOnline, true);
       assert.equal(store.lastStateRevision, 3);
       assert.deepEqual(store.profiles, [profile], "state revision refresh loads profiles");
@@ -278,7 +278,7 @@ describe("runtime event subscription", () => {
       await flush();
       assert.equal(resourceReads.rules, 0);
 
-      currentRoute.value = "rules";
+      await router.push({ name: "rules" });
       await nextTick();
       await flush();
       assert.equal(resourceReads.rules, 1, "rules load for the rules page");
