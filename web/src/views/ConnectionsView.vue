@@ -23,7 +23,7 @@
           :class="{ 'btn-paused': paused }"
           :aria-pressed="paused"
           :aria-label="paused ? t('connections.resume') : t('connections.pause')"
-          :title="paused ? t('connections.resume') : t('connections.pause')"
+          v-tooltip="paused ? t('connections.resume') : t('connections.pause')"
           @click="togglePause"
         >
           <Icon :name="paused ? 'play' : 'pause'" :size="13" />
@@ -70,11 +70,21 @@
         icon="swap"
         :title="t('connections.coreStopped')"
       />
-      <EmptyState
+      <div
         v-else-if="!store.resourceLoaded.connections"
-        icon="loader"
-        :title="t('common.loading')"
-      />
+        class="skeleton-rows"
+        aria-busy="true"
+        role="status"
+      >
+        <span
+          v-for="w in [68, 84, 55, 76, 62, 88]"
+          :key="w"
+          class="skeleton"
+          :style="{ width: `${w}%` }"
+          aria-hidden="true"
+        />
+        <span class="sr-only">{{ t('common.loading') }}</span>
+      </div>
       <EmptyState
         v-else-if="filteredConnections.length === 0"
         icon="swap"
@@ -235,6 +245,15 @@ async function closeAll(): Promise<void> {
 </script>
 
 <style scoped>
+/* Skeleton rows stand in for the connection list while it streams in. */
+.skeleton-rows {
+  display: flex;
+  min-height: 240px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 26px;
+  padding: 0 var(--page-inset, 30px);
+}
 /* Shared with ConnectionRow so the sort buttons sit directly above their columns. */
 .connections-view {
   --connection-columns: minmax(0, 1fr) 76px 76px 72px 32px;

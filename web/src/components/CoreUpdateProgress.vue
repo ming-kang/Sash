@@ -1,6 +1,6 @@
 <template>
   <div v-if="coreUpdateText" class="core-update-progress">
-    <span class="core-update-text">{{ coreUpdateText }}</span>
+    <span class="core-update-text shiny-text">{{ coreUpdateText }}</span>
     <span
       class="core-update-bar"
       :class="{ indeterminate: percent === null }"

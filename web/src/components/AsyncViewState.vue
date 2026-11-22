@@ -1,7 +1,7 @@
 <template>
   <section class="async-view-state" :role="error ? 'alert' : 'status'" :aria-busy="!error">
     <Icon :name="error ? 'alert' : 'loader'" :class="{ spin: !error }" :size="24" />
-    <p>{{ error ? t('common.loadFailed') : t('common.loading') }}</p>
+    <p :class="{ 'shiny-text': !error }">{{ error ? t('common.loadFailed') : t('common.loading') }}</p>
     <template v-if="error">
       <button type="button" class="btn btn-secondary" @click="reload">{{ t('common.reload') }}</button>
     </template>

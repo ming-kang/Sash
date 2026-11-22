@@ -13,7 +13,7 @@
               {{ t('settings.portInvalid') }}
             </span>
           </div>
-          <div class="general-value port-value" :title="t('settings.mixedPortTitle')">
+          <div class="general-value port-value" v-tooltip="t('settings.mixedPortTitle')">
             <span class="port-prefix mono">127.0.0.1:</span>
             <input
               id="mixed-port"
@@ -42,7 +42,7 @@
             <button
               type="button"
               class="general-link profile-name"
-              :title="activeProfile.url || activeProfile.name"
+              v-tooltip="activeProfile.url || activeProfile.name"
               @click="navigate('profiles')"
             >
               {{ activeProfile.name }}
@@ -52,7 +52,7 @@
               type="button"
               class="icon-btn"
               :class="{ spin: refreshingSub }"
-              :title="t('profiles.update')"
+              v-tooltip="t('profiles.update')"
               :aria-label="t('profiles.update')"
               :disabled="refreshingSub"
               @click="refreshActiveProfile"

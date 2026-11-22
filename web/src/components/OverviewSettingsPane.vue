@@ -46,15 +46,15 @@
       <dl class="info-grid">
         <div class="info-item">
           <dt>{{ t('overview.daemonPort') }}</dt>
-          <dd class="mono" :title="daemonAddress">{{ daemonAddress }}</dd>
+          <dd class="mono" v-tooltip="daemonAddress">{{ daemonAddress }}</dd>
         </div>
         <div class="info-item">
           <dt>{{ t('overview.controller') }}</dt>
-          <dd class="mono" :title="controller">{{ controller }}</dd>
+          <dd class="mono" v-tooltip="controller">{{ controller }}</dd>
         </div>
         <div class="info-item">
           <dt>{{ t('settings.coreVersion') }}</dt>
-          <dd class="mono" :title="coreVersion || '-'">{{ coreVersion || '-' }}</dd>
+          <dd class="mono" v-tooltip="coreVersion || '-'">{{ coreVersion || '-' }}</dd>
         </div>
       </dl>
     </section>

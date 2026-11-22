@@ -50,7 +50,11 @@
       :aria-label="t('page.logs')"
       @scroll="onScroll"
     >
-      <div v-if="filteredLogs.length === 0" class="log-empty text-muted">
+      <div
+        v-if="filteredLogs.length === 0"
+        class="log-empty text-muted"
+        :class="{ 'shiny-text': isCoreRunning && store.logs.length === 0 }"
+      >
         {{ !isCoreRunning ? t('logs.coreStopped') : store.logs.length === 0 ? t('logs.listening') : t('logs.empty') }}
       </div>
       <div v-for="log in filteredLogs" :key="log.id" class="log-line" :class="`log-${log.type.toLowerCase()}`">

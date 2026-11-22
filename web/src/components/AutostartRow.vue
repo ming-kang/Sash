@@ -8,7 +8,7 @@
       <button
         type="button"
         class="icon-btn autostart-refresh"
-        :title="t('autostart.refresh')"
+        v-tooltip="t('autostart.refresh')"
         :aria-label="t('autostart.refresh')"
         :disabled="busy || !owner"
         @click="refresh"

@@ -5,7 +5,7 @@
       type="button"
       class="btn btn-primary btn-sm"
       :disabled="restarting || stopping || !store.status"
-      :title="t('settings.restartDesc')"
+      v-tooltip="t('settings.restartDesc')"
       @click="restartCore"
     >
       <Icon name="refresh" :size="13" :class="{ spin: restarting }" />
@@ -17,7 +17,7 @@
         type="button"
         class="icon-btn"
         :disabled="restarting || stopping || !store.status"
-        :title="`${t('settings.reloadBtn')} · ${t('settings.restartDesc')}`"
+        v-tooltip="`${t('settings.reloadBtn')} · ${t('settings.restartDesc')}`"
         :aria-label="t('settings.reloadBtn')"
         @click="restartCore"
       >
@@ -28,7 +28,7 @@
         type="button"
         class="btn btn-primary btn-sm"
         :disabled="restarting || stopping || !store.status"
-        :title="t('settings.startBtn')"
+        v-tooltip="t('settings.startBtn')"
         :aria-label="t('settings.startBtn')"
         @click="restartCore"
       >
@@ -40,7 +40,7 @@
         type="button"
         class="icon-btn core-stop"
         :disabled="stopping || !store.status"
-        :title="t('settings.stopBtn')"
+        v-tooltip="t('settings.stopBtn')"
         :aria-label="t('settings.stopBtn')"
         @click="stopCore"
       >

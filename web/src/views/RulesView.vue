@@ -29,8 +29,8 @@
             <td class="rule-type">
               <span class="badge badge-neutral">{{ entry.rule.type }}</span>
             </td>
-            <td class="cell-mono rule-payload" :title="entry.rule.payload || '-'">
-              {{ entry.rule.payload || '-' }}
+            <td class="cell-mono rule-payload">
+              <MiddleTruncate :text="entry.rule.payload || '-'" :tail="16" />
             </td>
             <td class="rule-target">
               <span class="badge" :class="targetBadge(entry.rule.proxy)">{{ entry.rule.proxy }}</span>
@@ -43,11 +43,21 @@
         icon="list-filter"
         :title="t('rules.coreStopped')"
       />
-      <EmptyState
+      <div
         v-else-if="!store.resourceLoaded.rules"
-        icon="loader"
-        :title="t('common.loading')"
-      />
+        class="skeleton-rows"
+        aria-busy="true"
+        role="status"
+      >
+        <span
+          v-for="w in [72, 58, 80, 64, 48]"
+          :key="w"
+          class="skeleton"
+          :style="{ width: `${w}%` }"
+          aria-hidden="true"
+        />
+        <span class="sr-only">{{ t('common.loading') }}</span>
+      </div>
       <EmptyState
         v-else-if="filteredRules.length === 0"
         icon="list-filter"
@@ -62,6 +72,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import EmptyState from "../components/EmptyState.vue";
+import MiddleTruncate from "../components/MiddleTruncate.vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import PaginationFooter from "../components/PaginationFooter.vue";
@@ -137,9 +148,13 @@ watch(
 }
 .rule-payload {
   max-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 16px;
 }
 .rule-target {
   width: 1%;

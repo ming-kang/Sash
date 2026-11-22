@@ -17,7 +17,7 @@
         <button
           type="button"
           class="icon-btn download-paste"
-          :title="t('profiles.paste')"
+          v-tooltip="t('profiles.paste')"
           :aria-label="t('profiles.paste')"
           :disabled="downloading || profileBusy"
           @click="pasteFromClipboard"
@@ -73,8 +73,15 @@
       </div>
     </div>
 
-    <div v-else-if="!store.profilesLoaded" class="empty-panel" aria-busy="true">
-      <EmptyState icon="loader" :title="t('profiles.loading')" />
+    <div v-else-if="!store.profilesLoaded" class="profiles-grid" aria-busy="true">
+      <span
+        v-for="i in 3"
+        :key="i"
+        class="skeleton skeleton-card"
+        :style="{ animationDelay: `${(i - 1) * 140}ms` }"
+        aria-hidden="true"
+      />
+      <span class="sr-only">{{ t('profiles.loading') }}</span>
     </div>
 
     <div v-else-if="profiles.length === 0" class="empty-panel">
@@ -359,6 +366,10 @@ async function pasteFromClipboard(): Promise<void> {
   padding: 0 20px 18px;
 }
 
+.skeleton-card {
+  height: 76px;
+  border-radius: var(--radius-lg);
+}
 .profiles-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));

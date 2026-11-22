@@ -1,7 +1,7 @@
 <template>
   <article
     :data-id="profile.id"
-    class="profile-card"
+    class="profile-card hover-reveal-parent"
     :class="{
       active: isActive,
       busy: isBusy,
@@ -22,12 +22,12 @@
       @keydown="emit('moveWithKeyboard', $event, profile.id)"
     >
       <div class="profile-name-row">
-        <span class="profile-name" :title="profile.name">{{ profile.name }}</span>
+        <span class="profile-name" v-tooltip="profile.name">{{ profile.name }}</span>
         <span v-if="isActive" class="badge badge-success profile-active">
           {{ t('profiles.active') }}
         </span>
       </div>
-      <div class="profile-source" :title="`${sourceLabel} · ${updatedLabel}`">
+      <div class="profile-source" v-tooltip="`${sourceLabel} · ${updatedLabel}`">
         {{ sourceLabel }} · {{ updatedLabel }}
       </div>
       <div v-if="profile.subInfo" class="profile-usage">
@@ -50,16 +50,20 @@
           ></div>
         </div>
       </div>
-      <div v-if="profile.lastError" class="profile-error" :title="profile.lastError" role="status">
+      <div v-if="profile.lastError" class="profile-error" v-tooltip="profile.lastError" role="status">
         <Icon name="alert" :size="13" />
         <span class="profile-error-text">{{ profile.lastError }}</span>
       </div>
     </div>
-    <div class="profile-actions" @click="emit('select', profile)">
+    <div
+      class="profile-actions hover-reveal"
+      :class="{ 'force-visible': isBusy || isActive }"
+      @click="emit('select', profile)"
+    >
       <button
         type="button"
         class="icon-btn"
-        :title="t('profiles.rename')"
+        v-tooltip="t('profiles.rename')"
         :aria-label="`${t('profiles.rename')}: ${profile.name}`"
         :disabled="isBusy"
         @click.stop="emit('rename', profile)"
@@ -69,7 +73,7 @@
       <button
         type="button"
         class="icon-btn"
-        :title="t('profiles.edit')"
+        v-tooltip="t('profiles.edit')"
         :aria-label="`${t('profiles.edit')}: ${profile.name}`"
         :disabled="isBusy"
         @click.stop="emit('edit', profile)"
@@ -80,7 +84,7 @@
         v-if="profile.url"
         type="button"
         class="icon-btn"
-        :title="t('profiles.update')"
+        v-tooltip="t('profiles.update')"
         :aria-label="`${t('profiles.update')}: ${profile.name}`"
         :disabled="isBusy || isUpdating"
         @click.stop="emit('update', profile)"
@@ -90,7 +94,7 @@
       <button
         type="button"
         class="icon-btn danger-hover"
-        :title="t('profiles.delete')"
+        v-tooltip="t('profiles.delete')"
         :aria-label="`${t('profiles.delete')}: ${profile.name}`"
         :disabled="isBusy"
         @click.stop="emit('remove', profile)"

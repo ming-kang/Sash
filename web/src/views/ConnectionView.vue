@@ -7,7 +7,7 @@
         type="button"
         class="icon-btn command-copy"
         :class="{ copied }"
-        :title="copied ? t('common.copied') : t('common.copy')"
+        v-tooltip="copied ? t('common.copied') : t('common.copy')"
         :aria-label="copied ? t('common.copied') : t('common.copy')"
         @click="copyCommand"
       >

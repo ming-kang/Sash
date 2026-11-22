@@ -11,7 +11,7 @@
           :aria-label="ariaLabel ?? title"
         >
           <header class="editor-head">
-            <span class="editor-name" :title="title">{{ title }}</span>
+            <span class="editor-name" v-tooltip="title">{{ title }}</span>
             <span v-if="hint" class="editor-hint">{{ hint }}</span>
             <div class="editor-actions">
               <button

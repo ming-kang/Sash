@@ -3,14 +3,14 @@
     <CoreUpdateProgress />
 
     <div class="core-heading">
-      <div class="core-identity" :title="coreTooltip">
+      <div class="core-identity" v-tooltip="coreTooltip">
         <span class="core-indicator" aria-hidden="true"><span class="core-dot" /></span>
         <span class="core-label">Core</span>
       </div>
       <CoreControls />
     </div>
 
-    <div class="core-clock mono" :title="coreTooltip">
+    <div class="core-clock mono" v-tooltip="coreTooltip">
       <span class="sr-only">{{ t(`app.coreState.${state}`) }}</span>
       {{ uptime }}
     </div>

@@ -80,6 +80,10 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
 
+  --shimmer-stop-1: rgba(32, 42, 38, 0.42);
+  --shimmer-stop-2: rgba(32, 42, 38, 0.82);
+  --shadow-tip: 0 4px 14px rgba(18, 29, 25, 0.12), 0 1px 3px rgba(18, 29, 25, 0.08);
+
   --switch-off: #99a8a1;
   --switch-on: #287653;
   --switch-knob: #ffffff;
@@ -96,6 +100,7 @@
   --z-confirm: 90;
   --z-rename: 100;
   --z-toast: 300;
+  --z-tooltip: 290;
 }
 
 html[data-theme="dark"] {
@@ -115,9 +120,10 @@ html[data-theme="dark"] {
   --mode-button-active-bg: #464451;
   --mode-button-active-text: #9bd8c9;
 
-  --border: #55515e;
-  --border-strong: #6a6572;
-  --border-accent: #52776d;
+  /* Dark borders stay translucent hairlines: surfaces layer by value, not outlines. */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --border-accent: rgba(131, 203, 185, 0.38);
   --text-primary: #f3f1f4;
   --text-secondary: #cdc9d0;
   --text-muted: #aaa6b0;
@@ -136,20 +142,20 @@ html[data-theme="dark"] {
 
   --selection: #7ccbad;
   --selection-soft: #30443f;
-  --selection-border: #3c6757;
+  --selection-border: rgba(124, 203, 173, 0.42);
   --success: #75cda1;
   --success-soft: #2d4039;
-  --success-border: #3b624d;
+  --success-border: rgba(117, 205, 161, 0.34);
   --warning: #e2b975;
   --warning-soft: #453c31;
-  --warning-border: #685638;
+  --warning-border: rgba(226, 185, 117, 0.36);
   --danger: #ed969b;
   --danger-hover: #f3aab0;
   --danger-soft: #49333d;
-  --danger-border: #70464b;
+  --danger-border: rgba(237, 150, 155, 0.38);
   --info: #85c4d5;
   --info-soft: #303f49;
-  --info-border: #3c5e67;
+  --info-border: rgba(133, 196, 213, 0.34);
 
   --chart-down: #83cbb9;
   --chart-up: #dfa173;
@@ -165,6 +171,10 @@ html[data-theme="dark"] {
   --switch-knob: #ffffff;
   --scrollbar: #625f6c;
   --scrollbar-hover: #7b7684;
+
+  --shimmer-stop-1: rgba(243, 241, 244, 0.42);
+  --shimmer-stop-2: rgba(243, 241, 244, 0.85);
+  --shadow-tip: 0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 *,
@@ -667,7 +677,7 @@ html[data-theme="dark"] .data-table tbody tr {
 .pagination-summary {
   margin-right: 4px;
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .text-muted {
@@ -725,6 +735,97 @@ html[data-theme="dark"] .data-table tbody tr {
 
 html[data-theme="dark"] .log-pane {
   background: var(--bg-inset);
+}
+
+/* Devin-style shimmer text: a gradient sweeps the glyphs of in-progress labels
+   (same recipe as Devin's animate-shimmer-text: 100deg stops at 0/30/50/70/100%,
+   1000px band, 2.5s linear). */
+.shiny-text {
+  background: linear-gradient(
+    100deg,
+    var(--shimmer-stop-1) 0%,
+    var(--shimmer-stop-1) 30%,
+    var(--shimmer-stop-2) 50%,
+    var(--shimmer-stop-1) 70%,
+    var(--shimmer-stop-1) 100%
+  );
+  background-size: 1000px 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: sash-shimmer 2.5s linear infinite;
+}
+@keyframes sash-shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  to {
+    background-position: 1000px 0;
+  }
+}
+
+/* Skeleton placeholder — Devin's ds-skeleton-pulse is a plain opacity pulse. */
+.skeleton {
+  display: block;
+  height: 14px;
+  background: var(--bg-inset);
+  border-radius: var(--radius-xs);
+  animation: skeleton-pulse 1.4s var(--ease-standard) infinite;
+}
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Singleton tooltip driven by the v-tooltip directive (directives/tooltip.ts). */
+.sash-tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  max-width: 260px;
+  padding: 5px 9px;
+  overflow-wrap: anywhere;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-tip);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
+}
+.sash-tooltip[data-side="bottom"] {
+  transform: translateY(-2px);
+}
+.sash-tooltip.visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Hover-reveal row actions: quiet until the row is hovered or focus lands inside
+   (Devin's can-hover-or-open pattern); keyboard focus keeps them reachable. */
+@media (hover: hover) and (pointer: fine) {
+  .hover-reveal {
+    opacity: 0;
+    transition: opacity var(--motion-fast) var(--ease-standard);
+  }
+  .hover-reveal-parent:hover .hover-reveal,
+  .hover-reveal-parent:focus-within .hover-reveal,
+  .hover-reveal:focus-within,
+  .hover-reveal.force-visible {
+    opacity: 1;
+  }
 }
 
 /* A positive vertical offset overflows 100%-height views and toggles the page scrollbar. */

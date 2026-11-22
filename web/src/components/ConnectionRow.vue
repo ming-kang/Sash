@@ -1,30 +1,30 @@
 <template>
-  <article class="connection-row">
+  <article class="connection-row hover-reveal-parent">
     <div class="connection-main">
-      <div class="connection-host mono" :title="target">
-        <span>{{ host }}</span><span v-if="port" class="connection-port">:{{ port }}</span>
+      <div class="connection-host mono" v-tooltip="target">
+        <MiddleTruncate :text="host" /><span v-if="port" class="connection-port">:{{ port }}</span>
       </div>
       <div class="connection-meta">
         <span class="connection-tag tag-network">{{ connection.metadata.network.toUpperCase() }}</span>
-        <span v-if="route" class="connection-tag tag-chain" :title="route">{{ route }}</span>
-        <span class="meta-text" :title="rule">{{ rule }}</span>
-        <span v-if="process" class="meta-text" :title="connection.metadata.processPath">{{ process }}</span>
+        <span v-if="route" class="connection-tag tag-chain" v-tooltip="route">{{ route }}</span>
+        <span class="meta-text" v-tooltip="rule">{{ rule }}</span>
+        <span v-if="process" class="meta-text" v-tooltip="connection.metadata.processPath">{{ process }}</span>
       </div>
     </div>
     <div class="connection-stats">
-      <span class="stat mono" :title="t('overview.download')">
+      <span class="stat mono" v-tooltip="t('overview.download')">
         <span class="stat-arrow down" aria-hidden="true">↓</span>{{ formatBytes(connection.download) }}
       </span>
-      <span class="stat mono" :title="t('overview.upload')">
+      <span class="stat mono" v-tooltip="t('overview.upload')">
         <span class="stat-arrow up" aria-hidden="true">↑</span>{{ formatBytes(connection.upload) }}
       </span>
       <span class="stat stat-time">{{ formatAgo(connection.start) }}</span>
     </div>
     <button
       type="button"
-      class="connection-close"
+      class="connection-close hover-reveal"
       :aria-label="t('connections.closeTitle')"
-      :title="t('connections.closeTitle')"
+      v-tooltip="t('connections.closeTitle')"
       @click="emit('close', connection.id)"
     >
       <Icon name="x" :size="16" />
@@ -35,6 +35,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import Icon from "./Icon.vue";
+import MiddleTruncate from "./MiddleTruncate.vue";
 import { t } from "../i18n/index.js";
 import type { ConnectionItem } from "../types/index.js";
 import { formatAgo, formatBytes } from "../utils/format.js";
