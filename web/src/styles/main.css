@@ -88,8 +88,10 @@
   --sidebar-w: 196px;
 
   /* Toasts stay topmost so an error is never hidden behind a dialog. */
+  --z-sticky: 5;
   --z-banner: 15;
   --z-sidebar: 20;
+  --z-nav: 40;
   --z-dialog: 80;
   --z-confirm: 90;
   --z-rename: 100;
@@ -621,7 +623,7 @@ select.input {
 .data-table th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: var(--z-sticky);
   padding: 10px 14px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);

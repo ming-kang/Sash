@@ -302,9 +302,6 @@ const usagePct = computed(() => {
   color: var(--danger);
   background: var(--danger-soft);
 }
-.spin {
-  animation: rotate 0.9s linear infinite;
-}
 
 @media (max-width: 760px) {
   .profile-actions .icon-btn {

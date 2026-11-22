@@ -187,7 +187,4 @@ async function toggleAllowLan(next: boolean): Promise<void> {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.spin {
-  animation: rotate 0.9s linear infinite;
-}
 </style>

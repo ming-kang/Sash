@@ -227,7 +227,7 @@ const navItems: Array<{ route: Route; icon: string }> = [
     right: 0;
     bottom: calc(66px + env(safe-area-inset-bottom));
     left: 0;
-    z-index: 40;
+    z-index: var(--z-nav);
     margin: 0;
     padding: 0;
   }
@@ -256,7 +256,7 @@ const navItems: Array<{ route: Route; icon: string }> = [
     right: 0;
     bottom: 0;
     left: 0;
-    z-index: 40;
+    z-index: var(--z-nav);
     display: grid;
     height: calc(66px + env(safe-area-inset-bottom));
     grid-template-columns: repeat(5, minmax(0, 1fr));

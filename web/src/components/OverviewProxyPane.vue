@@ -31,7 +31,7 @@
           :key="group"
           :group="group"
           :members="membersOf(group)"
-          :selectable="true"
+          selectable
           :testing="testingGroups.has(group)"
           :testing-nodes="testingNodes"
           :busy="Boolean(store.operations.proxySelections[group])"
@@ -83,7 +83,7 @@
         v-if="globalMembers.length > 0"
         group="GLOBAL"
         :members="globalMembers"
-        :selectable="true"
+        selectable
         :testing="testingGroups.has('GLOBAL')"
         :testing-nodes="testingNodes"
         :busy="Boolean(store.operations.proxySelections.GLOBAL)"

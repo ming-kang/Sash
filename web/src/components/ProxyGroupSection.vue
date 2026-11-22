@@ -57,6 +57,7 @@
         class="node-batch"
         :style="{ '--batch-size': batch.length }"
       >
+        <!-- eslint-disable vue/valid-v-memo -- the rule tracks only the outer v-for; v-memo on this nested v-for element is the documented Vue pattern -->
         <article
           v-for="member in batch"
           :key="member.name"
@@ -106,6 +107,7 @@
             <template v-else>{{ member.text }}</template>
           </button>
         </article>
+        <!-- eslint-enable vue/valid-v-memo -->
       </div>
     </div>
   </section>
@@ -482,9 +484,6 @@ const visibleMemberBatches = computed(() => {
 .delay-none {
   color: var(--text-muted);
   font-weight: 500;
-}
-.spin {
-  animation: rotate 0.9s linear infinite;
 }
 
 /* A single column has room to grow vertically, so long names get a second line. */

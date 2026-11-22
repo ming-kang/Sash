@@ -272,7 +272,7 @@ async function closeAll(): Promise<void> {
 .connection-columns {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: var(--z-sticky);
   display: grid;
   min-height: 36px;
   grid-template-columns: var(--connection-columns);
