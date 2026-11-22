@@ -24,8 +24,8 @@
     "typecheck": "npm run typecheck:server && npm run typecheck:web",
     "typecheck:server": "tsc --noEmit",
     "typecheck:web": "vue-tsc -p web/tsconfig.json --noEmit",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
+    "lint": "npm run lint:biome && npm run lint:vue",
+    "lint:fix": "npm run lint:biome -- --write && npm run lint:vue -- --fix",
     "audit:prod": "node scripts/audit-prod.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -37,7 +37,9 @@
     "verify:ui:profiles": "node --import tsx scripts/profile-ui-verify.mts",
     "verify:ui:auth": "node --import tsx scripts/web-auth-ui-verify.mts",
     "verify:ui:autostart": "node --import tsx scripts/autostart-ui-verify.mts",
-    "prepublishOnly": "node -e \"console.error('Publish with the Publish npm GitHub workflow; it uses the package already accepted by CI.'); process.exit(1)\""
+    "prepublishOnly": "node -e \"console.error('Publish with the Publish npm GitHub workflow; it uses the package already accepted by CI.'); process.exit(1)\"",
+    "lint:biome": "biome check .",
+    "lint:vue": "eslint web/src"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -78,9 +80,12 @@
     "@types/yazl": "^3.3.1",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vitest/coverage-v8": "^5.1.1",
+    "@vue/test-utils": "^2.6.0",
     "cn-font-split": "^7.4.3",
     "codemirror": "^6.0.2",
     "commander": "^15.0.0",
+    "eslint": "^10.15.0",
+    "eslint-plugin-vue": "^10.12.1",
     "fastify": "^5.12.8",
     "happy-dom": "21.0.4",
     "pinia": "^4.1.0",
@@ -90,6 +95,7 @@
     "tsdown": "^0.23.7",
     "tsx": "^4.19.3",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.73.0",
     "undici": "^8.12.3",
     "vite": "^8.2.2",
     "vitest": "^5.1.1",
