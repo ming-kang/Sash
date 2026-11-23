@@ -112,6 +112,8 @@ export interface DaemonContext {
   readonly bootId: string;
   readonly startedAt: string;
   readonly version: string;
+  /** Dashboard asset root, or null when the assets are missing. */
+  uiDir(): string | null;
   readonly profiles: ProfileService;
   readonly settingsService: SettingsService;
   readonly lifecycle: RuntimeLifecycle;

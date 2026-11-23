@@ -8,7 +8,7 @@ import { runStatus } from "./commands/status.js";
 import { writeInstallRecord } from "./core.js";
 import { readSashPackageInfo } from "./package-info.js";
 import { sashLayout } from "./paths.js";
-import { cliStatusFromDaemonStatus } from "./status.js";
+import { type CliRuntimeStatus, cliStatusFromDaemonStatus } from "./status.js";
 import { testSettings, testStatus } from "./testing/state.js";
 
 function context(_t: TestContext) {
@@ -16,19 +16,24 @@ function context(_t: TestContext) {
   onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
   const layout = sashLayout(root);
   writeInstallRecord({ coreVersion: "v1.0.0" }, layout);
-  fs.mkdirSync(layout.uiDir, { recursive: true });
-  fs.writeFileSync(path.join(layout.uiDir, "index.html"), "<!doctype html>");
   return { layout, settings: testSettings() };
+}
+
+/** Whether dashboard assets exist depends on the checkout's build, so pin it. */
+function withDashboard(status: CliRuntimeStatus): CliRuntimeStatus {
+  return { ...status, uiInstalled: true };
 }
 
 it("renders six aligned summary rows and preserves detail in verbose and JSON output", async (t) => {
   const wire = testStatus();
   wire.daemon.version = readSashPackageInfo().version;
-  const status = cliStatusFromDaemonStatus(context(t), wire, {
-    state: "on",
-    canEnable: true,
-    reason: null,
-  });
+  const status = withDashboard(
+    cliStatusFromDaemonStatus(context(t), wire, {
+      state: "on",
+      canEnable: true,
+      reason: null,
+    }),
+  );
   const lines: string[] = [];
   vi.spyOn(console, "log").mockImplementation((line: string) => lines.push(line));
   printStatus(status);
@@ -49,11 +54,13 @@ it("renders six aligned summary rows and preserves detail in verbose and JSON ou
 it("does not present stopped or unobserved endpoints as available, and preserves warnings", (t) => {
   const wire = testStatus();
   wire.daemon.version = readSashPackageInfo().version;
-  const status = cliStatusFromDaemonStatus(context(t), wire, {
-    state: "stale",
-    canEnable: true,
-    reason: "Missing launcher",
-  });
+  const status = withDashboard(
+    cliStatusFromDaemonStatus(context(t), wire, {
+      state: "stale",
+      canEnable: true,
+      reason: "Missing launcher",
+    }),
+  );
   const lines: string[] = [];
   const warnings: string[] = [];
   vi.spyOn(console, "log").mockImplementation((line: string) => lines.push(line));

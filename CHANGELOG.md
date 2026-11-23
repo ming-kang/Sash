@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Removed
+
+- A `ui` folder inside the Sash data folder no longer replaces the dashboard bundled with the installed package. A copy left there could keep an older dashboard on screen after upgrading, such as one that still waited for the authorization step removed in 0.6.0. Sash now ignores that folder, and it can be deleted.
+
 ### Fixed
 
 - Screen readers again announce a WebUI control's visible text, such as "Apply configuration" or the active profile's name, instead of its hover hint; a hint now names only controls that show no text, such as icon buttons. Hints whose text changes, such as the Core state and PID, show their current text instead of the text from when the page loaded.

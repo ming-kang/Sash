@@ -15,6 +15,7 @@ import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../sysproxy/manager.js";
+import { resolveUiDir } from "../webui.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
 import { CoreControlService } from "./core-service.js";
 import { createEventObserver, DaemonEvents } from "./events.js";
@@ -23,6 +24,8 @@ import type { DaemonScheduler } from "./scheduler.js";
 export interface DaemonDeps {
   layout: SashLayout;
   packageRoot?: string;
+  /** Serves the dashboard from this directory instead of the package's own. */
+  uiDir?: string;
   state?: SashStateStore;
   settings?: SashSettings;
   supervisor?: CoreSupervisor;
@@ -53,7 +56,7 @@ export interface DaemonApp {
 }
 
 export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
-  const { layout } = deps;
+  const { layout, uiDir } = deps;
   const packageRoot = deps.packageRoot ?? currentPackageRoot();
   const packageInfo = readSashPackageInfo(packageRoot);
   const state = deps.state ?? new SashStateStore(layout, deps.settings);
@@ -128,6 +131,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     bootId,
     startedAt: new Date().toISOString(),
     version: packageInfo.version,
+    uiDir: uiDir === undefined ? () => resolveUiDir() : () => uiDir,
     profiles,
     settingsService,
     lifecycle,

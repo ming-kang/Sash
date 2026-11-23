@@ -2,8 +2,6 @@ import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import type { ApiErrorCode } from "../contracts.js";
-import type { SashLayout } from "../paths.js";
-import { resolveUiDir } from "../webui.js";
 import type { DaemonContext } from "./context.js";
 import { type ParsedDaemonRequestTarget, sendError } from "./http.js";
 
@@ -75,7 +73,7 @@ function serveStaticUiOr404(
   res: ServerResponse,
   target: ParsedDaemonRequestTarget,
 ): void {
-  if (!serveStaticUi(req, res, target.originalPathname, ctx.layout)) {
+  if (!serveStaticUi(req, res, target.originalPathname, ctx.uiDir())) {
     sendError(res, 404, "not_found", `Not found: ${req.method} ${target.routePathname}`);
   }
 }
@@ -84,13 +82,12 @@ export function serveStaticUi(
   req: IncomingMessage,
   res: ServerResponse,
   pathname: string,
-  layout: SashLayout,
+  uiRoot: string | null,
 ): boolean {
   if (pathname !== "/ui" && !pathname.startsWith("/ui/")) {
     return false;
   }
 
-  const uiRoot = resolveUiDir(layout);
   if (!uiRoot) {
     sendUiError(
       res,

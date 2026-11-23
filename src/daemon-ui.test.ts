@@ -7,21 +7,27 @@ import { request } from "undici";
 import { describe, it, vi } from "vitest";
 import { serveStaticUi } from "./daemon/static.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
-import { type SashLayout, sashLayout } from "./paths.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 
 describe("daemon server", () => {
   const h = useDaemonTestHarness();
 
+  /** A dashboard build injected in place of the package's own `dist/ui`. */
+  function dashboard(files: Record<string, string> = {}): string {
+    const uiDir = path.join(h.layout.root, "dashboard");
+    for (const [name, content] of Object.entries({ "index.html": "<html>ui</html>", ...files })) {
+      fs.mkdirSync(path.dirname(path.join(uiDir, name)), { recursive: true });
+      fs.writeFileSync(path.join(uiDir, name), content);
+    }
+    return uiDir;
+  }
+
   describe("web UI serving", () => {
     it("uses one descriptor for the asset size and body across an atomic path replacement", async () => {
-      fs.mkdirSync(h.layout.uiDir, { recursive: true });
-      fs.writeFileSync(path.join(h.layout.uiDir, "index.html"), "<html>ui</html>");
-      const file = path.join(h.layout.uiDir, "asset.js");
-      fs.writeFileSync(file, "original");
-      const previous = path.join(h.layout.uiDir, "previous.js");
-      fs.writeFileSync(previous, "original");
-      await h.startServer();
+      const uiDir = dashboard({ "asset.js": "original", "previous.js": "original" });
+      const file = path.join(uiDir, "asset.js");
+      const previous = path.join(uiDir, "previous.js");
+      await h.startServer({ uiDir });
       const open = fs.openSync;
       let opens = 0;
       vi.spyOn(fs, "openSync").mockImplementation(
@@ -52,6 +58,15 @@ describe("daemon server", () => {
       assert.equal(response.statusCode, 404);
       assert.match(await response.body.text(), /Dashboard assets are missing/);
     });
+
+    it("ignores a ui folder left in the data folder", async () => {
+      fs.mkdirSync(path.join(h.layout.root, "ui"), { recursive: true });
+      fs.writeFileSync(path.join(h.layout.root, "ui", "index.html"), "<html>stale</html>");
+      await h.startServer();
+      const res = await request(`http://127.0.0.1:${h.boundPort}/ui/`);
+      assert.doesNotMatch(await res.body.text(), /stale/);
+    });
+
     it("redirects GET /ui to /ui/ preserving the query string", async () => {
       await h.startServer();
       const res = await request(`http://127.0.0.1:${h.boundPort}/ui?tab=proxies`);
@@ -61,9 +76,7 @@ describe("daemon server", () => {
     });
 
     it("serves index.html at /ui/ without a redirect", async () => {
-      fs.mkdirSync(h.layout.uiDir, { recursive: true });
-      fs.writeFileSync(path.join(h.layout.uiDir, "index.html"), "<html>ui</html>");
-      await h.startServer();
+      await h.startServer({ uiDir: dashboard() });
       const res = await request(`http://127.0.0.1:${h.boundPort}/ui/`);
       const text = await res.body.text();
       assert.equal(res.statusCode, 200);
@@ -71,10 +84,7 @@ describe("daemon server", () => {
     });
 
     it("isolates dashboard documents, SPA fallbacks, and assets from framing", async () => {
-      fs.mkdirSync(h.layout.uiDir, { recursive: true });
-      fs.writeFileSync(path.join(h.layout.uiDir, "index.html"), "<html>ui</html>");
-      fs.writeFileSync(path.join(h.layout.uiDir, "app.js"), "export {};\n");
-      await h.startServer();
+      await h.startServer({ uiDir: dashboard({ "app.js": "export {};\n" }) });
 
       for (const pathname of ["/ui/", "/ui/profiles", "/ui/app.js"]) {
         const res = await request(`http://127.0.0.1:${h.boundPort}${pathname}`);
@@ -88,21 +98,19 @@ describe("daemon server", () => {
     });
 
     it("supports HEAD for dashboard assets without streaming a body", async () => {
-      fs.mkdirSync(h.layout.uiDir, { recursive: true });
-      fs.writeFileSync(path.join(h.layout.uiDir, "index.html"), "<html>ui</html>");
-      await h.startServer();
+      await h.startServer({ uiDir: dashboard() });
       const res = await request(`http://127.0.0.1:${h.boundPort}/ui/`, { method: "HEAD" });
       assert.equal(res.statusCode, 200);
       assert.equal(await res.body.text(), "");
     });
 
     it("caches fingerprinted assets immutably and bounds everything else", async () => {
-      fs.mkdirSync(path.join(h.layout.uiDir, "assets", "branding"), { recursive: true });
-      fs.writeFileSync(path.join(h.layout.uiDir, "index.html"), "<html>ui</html>");
-      fs.writeFileSync(path.join(h.layout.uiDir, "assets", "index-AbCdEf12.js"), "export {};\n");
-      fs.writeFileSync(path.join(h.layout.uiDir, "assets", "chunk-x8vWq2Yz.woff2"), "font");
-      fs.writeFileSync(path.join(h.layout.uiDir, "assets", "branding", "sash-cat.png"), "png");
-      await h.startServer();
+      const uiDir = dashboard({
+        "assets/index-AbCdEf12.js": "export {};\n",
+        "assets/chunk-x8vWq2Yz.woff2": "font",
+        "assets/branding/sash-cat.png": "png",
+      });
+      await h.startServer({ uiDir });
 
       const cases: Array<[string, string]> = [
         ["/ui/", "no-cache, no-store, must-revalidate"],
@@ -116,10 +124,7 @@ describe("daemon server", () => {
         assert.equal(res.statusCode, 200, pathname);
         assert.equal(res.headers["cache-control"], expected, pathname);
         const size = fs.statSync(
-          path.join(
-            h.layout.uiDir,
-            pathname === "/ui/" ? "index.html" : pathname.slice("/ui/".length),
-          ),
+          path.join(uiDir, pathname === "/ui/" ? "index.html" : pathname.slice("/ui/".length)),
         ).size;
         assert.equal(res.headers["content-length"], String(size), pathname);
       }
@@ -133,7 +138,7 @@ describe("daemon server", () => {
    * pipeline ever stops normalizing for us.
    */
   describe("dashboard asset root containment", () => {
-    function capture(pathname: string, layout: SashLayout, method = "GET") {
+    function capture(pathname: string, uiRoot: string, method = "GET") {
       const chunks: string[] = [];
       let statusCode = 0;
       const res = {
@@ -156,7 +161,7 @@ describe("daemon server", () => {
         { method } as IncomingMessage,
         res as unknown as ServerResponse,
         pathname,
-        layout,
+        uiRoot,
       );
       return { handled, statusCode, body: chunks.join("") };
     }
@@ -164,22 +169,22 @@ describe("daemon server", () => {
     it("refuses to serve files resolved outside the asset root", () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-ui-root-"));
       try {
-        const layout = sashLayout(root);
-        fs.mkdirSync(layout.uiDir, { recursive: true });
-        fs.writeFileSync(path.join(layout.uiDir, "index.html"), "<html>ui</html>");
+        const uiRoot = path.join(root, "ui");
+        fs.mkdirSync(uiRoot, { recursive: true });
+        fs.writeFileSync(path.join(uiRoot, "index.html"), "<html>ui</html>");
         fs.writeFileSync(path.join(root, "sashd.state.json"), "top secret");
 
-        const escaped = capture("/ui/../sashd.state.json", layout);
+        const escaped = capture("/ui/../sashd.state.json", uiRoot);
         assert.equal(escaped.handled, true);
         assert.equal(escaped.statusCode, 403);
         assert.doesNotMatch(escaped.body, /top secret/);
 
-        const absolute = capture("/ui//sashd.state.json", layout);
+        const absolute = capture("/ui//sashd.state.json", uiRoot);
         assert.equal(absolute.handled, false);
         assert.equal(absolute.statusCode, 0);
         assert.doesNotMatch(absolute.body, /top secret/);
 
-        assert.equal(capture("/ui/", layout, "HEAD").statusCode, 200);
+        assert.equal(capture("/ui/", uiRoot, "HEAD").statusCode, 200);
       } finally {
         fs.rmSync(root, { recursive: true, force: true });
       }

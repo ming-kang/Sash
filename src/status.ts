@@ -136,7 +136,7 @@ function statusObserver(dependencies: StatusObservationDependencies = {}): Statu
         const profile = getActiveProfile(loadProfiles(context.layout));
         return profile ? { id: profile.id, name: profile.name, url: profile.url } : null;
       }),
-    hasUi: dependencies.hasUi ?? ((context) => uiInstalled(context.layout)),
+    hasUi: dependencies.hasUi ?? (() => uiInstalled()),
   };
 }
 

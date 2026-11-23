@@ -1,16 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { type SashLayout, sashLayout } from "./paths.js";
 
+/**
+ * The dashboard always comes from the running package, so upgrading Sash
+ * replaces it; nothing in the data folder can pin an older copy.
+ */
 export function resolveUiDir(
-  layout: SashLayout = sashLayout(),
   runtimeDir = path.dirname(fileURLToPath(import.meta.url)),
 ): string | null {
-  if (fs.existsSync(path.join(layout.uiDir, "index.html"))) {
-    return layout.uiDir;
-  }
-
   const distUi = path.join(runtimeDir, "ui");
   if (fs.existsSync(path.join(distUi, "index.html"))) {
     return distUi;
@@ -24,9 +22,6 @@ export function resolveUiDir(
   return null;
 }
 
-export function uiInstalled(
-  layout: SashLayout = sashLayout(),
-  runtimeDir = path.dirname(fileURLToPath(import.meta.url)),
-): boolean {
-  return resolveUiDir(layout, runtimeDir) !== null;
+export function uiInstalled(runtimeDir = path.dirname(fileURLToPath(import.meta.url))): boolean {
+  return resolveUiDir(runtimeDir) !== null;
 }

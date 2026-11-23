@@ -3,13 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "vitest";
-import { sashLayout } from "./paths.js";
 import { resolveUiDir, uiInstalled } from "./webui.js";
 
 describe("webui resolution", () => {
   it("resolves a non-empty built-in production UI without relying on workspace dist", () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sash-bundled-ui-test-"));
-    const layout = sashLayout(path.join(tempRoot, "data"));
     const runtimeDir = path.join(tempRoot, "package", "dist");
     const builtInUi = path.join(runtimeDir, "ui");
     try {
@@ -17,24 +15,25 @@ describe("webui resolution", () => {
       fs.writeFileSync(path.join(builtInUi, "index.html"), "<html>built in</html>");
       fs.writeFileSync(path.join(builtInUi, "assets", "app.js"), "console.log('built in')");
 
-      assert.equal(resolveUiDir(layout, runtimeDir), builtInUi);
-      assert.equal(uiInstalled(layout, runtimeDir), true);
+      assert.equal(resolveUiDir(runtimeDir), builtInUi);
+      assert.equal(uiInstalled(runtimeDir), true);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 
-  it("recognizes custom UI override in layout.uiDir", () => {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sash-ui-test-"));
-    const layout = sashLayout(tempRoot);
+  it("falls back to dist/ui when running from a source checkout", () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sash-source-ui-test-"));
+    const runtimeDir = path.join(tempRoot, "src");
+    const distUi = path.join(tempRoot, "dist", "ui");
     try {
-      const customUi = layout.uiDir;
-      fs.mkdirSync(customUi, { recursive: true });
-      fs.writeFileSync(path.join(customUi, "index.html"), "<html>custom</html>");
+      fs.mkdirSync(runtimeDir, { recursive: true });
+      assert.equal(resolveUiDir(runtimeDir), null);
+      assert.equal(uiInstalled(runtimeDir), false);
 
-      const resolved = resolveUiDir(layout);
-      assert.equal(resolved, customUi);
-      assert.equal(uiInstalled(layout), true);
+      fs.mkdirSync(distUi, { recursive: true });
+      fs.writeFileSync(path.join(distUi, "index.html"), "<html>source</html>");
+      assert.equal(resolveUiDir(runtimeDir), distUi);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

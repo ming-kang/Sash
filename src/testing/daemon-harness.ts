@@ -21,6 +21,7 @@ import { FakeCoreSupervisor, testSettings } from "./state.js";
 
 export interface DaemonServerOverrides {
   packageRoot?: string;
+  uiDir?: string;
   installCore?: boolean;
   stageCore?: DaemonDeps["stageCoreFn"];
   resolveCoreRelease?: DaemonDeps["resolveCoreReleaseFn"];
@@ -141,6 +142,7 @@ export class DaemonTestHarness {
     const instance = createDaemonServer({
       layout: this.layout,
       packageRoot: overrides.packageRoot,
+      uiDir: overrides.uiDir,
       settings: this.settings,
       supervisor: fakeSupervisor,
       systemProxy: overrides.systemProxy ?? this.fakeSystemProxy(),
