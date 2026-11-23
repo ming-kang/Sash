@@ -316,15 +316,19 @@ async function rollbackTransaction(
 
 export async function checkCoreUpdate(
   layout: SashLayout,
-  version?: string,
-  signal?: AbortSignal,
-  onProxyFallback?: ProxyFallbackListener,
+  options: {
+    version?: string;
+    signal?: AbortSignal;
+    proxyUri?: string;
+    onProxyFallback?: ProxyFallbackListener;
+  } = {},
 ): Promise<CoreUpdateCheck> {
   const current = currentCoreVersion(layout) || null;
   const { tag, assets, candidates } = await resolveCoreRelease({
-    ...(version !== undefined ? { tag: version } : {}),
-    ...(signal !== undefined ? { signal } : {}),
-    ...(onProxyFallback !== undefined ? { onProxyFallback } : {}),
+    ...(options.version !== undefined ? { tag: options.version } : {}),
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    ...(options.proxyUri !== undefined ? { proxyUri: options.proxyUri } : {}),
+    ...(options.onProxyFallback !== undefined ? { onProxyFallback: options.onProxyFallback } : {}),
   });
   const asset = selectReleaseAsset(assets, candidates);
   if (!asset)

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-23
+
+### Added
+
+- The WebUI's Core Version row shows the installed Core version and checks for newer Core releases itself: a refresh control retries the check and reports failures inline, and when a release is available the row shows the target version with an Update button that runs the same verified install as `sash update`, so the command is no longer needed. Progress still appears in the sidebar's update indicator with its cancel control.
+
+### Changed
+
+- WebUI buttons are flatter and calmer: solid buttons use a flat fill with a whisper of colored shadow, hover deepens the color, active presses flat; secondary buttons carry the card shadow, and corners round slightly more.
+- The WebUI accent color is now indigo instead of deep teal, and the light theme's green-tinted neutrals became cool grays; toggles use the accent color when on.
+- WebUI notices and hints read better, and the login-autostart notices that the daemon reported in English are now localized: autostart status carries a reason code the dashboard translates, so "needs a global installation…" and the unsupported-platform note appear in the UI's own language. The autostart notice itself shows a round warning badge beside its message.
+- The WebUI sidebar centers its brand and, under a CJK locale, its navigation items; Latin locales keep a left-aligned icon column so the icons stay in line. The overview's empty profile row offers a dashed-underline "Select profile" link instead of a solid button.
+
 ### Removed
 
 - A `ui` folder inside the Sash data folder no longer replaces the dashboard bundled with the installed package. A copy left there could keep an older dashboard on screen after upgrading, such as one that still waited for the authorization step removed in 0.6.0. Sash now ignores that folder, and it can be deleted.

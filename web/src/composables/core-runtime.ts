@@ -44,6 +44,54 @@ async function cancelCoreUpdate(): Promise<void> {
   }
 }
 
+export interface CoreUpdateCheckState {
+  status: "idle" | "checking" | "current" | "available" | "error";
+  target: string | null;
+  error: string | null;
+}
+export const coreUpdateCheck = ref<CoreUpdateCheckState>({
+  status: "idle",
+  target: null,
+  error: null,
+});
+export const updatingCore = ref(false);
+let checkGeneration = 0;
+
+export async function refreshCoreUpdateCheck(): Promise<void> {
+  const generation = ++checkGeneration;
+  coreUpdateCheck.value = { status: "checking", target: null, error: null };
+  try {
+    const result = await api.checkCoreUpdate();
+    if (generation !== checkGeneration) return;
+    coreUpdateCheck.value = {
+      status: result.available ? "available" : "current",
+      target: result.target,
+      error: null,
+    };
+  } catch (error) {
+    if (generation !== checkGeneration) return;
+    coreUpdateCheck.value = { status: "error", target: null, error: errorText(error) };
+  }
+}
+
+export async function startCoreUpdate(): Promise<void> {
+  if (updatingCore.value) return;
+  updatingCore.value = true;
+  const generation = ++actionGeneration;
+  try {
+    const result = await api.updateCore();
+    await refreshRuntimeState();
+    if (generation !== actionGeneration) return;
+    coreUpdateCheck.value = { status: "current", target: result.version, error: null };
+    if (!result.alreadyCurrent)
+      toast.success(t("toast.coreUpdated", { v: normalizeCoreVersion(result.version) }));
+  } catch (error) {
+    if (generation === actionGeneration) toast.error(t("toast.failed", { msg: errorText(error) }));
+  } finally {
+    updatingCore.value = false;
+  }
+}
+
 export function useCoreControl() {
   async function restartCore(): Promise<void> {
     if (restarting.value || stopping.value || !store.status) return;

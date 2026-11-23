@@ -54,7 +54,48 @@
         </div>
         <div class="info-item">
           <dt>{{ t('settings.coreVersion') }}</dt>
-          <dd class="mono" v-tooltip="coreVersion || '-'">{{ coreVersion || '-' }}</dd>
+          <dd class="core-version">
+            <span class="mono version-current" v-tooltip="coreVersion || '-'">
+              {{ coreVersion || '-' }}
+            </span>
+            <template v-if="coreUpdateCheck.status === 'available'">
+              <span
+                class="version-target mono"
+                v-tooltip="t('settings.updateAvailable', { v: updateTarget })"
+              >
+                → {{ updateTarget }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="coreActionBusy"
+                @click="startCoreUpdate"
+              >
+                <Icon
+                  :name="coreActionBusy ? 'loader' : 'download'"
+                  :size="13"
+                  :class="{ spin: coreActionBusy }"
+                />
+                <span>{{ updatingCore ? t('common.loading') : t('settings.updateNow') }}</span>
+              </button>
+            </template>
+            <button
+              v-else
+              type="button"
+              class="icon-btn version-check"
+              :class="`check-${coreUpdateCheck.status}`"
+              :disabled="coreActionBusy"
+              v-tooltip="checkTooltip"
+              :aria-label="checkTooltip"
+              @click="refreshCoreUpdateCheck"
+            >
+              <Icon
+                :name="checkIcon"
+                :size="14"
+                :class="{ spin: coreUpdateCheck.status === 'checking' }"
+              />
+            </button>
+          </dd>
         </div>
       </dl>
     </section>
@@ -62,12 +103,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
-import { coreVersion } from "../composables/core-runtime.js";
+import { computed, onMounted } from "vue";
+import {
+  coreUpdateCheck,
+  coreVersion,
+  normalizeCoreVersion,
+  refreshCoreUpdateCheck,
+  startCoreUpdate,
+  updatingCore,
+} from "../composables/core-runtime.js";
 import { locale, setLocale, t, type Locale } from "../i18n/index.js";
 import { store } from "../stores/index.js";
 import { setTheme, theme, type Theme } from "../theme.js";
 import AutostartRow from "./AutostartRow.vue";
+import Icon from "./Icon.vue";
 
 const themeOptions: Theme[] = ["system", "light", "dark"];
 const localeOptions: Array<{ id: Locale; label: string }> = [
@@ -77,6 +126,34 @@ const localeOptions: Array<{ id: Locale; label: string }> = [
 
 const daemonAddress = computed(() => `127.0.0.1:${store.status?.settings.daemonPort ?? 19090}`);
 const controller = computed(() => store.status?.settings.controller || "-");
+
+const updateTarget = computed(() => normalizeCoreVersion(coreUpdateCheck.value.target ?? undefined));
+const coreActionBusy = computed(
+  () => updatingCore.value || Boolean(store.status?.coreUpdate),
+);
+const checkIcon = computed(() => {
+  switch (coreUpdateCheck.value.status) {
+    case "checking":
+      return "loader";
+    case "error":
+      return "warning";
+    case "current":
+      return "check-circle";
+    default:
+      return "refresh";
+  }
+});
+const checkTooltip = computed(() => {
+  const check = coreUpdateCheck.value;
+  if (check.status === "error")
+    return `${t("settings.checkUpdateFailed")}${check.error ? ` · ${check.error}` : ""}`;
+  if (check.status === "current") return t("settings.upToDate");
+  return t("settings.checkUpdate");
+});
+
+onMounted(() => {
+  if (coreUpdateCheck.value.status === "idle") void refreshCoreUpdateCheck();
+});
 
 function switchTheme(next: Theme): void {
   if (next !== theme.value) setTheme(next);
@@ -174,6 +251,29 @@ function switchLocale(next: Locale): void {
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.info-item dd.core-version {
+  display: flex;
+  max-width: 80%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  overflow: visible;
+}
+.version-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.version-target {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.version-check.check-current {
+  color: var(--success);
+}
+.version-check.check-error {
+  color: var(--warning);
 }
 
 @media (max-width: 760px) {

@@ -9,43 +9,44 @@
   --font-brand: "LXGW WenKai Lite", "Segoe UI", serif;
   --font-mono: "Cascadia Code", "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
-  --bg-app: #f7f8f7;
-  --bg-sidebar: #f1f4f2;
+  --bg-app: #f7f8fa;
+  --bg-sidebar: #f2f4f8;
   --bg-card: #ffffff;
   --bg-elevated: #ffffff;
-  --bg-panel: #fbfcfb;
-  --bg-inset: #f1f5f3;
-  --bg-hover: #ebf0ed;
-  --bg-active: #e0e9e4;
-  --bg-scrim: rgba(18, 29, 25, 0.46);
-  --general-row-hover: #f5f8f6;
-  --menu-text: #5c6b65;
+  --bg-panel: #fbfcfe;
+  --bg-inset: #f2f4f8;
+  --bg-hover: #ecf0f6;
+  --bg-active: #e1e7f1;
+  --bg-scrim: rgba(15, 22, 34, 0.46);
+  --general-row-hover: #f5f7fb;
+  --menu-text: #5b6472;
   --mode-button-bg: transparent;
   --mode-button-active-bg: #ffffff;
-  --mode-button-active-text: #137567;
+  --mode-button-active-text: #3d56a8;
 
-  --border: #dfe6e2;
-  --border-strong: #c6d1cb;
-  --border-accent: #b5d3ca;
-  --text-primary: #202a26;
-  --text-secondary: #4e5f58;
-  --text-muted: #64736b;
+  --border: #dee3ec;
+  --border-strong: #c5cedd;
+  --border-accent: #bcc8f0;
+  --text-primary: #222a35;
+  --text-secondary: #4b5564;
+  --text-muted: #646e7d;
   --text-inverse: #ffffff;
   --secondary-bg: #ffffff;
-  --secondary-hover: #edf2ef;
-  --secondary-text: #40534b;
+  --secondary-hover: #edf1f7;
+  --secondary-text: #3e4a5c;
 
-  --accent: #137567;
-  --accent-hover: #0f6458;
-  --accent-pressed: #0b5249;
+  --accent: #4d6fd0;
+  --accent-hover: #4262bc;
+  --accent-pressed: #3753a0;
   --accent-contrast: #ffffff;
-  --accent-soft: #e8f3ef;
-  --accent-ring: rgba(19, 117, 103, 0.16);
-  --accent-shadow: rgba(20, 60, 50, 0.14);
+  --accent-soft: #edf1fc;
+  --accent-ring: rgba(77, 111, 208, 0.16);
+  --accent-shadow: rgba(48, 70, 160, 0.16);
+  --danger-shadow: rgba(140, 50, 55, 0.15);
 
-  --selection: #167566;
-  --selection-soft: #eaf4f0;
-  --selection-border: #acd0c4;
+  --selection: #4d6fd0;
+  --selection-soft: #edf1fc;
+  --selection-border: #bcc8f0;
   --success: #287653;
   --success-soft: #eaf5ee;
   --success-border: #b4d3bf;
@@ -60,7 +61,7 @@
   --info-soft: #eaf2f4;
   --info-border: #b5ced6;
 
-  --chart-down: #137567;
+  --chart-down: #4d6fd0;
   --chart-up: #a96336;
   --log-debug: #747020;
 
@@ -70,22 +71,22 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
   --radius-full: 999px;
-  --shadow-card: 0 1px 2px rgba(25, 45, 38, 0.035);
-  --shadow-card-hover: 0 2px 8px rgba(25, 45, 38, 0.06);
-  --shadow-pop: 0 18px 44px rgba(18, 29, 25, 0.16), 0 3px 10px rgba(18, 29, 25, 0.06);
-  --shadow-nav: 0 -8px 24px rgba(18, 29, 25, 0.07);
+  --shadow-card: 0 1px 2px rgba(28, 38, 66, 0.04);
+  --shadow-card-hover: 0 2px 8px rgba(28, 38, 66, 0.07);
+  --shadow-pop: 0 18px 44px rgba(15, 23, 42, 0.16), 0 3px 10px rgba(15, 23, 42, 0.06);
+  --shadow-nav: 0 -8px 24px rgba(15, 23, 42, 0.07);
   --shadow-switch: 0 1px 3px rgba(15, 23, 42, 0.26);
   --motion-fast: 120ms;
   --motion-normal: 190ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  --shimmer-stop-1: rgba(32, 42, 38, 0.42);
-  --shimmer-stop-2: rgba(32, 42, 38, 0.82);
-  --shadow-tip: 0 4px 14px rgba(18, 29, 25, 0.12), 0 1px 3px rgba(18, 29, 25, 0.08);
+  --shimmer-stop-1: rgba(34, 42, 58, 0.42);
+  --shimmer-stop-2: rgba(34, 42, 58, 0.82);
+  --shadow-tip: 0 4px 14px rgba(15, 23, 42, 0.12), 0 1px 3px rgba(15, 23, 42, 0.08);
 
-  --switch-off: #99a8a1;
-  --switch-on: #287653;
+  --switch-off: #9aa4b5;
+  --switch-on: var(--accent);
   --switch-knob: #ffffff;
   --scrollbar: #c3c9d1;
   --scrollbar-hover: #9aa3af;
@@ -118,12 +119,12 @@ html[data-theme="dark"] {
   --menu-text: #c7c3cc;
   --mode-button-bg: transparent;
   --mode-button-active-bg: #464451;
-  --mode-button-active-text: #9bd8c9;
+  --mode-button-active-text: #a3abdc;
 
   /* Dark borders stay translucent hairlines: surfaces layer by value, not outlines. */
   --border: rgba(255, 255, 255, 0.07);
   --border-strong: rgba(255, 255, 255, 0.14);
-  --border-accent: rgba(131, 203, 185, 0.38);
+  --border-accent: rgba(158, 166, 214, 0.4);
   --text-primary: #f3f1f4;
   --text-secondary: #cdc9d0;
   --text-muted: #aaa6b0;
@@ -132,17 +133,18 @@ html[data-theme="dark"] {
   --secondary-hover: #4b4956;
   --secondary-text: #dedbe2;
 
-  --accent: #83cbb9;
-  --accent-hover: #9bd8c9;
-  --accent-pressed: #6db7a5;
-  --accent-contrast: #10241e;
-  --accent-soft: #314743;
-  --accent-ring: rgba(131, 203, 185, 0.24);
+  --accent: #9aa3d8;
+  --accent-hover: #aeb5e2;
+  --accent-pressed: #8891cb;
+  --accent-contrast: #1a1d38;
+  --accent-soft: #3b3f58;
+  --accent-ring: rgba(154, 163, 216, 0.24);
   --accent-shadow: rgba(0, 0, 0, 0.2);
+  --danger-shadow: rgba(0, 0, 0, 0.2);
 
-  --selection: #7ccbad;
-  --selection-soft: #30443f;
-  --selection-border: rgba(124, 203, 173, 0.42);
+  --selection: #9aa3d8;
+  --selection-soft: #3b3f58;
+  --selection-border: rgba(154, 163, 216, 0.45);
   --success: #75cda1;
   --success-soft: #2d4039;
   --success-border: rgba(117, 205, 161, 0.34);
@@ -157,7 +159,7 @@ html[data-theme="dark"] {
   --info-soft: #303f49;
   --info-border: rgba(133, 196, 213, 0.34);
 
-  --chart-down: #83cbb9;
+  --chart-down: #9aa3d8;
   --chart-up: #dfa173;
   --log-debug: #d4d66b;
 
@@ -167,7 +169,7 @@ html[data-theme="dark"] {
   --shadow-nav: 0 -8px 26px rgba(0, 0, 0, 0.28);
   --shadow-switch: 0 1px 4px rgba(0, 0, 0, 0.42);
   --switch-off: #85818d;
-  --switch-on: #5cb98f;
+  --switch-on: var(--accent);
   --switch-knob: #ffffff;
   --scrollbar: #625f6c;
   --scrollbar-hover: #7b7684;
@@ -345,12 +347,13 @@ textarea:disabled {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 13px;
+  padding: 7px 14px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1.2;
   user-select: none;
   white-space: nowrap;
@@ -368,25 +371,35 @@ textarea:disabled {
 .btn:disabled {
   opacity: 0.46;
 }
+/* Flat fill: a solid accent with a whisper of shadow; hover deepens the
+   color, active presses flat. */
 .btn-primary {
   background: var(--accent);
+  box-shadow: 0 1px 2px var(--accent-shadow);
   color: var(--accent-contrast);
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
+  box-shadow: 0 2px 6px var(--accent-shadow);
 }
 .btn-primary:active:not(:disabled) {
   background: var(--accent-pressed);
+  box-shadow: none;
 }
 .btn-secondary {
   background: var(--secondary-bg);
   border-color: var(--border);
+  box-shadow: var(--shadow-card);
   color: var(--secondary-text);
 }
 .btn-secondary:hover:not(:disabled) {
   background: var(--secondary-hover);
   border-color: var(--border-strong);
+  box-shadow: var(--shadow-card-hover);
   color: var(--secondary-text);
+}
+.btn-secondary:active:not(:disabled) {
+  box-shadow: var(--shadow-card);
 }
 .btn-ghost {
   background: transparent;
@@ -398,10 +411,16 @@ textarea:disabled {
 }
 .btn-danger {
   background: var(--danger);
+  box-shadow: 0 1px 2px var(--danger-shadow);
   color: var(--text-inverse);
 }
 .btn-danger:hover:not(:disabled) {
   background: var(--danger-hover);
+  box-shadow: 0 2px 6px var(--danger-shadow);
+}
+.btn-danger:active:not(:disabled) {
+  background: var(--danger);
+  box-shadow: none;
 }
 .btn-danger-outline {
   background: transparent;
@@ -498,6 +517,7 @@ textarea:disabled {
 .segmented-item.active {
   background: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 1px 2px var(--accent-shadow);
   color: var(--accent-contrast);
 }
 .segmented-item:disabled {

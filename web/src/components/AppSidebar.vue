@@ -70,6 +70,7 @@ const navItems: Array<{ route: Route; icon: string }> = [
   display: flex;
   min-height: 64px;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 0 12px;
 }
@@ -114,6 +115,12 @@ const navItems: Array<{ route: Route; icon: string }> = [
     background var(--motion-fast) var(--ease-standard),
     color var(--motion-fast) var(--ease-standard),
     transform var(--motion-fast) var(--ease-standard);
+}
+/* CJK labels are all two characters and uniform, so centering the icon+label
+   group reads clean; Latin labels vary in length and keep the left-aligned
+   icon column so the icons stay in a straight line. */
+:root:lang(zh-CN) .side-nav-item {
+  justify-content: center;
 }
 .side-nav-item:hover {
   background: var(--bg-hover);

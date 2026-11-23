@@ -24,8 +24,12 @@ export async function runUpdate(
         const version =
           opts.version === undefined ? undefined : validateCoreReleaseTag(opts.version);
         if (opts.check)
-          return checkCoreUpdate(sashLayout(), version, interrupt.signal, (info) => {
-            log.warn(formatProxyFallbackWarning(info));
+          return checkCoreUpdate(sashLayout(), {
+            ...(version !== undefined ? { version } : {}),
+            signal: interrupt.signal,
+            onProxyFallback: (info) => {
+              log.warn(formatProxyFallbackWarning(info));
+            },
           });
         const owner = await ensureDaemonSession(runtimeContext());
         if (!opts.json)

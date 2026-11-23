@@ -20,7 +20,7 @@ import {
   type SystemProxyStatusResponse,
 } from "./contracts.js";
 import { CORE_DELAY_REQUEST_MS, type CoreDelayResult } from "./core-delay.js";
-import type { CoreUpdateProgress } from "./core-update.js";
+import type { CoreUpdateCheck, CoreUpdateProgress } from "./core-update.js";
 import { isPlainObject } from "./json-shape.js";
 import { type DaemonEvent, decodeDaemonEvents } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
@@ -245,6 +245,13 @@ export class SashClient {
   async coreUpdateProgress(): Promise<CoreUpdateProgress | null> {
     return this.request<CoreUpdateProgress | null>("/sash/core/update", {
       timeoutMs: 2000,
+      attempts: 1,
+    });
+  }
+
+  async checkCoreUpdate(): Promise<CoreUpdateCheck> {
+    return this.request<CoreUpdateCheck>("/sash/core/update/check", {
+      timeoutMs: 90_000,
       attempts: 1,
     });
   }

@@ -152,7 +152,10 @@ describe("AutostartService", () => {
     let disabled = false;
     const service = new AutostartService({
       ...options,
-      checkInstallation: () => "Source checkouts cannot register startup",
+      checkInstallation: () => ({
+        code: "install" as const,
+        message: "Source checkouts cannot register startup",
+      }),
       backend: {
         inspect: async () => {
           throw new Error("registry denied");

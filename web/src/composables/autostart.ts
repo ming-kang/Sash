@@ -1,10 +1,25 @@
 import { computed, onScopeDispose, type Ref, ref, watch } from "vue";
 import type { AutostartStatus } from "../../../src/autostart/contract.js";
 import { api } from "../api/index.js";
+import { t } from "../i18n/index.js";
 import { errorText } from "../stores/index.js";
 
 export function visibleAutostartReason(status: AutostartStatus | null): string | null {
-  return status && status.state !== "on" ? status.reason : null;
+  if (!status || status.state === "on") return null;
+  switch (status.reasonCode) {
+    case "install":
+      return t("autostart.issueInstall", { cmd: status.reasonDetail ?? "" });
+    case "wsh":
+      return t("autostart.issueWsh");
+    case "platform":
+      return t("autostart.issuePlatform", {
+        platform: status.reasonDetail ?? status.reason ?? "?",
+      });
+    case "pending":
+      return t("autostart.issuePending");
+    default:
+      return status.reason;
+  }
 }
 
 export function useAutostart(owner: Readonly<Ref<string | null>>) {

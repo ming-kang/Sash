@@ -91,6 +91,12 @@ export function sashApiRoutes(): readonly RouteDef[] {
       handler: coreUpdateProgress,
     },
     {
+      methods: ["GET"],
+      path: "/sash/core/update/check",
+      auth: "control",
+      handler: checkCoreUpdate,
+    },
+    {
       methods: ["DELETE"],
       path: "/sash/core/update",
       auth: "control",
@@ -229,6 +235,9 @@ export async function restartCore(ctx: DaemonContext): Promise<RouteResponse> {
 }
 export function coreUpdateProgress(ctx: DaemonContext): RouteResponse {
   return { status: 200, json: ctx.core.progress };
+}
+export async function checkCoreUpdate(ctx: DaemonContext): Promise<RouteResponse> {
+  return { status: 200, json: await ctx.core.checkUpdate() };
 }
 export async function cancelCoreUpdate(ctx: DaemonContext): Promise<RouteResponse> {
   ctx.core.cancel();

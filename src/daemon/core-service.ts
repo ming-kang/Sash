@@ -11,9 +11,11 @@ import {
   stageCore,
 } from "../core.js";
 import {
+  type CoreUpdateCheck,
   type CoreUpdateProgress,
   type CoreUpdateResult,
   type CoreUpdateStage,
+  checkCoreUpdate,
   readCoreUpdateTransaction,
 } from "../core-update.js";
 import { type CoreEngine, mihomoEngine } from "../engine/index.js";
@@ -296,6 +298,19 @@ export class CoreControlService {
   private assertCurrentConfiguration(configuration: RuntimeConfiguration): void {
     if (runtimeDelta(configuration, this.savedTarget()).pending)
       throw new StateConflictError("Saved configuration changed during preparation; retry Apply");
+  }
+
+  checkUpdate(): Promise<CoreUpdateCheck> {
+    this.options.assertMutable();
+    if (this.operation)
+      throw new StateConflictError(
+        "A Core download is already in progress — wait for it to finish, or cancel it with sash update --cancel",
+      );
+    const pinnedProxyUri = this.downloadTransport()?.uri;
+    return checkCoreUpdate(this.options.layout, {
+      ...(pinnedProxyUri !== undefined ? { proxyUri: pinnedProxyUri } : {}),
+      onProxyFallback: (info) => console.warn(`[sashd] ${formatProxyFallbackWarning(info)}`),
+    });
   }
 
   async update(version?: string, startAfterInstall = false): Promise<CoreUpdateResult> {

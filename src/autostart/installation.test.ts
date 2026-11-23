@@ -17,18 +17,17 @@ describe("stable autostart installation", () => {
     const ctx = autostartContext({ ...options, packageRoot });
     assert.equal(installationIssue(ctx), null);
 
-    assert.match(
-      installationIssue(
-        autostartContext({ ...options, packageRoot: path.join(root, "package") }),
-      ) ?? "",
-      /needs a global installation/,
+    assert.equal(
+      installationIssue(autostartContext({ ...options, packageRoot: path.join(root, "package") }))
+        ?.code,
+      "install",
     );
-    assert.match(
-      installationIssue(autostartContext({ ...options, packageRoot, platform: "linux" })) ?? "",
-      /needs a global installation/,
+    assert.equal(
+      installationIssue(autostartContext({ ...options, packageRoot, platform: "linux" }))?.code,
+      "install",
     );
     fs.unlinkSync(ctx.entryPath);
-    assert.match(installationIssue(ctx) ?? "", /needs a global installation/);
+    assert.match(installationIssue(ctx)?.message ?? "", /global installation/);
   });
 
   it("rejects relative paths and control characters", (t) => {

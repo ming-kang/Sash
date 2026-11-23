@@ -104,7 +104,7 @@ describe("autostart HTTP API", () => {
             throw new AutostartUnavailableError("Global install required");
           },
         },
-        checkInstallation: () => "Global install required",
+        checkInstallation: () => ({ code: "install", message: "Global install required" }),
       },
     });
     const response = await h.apiRequest("/sash/autostart", {

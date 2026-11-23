@@ -156,7 +156,9 @@ export const api = {
   patchSettings: (patch: SettingsPatch) => sash.patchSettings(patch),
   restartCore: () => sash.restartCore(),
   stopCore: () => sash.stopCore(),
+  updateCore: () => sash.updateCore(),
   cancelCoreUpdate: () => sash.cancelCoreUpdate(),
+  checkCoreUpdate: () => sash.checkCoreUpdate(),
 
   getConfigs: () => request<ConfigsResponse>("/core/api/configs"),
   setMode: (mode: RoutingMode) => sash.setMode(mode),

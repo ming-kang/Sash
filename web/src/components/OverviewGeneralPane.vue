@@ -60,7 +60,7 @@
               <Icon name="refresh" :size="14" />
             </button>
           </div>
-          <button v-else type="button" class="btn btn-primary btn-sm" @click="navigate('profiles')">
+          <button v-else type="button" class="profile-set" @click="navigate('profiles')">
             {{ t('overview.subSet') }}
           </button>
         </div>
@@ -340,6 +340,24 @@ async function refreshActiveProfile(): Promise<void> {
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.profile-set {
+  flex-shrink: 0;
+  padding: 0 0 1px;
+  border: 0;
+  border-bottom: 1px dashed var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 550;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+}
+.profile-set:hover {
+  border-bottom-style: solid;
+  color: var(--accent-hover);
 }
 .traffic-metrics {
   display: grid;

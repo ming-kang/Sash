@@ -24,7 +24,7 @@
       />
     </div>
     <div v-if="stateHint || reasonText" class="autostart-notice">
-      <Icon name="warning" :size="15" />
+      <span class="autostart-badge"><Icon name="warning" :size="15" /></span>
       <div class="autostart-message">
         <span v-if="stateHint" class="autostart-state">{{ stateHint }}</span>
         <span v-if="reasonText" class="autostart-reason">{{ reasonText }}</span>
@@ -121,12 +121,23 @@ async function save(enabled: boolean): Promise<void> {
   display: flex;
   width: 100%;
   min-width: 0;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px 10px;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
   background: var(--warning-soft);
   border: 1px solid var(--warning-border);
   border-radius: var(--radius-sm);
+  color: var(--warning);
+}
+.autostart-badge {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  border-radius: var(--radius-full);
   color: var(--warning);
 }
 .autostart-message {

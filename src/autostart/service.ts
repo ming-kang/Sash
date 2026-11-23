@@ -15,20 +15,35 @@ import { PENDING_AUTOSTART_STATUS } from "./contract.js";
 import { windowsAutostart } from "./windows.js";
 import { windowsSystemPath } from "./windows-registry.js";
 
-const INSTALL_HINT = "needs a global installation — run npm install -g @astralyn/sash to enable it";
+export interface InstallationIssue {
+  code: "install" | "wsh";
+  message: string;
+  detail?: string;
+}
 
-export function installationIssue(ctx: AutostartContext): string | null {
+const INSTALL_ISSUE: InstallationIssue = {
+  code: "install",
+  message:
+    "Requires a global installation — run npm install -g @astralyn/sash to enable start at login",
+  detail: "npm install -g @astralyn/sash",
+};
+const WSH_ISSUE: InstallationIssue = {
+  code: "wsh",
+  message:
+    "Windows Script Host is missing — restore Windows scripting components to enable start at login",
+};
+
+export function installationIssue(ctx: AutostartContext): InstallationIssue | null {
   try {
     for (const value of [ctx.nodePath, ctx.entryPath, ctx.dataDir]) assertLauncherValue(value);
     assertAbsolutePath(ctx.entryPath);
     if (inspectInstallation(ctx).kind !== "npm-global" || !fs.statSync(ctx.entryPath).isFile())
-      return INSTALL_HINT;
+      return INSTALL_ISSUE;
     for (const host of ["wscript.exe", "cscript.exe"])
-      if (!fs.existsSync(windowsSystemPath(ctx, host)))
-        return "Windows Script Host is missing — restore the Windows scripting components before enabling start at login";
+      if (!fs.existsSync(windowsSystemPath(ctx, host))) return WSH_ISSUE;
     return null;
   } catch {
-    return INSTALL_HINT;
+    return INSTALL_ISSUE;
   }
 }
 
@@ -40,7 +55,7 @@ export interface AutostartController {
 
 export interface AutostartServiceOptions extends AutostartOptions {
   backend?: AutostartBackend;
-  checkInstallation?: (context: AutostartContext) => string | null;
+  checkInstallation?: (context: AutostartContext) => InstallationIssue | null;
   onChange?: () => void;
 }
 
@@ -55,7 +70,7 @@ export class AutostartService implements AutostartController {
   private readonly context: AutostartContext;
   private readonly backend: AutostartBackend | undefined;
   private readonly queue: StateMutationQueue;
-  private readonly checkInstallation: (context: AutostartContext) => string | null;
+  private readonly checkInstallation: (context: AutostartContext) => InstallationIssue | null;
   private readonly onChange: (() => void) | undefined;
   private observed: AutostartStatus | undefined;
   private inspecting: Promise<AutostartStatus> | undefined;
@@ -81,7 +96,9 @@ export class AutostartService implements AutostartController {
       return this.publish({
         state: "unsupported",
         canEnable: false,
-        reason: `not supported on ${this.context.platform}`,
+        reason: `Start at login is not supported on ${this.context.platform}`,
+        reasonCode: "platform",
+        reasonDetail: this.context.platform,
       });
     }
     if (this.inspecting) return this.inspecting;
@@ -94,18 +111,25 @@ export class AutostartService implements AutostartController {
 
   private async readBackend(backend: AutostartBackend): Promise<AutostartStatus> {
     const read = ++this.latestRead;
-    let issue: string | null;
+    let issue: InstallationIssue | null;
     try {
       issue = this.checkInstallation(this.context);
     } catch (error) {
       return this.publish({ state: "unknown", canEnable: false, reason: errorMessage(error) });
     }
+    const issueFields = issue
+      ? {
+          reason: issue.message,
+          reasonCode: issue.code,
+          ...(issue.detail !== undefined ? { reasonDetail: issue.detail } : {}),
+        }
+      : { reason: null };
     let status: AutostartStatus;
     try {
       status = {
         state: await backend.inspect(),
         canEnable: issue === null,
-        reason: issue,
+        ...issueFields,
       };
     } catch (error) {
       status = { state: "unknown", canEnable: issue === null, reason: errorMessage(error) };
@@ -133,7 +157,7 @@ export class AutostartService implements AutostartController {
     return this.queue.run("configure autostart", async () => {
       if (enabled) {
         const issue = this.checkInstallation(this.context);
-        if (issue) throw new AutostartUnavailableError(issue);
+        if (issue) throw new AutostartUnavailableError(issue.message);
       }
       await backend.set(enabled);
       if (enabled) {
@@ -144,7 +168,17 @@ export class AutostartService implements AutostartController {
         return status;
       }
       const issue = this.checkInstallation(this.context);
-      return this.publish({ state: "off", canEnable: issue === null, reason: issue });
+      return this.publish({
+        state: "off",
+        canEnable: issue === null,
+        reason: issue?.message ?? null,
+        ...(issue
+          ? {
+              reasonCode: issue.code,
+              ...(issue.detail !== undefined ? { reasonDetail: issue.detail } : {}),
+            }
+          : {}),
+      });
     });
   }
 }
