@@ -53,7 +53,7 @@ async function checkContrast(page) {
 async function exercise(fixture, label) {
   const { page } = fixture;
   const go = async (name) => {
-    await page.getByRole("navigation").getByRole("button", { name, exact: true }).click();
+    await page.getByRole("navigation").getByRole("link", { name, exact: true }).click();
     await page.locator(`.page-${name.toLowerCase()}`).waitFor();
   };
   await page.goto(`${server.base}/#/overview`);
@@ -267,10 +267,7 @@ async function exerciseChunkFailure(browser, label) {
       await gate.promise;
       await route.abort();
     });
-    await page
-      .getByRole("navigation")
-      .getByRole("button", { name: "Profiles", exact: true })
-      .click();
+    await page.getByRole("navigation").getByRole("link", { name: "Profiles", exact: true }).click();
     await page.getByText("Loading…", { exact: true }).waitFor();
     gate.resolve();
     await page.getByText("Could not load this page", { exact: true }).waitFor();

@@ -181,6 +181,7 @@ try {
       await h.apiRequest("/sash/profiles/active", { method: "PUT", body: { id: initialIds[3] } });
       const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
       await openDashboard(page);
+      let truncatedNamesHovered = 0;
       for (const width of [1956, 1440, 820, 390]) {
         await page.setViewportSize({ width, height: width < 500 ? 844 : 1000 });
         for (const theme of ["light", "dark"]) {
@@ -197,15 +198,14 @@ try {
               const delayBox = delay.getBoundingClientRect();
               const visible = delayBox.width > 0 && delayBox.height > 0;
               const firstLine = nameBox.top + Number.parseFloat(getComputedStyle(name).lineHeight) / 2;
+              const truncated =
+                name.scrollWidth > name.clientWidth + 1 || name.scrollHeight > name.clientHeight + 1;
               return {
-                fits:
-                  name.scrollWidth <= name.clientWidth + 1 ||
-                  (getComputedStyle(name).textOverflow === "ellipsis" &&
-                    (card.querySelector(".node-main")?.getAttribute("title") ?? "").includes(
-                      Array.from(name.childNodes, (node) =>
-                        node.nodeType === Node.TEXT_NODE ? node.textContent : "",
-                      ).join("") || "\u0000",
-                    )),
+                label: Array.from(name.childNodes, (node) =>
+                  node.nodeType === Node.TEXT_NODE ? node.textContent : "",
+                ).join(""),
+                truncated,
+                fits: !truncated || getComputedStyle(name).textOverflow === "ellipsis",
                 metaFits: meta.scrollWidth <= meta.clientWidth + 1,
                 overlap:
                   nameBox.right > delayBox.left + 1 &&
@@ -218,22 +218,35 @@ try {
               };
             }),
           );
-          assert.ok(
-            geometry.length > 0 &&
-              geometry.some((item) => item.visible) &&
-              geometry.every(
-                (item) =>
-                  item.fits &&
-                  item.metaFits &&
-                  item.cardFits &&
-                  !item.overlap &&
-                  item.delayAligned,
-              ),
-            `${tag}/${width}/${theme}: clipped, overlapping or misaligned node fields`,
+          const broken = geometry.filter(
+            (item) =>
+              !item.fits ||
+              !item.metaFits ||
+              !item.cardFits ||
+              item.overlap ||
+              !item.delayAligned,
           );
+          assert.ok(
+            geometry.length > 0 && geometry.some((item) => item.visible) && broken.length === 0,
+            `${tag}/${width}/${theme}: clipped, overlapping or misaligned node fields ${JSON.stringify(broken)}`,
+          );
+          const truncated = geometry.findIndex((item) => item.truncated);
+          if (truncated >= 0) {
+            await page.locator(".node-card").nth(truncated).locator(".node-main").hover();
+            const tooltip = page.locator(".sash-tooltip.visible");
+            await tooltip.waitFor();
+            assert.ok(
+              (await tooltip.textContent())?.includes(geometry[truncated].label),
+              `${tag}/${width}/${theme}: a truncated node name is not shown in full on hover`,
+            );
+            await page.mouse.move(0, 0);
+            await tooltip.waitFor({ state: "hidden" });
+            truncatedNamesHovered += 1;
+          }
           await capture(page, `${tag}-nodes-${width}-${theme}`);
         }
       }
+      assert.ok(truncatedNamesHovered > 0, `${tag}: no truncated node name was hovered`);
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.evaluate(() => {
         document.documentElement.dataset.theme = "light";
