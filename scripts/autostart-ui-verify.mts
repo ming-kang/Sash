@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import type { AutostartStatus } from "../src/autostart-contract.js";
-import type { WebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { captureFailurePages, launchUiBrowser, uiArtifactDirectory, UI_ENGINES } from "./ui-harness.mjs";
 
@@ -66,10 +65,6 @@ try {
       await page.addInitScript(() => {
         if (!localStorage.getItem("sash.locale")) localStorage.setItem("sash.locale", "zh");
       });
-      const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
-        .data as WebBootstrapInfo;
-      await page.goto(origin + "/ui/#boot=" + bootstrap.token);
-      await page.waitForFunction(() => sessionStorage.getItem("sash.control-token") !== null);
       await page.goto(origin + "/ui/#/overview");
       const card = page.locator(".autostart-row");
       await card.waitFor();

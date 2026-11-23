@@ -162,11 +162,10 @@ describe("daemon-owned Core updates", () => {
     assert.equal(readInstallRecord(h.layout)?.coreVersion, "v2");
   });
   for (const running of [false, true])
-    it(`finishes validation without restarting daemon or invalidating sessions (running=${running})`, async () => {
+    it(`finishes validation without restarting the daemon or locking out the dashboard (running=${running})`, async () => {
       await h.startServer({ stageCore: stage });
       if (running) await h.apiRequest("/sash/core/start", { method: "POST" });
       const before = (await h.apiRequest("/sash/daemon/status")).data as DaemonStatus;
-      const token = await h.mintWebSession();
       const state = fs.readFileSync(h.layout.settingsFile, "utf8");
       const result = await h.apiRequest("/sash/core/update", {
         method: "POST",
@@ -184,7 +183,7 @@ describe("daemon-owned Core updates", () => {
         (
           await h.apiRequest("/sash/settings", {
             method: "PATCH",
-            webToken: token,
+            browser: true,
             body: { allowLan: true },
           })
         ).statusCode,

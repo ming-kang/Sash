@@ -24,9 +24,15 @@ export interface StoredLogMessage extends LogMessage {
   id: number;
 }
 export type CoreResource = "configs" | "proxies" | "rules" | "connections";
+/**
+ * "connecting" lasts until the first live snapshot, so a loading page never
+ * flashes the offline view; "refused" means Sash answers but will not take
+ * control requests from this page, which only happens off Sash's own origin.
+ */
+export type DaemonConnection = "connecting" | "connected" | "offline" | "refused";
 export interface StoreState {
   status: SashStatus | null;
-  daemonOnline: boolean;
+  connection: DaemonConnection;
   lastStateRevision: number | null;
   resourceLoaded: Partial<Record<CoreResource, boolean>>;
   resourceErrors: Partial<Record<CoreResource, string>>;
@@ -60,7 +66,7 @@ export const HISTORY_LEN = 60;
 function initialState(): StoreState {
   return {
     status: null,
-    daemonOnline: true,
+    connection: "connecting",
     lastStateRevision: null,
     resourceLoaded: {},
     resourceErrors: {},
@@ -148,9 +154,11 @@ export const coreSnapshotError = computed(
 export const isSysProxyOn = computed(() => systemProxyNeedsDisable(store.status));
 export const isCoreRunning = computed(() => store.status?.core.running ?? false);
 export const isCoreReady = computed(() => isCoreHealthy(store.status));
+export const isConnected = computed(() => store.connection === "connected");
 export const runtimeNotice = computed(() => {
-  if (store.daemonOnline && isCoreRunning.value && !isCoreReady.value) return "coreDegraded";
-  if (!store.daemonOnline) return "offline";
+  if (store.connection === "offline") return "offline";
+  if (!isConnected.value) return null;
+  if (isCoreRunning.value && !isCoreReady.value) return "coreDegraded";
   if (!isCoreReady.value || coreSnapshotError.value === null) return null;
   return visibleCoreResources().some((resource) => store.resourceLoaded[resource])
     ? "coreDegraded"
@@ -204,5 +212,4 @@ export function adoptDaemonStatus(status: SashStatus): void {
   }
   if (runtimeEpoch(store.status) !== runtimeEpoch(status)) resetCoreState();
   store.status = status;
-  store.daemonOnline = true;
 }

@@ -15,7 +15,6 @@ import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../sysproxy/manager.js";
-import { WebAuthManager } from "./auth.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
 import { CoreControlService } from "./core-service.js";
 import { createEventObserver, DaemonEvents } from "./events.js";
@@ -129,7 +128,6 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     bootId,
     startedAt: new Date().toISOString(),
     version: packageInfo.version,
-    webAuth: new WebAuthManager(layout.webSessionsFile),
     profiles,
     settingsService,
     lifecycle,

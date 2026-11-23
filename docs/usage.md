@@ -22,7 +22,7 @@ Run `sash <command> --help` for all options. Bare `sash` reads status once.
 | `sash restart` | Apply saved settings; reloads the running Core, or restarts it for port or LAN changes |
 | `sash stop` | Restore the prior proxy and stop Sash and Core |
 | `sash stop --core` | Stop Core and restore the proxy; keep the dashboard open |
-| `sash web [--no-open]` | Open and authorize the dashboard; `--no-open` only prints its address |
+| `sash web [--no-open]` | Start Sash if needed and open the dashboard; `--no-open` only prints its address |
 | `sash status [--verbose] [--json] [--watch] [--delay NAME]` | Read the summary or details; follow changes or test one outbound |
 | `sash doctor [--json]` | Check installation, files, ports and Windows integration |
 | `sash update [tag] [--check] [--cancel] [--json]` | Install, check or cancel a Core release download |
@@ -67,9 +67,9 @@ Remote profiles use the provider's update interval, defaulting to 24 hours. Sash
 
 ## Browser access
 
-Run `sash web` with the same user and `SASH_HOME` as the instance. It authorizes a tab using a private, single-use handoff that expires after 90 seconds; rerun the command if it expires.
+`sash web` starts Sash if needed and opens `http://127.0.0.1:<daemonPort>/ui/`. The address needs no sign-in: bookmark it, open more tabs, or come back after a browser or Sash restart. While Sash is stopped the page shows how to start it, then reconnects by itself.
 
-Authorization survives page refreshes and Sash/Core restarts. Sessions expire after twelve idle hours and renew while used. If browser storage is disabled, authorization lasts only for the current page. Opening a bare dashboard address shows connection instructions.
+Sash takes control requests only from pages it serves. Browsers label every request with the page's origin, so websites and other local web apps — even on another loopback port — cannot change settings or read private data. Any program or account on this computer can still use the dashboard; the CLI authenticates with the daemon secret in `sash.json`.
 
 ## PowerShell completion
 

@@ -43,7 +43,7 @@ sash --help
 
 ```sh
 sash start                 # downloads Core if needed, launches Sash and Core
-sash web                   # open and authorize the web dashboard
+sash web                   # open the web dashboard
 sash status                # runtime state, endpoints, and proxy status
 sash stop                  # restores prior proxy state, stops Core and Sash
 ```

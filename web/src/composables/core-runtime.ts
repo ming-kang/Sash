@@ -1,8 +1,8 @@
 import { computed, ref } from "vue";
-import { api, sessionReady } from "../api/index.js";
+import { api } from "../api/index.js";
 import { confirmDialog } from "../components/confirm.js";
 import { t } from "../i18n/index.js";
-import { errorText, refreshRuntimeState, store, toast } from "../stores/index.js";
+import { errorText, isConnected, refreshRuntimeState, store, toast } from "../stores/index.js";
 
 export function normalizeCoreVersion(version: string | undefined): string {
   return version ? (version.startsWith("v") ? version : `v${version}`) : "";
@@ -11,7 +11,7 @@ export function normalizeCoreVersion(version: string | undefined): string {
 export const coreVersion = computed(() => normalizeCoreVersion(store.status?.core.version));
 
 export const applyPending = computed(() =>
-  Boolean(sessionReady.value && store.status?.core.running && store.status.configuration.pending),
+  Boolean(isConnected.value && store.status?.core.running && store.status.configuration.pending),
 );
 
 export const coreUpdateText = computed(() => {

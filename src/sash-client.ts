@@ -18,8 +18,6 @@ import {
   type SettingsPatch,
   type SettingsWriteResult,
   type SystemProxyStatusResponse,
-  type WebBootstrapInfo,
-  type WebSessionInfo,
 } from "./contracts.js";
 import { CORE_DELAY_REQUEST_MS, type CoreDelayResult } from "./core-delay.js";
 import type { CoreUpdateProgress } from "./core-update.js";
@@ -54,8 +52,8 @@ export type SashClientFetch = (
 
 export interface SashClientOptions {
   baseUrl: string;
+  /** CLI bearer; the WebUI sends none because Sash admits its own origin. */
   token?: () => string;
-  tokenHeader?: "authorization" | "x-sash-token";
   /**
    * Required transport. Node callers must inject the direct-dispatcher adapter
    * from sash-client-node.ts so loopback API traffic never depends on ambient
@@ -64,7 +62,6 @@ export interface SashClientOptions {
   fetchFn: SashClientFetch;
   eventFetchFn?: SashEventFetch;
   timeoutMs?: number;
-  onUnauthorized?: (token: string) => void;
 }
 
 export interface SashRequestOptions {
@@ -98,29 +95,22 @@ const PROFILE_UPDATE_ALL_TIMEOUT_MS = 30 * 60_000;
 export class SashClient {
   private readonly baseUrl: string;
   private readonly token?: () => string;
-  private readonly tokenHeader: "authorization" | "x-sash-token";
   private readonly fetchFn: SashClientFetch;
   private readonly eventFetchFn?: SashEventFetch;
   private readonly timeoutMs: number;
-  private readonly onUnauthorized?: (token: string) => void;
 
   constructor(options: SashClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     if (options.token) this.token = options.token;
-    this.tokenHeader = options.tokenHeader ?? "authorization";
     this.fetchFn = options.fetchFn;
     this.eventFetchFn = options.eventFetchFn;
     this.timeoutMs = options.timeoutMs ?? 5_000;
-    if (options.onUnauthorized) this.onUnauthorized = options.onUnauthorized;
   }
 
   private async request<T>(endpoint: string, options: SashRequestOptions = {}): Promise<T> {
     const headers: Record<string, string> = {};
     const token = options.authenticate === false ? "" : (this.token?.() ?? "");
-    if (token) {
-      if (this.tokenHeader === "x-sash-token") headers["X-Sash-Token"] = token;
-      else headers.Authorization = `Bearer ${token}`;
-    }
+    if (token) headers.Authorization = `Bearer ${token}`;
     let body: string | undefined;
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -147,7 +137,6 @@ export class SashClient {
       data = text;
     }
 
-    if (response.status === 401 && token) this.onUnauthorized?.(token);
     if (response.status < 200 || response.status >= 300) {
       const parsedError = parseApiErrorBody(data);
       let message = parsedError?.message;
@@ -181,23 +170,6 @@ export class SashClient {
     });
   }
 
-  async createWebBootstrap(): Promise<WebBootstrapInfo> {
-    return this.request<WebBootstrapInfo>("/sash/web/bootstrap", {
-      method: "POST",
-      timeoutMs: 5_000,
-    });
-  }
-
-  async redeemWebBootstrap(token: string): Promise<WebSessionInfo> {
-    return this.request<WebSessionInfo>("/sash/web/session", {
-      method: "POST",
-      body: { token },
-      timeoutMs: 5_000,
-      attempts: 1,
-      authenticate: false,
-    });
-  }
-
   async status(fresh = false): Promise<DaemonStatus> {
     return this.request<DaemonStatus>(
       fresh ? "/sash/daemon/status?fresh=1" : "/sash/daemon/status",
@@ -212,10 +184,8 @@ export class SashClient {
     return readSashEvents({
       url: `${this.baseUrl}/sash/events`,
       token: this.token?.() ?? "",
-      tokenHeader: this.tokenHeader,
       signal,
       fetchFn: this.eventFetchFn,
-      onUnauthorized: this.onUnauthorized,
     });
   }
 
@@ -431,18 +401,14 @@ export const browserEventFetch: SashEventFetch = async (url, init) => {
 export async function* readSashEvents(options: {
   url: string;
   token: string;
-  tokenHeader: "authorization" | "x-sash-token";
   signal: AbortSignal;
   fetchFn: SashEventFetch;
-  onUnauthorized?: (token: string) => void;
 }): AsyncGenerator<DaemonEvent> {
   const controller = new AbortController();
   const signal = AbortSignal.any([options.signal, controller.signal]);
   let timer = setTimeout(() => controller.abort(new Error("Daemon event headers timed out")), 8000);
   const headers: Record<string, string> = { Accept: "text/event-stream" };
-  if (options.token)
-    headers[options.tokenHeader] =
-      options.tokenHeader === "authorization" ? `Bearer ${options.token}` : options.token;
+  if (options.token) headers.authorization = `Bearer ${options.token}`;
   try {
     const response = await options.fetchFn(options.url, { headers, signal });
     clearTimeout(timer);
@@ -455,7 +421,6 @@ export async function* readSashEvents(options: {
     };
     touch();
     if (response.status !== 200) {
-      if (response.status === 401) options.onUnauthorized?.(options.token);
       let text = "";
       try {
         const decoder = new TextDecoder();

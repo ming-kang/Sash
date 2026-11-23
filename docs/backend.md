@@ -60,7 +60,7 @@ Sash package upgrades use [self-upgrade.ts](../src/self-upgrade.ts). npm install
 
 The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) lists every route and method; [contracts.ts](../src/contracts.ts) and [SashClient](../src/sash-client.ts) define request and response types.
 
-Health, status and proxy observations allow public reads; private profile URLs require authentication. Everything else requires a CLI bearer or browser session; browser session exchanges authenticate with the token in their request body. Errors use `{error: {code, message}}`; successful empty responses use `204`.
+Health, status and proxy observations allow public reads; private profile URLs require authorization. Everything else requires the CLI bearer or a request from the dashboard's own origin: `Origin` equal to the request's loopback `Host`, or `Sec-Fetch-Site: same-origin` when there is no `Origin`. A bearer that is present must be valid. Errors use `{error: {code, message}}`; successful empty responses use `204`.
 
 Status separates saved and running configuration through `configuration: {pending, appliedProfile, appliedSettings}`. CLI queries, disconnected observations and SSE snapshots use one projection; local installation facts are sampled once and local profile fallback is used only when Sash cannot provide the observation. `daemon.bootId` identifies Sash; `revisions.state` tracks saved changes and `revisions.runtime` tracks Core replacement.
 
@@ -70,9 +70,9 @@ SSE sends complete `{schemaVersion: 1, sequence, status, autostart}` snapshots. 
 
 - **Processes:** verify the executable path before signaling a PID; uncertain ownership preserves the process record.
 - **Transport:** check loopback Host/Origin and send controller traffic directly, independently of remote-download proxy settings.
-- **Credentials:** the browser uses a private session; the gateway substitutes the Core credential. Child environments are scrubbed. Only the Sash background process receives `GITHUB_TOKEN`/`GH_TOKEN` for release downloads.
+- **Credentials:** the browser carries no credential of its own; the gateway substitutes the Core credential. Child environments are scrubbed. Only the Sash background process receives `GITHUB_TOKEN`/`GH_TOKEN` for release downloads.
 - **Persistence:** state writes use [fs-atomic.ts](../src/fs-atomic.ts). Private state/logs use POSIX `0600`; log appends do not follow symlinks.
 - **System proxy:** normalize persisted journals and registry input at their boundaries. The backend only captures/applies OS snapshots; targets, ownership comparisons and status projection are pure functions. Save original Windows proxy/PAC values before writing; restore values Sash still owns, preserving later changes made by another application. A per-user lock coordinates different data folders.
 - **Start at login:** the Windows current-user registration launches Sash without a console window. See [Automatic Startup](./autostart.md).
 
-Browser authorization starts with a 90-second, single-use handoff from `sash web`; sessions use a twelve-hour sliding idle limit. Stored session hashes let an authorized tab keep its session across Sash restarts: Sash reloads them at boot and the browser keeps presenting its existing token. See [Frontend authorization](./frontend.md#authorization-and-transport).
+Browser authorization rests on provenance the browser enforces, not on a stored credential, so there is nothing to hand off, expire or revoke. Pages on other origins, including other loopback ports, are refused at HTTP and WebSocket entry. Local processes can send those headers themselves, so every account on the machine is inside the trust boundary. See [Frontend authorization](./frontend.md#authorization-and-transport).

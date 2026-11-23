@@ -68,7 +68,7 @@ Register-ArgumentCompleter -Native -CommandName sash, sash.cmd, sash.ps1 -Script
         '--startup' = 'Read login startup diagnostics'
         '--check' = 'Check the release without installing or starting Sash'
         '--cancel' = 'Cancel the Core download in progress'
-        '--no-open' = 'Print the WebUI URL without authorizing a browser'
+        '--no-open' = 'Print the WebUI URL without opening a browser'
     }
     $aliases = @{ '-v' = '--version'; '-h' = '--help'; '-n' = '--lines'; '-f' = '--follow' }
     $valueFlags = @('--delay', '--name', '--lines')

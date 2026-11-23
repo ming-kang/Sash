@@ -24,7 +24,6 @@ interface FakeTimer {
 function installFakeWindow() {
   let nextId = 1;
   const timers: FakeTimer[] = [];
-  const hashListeners: Array<() => void> = [];
   const fakeWindow = {
     setTimeout: (callback: () => void, delay: number): number => {
       const timer: FakeTimer = { id: nextId, callback, delay, cleared: false };
@@ -36,26 +35,15 @@ function installFakeWindow() {
       const timer = timers.find((entry) => entry.id === id);
       if (timer) timer.cleared = true;
     },
-    addEventListener: (type: string, listener: () => void) => {
-      if (type === "hashchange") hashListeners.push(listener);
-    },
-    removeEventListener: (_type: string, listener: () => void) => {
-      const index = hashListeners.indexOf(listener);
-      if (index >= 0) hashListeners.splice(index, 1);
-    },
   };
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   Object.defineProperty(globalThis, "window", { configurable: true, value: fakeWindow });
   return {
     timers,
-    hashListeners,
     latestTimer(): FakeTimer {
       const timer = timers.at(-1);
       assert.ok(timer, "expected a scheduled timer");
       return timer;
-    },
-    triggerHashChange(): void {
-      for (const listener of [...hashListeners]) listener();
     },
     restore(): void {
       if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
@@ -133,25 +121,11 @@ function runtimeStatus(stateRevision: number): SashStatus {
 
 const originalApi = { ...api };
 let dom: FakeWindow;
-let disconnected: number;
 let resourceReads: Record<"configs" | "proxies" | "rules" | "connections", number>;
 
 beforeEach(async () => {
   dom = installFakeWindow();
-  disconnected = 0;
   resourceReads = { configs: 0, proxies: 0, rules: 0, connections: 0 };
-  api.initialize = async () => ({
-    bootId: "health",
-    pid: 100,
-    startedAt: "2026-01-01T00:00:00.000Z",
-    version: "1.2.3",
-  });
-  api.hasSession = () => true;
-  api.sessionMatches = () => true;
-  api.isInitialized = () => true;
-  api.markDisconnected = () => {
-    disconnected += 1;
-  };
   api.getProfiles = async () => ({ activeId: null, profiles: [] });
   api.getConfigs = async () => {
     resourceReads.configs += 1;
@@ -170,7 +144,6 @@ beforeEach(async () => {
     return { connections: null, uploadTotal: 0, downloadTotal: 0 };
   };
   markDaemonOffline();
-  disconnected = 0;
   await router.push({ name: "overview" });
   store.profiles = [];
   store.lastStateRevision = null;
@@ -195,6 +168,7 @@ describe("runtime event subscription", () => {
     try {
       await flush();
       assert.equal(channel.streams.length, 1, "event stream subscribed");
+      assert.notEqual(store.connection, "connected", "control waits for the first live snapshot");
       assert.equal(dom.timers.length, 1, "only the resource poll is scheduled");
       assert.equal(
         dom.timers[0]?.delay,
@@ -207,7 +181,7 @@ describe("runtime event subscription", () => {
       channel.streams[0]?.send(status);
       await flush();
       assert.equal(toRaw(store.status), status, "snapshot adopted into the store");
-      assert.equal(store.daemonOnline, true);
+      assert.equal(store.connection, "connected");
       assert.equal(store.lastStateRevision, 3);
       assert.deepEqual(store.profiles, [profile], "state revision refresh loads profiles");
       assert.deepEqual(resourceReads, { configs: 1, proxies: 1, rules: 0, connections: 1 });
@@ -225,13 +199,12 @@ describe("runtime event subscription", () => {
       await flush();
       channel.streams[0]?.send(runtimeStatus(0));
       await flush();
-      assert.equal(store.daemonOnline, true);
+      assert.equal(store.connection, "connected");
 
       channel.streams[0]?.end();
       await flush();
-      assert.equal(store.daemonOnline, false, "a closed stream degrades the daemon");
+      assert.equal(store.connection, "offline", "a closed stream degrades the daemon");
       assert.equal(store.status, null);
-      assert.equal(disconnected, 1);
       const retry = dom.latestTimer();
       assert.equal(retry.delay, RECONNECT_MS, "reconnect waits one fixed interval");
 
@@ -243,11 +216,9 @@ describe("runtime event subscription", () => {
     }
   });
 
-  it("treats a 401 as a public daemon and retries without a session", async () => {
+  it("treats a 401 as a refusal of this page and keeps retrying", async () => {
     const channel = eventChannel();
     api.events = channel.factory;
-    let session = true;
-    api.hasSession = () => session;
     const stop = startRuntimeEvents(INTERVAL_MS);
     try {
       await flush();
@@ -255,13 +226,18 @@ describe("runtime event subscription", () => {
       await flush();
       assert.equal(store.resourceLoaded.configs, true);
 
-      session = false;
-      channel.streams[0]?.fail(new SashApiError(401, "unauthorized", "session expired"));
+      channel.streams[0]?.fail(new SashApiError(401, "unauthorized", "foreign origin"));
       await flush();
-      assert.equal(store.daemonOnline, true, "a 401 keeps the public daemon reachable");
-      assert.equal(disconnected, 0, "a 401 is not a disconnect");
+      assert.equal(store.connection, "refused", "a 401 is a refusal, not a disconnect");
       assert.deepEqual(store.resourceLoaded, {}, "core-owned state is released");
-      assert.equal(dom.latestTimer().delay, RECONNECT_MS);
+      const retry = dom.latestTimer();
+      assert.equal(retry.delay, RECONNECT_MS);
+
+      retry.callback();
+      await flush();
+      channel.streams[1]?.fail(new SashApiError(401, "unauthorized", "foreign origin"));
+      await flush();
+      assert.equal(store.connection, "refused", "repeated refusals never flicker to connected");
     } finally {
       stop();
     }
@@ -287,33 +263,7 @@ describe("runtime event subscription", () => {
     }
   });
 
-  it("reconnects immediately when a new authorization handoff arrives", async () => {
-    const channel = eventChannel();
-    api.events = channel.factory;
-    const stop = startRuntimeEvents(INTERVAL_MS);
-    try {
-      await flush();
-      const first = channel.streams[0];
-      dom.triggerHashChange();
-      await flush();
-      assert.equal(first?.signal.aborted, false, "an initialized page ignores hash changes");
-      assert.equal(channel.streams.length, 1);
-
-      api.isInitialized = () => false;
-      dom.triggerHashChange();
-      await flush();
-      assert.equal(first?.signal.aborted, true);
-      const retry = dom.latestTimer();
-      assert.equal(retry.delay, 0, "a handoff reconnects immediately");
-      retry.callback();
-      await flush();
-      assert.equal(channel.streams.length, 2);
-    } finally {
-      stop();
-    }
-  });
-
-  it("stop() aborts the stream, clears timers, and detaches listeners", async () => {
+  it("stop() aborts the stream and clears timers", async () => {
     const channel = eventChannel();
     api.events = channel.factory;
     const stop = startRuntimeEvents(INTERVAL_MS);
@@ -321,12 +271,10 @@ describe("runtime event subscription", () => {
     assert.equal(channel.streams.length, 1);
     const resourceTimer = dom.timers[0] as FakeTimer;
     const timerCount = dom.timers.length;
-    assert.equal(dom.hashListeners.length, 1);
 
     stop();
     assert.equal(channel.streams[0]?.signal.aborted, true);
     assert.equal(resourceTimer.cleared, true);
-    assert.equal(dom.hashListeners.length, 0);
 
     channel.streams[0]?.send(runtimeStatus(0));
     resourceTimer.callback();

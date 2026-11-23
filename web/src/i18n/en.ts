@@ -239,8 +239,10 @@ export const en: Messages = {
   },
   status: {
     offline: "Sash is unreachable, retrying automatically…",
-    unauthorized: "This browser session is not authorized. Run 'sash web' to connect",
-    connectTitle: "Connect to Sash",
+    offlineTitle: "Sash is not running",
+    offlineHint: "Run the command below in a terminal; this page reconnects on its own.",
+    refusedTitle: "This page cannot control Sash",
+    refusedHint: "Sash only accepts control from the dashboard it serves. Open it with:",
     coreDegraded: "Core data refresh failed; showing the last valid snapshot while retrying…",
     coreUnavailable: "Core is running, but runtime data is temporarily unavailable; retrying…",
   },

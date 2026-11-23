@@ -44,16 +44,13 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { sessionReady } from "../api/index.js";
 import { useAutostart, visibleAutostartReason } from "../composables/autostart.js";
 import { t } from "../i18n/index.js";
-import { errorText, store, toast } from "../stores/index.js";
+import { errorText, isConnected, store, toast } from "../stores/index.js";
 import Icon from "./Icon.vue";
 import UiSwitch from "./UiSwitch.vue";
 
-const owner = computed(() =>
-  sessionReady.value && store.daemonOnline ? (store.status?.daemon.bootId ?? null) : null,
-);
+const owner = computed(() => (isConnected.value ? (store.status?.daemon.bootId ?? null) : null));
 const { status, busy, refresh, setEnabled } = useAutostart(owner);
 const switchDisabled = computed(
   () =>

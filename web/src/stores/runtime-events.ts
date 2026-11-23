@@ -4,8 +4,8 @@ import { api } from "../api/index.js";
 import { currentRoute } from "../router.js";
 import { refreshVisibleCoreResources } from "./core-actions.js";
 import { refreshProfiles } from "./profile-actions.js";
-import { adoptRuntimeSnapshot, markDaemonOffline, refreshStatus } from "./runtime-actions.js";
-import { isCoreHealthy, resetCoreState, store } from "./state.js";
+import { adoptRuntimeSnapshot, markDaemonOffline } from "./runtime-actions.js";
+import { isConnected, isCoreHealthy, resetCoreState, store } from "./state.js";
 
 const RECONNECT_MS = 2000;
 
@@ -37,7 +37,7 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
   };
 
   const refreshResources = async (force = false): Promise<void> => {
-    if (stopped || !api.hasSession()) return;
+    if (stopped || !isConnected.value) return;
     if (runningResources) {
       pendingForce ||= force;
       return;
@@ -74,12 +74,12 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
     }
   };
 
-  const scheduleReconnect = (delay = RECONNECT_MS): void => {
+  const scheduleReconnect = (): void => {
     if (stopped || retryTimer !== null) return;
     retryTimer = window.setTimeout(() => {
       retryTimer = null;
       void connect();
-    }, delay);
+    }, RECONNECT_MS);
   };
 
   const connect = async (): Promise<void> => {
@@ -88,23 +88,18 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
     stream = controller;
     const active = () => stream === controller && !controller.signal.aborted;
     try {
-      await api.initialize(active);
-      if (!active()) return;
-      if (!api.hasSession()) {
-        await refreshStatus();
-        return;
-      }
       for await (const event of api.events(controller.signal)) {
         if (!active()) return;
-        const result = await adoptRuntimeSnapshot(event.status);
-        if (!active() || result === "unauthorized") return;
+        await adoptRuntimeSnapshot(event.status);
+        if (!active()) return;
+        store.connection = "connected";
         void refreshResources();
       }
       throw new Error("Daemon event stream closed");
     } catch (error) {
       if (!active()) return;
       if (error instanceof SashApiError && error.status === 401) {
-        store.daemonOnline = true;
+        store.connection = "refused";
         resetCoreState();
       } else markDaemonOffline();
     } finally {
@@ -116,17 +111,9 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
     }
   };
 
-  const onHashChange = (): void => {
-    if (api.isInitialized()) return;
-    stream?.abort();
-    stream = null;
-    scheduleReconnect(0);
-  };
-
   const stopRouteWatch = watch(currentRoute, () => {
     void refreshResources(true);
   });
-  window.addEventListener("hashchange", onHashChange);
   if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
     document.addEventListener("visibilitychange", onVisibilityChange);
   }
@@ -139,7 +126,6 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
     if (retryTimer !== null) window.clearTimeout(retryTimer);
     stopResourceTimer();
     stopRouteWatch();
-    window.removeEventListener("hashchange", onHashChange);
     if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     }

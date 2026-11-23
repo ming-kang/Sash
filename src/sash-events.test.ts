@@ -46,13 +46,12 @@ it("uses private stream headers, cancels on return and rejects regressing sequen
   const client = new SashClient({
     baseUrl: "http://127.0.0.1:28782",
     token: () => "secret",
-    tokenHeader: "x-sash-token",
     fetchFn: async () => {
       throw new Error("events() must not use the request transport");
     },
     eventFetchFn: async (url, init) => {
       assert.equal(url, "http://127.0.0.1:28782/sash/events");
-      assert.equal(init.headers["x-sash-token"], "secret");
+      assert.equal(init.headers.authorization, "Bearer secret");
       assert.equal(init.headers.Accept, "text/event-stream");
       signal = init.signal;
       return {
@@ -72,16 +71,13 @@ it("uses private stream headers, cancels on return and rejects regressing sequen
   );
 });
 
-it("preserves a known 401 when its error body fails and identifies the rejected credential", async () => {
-  const rejected: string[] = [];
+it("preserves a known 401 when its error body fails", async () => {
   await assert.rejects(
     collect(
       readSashEvents({
         url: "/sash/events",
         token: "obsolete",
-        tokenHeader: "x-sash-token",
         signal: new AbortController().signal,
-        onUnauthorized: (token) => rejected.push(token),
         fetchFn: async () => ({
           status: 401,
           contentType: "application/json",
@@ -96,5 +92,4 @@ it("preserves a known 401 when its error body fails and identifies the rejected 
     ),
     (error) => error instanceof SashApiError && error.status === 401,
   );
-  assert.deepEqual(rejected, ["obsolete"]);
 });

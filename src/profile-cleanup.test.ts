@@ -33,6 +33,7 @@ it("cleans only old generated files and preserves referenced, recent, foreign an
   const validation = write("temp/config-validate-12345678-1234-1234-1234-123456789abc.yaml");
   const download = write(`temp/core-staged-ABC123/${path.basename(layout.coreExe)}`);
   const unknown = write("temp/core-staged-ABC123/keep.txt");
+  const handoff = write("temp/web-bootstrap-1700000000000-0123456789abcdef/index.html");
   const recentDirectory = path.join(layout.tempDir, "core-download-NEW123");
   const oldDirectory = path.join(layout.tempDir, "core-download-OLD123");
   fs.mkdirSync(recentDirectory);
@@ -50,10 +51,24 @@ it("cleans only old generated files and preserves referenced, recent, foreign an
   );
   const index = { activeId: "1", profiles: [testProfile("1")] };
   assert.equal(pruneProfileFiles(layout, index, { nowMs: now, cleanTemp: false }), 3);
-  for (const file of [referenced, recent, notes, validation, download, unknown, foreignFile])
+  for (const file of [
+    referenced,
+    recent,
+    notes,
+    validation,
+    download,
+    unknown,
+    handoff,
+    foreignFile,
+  ])
     assert.ok(fs.existsSync(file), file);
   for (const file of [orphan, deleted, atomic]) assert.equal(fs.existsSync(file), false, file);
-  assert.equal(pruneProfileFiles(layout, index, { nowMs: now }), 2);
+  assert.equal(pruneProfileFiles(layout, index, { nowMs: now }), 3);
+  assert.equal(
+    fs.existsSync(handoff),
+    false,
+    "a browser handoff page from 0.5.4 or earlier is an orphan",
+  );
   assert.ok(fs.existsSync(unknown));
   assert.ok(fs.existsSync(foreignFile));
   assert.ok(

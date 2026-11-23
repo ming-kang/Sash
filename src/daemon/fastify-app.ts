@@ -2,7 +2,6 @@ import type { IncomingMessage } from "node:http";
 import { METHODS } from "node:http";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { apiErrorBody } from "../contracts.js";
-import type { ControlAuthorization } from "./auth.js";
 import { isControlMutation, isControlRequestAuthorized } from "./auth.js";
 import type { DaemonContext } from "./context.js";
 import { errorToHttp } from "./errors.js";
@@ -70,13 +69,6 @@ function writeResponse(reply: FastifyReply, response: RouteResponse): void {
     return;
   }
   void reply.code(response.status).send();
-}
-
-function controlAuthorization(ctx: DaemonContext): ControlAuthorization {
-  return {
-    daemonSecret: ctx.settings.committed().daemonSecret,
-    isSessionToken: (token) => ctx.webAuth.isSession(token),
-  };
 }
 
 function unauthorized(reply: FastifyReply): FastifyReply {
@@ -153,12 +145,13 @@ export function buildDaemonApp(ctx: DaemonContext, routes: readonly RouteDef[]):
   });
 
   app.addHook("onRequest", async (request, reply) => {
-    request.authorized = isControlRequestAuthorized(request.raw, controlAuthorization(ctx));
+    request.authorized = isControlRequestAuthorized(
+      request.raw,
+      ctx.settings.committed().daemonSecret,
+    );
     const config = request.routeOptions.config as DaemonRouteConfig | undefined;
     const requiresAuth =
-      config?.auth === undefined
-        ? isControlMutation(request.method)
-        : config.auth !== "public" && config.auth !== "bootstrap";
+      config?.auth === undefined ? isControlMutation(request.method) : config.auth !== "public";
     if (requiresAuth && !request.authorized) return unauthorized(reply);
     if (isControlMutation(request.method) && ctx.gate.isClosing) return sendGateClosed(reply);
   });

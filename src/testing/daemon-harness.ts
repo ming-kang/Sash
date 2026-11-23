@@ -38,7 +38,8 @@ export interface DaemonApiRequestOptions {
   body?: unknown;
   rawBody?: string;
   token?: string;
-  webToken?: string;
+  /** Send what a dashboard page served by this daemon sends instead of a CLI bearer. */
+  browser?: boolean;
   origin?: string;
 }
 
@@ -119,6 +120,10 @@ export class DaemonTestHarness {
     };
   }
 
+  get dashboardOrigin(): string {
+    return `http://127.0.0.1:${this.boundPort}`;
+  }
+
   async startServer(overrides: DaemonServerOverrides = {}, port = 0): Promise<DaemonInstance> {
     if (overrides.installCore !== false && !fs.existsSync(this.layout.coreExe)) {
       fs.mkdirSync(this.layout.binDir, { recursive: true });
@@ -195,14 +200,15 @@ export class DaemonTestHarness {
   ): Promise<DaemonApiResponse> {
     const method = options.method ?? "GET";
     const headers: Record<string, string> = {};
-    if (options.origin) headers.Origin = options.origin;
-    if (options.webToken) {
-      headers["X-Sash-Token"] = options.webToken;
+    if (options.browser) {
+      headers["Sec-Fetch-Site"] = "same-origin";
+      if (method !== "GET" && method !== "HEAD") headers.Origin = this.dashboardOrigin;
     } else if (options.token !== undefined) {
       if (options.token) headers.Authorization = `Bearer ${options.token}`;
     } else {
       headers.Authorization = `Bearer ${this.settings.daemonSecret}`;
     }
+    if (options.origin) headers.Origin = options.origin;
 
     let body: string | undefined;
     if (options.rawBody !== undefined) {
@@ -226,22 +232,6 @@ export class DaemonTestHarness {
       data = text;
     }
     return { statusCode: response.statusCode, data };
-  }
-
-  async mintWebSession(): Promise<string> {
-    const bootstrap = await this.apiRequest("/sash/web/bootstrap", { method: "POST" });
-    assert.equal(bootstrap.statusCode, 200);
-    const bootstrapToken = (bootstrap.data as { token?: unknown }).token;
-    assert.equal(typeof bootstrapToken, "string");
-    const session = await this.apiRequest("/sash/web/session", {
-      method: "POST",
-      token: "",
-      body: { token: bootstrapToken },
-    });
-    assert.equal(session.statusCode, 200);
-    const sessionToken = (session.data as { token?: unknown }).token;
-    assert.equal(typeof sessionToken, "string");
-    return sessionToken as string;
   }
 
   rawHttpRequest(

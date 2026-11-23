@@ -2,11 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type BrowserType, type Page } from "playwright";
-import type {
-  DaemonStatus,
-  ProfileActionResponse,
-  WebBootstrapInfo,
-} from "../src/contracts.js";
+import type { DaemonStatus, ProfileActionResponse } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
 import {
@@ -76,12 +72,8 @@ async function verify(engine: BrowserType, name: string) {
   try {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(base);
-    await page.getByRole("heading", { name: "连接到 Sash", exact: true }).waitFor();
-    const boot = (await harness.apiRequest("/sash/web/bootstrap", { method: "POST" }))
-      .data as WebBootstrapInfo;
-    await page.goto(`${base}#boot=${boot.token}`);
     await page.getByText("工作配置", { exact: true }).waitFor();
-    await page.locator(".connection-panel").waitFor({ state: "detached" });
+    assert.equal(await page.locator(".connection-panel").count(), 0, "the dashboard opens directly");
     const coreStatus = page.locator(".core-status-row:visible");
     assert.equal(await coreStatus.count(), 1, "Core status appears once on desktop");
     assert.equal(await coreStatus.getAttribute("data-state"), "running");

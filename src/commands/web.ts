@@ -1,7 +1,6 @@
 import { tryOpenInBrowser } from "../browser.js";
 import { ensureDaemonSession } from "../daemon-session.js";
 import { log } from "../log.js";
-import { writeBootstrapFile } from "../web-bootstrap.js";
 import { runtimeContext } from "./shared.js";
 
 export function dashboardUrl(port: number): string {
@@ -11,7 +10,6 @@ export interface WebCommandDeps {
   runtimeContext?: typeof runtimeContext;
   ensureDaemonSession?: typeof ensureDaemonSession;
   openInBrowser?: typeof tryOpenInBrowser;
-  writeBootstrap?: typeof writeBootstrapFile;
   log?: Pick<typeof log, "info" | "ok">;
 }
 
@@ -24,14 +22,8 @@ export async function runWeb(
   const url = dashboardUrl(owner.daemon.port);
   const logger = deps.log ?? log;
   if (!opts.noOpen) {
-    const bootstrap = await owner.client.createWebBootstrap();
-    const file = (deps.writeBootstrap ?? writeBootstrapFile)(ctx.layout, {
-      dashboardUrl: url,
-      ...bootstrap,
-    });
-    (deps.openInBrowser ?? tryOpenInBrowser)(file.fileUrl);
+    (deps.openInBrowser ?? tryOpenInBrowser)(url);
     logger.info("Opening WebUI");
   }
   logger.ok(url);
-  if (opts.noOpen) logger.info("\nRun sash web to open an authorized browser session.");
 }

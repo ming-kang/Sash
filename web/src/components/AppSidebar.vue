@@ -5,7 +5,7 @@
       <span class="brand-name">Sash</span>
     </div>
 
-    <nav v-if="sessionReady" class="side-nav" :aria-label="t('app.navigation')">
+    <nav v-if="isConnected" class="side-nav" :aria-label="t('app.navigation')">
       <RouterLink
         v-for="item in navItems"
         :key="item.route"
@@ -29,16 +29,16 @@
           <CoreControls apply-only />
         </div>
       </Transition>
-      <CoreStatus v-if="sessionReady" class="core-panel" />
+      <CoreStatus v-if="isConnected" class="core-panel" />
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { sessionReady } from "../api/index.js";
 import { applyPending } from "../composables/core-runtime.js";
 import { t } from "../i18n/index.js";
 import { currentRoute, type Route } from "../router.js";
+import { isConnected } from "../stores/index.js";
 import CoreControls from "./CoreControls.vue";
 import CoreStatus from "./CoreStatus.vue";
 import Icon from "./Icon.vue";

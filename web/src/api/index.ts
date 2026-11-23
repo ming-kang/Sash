@@ -1,16 +1,5 @@
-import {
-  type HealthInfo,
-  type SettingsPatch,
-  WEB_SOCKET_AUTH_PROTOCOL,
-  WEB_SOCKET_TOKEN_PROTOCOL_PREFIX,
-} from "../../../src/contracts.js";
-import {
-  browserEventFetch,
-  browserFetch,
-  SashApiError,
-  SashClient,
-} from "../../../src/sash-client.js";
-import { t } from "../i18n/index.js";
+import type { SettingsPatch } from "../../../src/contracts.js";
+import { browserEventFetch, browserFetch, SashClient } from "../../../src/sash-client.js";
 import type {
   ConfigsResponse,
   ConnectionsResponse,
@@ -21,9 +10,6 @@ import type {
   TrafficMessage,
 } from "../types/index.js";
 import { formatTime } from "../utils/format.js";
-import { webSession } from "./session.js";
-
-export { sessionReady } from "./session.js";
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -63,13 +49,11 @@ interface RequestOptions {
   timeoutMs?: number;
 }
 
+// No credential: Sash admits requests the browser marks as coming from its own origin.
 const sash = new SashClient({
   baseUrl: "",
-  token: webSession.token,
-  tokenHeader: "x-sash-token",
   fetchFn: browserFetch,
   eventFetchFn: browserEventFetch,
-  onUnauthorized: webSession.reject,
 });
 
 async function request<T>(
@@ -81,8 +65,6 @@ async function request(
   options: RequestOptions & { response: "void" },
 ): Promise<void>;
 async function request(endpoint: string, options: RequestOptions = {}): Promise<unknown> {
-  const controlToken = webSession.token();
-  if (!controlToken) throw new SashApiError(401, "unauthorized", t("status.unauthorized"));
   const result = await sash.rawRequest<unknown>(endpoint, {
     method: options.method,
     body: options.body,
@@ -107,7 +89,7 @@ function connectStream(
   const scheduleReconnect = () => {
     if (closed) return;
     onDisconnect?.();
-    if (!webSession.token() || timer !== null) return;
+    if (timer !== null) return;
     timer = window.setTimeout(() => {
       timer = null;
       connect();
@@ -115,13 +97,9 @@ function connectStream(
   };
 
   const connect = () => {
-    const controlToken = webSession.token();
-    if (closed || !controlToken) return;
+    if (closed) return;
     try {
-      const protocols = controlToken
-        ? [WEB_SOCKET_AUTH_PROTOCOL, `${WEB_SOCKET_TOKEN_PROTOCOL_PREFIX}${controlToken}`]
-        : undefined;
-      ws = new WebSocket(wsUrl, protocols);
+      ws = new WebSocket(wsUrl);
       ws.onmessage = (event) => {
         let parsed: unknown;
         try {
@@ -151,15 +129,6 @@ function connectStream(
 }
 
 export const api = {
-  initialize: (isActive: () => boolean = () => true): Promise<HealthInfo> =>
-    webSession.initialize(sash, isActive),
-  clearSession: webSession.clear,
-  hasSession: (): boolean => webSession.token() !== "",
-  isInitialized: webSession.initialized,
-  markDisconnected: webSession.markDisconnected,
-  sessionMatches: webSession.matches,
-  getSessionDaemonStartedAt: webSession.startedAt,
-
   getHealth: () => sash.health(),
   getStatus: () => sash.status(),
   events: (signal: AbortSignal) => sash.events(signal),

@@ -6,15 +6,15 @@
       <main class="app-main">
         <Transition name="fade">
           <div
-            v-if="bannerNotice"
+            v-if="runtimeNotice"
             class="runtime-banner"
-            :class="bannerNotice"
+            :class="runtimeNotice"
             role="status"
             aria-live="polite"
           >
             <Icon name="alert" :size="13" />
             <span>
-              {{ t(`status.${bannerNotice}`) }}
+              {{ t(`status.${runtimeNotice}`) }}
               <span v-if="coreSnapshotError" class="snapshot-error">{{ coreSnapshotError }}</span>
             </span>
           </div>
@@ -23,10 +23,13 @@
         <div
           ref="pageContainer"
           class="page-container"
-          :class="`page-${sessionReady ? currentRoute : 'connect'}`"
+          :class="`page-${isConnected ? currentRoute : 'connect'}`"
         >
-          <ConnectionView v-if="!sessionReady" />
-          <RouterView v-else />
+          <RouterView v-if="isConnected" />
+          <ConnectionView
+            v-else-if="store.connection !== 'connecting'"
+            :refused="store.connection === 'refused'"
+          />
         </div>
       </main>
 
@@ -37,8 +40,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { api, sessionReady } from "./api/index.js";
+import { onMounted, onUnmounted, ref, watch } from "vue";
+import { api } from "./api/index.js";
 import AppSidebar from "./components/AppSidebar.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import Icon from "./components/Icon.vue";
@@ -49,6 +52,7 @@ import { currentRoute } from "./router.js";
 import {
   addLog,
   coreSnapshotError,
+  isConnected,
   isCoreReady,
   runtimeNotice,
   startRuntimeEvents,
@@ -56,10 +60,6 @@ import {
   store,
 } from "./stores/index.js";
 import ConnectionView from "./views/ConnectionView.vue";
-
-const bannerNotice = computed(() =>
-  sessionReady.value || !store.daemonOnline ? runtimeNotice.value : null,
-);
 
 let stopRuntime: (() => void) | null = null;
 let stopTraffic: (() => void) | null = null;
@@ -98,10 +98,7 @@ function stopLogs(): void {
 
 watch(
   () =>
-    visible.value && store.daemonOnline &&
-    isCoreReady.value &&
-    sessionReady.value &&
-    currentRoute.value === "logs"
+    visible.value && isConnected.value && isCoreReady.value && currentRoute.value === "logs"
       ? store.runtimeGeneration
       : null,
   (generation) => {

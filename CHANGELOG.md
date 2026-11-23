@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Opening the WebUI no longer takes an authorization step per tab. `sash web` opens the plain dashboard address, and any tab, bookmark or reload of it works directly, including after browser and Sash restarts. Sash accepts control requests from pages it serves itself, identified by the browser-enforced `Origin` and `Sec-Fetch-Site` headers, and refuses other origins, including web apps on other loopback ports. This replaces the 90-second handoff file, browser sessions and `state/web-sessions.json`; the `/sash/web/bootstrap` and `/sash/web/session` routes are removed, and leftover handoff pages in `temp/` are cleaned up after 24 hours. Every account on the computer can now open the dashboard; the CLI still authenticates with the daemon secret. While Sash is stopped the dashboard shows how to start it and reconnects on its own.
 - Internal cleanup across the daemon, CLI and WebUI: implementation narration comments were replaced by names, types, extracted helpers and tests. The daemon's public health response now names its per-boot identity field `bootId` instead of `token`; the persisted daemon record format is unchanged.
 
 ## [0.5.4] - 2026-11-21

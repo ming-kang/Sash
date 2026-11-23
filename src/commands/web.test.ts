@@ -3,17 +3,17 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { request } from "undici";
 import { test } from "vitest";
 import { evaluateDaemon, stopDaemonFromCli } from "../daemon-lifecycle.js";
 import { ensureDaemonSession, type HealthyDaemonSession } from "../daemon-session.js";
+import { directDispatcherForLoopback } from "../http.js";
 import { sashLayout } from "../paths.js";
 import { createDaemonClient } from "../sash-client-node.js";
 import { createTestState, testSettings } from "../testing/state.js";
 import { runWeb, type WebCommandDeps } from "./web.js";
 
-const TOKEN = "b".repeat(64);
-const FILE_URL = "file:///nonexistent/web-bootstrap-test.html";
+const DASHBOARD = "http://127.0.0.1:29193/ui/";
 
 function fixture() {
   const events: string[] = [];
@@ -25,10 +25,6 @@ function fixture() {
   client.status = async () => {
     throw new Error("web must not depend on Core status");
   };
-  client.createWebBootstrap = async () => ({
-    token: TOKEN,
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-  });
   const owner: HealthyDaemonSession = {
     kind: "daemon",
     daemon: { kind: "healthy", running: true, healthy: true, pid: 12345, port: 29193 },
@@ -46,43 +42,23 @@ function fixture() {
     openInBrowser: (url) => {
       events.push(`open ${url}`);
     },
-    writeBootstrap: (_layout, options) => {
-      assert.equal(options.token, TOKEN);
-      assert.equal(options.dashboardUrl, "http://127.0.0.1:29193/ui/");
-      events.push("bootstrap");
-      return { filePath: "/nonexistent/web-bootstrap-test.html", fileUrl: FILE_URL };
-    },
     log: { info: (message) => logs.push(message), ok: (message) => logs.push(message) },
   };
-  return { deps, client, events, logs };
+  return { deps, events, logs };
 }
 
-test("web opens management independently of Core through a private credential handoff", async () => {
+test("web opens the dashboard address directly, independently of Core", async () => {
   const f = fixture();
   await runWeb({}, f.deps);
-  assert.deepEqual(f.events, ["management", "bootstrap", `open ${FILE_URL}`]);
-  assert.deepEqual(f.logs, ["Opening WebUI", "http://127.0.0.1:29193/ui/"]);
-  assert.ok([...f.events, ...f.logs].every((line) => !line.includes(TOKEN)));
+  assert.deepEqual(f.events, ["management", `open ${DASHBOARD}`]);
+  assert.deepEqual(f.logs, ["Opening WebUI", DASHBOARD]);
 });
 
-test("--no-open starts management without minting credentials or opening a browser", async () => {
+test("--no-open starts management and prints the address without opening a browser", async () => {
   const f = fixture();
-  f.client.createWebBootstrap = async () => {
-    throw new Error("unexpected credential");
-  };
   await runWeb({ noOpen: true }, f.deps);
   assert.deepEqual(f.events, ["management"]);
-  assert.ok(f.logs.some((line) => line.includes("sash web")));
-});
-
-test("failed authorization never opens a browser", async () => {
-  const f = fixture();
-  f.client.createWebBootstrap = async () => {
-    throw new Error("CLI credential rejected");
-  };
-  await assert.rejects(runWeb({}, f.deps), /CLI credential rejected/);
-  assert.deepEqual(f.events, ["management"]);
-  assert.deepEqual(f.logs, []);
+  assert.deepEqual(f.logs, [DASHBOARD]);
 });
 
 test("management startup errors propagate without opening a browser", async () => {
@@ -94,7 +70,7 @@ test("management startup errors propagate without opening a browser", async () =
   assert.deepEqual(f.events, []);
 });
 
-test("authorizes a browser end to end against a freshly spawned daemon", {
+test("opens a dashboard a fresh daemon serves and lets control", {
   timeout: 90_000,
 }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-web-end-to-end-"));
@@ -119,14 +95,25 @@ test("authorizes a browser end to end against a freshly spawned daemon", {
         },
       },
     );
-    assert.equal(opened.length, 1);
-    const handoffPath = fileURLToPath(opened[0] as string);
-    assert.ok(fs.existsSync(handoffPath));
+    assert.deepEqual(opened, [`http://127.0.0.1:${port}/ui/`]);
     assert.equal((await evaluateDaemon(layout, settings)).kind, "healthy");
-    const token = /"token":"([a-f0-9]{64})"/.exec(fs.readFileSync(handoffPath, "utf8"))?.[1];
-    assert.ok(token);
-    const session = await createDaemonClient(port, settings.daemonSecret).redeemWebBootstrap(token);
-    assert.match(session.token, /^[a-f0-9]{64}$/);
+    const dispatcher = directDispatcherForLoopback();
+    const page = await request(`http://127.0.0.1:${port}/sash/settings`, {
+      headers: { "sec-fetch-site": "same-origin" },
+      dispatcher,
+    });
+    assert.equal(page.statusCode, 200, "the opened page needs no credential");
+    await page.body.dump();
+    const foreign = await request(`http://127.0.0.1:${port}/sash/settings`, {
+      headers: { "sec-fetch-site": "same-site" },
+      dispatcher,
+    });
+    assert.equal(foreign.statusCode, 401);
+    await foreign.body.dump();
+    assert.equal(
+      (await createDaemonClient(port, settings.daemonSecret).getSettings()).daemonPort,
+      port,
+    );
   } finally {
     await stopDaemonFromCli({ layout, settings, timeoutMs: 15_000 });
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });

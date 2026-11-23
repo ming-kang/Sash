@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { BrowserType, Page } from "playwright";
-import type { WebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
 import {
@@ -62,14 +61,6 @@ async function verify(engine: BrowserType, name: string, uiLocale: "zh" | "en") 
     if (uiLocale === "en") {
       await page.addInitScript(() => window.localStorage.setItem("sash.locale", "en"));
     }
-    await page.goto(base);
-    await page
-      .getByRole("heading", { name: uiLocale === "zh" ? "连接到 Sash" : "Connect to Sash", exact: true })
-      .waitFor();
-    const boot = ((await harness.apiRequest("/sash/web/bootstrap", { method: "POST" }))
-      .data as WebBootstrapInfo).token;
-    await page.goto(`${base}#boot=${boot}`);
-    await page.locator(".connection-panel").waitFor({ state: "detached" });
     await page.goto(`${base}#/overview`);
     const coreRow = ".sidebar .core-status-row";
     const coreHeading = ".sidebar .core-heading";

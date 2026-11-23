@@ -8,7 +8,6 @@ import type { SashSettings } from "../settings.js";
 import type { SettingsService } from "../settings-service.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../sysproxy/manager.js";
-import type { WebAuthManager } from "./auth.js";
 import type { CoreControlService } from "./core-service.js";
 import { ShuttingDownError } from "./errors.js";
 import type { DaemonEvents } from "./events.js";
@@ -113,7 +112,6 @@ export interface DaemonContext {
   readonly bootId: string;
   readonly startedAt: string;
   readonly version: string;
-  readonly webAuth: WebAuthManager;
   readonly profiles: ProfileService;
   readonly settingsService: SettingsService;
   readonly lifecycle: RuntimeLifecycle;

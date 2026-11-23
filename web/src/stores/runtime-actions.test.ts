@@ -12,9 +12,6 @@ import { adoptDaemonStatus, store } from "./state.js";
 const originalApi = { ...api };
 
 beforeEach(() => {
-  api.hasSession = () => true;
-  api.sessionMatches = () => true;
-  api.markDisconnected = () => undefined;
   api.getProfiles = async () => ({ activeId: null, profiles: [] });
   markDaemonOffline();
 });

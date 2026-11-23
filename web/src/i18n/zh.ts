@@ -236,8 +236,10 @@ export const zh = {
   },
   status: {
     offline: "无法连接 Sash，正在自动重试…",
-    unauthorized: "此浏览器会话未授权，请运行 sash web 完成连接",
-    connectTitle: "连接到 Sash",
+    offlineTitle: "Sash 未在运行",
+    offlineHint: "在终端运行下面的命令启动 Sash，此页面会自动重新连接。",
+    refusedTitle: "此页面无法控制 Sash",
+    refusedHint: "Sash 只接受由它自己提供的控制台。请用下面的命令打开：",
     coreDegraded: "核心数据刷新失败，暂时显示最后一次有效快照并自动重试…",
     coreUnavailable: "核心正在运行，但运行数据暂时不可用，正在自动重试…",
   },

@@ -5,7 +5,7 @@ import type { SashLayout } from "../paths.js";
 import type { RuntimeLifecycle } from "../runtime-lifecycle.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
-import { isWebSocketRequestAuthorized } from "./auth.js";
+import { isControlRequestAuthorized } from "./auth.js";
 import { buildDaemonApp } from "./fastify-app.js";
 import { parseRequestTarget, sendError, sendSocketError } from "./http.js";
 import { forwardWsToCore } from "./proxy.js";
@@ -68,12 +68,7 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       sendSocketError(socket, boundary.status, boundary.code, boundary.message);
       return;
     }
-    if (
-      !isWebSocketRequestAuthorized(req, {
-        daemonSecret: context.settings.committed().daemonSecret,
-        isSessionToken: (token) => context.webAuth.isSession(token),
-      })
-    ) {
+    if (!isControlRequestAuthorized(req, context.settings.committed().daemonSecret)) {
       sendSocketError(socket, 401, "unauthorized", "Unauthorized WebSocket request");
       return;
     }

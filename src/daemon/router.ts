@@ -6,12 +6,11 @@ import type { DaemonContext } from "./context.js";
 import type { JsonObject, ParsedDaemonRequestTarget } from "./http.js";
 import { coreApiTarget } from "./proxy.js";
 
-// "public" serves unauthenticated GET/HEAD responses; "control" requires a
-// daemon credential; "gateway" proxies to the Core controller — it still
-// requires daemon control auth, then injects the Core secret upstream so the
-// WebUI never has to know it; "bootstrap" is unauthenticated because the
-// one-time token in the request body is the credential being redeemed.
-export type RouteAuth = "public" | "control" | "gateway" | "bootstrap";
+// "public" serves unauthenticated GET/HEAD responses; "control" requires the
+// CLI bearer or a same-origin dashboard request; "gateway" proxies to the Core
+// controller — it requires the same control authorization, then injects the
+// Core secret upstream so the WebUI never has to know it.
+export type RouteAuth = "public" | "control" | "gateway";
 
 export interface DaemonRequest {
   readonly authorized: boolean;

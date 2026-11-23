@@ -32,12 +32,6 @@ if (dark) {
   await page.addInitScript(() => window.localStorage.setItem("sash.theme", "dark"));
 }
 page.on("pageerror", (err) => console.error("[pageerror]", err.message));
-if (process.env.SASH_UI_BOOTSTRAP) {
-  await page.goto(`${base}/#boot=${encodeURIComponent(process.env.SASH_UI_BOOTSTRAP)}`, {
-    timeout: 10_000,
-  });
-  await page.waitForFunction(() => sessionStorage.getItem("sash.control-token") !== null);
-}
 await page.goto(`${base}/#/${route}`, { timeout: 10_000 });
 await page.waitForTimeout(2000);
 await page.screenshot({ path: out, fullPage: full });

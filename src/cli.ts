@@ -56,7 +56,7 @@ program
 Examples:
   sash                 Show status
   sash start           Start Sash and Core
-  sash web             Open an authorized WebUI session
+  sash web             Open the WebUI
   sash logs -f         Follow Core logs
 
 Run sash <command> --help for details.`,
@@ -271,8 +271,8 @@ program
 
 program
   .command("web")
-  .description("Open an authorized WebUI session.")
-  .option("--no-open", "Print the URL without opening or authorizing a browser")
+  .description("Open the WebUI.")
+  .option("--no-open", "Print the URL without opening a browser")
   .action(
     lazyCommand(async (opts: { open: boolean }) =>
       (await import("./commands/web.js")).runWeb({ noOpen: !opts.open }),

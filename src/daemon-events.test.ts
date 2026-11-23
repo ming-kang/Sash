@@ -109,9 +109,8 @@ it("shares snapshots, pushes committed revisions and accepts authenticated brows
   await first.return(undefined);
   await second.return(undefined);
 
-  const token = await harness.mintWebSession();
   const browser = await request(`http://127.0.0.1:${harness.boundPort}/sash/events`, {
-    headers: { "x-sash-token": token },
+    headers: { "sec-fetch-site": "same-origin" },
     dispatcher: directDispatcherForLoopback(),
     signal: controller.signal,
   });

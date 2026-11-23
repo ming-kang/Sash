@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import type { DaemonStatus, HealthInfo, WebBootstrapInfo, WebSessionInfo } from "./contracts.js";
+import type { DaemonStatus, HealthInfo } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
+
+function statusCode(raw: string): number {
+  return Number(/^HTTP\/1\.1 (\d{3}) /.exec(raw)?.[1]);
+}
 
 describe("daemon browser authorization", () => {
   const h = useDaemonTestHarness();
 
-  it("never accepts the public identity as an HTTP or WebSocket credential", async () => {
+  it("never accepts missing headers or the public identity as control authorization", async () => {
     await h.startServer();
     const health = (await h.apiRequest("/sash/daemon/health", { token: "" })).data as HealthInfo;
     for (const [method, pathname] of [
@@ -15,31 +19,73 @@ describe("daemon browser authorization", () => {
       ["PATCH", "/sash/settings"],
       ["POST", "/sash/core/start"],
       ["POST", "/sash/daemon/shutdown"],
-      ["POST", "/sash/web/bootstrap"],
       ["GET", "/sash/autostart"],
       ["GET", "/sash/settings"],
       ["GET", "/sash/profiles"],
+      ["GET", "/sash/events"],
       ["GET", "/sash/daemon/status?fresh=1"],
       ["GET", "/sash/proxy?fresh=1"],
       ["GET", "/core/api/version"],
     ]) {
       assert.ok(method && pathname);
-      for (const credentials of [
-        { token: "" },
-        { token: health.bootId },
-        { webToken: health.bootId },
-      ]) {
-        const result = await h.apiRequest(pathname, { method, body: {}, ...credentials });
+      for (const token of ["", health.bootId]) {
+        const result = await h.apiRequest(pathname, { method, body: {}, token });
         assert.equal(result.statusCode, 401, `${method} ${pathname}`);
       }
     }
-    const upgrade = await h.rawWebSocketUpgrade("/core/api/logs", {
-      "Sec-WebSocket-Protocol": `sash, sash-token.${health.bootId}`,
-    });
-    assert.match(upgrade, /^HTTP\/1\.1 401 /);
+    assert.match(await h.rawWebSocketUpgrade("/core/api/logs"), /^HTTP\/1\.1 401 /);
   });
 
-  it("keeps subscription credentials private while CLI and browser reads remain authorized", async () => {
+  it("admits a page on its own origin without any credential", async () => {
+    await h.startServer();
+    for (const endpoint of ["/sash/settings", "/sash/profiles", "/sash/autostart"]) {
+      assert.equal((await h.apiRequest(endpoint, { browser: true })).statusCode, 200, endpoint);
+    }
+    const patched = await h.apiRequest("/sash/settings", {
+      method: "PATCH",
+      browser: true,
+      body: { allowLan: true },
+    });
+    assert.equal(patched.statusCode, 200);
+    const viaLocalhost = await h.rawHttpRequest("/sash/settings", {
+      headers: { Host: `localhost:${h.boundPort}`, Origin: `http://localhost:${h.boundPort}` },
+    });
+    assert.equal(statusCode(viaLocalhost), 200, "localhost serves its own origin too");
+  });
+
+  it("refuses pages on other origins, including other loopback ports", async () => {
+    await h.startServer();
+    for (const origin of [
+      `http://127.0.0.1:${h.boundPort + 1}`,
+      `http://localhost:${h.boundPort}`,
+      `https://127.0.0.1:${h.boundPort}`,
+    ]) {
+      const result = await h.apiRequest("/sash/settings", {
+        method: "PATCH",
+        token: "",
+        origin,
+        body: { allowLan: true },
+      });
+      assert.equal(result.statusCode, 401, origin);
+      assert.match(
+        await h.rawWebSocketUpgrade("/core/api/logs", { Origin: origin }),
+        /^HTTP\/1\.1 401 /,
+        origin,
+      );
+    }
+    for (const site of ["same-site", "cross-site", "none"]) {
+      const raw = await h.rawHttpRequest("/sash/settings", { headers: { "Sec-Fetch-Site": site } });
+      assert.equal(statusCode(raw), 401, site);
+    }
+    const sandboxed = await h.apiRequest("/sash/core/start", {
+      method: "POST",
+      token: "",
+      origin: "null",
+    });
+    assert.equal(sandboxed.statusCode, 403, "file:// and sandboxed pages carry an opaque Origin");
+  });
+
+  it("keeps subscription credentials private while CLI and dashboard reads remain authorized", async () => {
     const url = "https://example.test/subscription?token=private-query";
     await h.startServer({
       fetchProfile: async () => ({ yamlText: "proxies: []\n" }),
@@ -56,8 +102,7 @@ describe("daemon browser authorization", () => {
     const redacted = publicStatus.data as DaemonStatus;
     assert.equal(redacted.activeProfile?.url, "");
     assert.equal(redacted.configuration.appliedProfile?.url, "");
-    const session = await h.mintWebSession();
-    for (const credentials of [{ token: h.settings.daemonSecret }, { webToken: session }]) {
+    for (const credentials of [{ token: h.settings.daemonSecret }, { browser: true }]) {
       for (const endpoint of ["/sash/settings", "/sash/profiles"]) {
         assert.equal((await h.apiRequest(endpoint, credentials)).statusCode, 200);
       }
@@ -65,102 +110,5 @@ describe("daemon browser authorization", () => {
       assert.equal(status.activeProfile?.url, url);
       assert.equal(status.configuration.appliedProfile?.url, url);
     }
-  });
-
-  it("issues non-cacheable credentials and redeems each bootstrap once under concurrency", async () => {
-    const instance = await h.startServer();
-    const raw = await h.rawHttpRequest("/sash/web/bootstrap", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${h.settings.daemonSecret}` },
-    });
-    assert.match(raw, /\r\nCache-Control: no-store\r\n/i);
-    const bootstrap = JSON.parse(raw.split("\r\n\r\n")[1] ?? "") as WebBootstrapInfo;
-    assert.notEqual(bootstrap.token, instance.bootId);
-    const responses = await Promise.all(
-      [0, 1].map(() =>
-        h.apiRequest("/sash/web/session", {
-          method: "POST",
-          token: "",
-          body: { token: bootstrap.token },
-        }),
-      ),
-    );
-    assert.deepEqual(responses.map((response) => response.statusCode).sort(), [200, 401]);
-    const success = responses.find((response) => response.statusCode === 200);
-    assert.ok(success);
-    const session = success.data as WebSessionInfo;
-    assert.equal(session.daemonToken, instance.bootId);
-    assert.notEqual(session.token, bootstrap.token);
-    assert.equal(
-      (await h.apiRequest("/sash/autostart", { webToken: session.token })).statusCode,
-      200,
-    );
-    assert.equal(
-      (await h.apiRequest("/sash/autostart", { webToken: bootstrap.token })).statusCode,
-      401,
-    );
-  });
-
-  it("rejects malformed exchanges and cross-origin redemption without consuming the bootstrap", async () => {
-    await h.startServer();
-    for (const body of [{}, { token: "" }, { token: 1 }, { token: "unknown" }]) {
-      assert.equal(
-        (await h.apiRequest("/sash/web/session", { method: "POST", token: "", body })).statusCode,
-        401,
-      );
-    }
-    assert.equal(
-      (await h.apiRequest("/sash/web/session", { method: "POST", token: "", rawBody: "null" }))
-        .statusCode,
-      400,
-    );
-    assert.equal(
-      (
-        await h.apiRequest("/sash/web/session", {
-          method: "POST",
-          token: "",
-          body: { token: "x".repeat(1024) },
-        })
-      ).statusCode,
-      413,
-    );
-    const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
-      .data as WebBootstrapInfo;
-    assert.equal(
-      (
-        await h.apiRequest("/sash/web/session", {
-          method: "POST",
-          token: "",
-          body: bootstrap,
-          origin: "https://example.com",
-        })
-      ).statusCode,
-      403,
-    );
-    assert.equal(
-      (await h.apiRequest("/sash/web/session", { method: "POST", token: "", body: bootstrap }))
-        .statusCode,
-      200,
-    );
-  });
-
-  it("keeps browser sessions across daemon restarts while invalidating pending grants", async () => {
-    const before = await h.startServer();
-    const session = await h.mintWebSession();
-    const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
-      .data as WebBootstrapInfo;
-    await before.close();
-    const after = await h.startServer();
-    assert.notEqual(after.bootId, before.bootId);
-    assert.equal((await h.apiRequest("/sash/autostart", { webToken: session })).statusCode, 200);
-    assert.equal(
-      (await h.apiRequest("/sash/web/session", { method: "POST", token: "", body: bootstrap }))
-        .statusCode,
-      401,
-    );
-    assert.equal(
-      (await h.apiRequest("/sash/autostart", { webToken: await h.mintWebSession() })).statusCode,
-      200,
-    );
   });
 });

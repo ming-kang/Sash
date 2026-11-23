@@ -32,7 +32,7 @@
   <text data-role="node-text" x="196" y="269" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">Runtime · profiles · Core</text>
   <text data-role="node-text" x="564" y="252" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#085041">Refresh &amp; streams</text>
   <text data-role="node-text" x="564" y="269" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">SSE · queries · telemetry</text>
-  <text data-role="node-text" x="380" y="380" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">API &amp; session</text>
+  <text data-role="node-text" x="380" y="380" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">API &amp; transport</text>
   <text data-role="node-text" x="380" y="397" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">Typed client · api/</text>
   <text data-role="node-text" x="380" y="516" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#141413">Sash local API</text>
   <text data-role="node-text" x="380" y="533" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3D3D3A">/sash/* · /core/api/*</text>

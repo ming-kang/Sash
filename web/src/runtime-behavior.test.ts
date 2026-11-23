@@ -32,7 +32,7 @@ describe("minimal Vue behavior harness", () => {
     const { runtimeNotice, store } = await import("./stores/index.js");
     const original = {
       status: store.status,
-      daemonOnline: store.daemonOnline,
+      connection: store.connection,
       resourceLoaded: store.resourceLoaded,
       resourceErrors: store.resourceErrors,
     };
@@ -49,12 +49,12 @@ describe("minimal Vue behavior harness", () => {
       app.mount(host as unknown as Element);
       assert.equal(host.textContent, "none");
 
-      store.daemonOnline = false;
+      store.connection = "offline";
       await nextTick();
       assert.equal(host.textContent, "offline");
 
       store.status = healthyStatus();
-      store.daemonOnline = true;
+      store.connection = "connected";
       store.resourceLoaded = {};
       store.resourceErrors = { configs: "HTTP 502" };
       await nextTick();
@@ -70,7 +70,7 @@ describe("minimal Vue behavior harness", () => {
     } finally {
       app.unmount();
       store.status = original.status;
-      store.daemonOnline = original.daemonOnline;
+      store.connection = original.connection;
       store.resourceLoaded = original.resourceLoaded;
       store.resourceErrors = original.resourceErrors;
       await window.close();
@@ -114,9 +114,6 @@ describe("minimal Vue behavior harness", () => {
     const { startRuntimeEvents, store } = await import("./stores/index.js");
 
     const originalApi = {
-      hasSession: api.hasSession,
-      isInitialized: api.isInitialized,
-      initialize: api.initialize,
       events: api.events,
       getConfigs: api.getConfigs,
       getProxies: api.getProxies,
@@ -126,7 +123,7 @@ describe("minimal Vue behavior harness", () => {
     };
     const originalStore = {
       status: store.status,
-      daemonOnline: store.daemonOnline,
+      connection: store.connection,
       resourceLoaded: store.resourceLoaded,
       resourceErrors: store.resourceErrors,
     };
@@ -138,14 +135,6 @@ describe("minimal Vue behavior harness", () => {
     };
 
     let configReads = 0;
-    api.hasSession = () => true;
-    api.isInitialized = () => true;
-    api.initialize = async () => ({
-      bootId: "health",
-      pid: 100,
-      startedAt: "2026-01-01T00:00:00.000Z",
-      version: "1.0.0",
-    });
     api.events = (signal) =>
       (async function* () {
         while (!signal.aborted) {
@@ -168,7 +157,7 @@ describe("minimal Vue behavior harness", () => {
     api.getProfiles = async () => ({ activeId: null, profiles: [] });
 
     store.status = healthyStatus();
-    store.daemonOnline = true;
+    store.connection = "connected";
     store.resourceLoaded = {};
     store.resourceErrors = {};
 
@@ -221,7 +210,7 @@ describe("minimal Vue behavior harness", () => {
       stopRuntime?.();
       Object.assign(api, originalApi);
       store.status = originalStore.status;
-      store.daemonOnline = originalStore.daemonOnline;
+      store.connection = originalStore.connection;
       store.resourceLoaded = originalStore.resourceLoaded;
       store.resourceErrors = originalStore.resourceErrors;
       await window.close();
@@ -267,9 +256,6 @@ describe("minimal Vue behavior harness", () => {
     const { startRuntimeEvents, store } = await import("./stores/index.js");
 
     const originalApi = {
-      hasSession: api.hasSession,
-      isInitialized: api.isInitialized,
-      initialize: api.initialize,
       events: api.events,
       getConfigs: api.getConfigs,
       getProxies: api.getProxies,
@@ -279,7 +265,7 @@ describe("minimal Vue behavior harness", () => {
     };
     const originalStore = {
       status: store.status,
-      daemonOnline: store.daemonOnline,
+      connection: store.connection,
       resourceLoaded: store.resourceLoaded,
       resourceErrors: store.resourceErrors,
     };
@@ -291,14 +277,6 @@ describe("minimal Vue behavior harness", () => {
     };
 
     let configReads = 0;
-    api.hasSession = () => true;
-    api.isInitialized = () => true;
-    api.initialize = async () => ({
-      bootId: "health",
-      pid: 100,
-      startedAt: "2026-01-01T00:00:00.000Z",
-      version: "1.0.0",
-    });
     api.events = (signal) =>
       (async function* () {
         while (!signal.aborted) {
@@ -321,7 +299,7 @@ describe("minimal Vue behavior harness", () => {
     api.getProfiles = async () => ({ activeId: null, profiles: [] });
 
     store.status = healthyStatus();
-    store.daemonOnline = true;
+    store.connection = "connected";
     store.resourceLoaded = {};
     store.resourceErrors = {};
 
@@ -349,7 +327,7 @@ describe("minimal Vue behavior harness", () => {
       stopRuntime?.();
       Object.assign(api, originalApi);
       store.status = originalStore.status;
-      store.daemonOnline = originalStore.daemonOnline;
+      store.connection = originalStore.connection;
       store.resourceLoaded = originalStore.resourceLoaded;
       store.resourceErrors = originalStore.resourceErrors;
       await window.close();
@@ -393,9 +371,6 @@ describe("minimal Vue behavior harness", () => {
     const { startRuntimeEvents, store } = await import("./stores/index.js");
 
     const originalApi = {
-      hasSession: api.hasSession,
-      isInitialized: api.isInitialized,
-      initialize: api.initialize,
       events: api.events,
       getConfigs: api.getConfigs,
       getProxies: api.getProxies,
@@ -405,7 +380,7 @@ describe("minimal Vue behavior harness", () => {
     };
     const originalStore = {
       status: store.status,
-      daemonOnline: store.daemonOnline,
+      connection: store.connection,
       resourceLoaded: store.resourceLoaded,
       resourceErrors: store.resourceErrors,
     };
@@ -418,14 +393,6 @@ describe("minimal Vue behavior harness", () => {
 
     let finishInFlight: (() => void) | null = null;
     let configReads = 0;
-    api.hasSession = () => true;
-    api.isInitialized = () => true;
-    api.initialize = async () => ({
-      bootId: "health",
-      pid: 100,
-      startedAt: "2026-01-01T00:00:00.000Z",
-      version: "1.0.0",
-    });
     api.events = (signal) =>
       (async function* () {
         while (!signal.aborted) {
@@ -453,7 +420,7 @@ describe("minimal Vue behavior harness", () => {
     api.getProfiles = async () => ({ activeId: null, profiles: [] });
 
     store.status = healthyStatus();
-    store.daemonOnline = true;
+    store.connection = "connected";
     store.resourceLoaded = {};
     store.resourceErrors = {};
 
@@ -484,7 +451,7 @@ describe("minimal Vue behavior harness", () => {
       stopRuntime?.();
       Object.assign(api, originalApi);
       store.status = originalStore.status;
-      store.daemonOnline = originalStore.daemonOnline;
+      store.connection = originalStore.connection;
       store.resourceLoaded = originalStore.resourceLoaded;
       store.resourceErrors = originalStore.resourceErrors;
       await window.close();

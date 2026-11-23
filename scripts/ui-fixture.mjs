@@ -6,6 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { testProfile, testStatus } from "../src/testing/state.js";
 
+/** Added by the page route, never by the dashboard, to pair an event stream with its page. */
+const FIXTURE_HEADER = "x-ui-fixture";
+
 /** Static assets and registered SSE fixtures only; never forwards to a running daemon. */
 export async function serveUi() {
   const root = fileURLToPath(new URL("../dist/ui", import.meta.url));
@@ -21,7 +24,7 @@ export async function serveUi() {
     try {
       const pathname = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
       if (pathname === "/sash/events") {
-        const source = eventSources.get(req.headers["x-sash-token"]);
+        const source = eventSources.get(req.headers[FIXTURE_HEADER]);
         if (!source) {
           res.writeHead(401);
           res.end();
@@ -57,7 +60,7 @@ export async function serveUi() {
   });
   return {
     base: `http://127.0.0.1:${server.address().port}`,
-    registerEvents(token, status) {
+    registerEvents(fixtureId, status) {
       const source = {
         responses: new Set(),
         connections: 0,
@@ -70,7 +73,7 @@ export async function serveUi() {
             autostart: { state: "off", canEnable: true, reason: null },
           })}\n\n`,
       };
-      eventSources.set(token, source);
+      eventSources.set(fixtureId, source);
       return {
         get connections() {
           return source.connections;
@@ -84,7 +87,7 @@ export async function serveUi() {
         },
         close() {
           for (const res of source.responses) res.destroy();
-          eventSources.delete(token);
+          eventSources.delete(fixtureId);
         },
       };
     },
@@ -102,8 +105,8 @@ export async function fixturePage(browser, server, theme, viewport) {
   const page = await context.newPage();
   page.setDefaultTimeout(8000);
   const status = testStatus();
-  const token = randomUUID();
-  const events = server.registerEvents(token, () => status);
+  const fixtureId = randomUUID();
+  const events = server.registerEvents(fixtureId, () => status);
   context.on("close", () => events.close());
   const nodes = [
     "Node slow",
@@ -162,18 +165,11 @@ export async function fixturePage(browser, server, theme, viewport) {
   };
   page.on("pageerror", (error) => fixture.errors.push(error.message));
   await page.addInitScript(
-    ({ theme, bootId, token }) => {
+    ({ theme }) => {
       localStorage.setItem("sash.theme", theme);
       localStorage.setItem("sash.locale", "en");
-      sessionStorage.setItem(
-        "sash.control-token",
-        JSON.stringify({
-          token,
-          daemonToken: bootId,
-        }),
-      );
     },
-    { theme, bootId: status.daemon.bootId, token },
+    { theme },
   );
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -185,14 +181,9 @@ export async function fixturePage(browser, server, theme, viewport) {
     const endpoint = url.pathname;
     if (!endpoint.startsWith("/sash/") && !endpoint.startsWith("/core/")) return route.continue();
     const reply = (json, status = 200) => route.fulfill({ status, json });
-    if (endpoint === "/sash/daemon/health")
-      return reply({
-        token: status.daemon.bootId,
-        pid: status.daemon.pid,
-        startedAt: status.daemon.startedAt,
-      });
-    assert.equal(request.headers()["x-sash-token"], token);
-    if (endpoint === "/sash/events") return route.continue();
+    assert.equal(request.headers().authorization, undefined, "the dashboard sends no credential");
+    if (endpoint === "/sash/events")
+      return route.continue({ headers: { ...request.headers(), [FIXTURE_HEADER]: fixtureId } });
     if (endpoint === "/sash/daemon/status") {
       fixture.statusReads++;
       return reply(status);

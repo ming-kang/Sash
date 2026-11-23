@@ -67,14 +67,12 @@ describe("daemon server", () => {
       assert.equal(upstreamRequests, 0);
     });
 
-    it("injects the core authorization and strips daemon control credentials", async () => {
+    it("injects the core authorization for dashboard requests", async () => {
       let receivedAuth: string | undefined;
-      let receivedWebToken: string | undefined;
       let receivedPath: string | undefined;
 
       await h.startMockCore((req, res) => {
         receivedAuth = req.headers.authorization;
-        receivedWebToken = req.headers["x-sash-token"] as string | undefined;
         receivedPath = req.url;
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ version: "v1.19.30-meta" }));
@@ -82,14 +80,10 @@ describe("daemon server", () => {
 
       await h.startServer();
 
-      const res = await h.apiRequest("/core/api/version", {
-        token: "",
-        webToken: await h.mintWebSession(),
-      });
+      const res = await h.apiRequest("/core/api/version", { browser: true });
       assert.equal(res.statusCode, 200);
       assert.equal(receivedPath, "/version");
       assert.equal(receivedAuth, `Bearer ${h.settings.secret}`);
-      assert.equal(receivedWebToken, undefined);
       assert.deepEqual(res.data, { version: "v1.19.30-meta" });
 
       const invalidPrefix = await h.apiRequest("/core/apiX/version");
@@ -253,12 +247,11 @@ describe("daemon server", () => {
 
       await h.startServer();
       const response = await h.rawWebSocketUpgrade("/core/api/logs?level=info", {
-        Origin: `http://127.0.0.1:${h.boundPort}`,
-        "Sec-WebSocket-Protocol": `sash, sash-token.${await h.mintWebSession()}`,
+        Origin: h.dashboardOrigin,
       });
 
       assert.match(response, /^HTTP\/1\.1 101 Switching Protocols/);
-      assert.match(response, /\r\nsec-websocket-protocol: sash\r\n/i);
+      assert.doesNotMatch(response, /sec-websocket-protocol/i);
       assert.equal(receivedProtocols, undefined);
       assert.equal(receivedPath, "/logs?level=info");
     });

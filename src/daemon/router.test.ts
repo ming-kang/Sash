@@ -57,8 +57,6 @@ describe("daemon HTTP route matching", () => {
       ["PATCH", "/sash/settings", "control"],
       ["PUT", "/sash/autostart", "control"],
       ["GET", "/sash/profiles", "control"],
-      ["POST", "/sash/web/session", "bootstrap"],
-      ["POST", "/sash/web/bootstrap", "control"],
       ["POST", "/sash/profiles/import", "control"],
       ["PUT", "/sash/profiles/active", "control"],
       ["PATCH", "/sash/profiles/123", "control"],

@@ -11,13 +11,7 @@ import {
   unvalidatedSettingsPatchBodySchema,
 } from "../api-schemas.js";
 import { parseAutostartEnabled } from "../autostart/contract.js";
-import type {
-  HealthInfo,
-  SettingsPatch,
-  SystemProxyStatusResponse,
-  WebBootstrapInfo,
-  WebSessionInfo,
-} from "../contracts.js";
+import type { HealthInfo, SettingsPatch, SystemProxyStatusResponse } from "../contracts.js";
 import { validateCoreReleaseTag } from "../core.js";
 import { validateDelayTarget } from "../core-delay.js";
 import { errorMessage } from "../error-utils.js";
@@ -50,19 +44,6 @@ export function sashApiRoutes(): readonly RouteDef[] {
       path: "/sash/daemon/shutdown",
       auth: "control",
       handler: shutdownDaemon,
-    },
-    {
-      methods: ["POST"],
-      path: "/sash/web/bootstrap",
-      auth: "control",
-      handler: createWebBootstrap,
-    },
-    {
-      methods: ["POST"],
-      path: "/sash/web/session",
-      auth: "bootstrap",
-      bodyLimit: JSON_KB,
-      handler: redeemWebBootstrap,
     },
     {
       methods: ["POST"],
@@ -315,24 +296,6 @@ export function health(ctx: DaemonContext): RouteResponse {
     version: ctx.version,
   };
   return { status: 200, json: body };
-}
-
-export function createWebBootstrap(ctx: DaemonContext): RouteResponse {
-  const bootstrap = ctx.webAuth.createBootstrap();
-  const body: WebBootstrapInfo = { token: bootstrap.token, expiresAt: bootstrap.expiresAt };
-  return { status: 200, json: body };
-}
-
-export async function redeemWebBootstrap(
-  ctx: DaemonContext,
-  req: DaemonRequest,
-): Promise<RouteResponse> {
-  const body = await req.readJson();
-  const token = typeof body.token === "string" ? body.token.trim() : "";
-  const session = ctx.webAuth.redeemBootstrap(token);
-  if (!session) throw new HttpError(401, "Invalid or expired bootstrap token");
-  const response: WebSessionInfo = { token: session, daemonToken: ctx.bootId };
-  return { status: 200, json: response };
 }
 
 export async function daemonStatus(ctx: DaemonContext, req: DaemonRequest): Promise<RouteResponse> {

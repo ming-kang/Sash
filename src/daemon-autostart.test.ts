@@ -84,11 +84,10 @@ describe("autostart HTTP API", () => {
     const client = createDaemonClient(h.boundPort, h.settings.daemonSecret);
     assert.equal((await client.autostartStatus()).state, "off");
     assert.equal((await client.setAutostart(true)).state, "on");
-    const session = await h.mintWebSession();
     const response = await h.apiRequest("/sash/autostart", {
       method: "PUT",
       body: { enabled: false },
-      webToken: session,
+      browser: true,
     });
     assert.equal((response.data as AutostartStatus).state, "off");
     assert.equal(starts.mock.calls.length, 0);

@@ -3,7 +3,7 @@ import { Window as HappyWindow } from "happy-dom";
 import { afterEach, beforeEach, describe, it } from "vitest";
 import { nextTick } from "vue";
 import { testStatus } from "../../../src/testing/state.js";
-import { api, sessionReady } from "../api/index.js";
+import { api } from "../api/index.js";
 import type { TrafficMessage } from "../types/index.js";
 import { store } from "./state.js";
 import { startTrafficEvents } from "./traffic-events.js";
@@ -14,10 +14,9 @@ interface TrafficSocket {
 }
 
 const originalApi = api.connectTraffic;
-const originalSessionReady = sessionReady.value;
 const originalStore = {
   status: store.status,
-  daemonOnline: store.daemonOnline,
+  connection: store.connection,
   traffic: store.traffic,
 };
 const globalKeys = ["window", "document"] as const;
@@ -45,8 +44,7 @@ beforeEach(() => {
   store.status = testStatus();
   store.status.core.running = true;
   store.status.core.healthy = true;
-  store.daemonOnline = true;
-  sessionReady.value = true;
+  store.connection = "connected";
   api.connectTraffic = (onData) => {
     const socket: TrafficSocket = { send: onData, closed: false };
     sockets.push(socket);
@@ -59,9 +57,8 @@ beforeEach(() => {
 afterEach(async () => {
   stopTraffic?.();
   api.connectTraffic = originalApi;
-  sessionReady.value = originalSessionReady;
   store.status = originalStore.status;
-  store.daemonOnline = originalStore.daemonOnline;
+  store.connection = originalStore.connection;
   store.traffic = originalStore.traffic;
   await dom.close();
   for (const key of globalKeys) {

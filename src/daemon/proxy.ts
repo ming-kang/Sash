@@ -3,11 +3,7 @@ import http from "node:http";
 import type { Duplex } from "node:stream";
 import { errorMessage } from "../error-utils.js";
 import { parseControllerAddress } from "../settings.js";
-import {
-  coreWebSocketProtocols,
-  isControlMutation,
-  webSocketAuthResponseProtocol,
-} from "./auth.js";
+import { isControlMutation } from "./auth.js";
 import type { DaemonContext } from "./context.js";
 import { defaultCodeForStatus, errorToHttp, ShuttingDownError } from "./errors.js";
 import { type ParsedDaemonRequestTarget, sendError, sendSocketError } from "./http.js";
@@ -109,7 +105,6 @@ export function forwardHttpToCore(
   const upstreamHeaders = endToEndHeaders(req.headers);
   delete upstreamHeaders.host;
   delete upstreamHeaders.authorization;
-  delete upstreamHeaders["x-sash-token"];
   if (secret) {
     upstreamHeaders.authorization = `Bearer ${secret}`;
   }
@@ -175,13 +170,6 @@ export function forwardWsToCore(
   const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
   delete upstreamHeaders.host;
   delete upstreamHeaders.authorization;
-  delete upstreamHeaders["x-sash-token"];
-  const coreProtocols = coreWebSocketProtocols(upstreamHeaders["sec-websocket-protocol"]);
-  if (coreProtocols) {
-    upstreamHeaders["sec-websocket-protocol"] = coreProtocols;
-  } else {
-    delete upstreamHeaders["sec-websocket-protocol"];
-  }
   if (secret) {
     upstreamHeaders.authorization = `Bearer ${secret}`;
   }
@@ -245,12 +233,7 @@ export function forwardWsToCore(
 
     try {
       const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 101} ${proxyRes.statusMessage ?? "Switching Protocols"}\r\n`;
-      const responseHeaders = { ...proxyRes.headers };
-      if (!responseHeaders["sec-websocket-protocol"]) {
-        const authProtocol = webSocketAuthResponseProtocol(req.headers["sec-websocket-protocol"]);
-        if (authProtocol) responseHeaders["sec-websocket-protocol"] = authProtocol;
-      }
-      const headerLines = Object.entries(responseHeaders)
+      const headerLines = Object.entries(proxyRes.headers)
         .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
         .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
         .join("\r\n");

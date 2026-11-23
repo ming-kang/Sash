@@ -1,7 +1,7 @@
 import { watch } from "vue";
-import { api, sessionReady } from "../api/index.js";
+import { api } from "../api/index.js";
 import { resetTraffic } from "./core-actions.js";
-import { isCoreReady, store } from "./state.js";
+import { isConnected, isCoreReady, store } from "./state.js";
 import { addTraffic } from "./telemetry.js";
 
 const STALE_HISTORY_MS = 5000;
@@ -32,10 +32,7 @@ export function startTrafficEvents(intervalMs = 100): () => void {
   };
 
   const stopWatch = watch(
-    () =>
-      store.daemonOnline && isCoreReady.value && sessionReady.value
-        ? store.runtimeGeneration
-        : null,
+    () => (isConnected.value && isCoreReady.value ? store.runtimeGeneration : null),
     (generation) => {
       stopStream();
       if (generation === null) {

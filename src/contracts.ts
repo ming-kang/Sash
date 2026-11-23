@@ -7,8 +7,6 @@ import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy/types.js";
 
 export type { ProfileMeta, ProfilesIndex };
-export const WEB_SOCKET_AUTH_PROTOCOL = "sash";
-export const WEB_SOCKET_TOKEN_PROTOCOL_PREFIX = "sash-token.";
 
 export type ApiErrorCode =
   | "invalid_input"
@@ -27,14 +25,6 @@ export interface HealthInfo {
   pid: number;
   startedAt: string;
   version: string;
-}
-export interface WebBootstrapInfo {
-  token: string;
-  expiresAt: string;
-}
-export interface WebSessionInfo {
-  token: string;
-  daemonToken: string;
 }
 export interface CoreStartResult {
   pid: number;

@@ -9,6 +9,8 @@ const REVISION = /^[1-9]\d*\.yaml$/;
 const ATOMIC_REVISION = /^\.[1-9]\d*\.yaml\.[1-9]\d*\.[a-f0-9]{12}\.tmp$/;
 const VALIDATION_FILE =
   /^\.?config-validate-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\.yaml(?:\.[1-9]\d*\.[a-f0-9]{12}\.tmp)?$/;
+/** Browser handoff pages written by `sash web` up to 0.5.4; nothing creates them anymore. */
+const LEGACY_WEB_HANDOFF = /^web-bootstrap-\d{13}-[a-f0-9]{16}$/;
 
 export function pruneProfileFiles(
   layout: SashLayout,
@@ -78,6 +80,10 @@ export function pruneProfileFiles(
       if (entry.isDirectory() && /^core-(?:staged|download)-[A-Za-z0-9]{6}$/.test(entry.name)) {
         for (const file of entries(location))
           if (coreNames.has(file.name)) tryRemoveOld(path.join(location, file.name));
+        removeEmptyOldDirectory(location);
+      }
+      if (entry.isDirectory() && LEGACY_WEB_HANDOFF.test(entry.name)) {
+        tryRemoveOld(path.join(location, "index.html"));
         removeEmptyOldDirectory(location);
       }
     }

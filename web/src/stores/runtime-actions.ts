@@ -14,12 +14,11 @@ import {
 
 export function markDaemonOffline(): void {
   resetCoreState();
-  store.daemonOnline = false;
+  store.connection = "offline";
   store.status = null;
-  api.markDisconnected();
 }
 
-type RuntimeRefreshResult = "status" | "stopped" | "degraded" | "unauthorized";
+type RuntimeRefreshResult = "status" | "stopped" | "degraded";
 
 export async function refreshStatus(): Promise<RuntimeRefreshResult> {
   return adoptRuntimeSnapshot(await api.getStatus());
@@ -27,10 +26,6 @@ export async function refreshStatus(): Promise<RuntimeRefreshResult> {
 
 export async function adoptRuntimeSnapshot(status: SashStatus): Promise<RuntimeRefreshResult> {
   adoptDaemonStatus(status);
-  if (!api.sessionMatches(status.daemon.bootId)) {
-    resetCoreState();
-    return "unauthorized";
-  }
   if (store.lastStateRevision !== status.revisions.state) {
     try {
       setProfiles(await api.getProfiles());
@@ -53,7 +48,7 @@ export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {
     const revision = store.status?.revisions.state;
     await (target ? api.enableSystemProxy(revision) : api.disableSystemProxy(revision));
     return await refreshStatus().then(
-      (result) => result !== "unauthorized",
+      () => true,
       () => false,
     );
   } catch (error) {
@@ -75,7 +70,7 @@ export async function saveNetworkSettings(
       expectedRevision: store.status?.revisions.state,
     });
     return await refreshStatus().then(
-      (result) => result !== "unauthorized",
+      () => true,
       () => false,
     );
   } catch (error) {

@@ -1,136 +1,5 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
 import type { IncomingMessage } from "node:http";
-import { WEB_SOCKET_AUTH_PROTOCOL, WEB_SOCKET_TOKEN_PROTOCOL_PREFIX } from "../contracts.js";
-import { atomicWriteFileSync } from "../fs-atomic.js";
-import { isPlainObject } from "../json-shape.js";
-
-export const WEB_BOOTSTRAP_TTL_MS = 90_000;
-const MAX_PENDING_BOOTSTRAPS = 32;
-const MAX_SESSIONS = 256;
-const WEB_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-const SESSION_FILE_LIMIT = 256 * 1024;
-
-interface WebSessionSeed {
-  hash: string;
-  expiresAt: number;
-}
-
-function parseWebSessionSeeds(value: unknown): WebSessionSeed[] {
-  const seeds = (value as { seeds?: unknown })?.seeds;
-  if (!Array.isArray(seeds) || seeds.length > MAX_SESSIONS * 2) return [];
-  return seeds.flatMap((seed: unknown): WebSessionSeed[] => {
-    const record = seed as Record<string, unknown> | null;
-    if (
-      !isPlainObject(record) ||
-      typeof record.hash !== "string" ||
-      typeof record.expiresAt !== "number" ||
-      !Number.isSafeInteger(record.expiresAt)
-    )
-      return [];
-    return [{ hash: record.hash, expiresAt: record.expiresAt }];
-  });
-}
-
-function hashToken(token: string): string {
-  return crypto.hash("sha256", token);
-}
-
-export class WebAuthManager {
-  private readonly pendingBootstraps = new Map<string, number>();
-  private readonly sessions = new Map<string, number>();
-  private persistedSessions = new Map<string, number>();
-
-  constructor(private readonly sessionsFile?: string) {
-    if (!sessionsFile) return;
-    try {
-      const text = fs.readFileSync(sessionsFile, "utf8");
-      if (text.length > SESSION_FILE_LIMIT) return;
-      const now = Date.now();
-      for (const seed of parseWebSessionSeeds(JSON.parse(text) as unknown)) {
-        if (seed.expiresAt > now) this.setSession(seed.hash, seed.expiresAt);
-      }
-      this.persistedSessions = new Map(this.sessions);
-    } catch {}
-  }
-
-  private persist(now = Date.now()): void {
-    if (!this.sessionsFile) return;
-    this.sweepExpired(now);
-    if (!this.sessions.size) return;
-    const seeds: WebSessionSeed[] = Array.from(this.sessions, ([hash, expiresAt]) => ({
-      hash,
-      expiresAt,
-    }));
-    try {
-      atomicWriteFileSync(this.sessionsFile, `${JSON.stringify({ seeds })}\n`, 0o600);
-      this.persistedSessions = new Map(this.sessions);
-    } catch {}
-  }
-
-  createBootstrap(now = Date.now()): { token: string; expiresAt: string } {
-    this.sweepExpired(now);
-    while (this.pendingBootstraps.size >= MAX_PENDING_BOOTSTRAPS) {
-      const oldest = this.pendingBootstraps.keys().next().value;
-      if (oldest === undefined) break;
-      this.pendingBootstraps.delete(oldest);
-    }
-    const token = crypto.randomBytes(32).toString("hex");
-    const expiresAtMs = now + WEB_BOOTSTRAP_TTL_MS;
-    this.pendingBootstraps.set(token, expiresAtMs);
-    return { token, expiresAt: new Date(expiresAtMs).toISOString() };
-  }
-
-  redeemBootstrap(token: string, now = Date.now()): string | null {
-    this.sweepExpired(now);
-    if (!token) return null;
-    const expiresAt = this.pendingBootstraps.get(token);
-    if (expiresAt === undefined || expiresAt <= now) return null;
-    this.pendingBootstraps.delete(token);
-    const session = crypto.randomBytes(32).toString("hex");
-    this.adoptSession(hashToken(session), now);
-    return session;
-  }
-
-  isSession(token: string, now = Date.now()): boolean {
-    if (!token) return false;
-    const hash = hashToken(token);
-    const expiresAt = this.sessions.get(hash);
-    if (expiresAt === undefined) return false;
-    if (expiresAt <= now) {
-      this.sessions.delete(hash);
-      return false;
-    }
-    this.adoptSession(hash, now);
-    return true;
-  }
-
-  private setSession(hash: string, expiresAt: number): void {
-    this.sessions.delete(hash);
-    while (this.sessions.size >= MAX_SESSIONS) {
-      const oldest = this.sessions.keys().next().value;
-      if (oldest === undefined) break;
-      this.sessions.delete(oldest);
-    }
-    this.sessions.set(hash, expiresAt);
-  }
-
-  private adoptSession(hash: string, now: number): void {
-    const stored = this.persistedSessions.get(hash);
-    const expiresAt = now + WEB_SESSION_TTL_MS;
-    this.setSession(hash, expiresAt);
-    if (stored === undefined || expiresAt - stored > WEB_SESSION_TTL_MS / 2) this.persist(now);
-  }
-
-  private sweepExpired(now: number): void {
-    for (const [key, expiresAt] of this.pendingBootstraps) {
-      if (expiresAt <= now) this.pendingBootstraps.delete(key);
-    }
-    for (const [key, expiresAt] of this.sessions) {
-      if (expiresAt <= now) this.sessions.delete(key);
-    }
-  }
-}
 
 function firstHeader(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -157,10 +26,9 @@ export function isLoopbackHostHeader(value: string | undefined): boolean {
 }
 
 export function isLoopbackOriginHeader(value: string | undefined): boolean {
-  // Same-origin browser requests and non-browser CLI clients do not send an
-  // Origin header. The boundary defense is the loopback Host check plus
-  // per-request credentials, neither of which is ambient, so a missing Origin
-  // is accepted here — a cross-origin browser request always carries Origin.
+  // Same-origin browser GETs and non-browser CLI clients do not send an Origin
+  // header, so a missing Origin passes this boundary; control routes still
+  // require the CLI bearer or a same-origin dashboard request.
   if (!value) return true;
   try {
     return isLoopbackHostname(new URL(value).hostname);
@@ -173,57 +41,33 @@ export function isControlMutation(method: string): boolean {
   return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 }
 
-export interface ControlAuthorization {
-  daemonSecret: string;
-  isSessionToken: (token: string) => boolean;
+/**
+ * The dashboard is trusted by where it is served from, not by a credential: any
+ * page loaded from this Sash's own origin may control it. Browsers stamp every
+ * request with provenance a page cannot forge — Origin on state-changing
+ * requests and WebSocket handshakes, Sec-Fetch-Site on the rest — so pages on
+ * other sites, and on other loopback ports, are refused. Local processes can
+ * send either header; they are inside the trust boundary.
+ */
+export function isSameOriginBrowserRequest(req: IncomingMessage): boolean {
+  const host = firstHeader(req.headers.host);
+  if (!isLoopbackHostHeader(host)) return false;
+  const origin = firstHeader(req.headers.origin);
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      return url.protocol === "http:" && url.host === new URL(`http://${host}`).host;
+    } catch {
+      return false;
+    }
+  }
+  return firstHeader(req.headers["sec-fetch-site"]).trim().toLowerCase() === "same-origin";
 }
 
-export function isControlRequestAuthorized(
-  req: IncomingMessage,
-  opts: ControlAuthorization,
-): boolean {
+/** An explicit bearer must be the daemon secret; without one, only the dashboard's own origin is admitted. */
+export function isControlRequestAuthorized(req: IncomingMessage, daemonSecret: string): boolean {
   const authorization = firstHeader(req.headers.authorization);
   const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? "";
-  if (bearer && opts.daemonSecret && secretsEqual(bearer, opts.daemonSecret)) return true;
-
-  const webToken = firstHeader(req.headers["x-sash-token"]).trim();
-  return Boolean(webToken && opts.isSessionToken(webToken));
-}
-
-function webSocketProtocols(value: string | string[] | undefined): string[] {
-  return (Array.isArray(value) ? value.join(",") : (value ?? ""))
-    .split(",")
-    .map((protocol) => protocol.trim())
-    .filter(Boolean);
-}
-
-export function isWebSocketRequestAuthorized(
-  req: IncomingMessage,
-  opts: ControlAuthorization,
-): boolean {
-  if (isControlRequestAuthorized(req, opts)) return true;
-  return webSocketProtocols(req.headers["sec-websocket-protocol"]).some((protocol) => {
-    if (!protocol.startsWith(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX)) return false;
-    const token = protocol.slice(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX.length);
-    return opts.isSessionToken(token);
-  });
-}
-
-export function webSocketAuthResponseProtocol(
-  value: string | string[] | undefined,
-): string | undefined {
-  const protocols = webSocketProtocols(value);
-  return (
-    protocols.find((protocol) => protocol === WEB_SOCKET_AUTH_PROTOCOL) ??
-    protocols.find((protocol) => protocol.startsWith(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX))
-  );
-}
-
-export function coreWebSocketProtocols(value: string | string[] | undefined): string | undefined {
-  const protocols = webSocketProtocols(value).filter(
-    (protocol) =>
-      protocol !== WEB_SOCKET_AUTH_PROTOCOL &&
-      !protocol.startsWith(WEB_SOCKET_TOKEN_PROTOCOL_PREFIX),
-  );
-  return protocols.length > 0 ? protocols.join(", ") : undefined;
+  if (bearer) return Boolean(daemonSecret) && secretsEqual(bearer, daemonSecret);
+  return isSameOriginBrowserRequest(req);
 }

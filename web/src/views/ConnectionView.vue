@@ -1,6 +1,7 @@
 <template>
-  <PageHeader :title="t('status.connectTitle')" />
+  <PageHeader :title="t(refused ? 'status.refusedTitle' : 'status.offlineTitle')" />
   <section class="connection-panel">
+    <p class="connection-hint">{{ t(refused ? 'status.refusedHint' : 'status.offlineHint') }}</p>
     <div class="command-row">
       <code class="mono">{{ COMMAND }}</code>
       <button
@@ -22,6 +23,8 @@ import { onBeforeUnmount, ref } from "vue";
 import Icon from "../components/Icon.vue";
 import PageHeader from "../components/PageHeader.vue";
 import { t } from "../i18n/index.js";
+
+defineProps<{ refused: boolean }>();
 
 const COMMAND = "sash web";
 const copied = ref(false);
@@ -55,6 +58,9 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer));
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.6;
+}
+.connection-hint {
+  margin: 0 0 14px;
 }
 .command-row {
   display: flex;

@@ -2,25 +2,18 @@ import assert from "node:assert/strict";
 import type { IncomingMessage } from "node:http";
 import { describe, it } from "vitest";
 import {
-  coreWebSocketProtocols,
   isControlMutation,
   isControlRequestAuthorized,
   isLoopbackHostHeader,
   isLoopbackOriginHeader,
-  isWebSocketRequestAuthorized,
-  webSocketAuthResponseProtocol,
+  isSameOriginBrowserRequest,
 } from "./daemon/auth.js";
 
 function request(headers: IncomingMessage["headers"]): IncomingMessage {
-  return { headers } as IncomingMessage;
+  return { headers: { host: "127.0.0.1:19090", ...headers } } as IncomingMessage;
 }
 
 describe("daemon control authorization", () => {
-  const opts = {
-    daemonSecret: "persistent-secret",
-    isSessionToken: (token: string) => token === "session-token",
-  };
-
   it("accepts only loopback Host headers", () => {
     assert.equal(isLoopbackHostHeader("127.0.0.1:19090"), true);
     assert.equal(isLoopbackHostHeader("localhost:19090"), true);
@@ -45,52 +38,56 @@ describe("daemon control authorization", () => {
     assert.equal(isControlMutation("PATCH"), true);
   });
 
-  it("accepts the CLI bearer or a WebUI session token and rejects invalid credentials", () => {
+  it("recognizes requests from a page on the daemon's own origin", () => {
+    assert.equal(isSameOriginBrowserRequest(request({ origin: "http://127.0.0.1:19090" })), true);
+    assert.equal(isSameOriginBrowserRequest(request({ "sec-fetch-site": "same-origin" })), true);
     assert.equal(
-      isControlRequestAuthorized(request({ authorization: "Bearer persistent-secret" }), opts),
-      true,
-    );
-    assert.equal(
-      isControlRequestAuthorized(request({ "x-sash-token": "session-token" }), opts),
-      true,
-    );
-    // The public per-boot health identity never authorizes control requests.
-    assert.equal(
-      isControlRequestAuthorized(request({ "x-sash-token": "boot-token" }), opts),
-      false,
-    );
-    assert.equal(
-      isControlRequestAuthorized(request({ authorization: "Bearer wrong" }), opts),
-      false,
-    );
-    assert.equal(isControlRequestAuthorized(request({}), opts), false);
-  });
-
-  it("accepts WebSocket bearer/header auth or the private session subprotocol", () => {
-    assert.equal(
-      isWebSocketRequestAuthorized(
-        request({ "sec-websocket-protocol": "chat, sash-token.session-token" }),
-        opts,
+      isSameOriginBrowserRequest(
+        request({ host: "localhost:19090", origin: "http://LOCALHOST:19090" }),
       ),
       true,
     );
+  });
+
+  it("refuses other origins, other provenance and non-loopback hosts", () => {
+    for (const headers of [
+      { origin: "http://127.0.0.1:19091" },
+      { origin: "http://localhost:19090" },
+      { origin: "https://127.0.0.1:19090" },
+      { origin: "null" },
+      { origin: "http://127.0.0.1:19091", "sec-fetch-site": "same-origin" },
+      { "sec-fetch-site": "same-site" },
+      { "sec-fetch-site": "cross-site" },
+      { "sec-fetch-site": "none" },
+      {},
+      { host: "attacker.example:19090", origin: "http://attacker.example:19090" },
+      { host: "attacker.example:19090", "sec-fetch-site": "same-origin" },
+    ]) {
+      assert.equal(isSameOriginBrowserRequest(request(headers)), false, JSON.stringify(headers));
+    }
+  });
+
+  it("accepts the CLI bearer or the dashboard origin, and an explicit bearer must be right", () => {
+    const secret = "persistent-secret";
     assert.equal(
-      isWebSocketRequestAuthorized(request({ authorization: "Bearer persistent-secret" }), opts),
+      isControlRequestAuthorized(request({ authorization: "Bearer persistent-secret" }), secret),
       true,
     );
     assert.equal(
-      isWebSocketRequestAuthorized(request({ "sec-websocket-protocol": "sash-token.wrong" }), opts),
+      isControlRequestAuthorized(request({ "sec-fetch-site": "same-origin" }), secret),
+      true,
+    );
+    assert.equal(
+      isControlRequestAuthorized(
+        request({ authorization: "Bearer wrong", "sec-fetch-site": "same-origin" }),
+        secret,
+      ),
       false,
     );
     assert.equal(
-      coreWebSocketProtocols("sash, chat, sash-token.session-token, telemetry"),
-      "chat, telemetry",
+      isControlRequestAuthorized(request({ authorization: "Bearer wrong" }), secret),
+      false,
     );
-    assert.equal(coreWebSocketProtocols("sash, sash-token.session-token"), undefined);
-    assert.equal(webSocketAuthResponseProtocol("sash, sash-token.session-token"), "sash");
-    assert.equal(
-      webSocketAuthResponseProtocol("sash-token.session-token"),
-      "sash-token.session-token",
-    );
+    assert.equal(isControlRequestAuthorized(request({}), secret), false);
   });
 });

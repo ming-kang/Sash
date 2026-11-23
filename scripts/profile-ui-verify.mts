@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright";
 import YAML from "yaml";
-import type { WebBootstrapInfo } from "../src/contracts.js";
 import { DaemonTestHarness } from "../src/testing/daemon-harness.js";
 import { loadProfiles } from "../src/app-state.js";
 import { FakeCoreSupervisor } from "../src/testing/state.js";
@@ -102,15 +101,13 @@ assert.equal(
 const initialIds = loadProfiles(h.layout).profiles.map((profile) => profile.id);
 assert.equal((await h.apiRequest("/sash/core/start", { method: "POST" })).statusCode, 200);
 
-async function authorize(page: Page): Promise<void> {
+async function openDashboard(page: Page): Promise<void> {
   page.setDefaultTimeout(10_000);
   page.on("pageerror", (error) => errors.push(error.message));
   await page.addInitScript(() => {
     localStorage.setItem("sash.locale", "zh");
   });
-  const bootstrap = (await h.apiRequest("/sash/web/bootstrap", { method: "POST" }))
-    .data as WebBootstrapInfo;
-  await page.goto(`${origin}/ui/#boot=${bootstrap.token}`);
+  await page.goto(`${origin}/ui/`);
   await page.locator(".node-card").first().waitFor();
   await page.locator(".connection-panel").waitFor({ state: "detached" });
 }
@@ -183,7 +180,7 @@ try {
       await h.apiRequest("/sash/profiles/order", { method: "PUT", body: { ids: initialIds } });
       await h.apiRequest("/sash/profiles/active", { method: "PUT", body: { id: initialIds[3] } });
       const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-      await authorize(page);
+      await openDashboard(page);
       for (const width of [1956, 1440, 820, 390]) {
         await page.setViewportSize({ width, height: width < 500 ? 844 : 1000 });
         for (const theme of ["light", "dark"]) {
@@ -448,7 +445,7 @@ try {
       isMobile: true,
     });
     const page = await context.newPage();
-    await authorize(page);
+    await openDashboard(page);
     await profilesPage(page);
     await waitOrder(page, initialIds);
     await page.evaluate(() => {
