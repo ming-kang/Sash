@@ -6,8 +6,8 @@ import type { Directive } from "vue";
  * One singleton `.sash-tooltip` node serves every trigger. Hovered/focused
  * elements reveal it after a short delay; consecutive triggers within
  * a cooldown window reveal instantly (Devin/base-ui tooltip-group behaviour).
- * Elements without an accessible name get the text as `aria-label`, matching
- * what the removed `title` used to provide.
+ * Elements with neither an accessible name nor text of their own get the text
+ * as `aria-label`, matching what the removed `title` used to provide.
  */
 
 interface TooltipState {
@@ -16,6 +16,14 @@ interface TooltipState {
   timer: number;
   lastHide: number;
 }
+
+interface Trigger {
+  text: string;
+  /** Whether the element's aria-label was written by this directive. */
+  ownsLabel: boolean;
+}
+
+type Decorated = HTMLElement & { __sashTip?: Trigger };
 
 const SHOW_DELAY = 400;
 const GROUP_WINDOW = 600;
@@ -45,8 +53,10 @@ function place(target: HTMLElement): void {
   tip.dataset.side = above ? "top" : "bottom";
 }
 
-function show(target: HTMLElement, text: string): void {
+function show(target: Decorated): void {
   window.clearTimeout(state.timer);
+  const text = target.__sashTip?.text;
+  if (!text) return;
   state.owner = target;
   const tip = tipNode();
   tip.textContent = text;
@@ -58,11 +68,11 @@ function show(target: HTMLElement, text: string): void {
   }, 16);
 }
 
-function schedule(target: HTMLElement, text: string): void {
+function schedule(target: Decorated): void {
   window.clearTimeout(state.timer);
   state.owner = target;
   const delay = performance.now() - state.lastHide < GROUP_WINDOW ? 0 : SHOW_DELAY;
-  state.timer = window.setTimeout(() => show(target, text), delay);
+  state.timer = window.setTimeout(() => show(target), delay);
 }
 
 function hide(target: HTMLElement): void {
@@ -77,21 +87,35 @@ function textOf(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-type Decorated = HTMLElement & { __sashTip?: { open: () => void; close: () => void } };
+/** Text the element shows stays its name; the tooltip only names silent elements. */
+function syncLabel(el: Decorated, trigger: Trigger): void {
+  const named = el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby");
+  if (named && !trigger.ownsLabel) return;
+  const label = el.textContent?.trim() ? "" : trigger.text;
+  if (label) el.setAttribute("aria-label", label);
+  else if (trigger.ownsLabel) el.removeAttribute("aria-label");
+  trigger.ownsLabel = Boolean(label);
+}
+
+function sync(el: Decorated, trigger: Trigger, value: unknown): void {
+  const text = textOf(value);
+  const changed = text !== trigger.text;
+  trigger.text = text;
+  el.classList.toggle("has-tooltip", Boolean(text));
+  syncLabel(el, trigger);
+  if (!text) hide(el);
+  else if (changed && state.owner === el && state.node?.classList.contains("visible")) show(el);
+}
 
 export const vTooltip: Directive<Decorated, string> = {
   mounted(el, binding) {
-    if (!textOf(binding.value)) return;
-    if (!el.hasAttribute("aria-label") && !el.hasAttribute("aria-labelledby")) {
-      el.setAttribute("aria-label", textOf(binding.value));
-    }
-    el.classList.add("has-tooltip");
+    const trigger: Trigger = { text: "", ownsLabel: false };
+    el.__sashTip = trigger;
+    sync(el, trigger, binding.value);
     const open = () => {
-      const text = textOf(binding.value);
-      if (text) schedule(el, text);
+      if (trigger.text) schedule(el);
     };
     const close = () => hide(el);
-    el.__sashTip = { open, close };
     el.addEventListener("pointerenter", open);
     el.addEventListener("focusin", open);
     el.addEventListener("pointerleave", close);
@@ -99,14 +123,7 @@ export const vTooltip: Directive<Decorated, string> = {
     el.addEventListener("focusout", close);
   },
   updated(el, binding) {
-    if (!textOf(binding.value)) hide(el);
-    if (
-      !el.hasAttribute("aria-label") &&
-      !el.hasAttribute("aria-labelledby") &&
-      textOf(binding.value)
-    ) {
-      el.setAttribute("aria-label", textOf(binding.value));
-    }
+    if (el.__sashTip) sync(el, el.__sashTip, binding.value);
   },
   unmounted(el) {
     hide(el);
