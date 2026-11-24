@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Rework the overview's network controls: system proxy, TUN mode and LAN access are three switch rows; the TUN label opens a dialog describing the helper status and offering the install action.
 - The TUN dialog is now the TUN Mode settings menu: stack, auto-route and strict-route controls plus an advanced section for DNS hijack addresses, excluded CIDRs and the interface name (clear it to let the Core choose).
 - Merge profile `tun:` content key-by-key instead of discarding it: unmanaged keys (mtu, udp-timeout, route-address, include/exclude filters, ...) pass through, Sash settings own enable/stack/auto-route/auto-detect-interface/strict-route/device, and dns-hijack/route-exclude-address merge as profile ∪ settings; overridden profile keys are logged as warnings.
+- Translate the TUN settings menu title in the Chinese UI ("TUN 模式"); the technical labels stay in English by design.
 - A profile that disables `dns` or declares `tun` listeners no longer fails to render when TUN is enabled; the daemon fixes Core DNS and drops the listeners with a warning instead.
 - Accept more Mihomo fields in the privileged helper whitelist: additional `tun` tuning and routing keys, `sniffer`, top-level `udp`, `dns.fake-ip-ttl`, the `anytls` proxy type and `dialer-proxy`, http/file proxy providers with health checks, and provider/group `expected-status`, `filter` and `proxy` fields. Relative provider paths starting with `./` are accepted.
 
@@ -40,6 +41,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Keep the privileged Core controller private while supporting live routing-mode switches, profile reloads, and supervised restarts in TUN mode. The helper validates configuration changes and blocks raw configuration loads and Core upgrades.
 - Restore the TUN session automatically after the privileged helper restarts: the daemon detects the lost privileged Core and re-applies the saved TUN configuration once the platform service manager brings the helper back, instead of silently falling back to direct traffic until the next `sash restart`.
 - Fix profile operations (`sash profile add`, refresh, render) failing on a source checkout with `Cannot find package 'tsx'`: the profile worker now resolves the tsx loader by absolute path instead of relying on the daemon's working directory.
+- Sweep stale `.api-*` controller directories when the TUN helper starts on Linux and macOS, matching the Windows helper.
+- Reap the empty helper parent directory on uninstall: `C:\ProgramData\Sash` on Windows and the `/var/lib/sash-helper` work tree on Linux.
+- Surface the field-level validation reason in `PATCH /sash/settings` errors (for example `tun.device: Use utunN on macOS`) instead of a bare `Invalid settings patch`.
+- Report the installed helper version and paired-Core status in `sash tun helper status` and the TUN status payload, and keep the WebUI's TUN state in sync with out-of-band helper changes through the daemon event feed instead of per-mount polling.
+- Hint at `GITHUB_TOKEN` when `build:release` hits the GitHub API rate limit.
 - Authenticate TUN controller traffic through the local helper connection instead of issuing a second bearer token.
 - Apply TUN when the privileged Core is ready, without probing system routes or DNS. Core startup failures still roll back.
 - Install the TUN helper and its release-paired Core together with administrator consent. TUN no longer imports Core archives, reads consent receipts, or syncs the ordinary-mode Core.

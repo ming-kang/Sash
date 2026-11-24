@@ -151,8 +151,9 @@ exit 3
 
 /**
  * Uninstall stops the service first (a failed stop is an error, not a
- * warning), runs the journal cleanup, then removes only the paths the
- * install manifest recorded — never a recursive directory wipe.
+ * warning), runs the journal cleanup, then removes the manifest-recorded
+ * files and the dedicated work dir wholesale — it only ever holds helper
+ * runtime state (journal, caches, controller temp dirs), like macOS.
  */
 export const LINUX_HELPER_UNINSTALL_SCRIPT = `set -euo pipefail
 
@@ -189,8 +190,10 @@ else
     "$BIN"/mihomo-* "$BIN"/bootstrap-manifest.json "$WORK/config.yaml" \
     "$WORK/network-journal.json"
 fi
-rm -rf -- "$WORK/.cleanup.lock" "$WORK"/.api-* 2>/dev/null || true
-rmdir --ignore-fail-on-non-empty "$BIN" "$WORK" "$RUNTIME" 2>/dev/null || true
+# The work dir is dedicated helper state — wipe it whole so runtime caches
+# (cache.db, geo data, providers) never survive the uninstall either.
+rm -rf -- "$WORK"
+rmdir --ignore-fail-on-non-empty "$BIN" "$RUNTIME" 2>/dev/null || true
 exit 0
 `;
 

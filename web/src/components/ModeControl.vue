@@ -64,8 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import type { TunStatusResponse } from "../../../src/contracts.js";
+import { computed, ref } from "vue";
 import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
 import {
@@ -97,32 +96,19 @@ const modes = computed(() => [
 
 const allowLanOn = computed(() => store.status?.settings.allowLan ?? false);
 const tunEnabled = computed(() => store.status?.settings.tun?.enable ?? false);
-const tun = ref<TunStatusResponse>();
+// Driven by the daemon event feed (stores/runtime-events.ts): out-of-band
+// helper changes surface without a refresh, no per-mount polling needed.
+const tun = computed(() => store.tun);
 const installingHelper = ref(false);
 
 const showTunInfo = ref(false);
-
-watch(
-  [() => store.status?.daemon.bootId, () => store.status?.revisions.state, () => store.status?.revisions.runtime],
-  async ([bootId], _previous, onCleanup) => {
-    let current = true;
-    onCleanup(() => { current = false; });
-    try {
-      const observed = bootId ? await api.getTun() : undefined;
-      if (current) tun.value = observed;
-    } catch {
-      if (current) tun.value = undefined;
-    }
-  },
-  { immediate: true },
-);
 
 async function installHelper(): Promise<void> {
   installingHelper.value = true;
   const bootId = store.status?.daemon.bootId;
   try {
     const status = await api.installTunHelper();
-    if (bootId === store.status?.daemon.bootId) tun.value = status;
+    if (bootId === store.status?.daemon.bootId) store.tun = status;
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   } finally {

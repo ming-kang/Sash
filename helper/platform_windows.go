@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -55,13 +54,7 @@ func (p *windowsPlatform) ListenBeforeRecovery() bool { return true }
 
 func (p *windowsPlatform) Listen(ctx context.Context) (net.Listener, error) {
 	// Stale controller temp dirs from a crashed run are wiped before serving.
-	if entries, err := os.ReadDir(p.workDir); err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), ".api-") {
-				_ = os.RemoveAll(filepath.Join(p.workDir, entry.Name()))
-			}
-		}
-	}
+	sweepControllerTempDirs(p.workDir)
 	return listenAclPipe(ctx, p.pipePath, p.installerSid)
 }
 

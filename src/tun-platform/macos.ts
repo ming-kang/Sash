@@ -250,6 +250,8 @@ async function runElevatedScript(
   }
 }
 
+const PROTECTED_CORE_BIN = path.join(PROTECTED_BIN_DIR, "mihomo");
+
 /** The installed helper's embedded version (`--version`, side-effect free). */
 async function protectedHelperVersion(): Promise<string | null> {
   return await runSanitizedCommandAsync(HELPER_BIN, ["--version"], { timeoutMs: 3000 })
@@ -262,7 +264,7 @@ export function macosTunPlatform(): TunPlatform {
     supported: true,
 
     async inspect(_layout) {
-      const [plist, helper, installed, helperVersion] = await Promise.all([
+      const [plist, helper, installed, helperVersion, coreSynced] = await Promise.all([
         fsp
           .stat(LAUNCH_DAEMON_PLIST)
           .then((s) => s.isFile())
@@ -273,11 +275,21 @@ export function macosTunPlatform(): TunPlatform {
           .catch(() => false),
         probeHelper(),
         protectedHelperVersion(),
+        // The protected Core is paired when its digest matches the Core this
+        // package ships; an unreadable file reports "unknown", not "drifted".
+        Promise.all([
+          sha256File(PROTECTED_CORE_BIN).catch(() => null),
+          sha256File(packagedCoreSource()).catch(() => null),
+        ]).then(([installedCore, expectedCore]) =>
+          installedCore !== null && expectedCore !== null
+            ? installedCore === expectedCore
+            : null,
+        ),
       ]);
       if (!plist || !helper) return { installed: false };
-      // Pairing drift (helper version vs package version, or a missing
-      // protected Core) is reported by the shared layer via helperVersion.
-      return { installed, helperVersion };
+      // Pairing drift (helper version vs package version) is reported by the
+      // shared layer via helperVersion.
+      return { installed, helperVersion, coreSynced };
     },
 
     async install(layout) {

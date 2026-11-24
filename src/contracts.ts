@@ -98,6 +98,10 @@ export interface TunStatusResponse {
     mode: "helper";
     installed: boolean | null;
     needsReconsent: boolean;
+    /** Installed helper's reported version; null when unknown/not installed. */
+    version: string | null;
+    /** Whether the protected paired Core matches the packaged one; null when unknown. */
+    coreSynced: boolean | null;
   };
   supported: boolean;
 }

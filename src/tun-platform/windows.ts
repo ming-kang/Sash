@@ -378,6 +378,7 @@ export function windowsTunPlatform(): TunPlatform {
         return {
           installed: true,
           helperVersion: manifest?.helperVersion ?? null,
+          coreSynced: expected !== undefined && installedCoreDigest === expected,
           needsReconsent,
         };
       } catch {

@@ -3,6 +3,7 @@ import type { DaemonEvent } from "../sash-events.js";
 import type { DaemonContext } from "./context.js";
 import { sendError } from "./http.js";
 import { readDaemonStatus } from "./status.js";
+import { currentTunStatus } from "./tun-read.js";
 
 export function createEventObserver(context: () => DaemonContext) {
   let nextAutostartInspection = 0;
@@ -12,7 +13,10 @@ export function createEventObserver(context: () => DaemonContext) {
       nextAutostartInspection = Date.now() + 30_000;
       void ctx.autostart.inspect().catch(() => undefined);
     }
-    return { status: await readDaemonStatus(ctx), autostart: ctx.autostart.current() };
+    // The helper inspection behind this is cached inside TunService, so the
+    // 5s sampling is cheap; install/uninstall invalidates it immediately.
+    const tun = await currentTunStatus(ctx).catch(() => undefined);
+    return { status: await readDaemonStatus(ctx), autostart: ctx.autostart.current(), tun };
   };
 }
 
@@ -35,7 +39,7 @@ export class DaemonEvents {
   private lastEvent: DaemonEvent | undefined;
 
   constructor(
-    private readonly read: () => Promise<Pick<DaemonEvent, "status" | "autostart">>,
+    private readonly read: () => Promise<Pick<DaemonEvent, "status" | "autostart" | "tun">>,
     private readonly sampleMs = 5000,
   ) {}
 

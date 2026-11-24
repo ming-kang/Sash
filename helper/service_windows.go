@@ -478,12 +478,14 @@ func doUninstall(p *windowsPlatform) error {
 			if err := os.Rename(p.protectedDir, parked); err != nil {
 				return fmt.Errorf("could not remove protected dir: %w", err)
 			}
+			defer removeDirIfEmpty(filepath.Dir(p.protectedDir))
 			return scheduleDirRemoval(parked)
 		}
 	}
 	var lastErr error
 	for attempt := 0; attempt < 6; attempt++ {
 		if err := os.RemoveAll(p.protectedDir); err == nil {
+			removeDirIfEmpty(filepath.Dir(p.protectedDir))
 			return nil
 		} else {
 			lastErr = err
@@ -491,6 +493,12 @@ func doUninstall(p *windowsPlatform) error {
 		time.Sleep(1 * time.Second)
 	}
 	return fmt.Errorf("could not remove protected dir: %w", lastErr)
+}
+
+// removeDirIfEmpty reaps the now-empty parent of the protected tree
+// (ProgramData\Sash); a foreign file left behind keeps it, which is fine.
+func removeDirIfEmpty(dir string) {
+	_ = os.Remove(dir)
 }
 
 // scheduleDirRemoval spawns a detached cmd that waits for this process to

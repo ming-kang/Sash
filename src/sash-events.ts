@@ -1,11 +1,13 @@
 import type { AutostartStatus } from "./autostart/contract.js";
-import type { DaemonStatus } from "./contracts.js";
+import type { DaemonStatus, TunStatusResponse } from "./contracts.js";
 
 export interface DaemonEvent {
   schemaVersion: 1;
   sequence: number;
   status: DaemonStatus;
   autostart: AutostartStatus;
+  /** TUN snapshot so out-of-band helper changes surface without a page refresh. */
+  tun?: TunStatusResponse;
 }
 
 export function parseDaemonEvent(value: unknown): DaemonEvent {

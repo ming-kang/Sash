@@ -54,6 +54,20 @@ func (l *connListener) Accept() (net.Conn, error) {
 func (l *connListener) Close() error   { l.once.Do(func() { close(l.closed) }); return nil }
 func (l *connListener) Addr() net.Addr { return &net.UnixAddr{Name: "helper-controller", Net: "unix"} }
 
+// sweepControllerTempDirs removes private controller directories left behind
+// by a crashed run; the live run's own dir is created after the sweep.
+func sweepControllerTempDirs(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".api-") {
+			_ = os.RemoveAll(filepath.Join(dir, entry.Name()))
+		}
+	}
+}
+
 type controller struct {
 	dir, socket, address, secret string
 	transport                    *http.Transport

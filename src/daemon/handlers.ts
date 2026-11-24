@@ -21,6 +21,7 @@ import type { DaemonContext } from "./context.js";
 import { HttpError } from "./http.js";
 import type { DaemonRequest, RouteDef, RouteResponse } from "./router.js";
 import { readDaemonStatus } from "./status.js";
+import { currentTunStatus } from "./tun-read.js";
 
 const JSON_KB = 1024;
 const PROFILE_BODY_LIMIT = 8 * 1024 * 1024;
@@ -462,19 +463,22 @@ function readSettingsPatch(body: unknown): SettingsPatch {
   if (!parsed.success) {
     const unknownKey = parsed.error.issues.find((issue) => issue.code === "unrecognized_keys")
       ?.keys?.[0];
+    const first = parsed.error.issues[0];
+    const detail = first
+      ? `${first.path.join(".") ? `${first.path.join(".")}: ` : ""}${first.message}`
+      : "";
     throw new HttpError(
       400,
-      unknownKey !== undefined ? `Unknown settings field: ${unknownKey}` : "Invalid settings patch",
+      unknownKey !== undefined
+        ? `Unknown settings field: ${unknownKey}`
+        : `Invalid settings patch: ${detail}`,
     );
   }
   return parsed.data as SettingsPatch;
 }
 
 async function readTun(ctx: DaemonContext): Promise<RouteResponse> {
-  const applied = ctx.supervisor.isRunning()
-    ? ctx.lifecycle.configuration()?.settings.tun
-    : undefined;
-  return { status: 200, json: await ctx.tun.status(ctx.settings.committed().tun.enable, applied) };
+  return { status: 200, json: await currentTunStatus(ctx, true) };
 }
 
 async function setTunHelper(

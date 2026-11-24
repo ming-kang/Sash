@@ -105,6 +105,8 @@ func (p *darwinPlatform) WorkDir() string { return p.work }
 // live peer serves it, binds 0600, then grants the owner uid exactly write
 // on the socket.
 func (p *darwinPlatform) Listen(_ context.Context) (net.Listener, error) {
+	// Stale controller temp dirs from a crashed run are wiped before serving.
+	sweepControllerTempDirs(p.work)
 	runDir := filepath.Dir(p.socket)
 	if err := p.VerifyProtectedPath(context.Background(), runDir); err != nil {
 		return nil, err

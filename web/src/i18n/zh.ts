@@ -169,7 +169,7 @@ export const zh = {
     discardConfirm: "有未保存的修改，确定放弃？",
   },
   tun: {
-    title: "TUN Mode",
+    title: "TUN 模式",
     stateUnknown: "TUN Service 状态暂不可用",
     clickInstall: "Click to install",
     clickReconsent: "Click to re-authorize",

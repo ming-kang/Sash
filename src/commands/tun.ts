@@ -41,22 +41,38 @@ export async function runTun(
       return client.tunStatus();
     },
     (status) => {
-      log.table([
-        ["TUN Setting", status.desired ? "On" : "Off"],
-        ["TUN Applied", status.applied ? "On" : "Off"],
-        [
-          "TUN Helper",
-          !status.supported
-            ? "Not Supported"
-            : status.privilege.installed === null
-              ? "Unknown"
-              : status.privilege.installed
-                ? status.privilege.needsReconsent
-                  ? "Needs Re-consent (run sash tun helper install)"
-                  : "Installed"
-                : "Not Installed",
-        ],
-      ]);
+      const helperState = !status.supported
+        ? "Not Supported"
+        : status.privilege.installed === null
+          ? "Unknown"
+          : status.privilege.installed
+            ? status.privilege.needsReconsent
+              ? "Needs Re-consent (run sash tun helper install)"
+              : "Installed"
+            : "Not Installed";
+      const rows: [string, string][] =
+        action === "helper"
+          ? [
+              ["TUN Helper", helperState],
+              [
+                "Helper Version",
+                status.privilege.installed === true ? (status.privilege.version ?? "Unknown") : "—",
+              ],
+              [
+                "Paired Core",
+                status.privilege.coreSynced === true
+                  ? "Synced"
+                  : status.privilege.coreSynced === false
+                    ? "Drifted"
+                    : "Unknown",
+              ],
+            ]
+          : [
+              ["TUN Setting", status.desired ? "On" : "Off"],
+              ["TUN Applied", status.applied ? "On" : "Off"],
+              ["TUN Helper", helperState],
+            ];
+      log.table(rows);
       if (status.applied) log.info("Sash does not check OS routes or DNS interception.");
       if (status.desired !== status.applied) log.info("Run sash restart to Apply the TUN setting.");
     },

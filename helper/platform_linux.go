@@ -126,6 +126,8 @@ func (p *linuxPlatform) BinDir() string  { return p.binDir }
 func (p *linuxPlatform) WorkDir() string { return p.workDir }
 
 func (p *linuxPlatform) Listen(context.Context) (net.Listener, error) {
+	// Stale controller temp dirs from a crashed run are wiped before serving.
+	sweepControllerTempDirs(p.workDir)
 	// The socket must be 0600 before any peer can see it, so set the
 	// umask around bind rather than chmod afterwards. The installing
 	// user is granted access through a file ACL which only root can set.

@@ -33,7 +33,13 @@ async function fetchRelease(repo, tag) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) });
-      if (res.status !== 200) throw new Error(`HTTP ${res.status} for ${url}`);
+      if (res.status !== 200) {
+        const hint =
+          !process.env.GITHUB_TOKEN && (res.status === 403 || res.status === 429)
+            ? " — the GitHub API rate limit was reached; set GITHUB_TOKEN and retry"
+            : "";
+        throw new Error(`HTTP ${res.status} for ${url}${hint}`);
+      }
       return await res.json();
     } catch (error) {
       lastError = error;

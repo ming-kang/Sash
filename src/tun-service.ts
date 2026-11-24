@@ -8,6 +8,7 @@ interface TunHelperInspection {
   installed: boolean | null;
   helperVersion?: string | null;
   needsReconsent?: boolean;
+  coreSynced?: boolean | null;
 }
 
 function helperNeedsReconsent(status: TunHelperInspection): boolean {
@@ -40,16 +41,44 @@ export function unsupportedTunPlatform(): TunPlatform {
   };
 }
 
+/**
+ * Inspection shells out (service queries, digests, --version), so status
+ * callers that poll — the daemon event feed — share one result for
+ * INSPECT_TTL_MS. Install/uninstall invalidates the cache immediately, and
+ * interactive readers (CLI `tun status`) always inspect fresh.
+ */
+const INSPECT_TTL_MS = 30_000;
+
 export class TunService {
+  private inspectCache: { at: number; value: TunHelperInspection } | undefined;
+
   constructor(
     readonly platform: TunPlatform,
     private readonly layout: SashLayout,
   ) {}
 
-  async status(desired: boolean, applied: TunSettings | undefined): Promise<TunStatusResponse> {
-    const privilege = await this.platform.inspect(this.layout).catch(() => ({
-      installed: null,
-    }));
+  invalidateInspect(): void {
+    this.inspectCache = undefined;
+  }
+
+  private async inspect(fresh: boolean): Promise<TunHelperInspection> {
+    if (fresh) {
+      return this.platform.inspect(this.layout).catch(() => ({ installed: null }));
+    }
+    if (this.inspectCache && Date.now() - this.inspectCache.at < INSPECT_TTL_MS) {
+      return this.inspectCache.value;
+    }
+    const value = await this.platform.inspect(this.layout).catch(() => ({ installed: null }));
+    this.inspectCache = { at: Date.now(), value };
+    return value;
+  }
+
+  async status(
+    desired: boolean,
+    applied: TunSettings | undefined,
+    options: { fresh?: boolean } = {},
+  ): Promise<TunStatusResponse> {
+    const privilege = await this.inspect(options.fresh === true);
     const needsReconsent = helperNeedsReconsent(privilege);
     return {
       supported: this.platform.supported,
@@ -59,6 +88,8 @@ export class TunService {
         mode: "helper",
         installed: privilege.installed,
         needsReconsent,
+        version: privilege.helperVersion ?? null,
+        coreSynced: privilege.coreSynced ?? null,
       },
     };
   }
@@ -74,5 +105,6 @@ export class TunService {
   async setInstalled(installed: boolean): Promise<void> {
     if (installed) await this.platform.install(this.layout);
     else await this.platform.uninstall(this.layout);
+    this.invalidateInspect();
   }
 }
