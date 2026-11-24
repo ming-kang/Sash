@@ -88,6 +88,8 @@ export async function classifyProcessIdentityAsync(
 ): Promise<ProcessIdentity> {
   if (!isProcessAlive(pid)) return "mismatch";
   if (!expectedExe) return "unknown";
+  if (pid === process.pid)
+    return exePathsMatch(process.execPath, expectedExe) ? "match" : "mismatch";
   try {
     if (process.platform === "linux")
       return exePathsMatch(await fs.promises.readlink(`/proc/${pid}/exe`), expectedExe)
@@ -137,6 +139,8 @@ export async function classifyProcessNameAsync(
 ): Promise<ProcessIdentity> {
   if (!isProcessAlive(pid)) return "mismatch";
   if (!expectedExe) return "unknown";
+  if (pid === process.pid)
+    return imageMatchesExpectedExe(process.execPath, expectedExe) ? "match" : "mismatch";
   try {
     if (process.platform === "linux") {
       const observed = await fs.promises.readlink(`/proc/${pid}/exe`);
