@@ -10,7 +10,7 @@ import {
   type DaemonRunningInfo,
   evaluateDaemon,
 } from "./daemon-lifecycle.js";
-import { errorDetail } from "./error-utils.js";
+import { type ErrorPresentation, errorDetail } from "./error-utils.js";
 import type { DownloadTransport } from "./http.js";
 import type { SashLayout } from "./paths.js";
 import { getActiveProfile } from "./profiles.js";
@@ -459,40 +459,52 @@ export function runtimeStatusHeadline(status: CliRuntimeStatus): StatusHeadline 
   };
 }
 
-export function formatSystemProxyLine(desired: boolean, observed: CliObservedSystemProxy): string {
-  if (observed.supported === false) return "not supported on this system";
-  if (observed.enabled === null) return "unknown — could not read the OS setting";
-  if (desired && observed.enabled) return "on";
-  if (desired) return "on — not applied to the OS yet; run sash proxy on";
-  if (observed.enabled) {
-    const server = observed.server ? ` to ${observed.server}` : "";
-    return `off — the OS proxy is still set${server}; run sash proxy off`;
+export function systemProxyPresentation(
+  desired: boolean,
+  observed: CliObservedSystemProxy,
+): ErrorPresentation {
+  if (observed.supported === false) return { message: "not supported on this system" };
+  if (observed.enabled === null) return { message: "unknown — could not read the OS setting" };
+  if (desired === observed.enabled) return { message: observed.enabled ? "On" : "Off" };
+  if (desired) {
+    return {
+      message: "System proxy is Off; Sash is configured On.",
+      advice: "Run sash proxy on to apply it.",
+    };
   }
-  return "off";
+  const server = observed.server ? ` (${observed.server})` : "";
+  return {
+    message: `System proxy is On${server}; Sash is configured Off.`,
+    advice: "Run sash proxy status for details.",
+  };
 }
 
-export function formatAutostart(status: {
+export function autostartPresentation(status: {
   state: string;
   canEnable?: boolean;
   reason: string | null;
-}): string {
+}): ErrorPresentation {
   const { state, reason } = status;
   const repairable = status.canEnable !== false;
   switch (state) {
     case "on":
-      return "on";
+      return { message: "On" };
     case "off":
-      return repairable ? "off" : (reason ?? "not available for this installation");
+      return {
+        message: repairable ? "Off" : (reason ?? "not available for this installation"),
+      };
     case "stale":
-      return repairable ? "needs repair — run sash auto on" : (reason ?? "needs repair");
+      return repairable
+        ? { message: "needs repair.", advice: "Run sash auto on" }
+        : { message: reason ?? "needs repair" };
     case "disabled":
       return repairable
-        ? "disabled by the OS — run sash auto on to restore it"
-        : (reason ?? "disabled by the OS");
+        ? { message: "disabled by the OS.", advice: "Run sash auto on to restore it" }
+        : { message: reason ?? "disabled by the OS" };
     case "unsupported":
-      return reason ?? "not supported on this system";
+      return { message: reason ?? "not supported on this system" };
     default:
-      return reason ? `unknown — ${reason}` : "unknown";
+      return { message: reason ? `unknown — ${reason}` : "unknown" };
   }
 }
 

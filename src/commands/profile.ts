@@ -5,26 +5,49 @@ import {
   type RuntimeContext,
   resolveDaemonSession,
 } from "../daemon-session.js";
+import { withErrorPresentation } from "../error-utils.js";
 import { log } from "../log.js";
 import { getActiveProfile, type ProfileMeta, type ProfilesIndex } from "../profiles.js";
 import { runtimeContext } from "./shared.js";
+
+function updateTargetConflictError(): Error {
+  return withErrorPresentation(new Error("Use a profile ID/name or --all, not both"), {
+    message: "Specify a profile or --all, not both.",
+    advice: "Run sash profile update --help for examples.",
+  });
+}
 
 export function resolveProfileReference(index: ProfilesIndex, reference?: string): ProfileMeta {
   if (reference === undefined) {
     const active = getActiveProfile(index);
     if (!active)
-      throw new Error("No profile is selected — name one from sash profile list or pass --all");
+      throw withErrorPresentation(
+        new Error("No profile is selected — name one from sash profile list or pass --all"),
+        { message: "No profile is selected.", advice: "Specify a profile or use --all." },
+      );
     return active;
   }
   const id = index.profiles.find((profile) => profile.id === reference);
   if (id) return id;
   const matches = index.profiles.filter((profile) => profile.name === reference);
   if (matches.length > 1)
-    throw new Error(
-      `Profile name ${JSON.stringify(reference)} is ambiguous — use its ID from sash profile list`,
+    throw withErrorPresentation(
+      new Error(
+        `Profile name ${JSON.stringify(reference)} is ambiguous — use its ID from sash profile list`,
+      ),
+      {
+        message: `More than one profile is named ${JSON.stringify(reference)}.`,
+        advice: "Use an ID from sash profile list.",
+      },
     );
   if (!matches[0])
-    throw new Error(`Profile ${JSON.stringify(reference)} was not found — run sash profile list`);
+    throw withErrorPresentation(
+      new Error(`Profile ${JSON.stringify(reference)} was not found — run sash profile list`),
+      {
+        message: `Profile ${JSON.stringify(reference)} was not found.`,
+        advice: "Run sash profile list to see saved profiles.",
+      },
+    );
   return matches[0];
 }
 
@@ -34,7 +57,13 @@ export class CliProfiles {
   async list(): Promise<ProfilesIndex> {
     const owner = await resolveDaemonSession(this.context);
     if (owner.kind === "unhealthy")
-      throw new Error("Cannot verify the running Sash — run sash doctor to diagnose");
+      throw withErrorPresentation(
+        new Error("Cannot verify the running Sash — run sash doctor to diagnose"),
+        {
+          message: "Sash is not responding or its ownership could not be verified.",
+          advice: "Run sash logs --daemon --errors, then sash doctor.",
+        },
+      );
     return owner.kind === "daemon"
       ? owner.client.listProfiles()
       : loadProfiles(this.context.layout);
@@ -42,7 +71,10 @@ export class CliProfiles {
 
   async use(reference?: string, useDefault = false) {
     if (useDefault ? reference !== undefined : reference === undefined)
-      throw new Error("Specify one profile ID/name or --default");
+      throw withErrorPresentation(new Error("Specify one profile ID/name or --default"), {
+        message: "Specify a profile or --default.",
+        advice: "Run sash profile use --help for examples.",
+      });
     const { client } = await ensureDaemonSession(this.context);
     const profile = useDefault
       ? null
@@ -56,7 +88,7 @@ export class CliProfiles {
   }
 
   async update(reference?: string, all = false) {
-    if (all && reference !== undefined) throw new Error("Use a profile ID/name or --all, not both");
+    if (all && reference !== undefined) throw updateTargetConflictError();
     const { client } = await ensureDaemonSession(this.context);
     if (all) return client.updateAllProfiles();
     const profile = resolveProfileReference(await client.listProfiles(), reference);
@@ -150,8 +182,7 @@ export async function runProfileUpdate(
   await commandOutput(
     options.json,
     async () => {
-      if (options.all && reference !== undefined)
-        throw new Error("Use a profile ID/name or --all, not both");
+      if (options.all && reference !== undefined) throw updateTargetConflictError();
       const index = options.all ? null : await profiles().list();
       const target = index === null ? null : resolveProfileReference(index, reference);
       const result = await profiles().update(reference, options.all);

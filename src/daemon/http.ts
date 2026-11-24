@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { STATUS_CODES } from "node:http";
 import type { Duplex } from "node:stream";
 import { type ApiErrorCode, apiErrorBody } from "../contracts.js";
+import type { ErrorPresentation } from "../error-utils.js";
 
 export class HttpError extends Error {
   constructor(
@@ -193,6 +194,7 @@ export function sendError(
   statusCode: number,
   code: ApiErrorCode,
   message: string,
+  presentation?: ErrorPresentation,
 ): void {
-  sendJson(res, statusCode, apiErrorBody(code, message));
+  sendJson(res, statusCode, apiErrorBody(code, message, presentation));
 }

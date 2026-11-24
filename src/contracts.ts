@@ -1,4 +1,9 @@
 import type { CoreUpdateProgress, CoreUpdateResult } from "./core-update.js";
+import {
+  type ErrorPresentation,
+  parseErrorPresentation,
+  withErrorPresentation,
+} from "./error-utils.js";
 import type { DownloadTransport } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
 import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
@@ -20,7 +25,7 @@ export type ApiErrorCode =
   | "http"
   | "internal";
 export interface ApiErrorBody {
-  error: { code: string; message: string };
+  error: { code: string; message: string; presentation?: ErrorPresentation };
 }
 export interface HealthInfo {
   bootId: string;
@@ -127,25 +132,40 @@ export interface DaemonStatus {
   activeProfile: { id: string; name: string; url: string } | null;
 }
 
-export function apiErrorBody(code: ApiErrorCode, message: string): ApiErrorBody {
-  return { error: { code, message } };
+export function apiErrorBody(
+  code: ApiErrorCode,
+  message: string,
+  presentation?: ErrorPresentation,
+): ApiErrorBody {
+  return { error: { code, message, ...(presentation ? { presentation } : {}) } };
 }
 
 export class SashApiError extends Error {
+  readonly presentation?: ErrorPresentation;
+
   constructor(
     readonly status: number,
     readonly code: string | undefined,
     message: string,
+    presentation?: ErrorPresentation,
   ) {
     super(message);
     this.name = "SashApiError";
+    if (presentation) withErrorPresentation(this, presentation);
   }
 }
 
-export function parseApiErrorBody(value: unknown): { code: string; message: string } | undefined {
+export function parseApiErrorBody(
+  value: unknown,
+): { code: string; message: string; presentation?: ErrorPresentation } | undefined {
   if (!isPlainObject(value)) return undefined;
   const error = value.error;
   if (!isPlainObject(error) || typeof error.code !== "string" || typeof error.message !== "string")
     return undefined;
-  return { code: error.code, message: error.message };
+  const presentation = parseErrorPresentation(error.presentation);
+  return {
+    code: error.code,
+    message: error.message,
+    ...(presentation ? { presentation } : {}),
+  };
 }

@@ -5,7 +5,12 @@ import { errorMessage } from "../error-utils.js";
 import { parseControllerAddress } from "../settings.js";
 import { isControlMutation } from "./auth.js";
 import type { DaemonContext } from "./context.js";
-import { defaultCodeForStatus, errorToHttp, ShuttingDownError } from "./errors.js";
+import {
+  defaultCodeForStatus,
+  errorToHttp,
+  type HttpErrorMapping,
+  ShuttingDownError,
+} from "./errors.js";
 import { type ParsedDaemonRequestTarget, sendError, sendSocketError } from "./http.js";
 
 function parseHostPort(address: string): { host: string; port: number } {
@@ -81,7 +86,7 @@ export async function forwardToCore(
     else await forward();
   } catch (error) {
     if (!res.destroyed && !res.headersSent) {
-      const mapping =
+      const mapping: HttpErrorMapping =
         error instanceof ShuttingDownError
           ? errorToHttp(error)
           : {
@@ -89,7 +94,7 @@ export async function forwardToCore(
               code: "internal" as const,
               message: `Core controller unavailable: ${errorMessage(error)}`,
             };
-      sendError(res, mapping.status, mapping.code, mapping.message);
+      sendError(res, mapping.status, mapping.code, mapping.message, mapping.presentation);
     } else if (!res.destroyed) res.destroy();
   }
 }

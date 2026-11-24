@@ -19,7 +19,7 @@ import {
   readCoreUpdateTransaction,
 } from "../core-update.js";
 import type { CoreEngine } from "../engine/index.js";
-import { errorMessage } from "../error-utils.js";
+import { errorMessage, withErrorPresentation } from "../error-utils.js";
 import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
 import { type DownloadTransport, envProxyUri, formatProxyFallbackWarning } from "../http.js";
 import { countProxies, enforceTunConfiguration, type GeneratedConfig } from "../mihomo-config.js";
@@ -357,7 +357,13 @@ export class CoreControlService {
 
   private assertCurrentConfiguration(configuration: RuntimeConfiguration): void {
     if (runtimeDelta(configuration, this.savedTarget()).pending)
-      throw new StateConflictError("Saved configuration changed during preparation; retry Apply");
+      throw withErrorPresentation(
+        new StateConflictError("Saved configuration changed during preparation; retry Apply"),
+        {
+          message: "The saved configuration changed during preparation.",
+          advice: "Run sash restart to apply the current configuration.",
+        },
+      );
   }
 
   checkUpdate(): Promise<CoreUpdateCheck> {

@@ -22,6 +22,7 @@ import {
 } from "./contracts.js";
 import { CORE_DELAY_REQUEST_MS, type CoreDelayResult } from "./core-delay.js";
 import type { CoreUpdateCheck, CoreUpdateProgress } from "./core-update.js";
+import type { ErrorPresentation } from "./error-utils.js";
 import { isPlainObject } from "./json-shape.js";
 import { type DaemonEvent, decodeDaemonEvents } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
@@ -150,6 +151,7 @@ export class SashClient {
         response.status,
         parsedError?.code,
         message || `HTTP ${response.status}`,
+        parsedError?.presentation,
       );
     }
     return data as T;
@@ -451,14 +453,21 @@ export async function* readSashEvents(options: {
       } catch {}
       let message = text.slice(0, 300).trim();
       let code: string | undefined;
+      let presentation: ErrorPresentation | undefined;
       try {
         const error = parseApiErrorBody(JSON.parse(text));
         if (error) {
           message = error.message;
           code = error.code;
+          presentation = error.presentation;
         }
       } catch {}
-      throw new SashApiError(response.status, code, message || `HTTP ${response.status}`);
+      throw new SashApiError(
+        response.status,
+        code,
+        message || `HTTP ${response.status}`,
+        presentation,
+      );
     }
     if (response.contentType.split(";")[0]?.trim().toLowerCase() !== "text/event-stream")
       throw new Error("Sash did not return an event stream");

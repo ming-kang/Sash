@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { type SashState, type SashStateStore, StateConflictError } from "./app-state.js";
-import { errorDetail, errorMessage } from "./error-utils.js";
+import { errorDetail, errorMessage, withErrorPresentation } from "./error-utils.js";
 import { atomicWriteFile, durableRemoveFile } from "./fs-atomic.js";
 import {
   buildDefaultConfig,
@@ -334,8 +334,12 @@ export class ProfileService {
       const index = this.list();
       const before = this.requireProfile(index, id);
       if (before.revision !== revision)
-        throw new StateConflictError(
-          "Profile changed since the editor opened; reload before saving",
+        throw withErrorPresentation(
+          new StateConflictError("Profile changed since the editor opened; reload before saving"),
+          {
+            message: "The profile changed while you were editing it.",
+            advice: "Reload the profile and try again.",
+          },
         );
       const profile = await this.publishSource(
         index,
@@ -387,7 +391,14 @@ export class ProfileService {
 
   private async updateOnce(id: string): Promise<ProfileUpdateResult> {
     const before = this.requireProfile(this.list(), id);
-    if (!before.url) throw new ProfileInputError("Local profile has no URL to update from");
+    if (!before.url)
+      throw withErrorPresentation(
+        new ProfileInputError("Local profile has no URL to update from"),
+        {
+          message: "Local profiles have no subscription URL to update from.",
+          advice: "Edit the profile in WebUI or add a remote subscription.",
+        },
+      );
     const attemptedAt = new Date().toISOString();
     try {
       const fetched = await this.fetch(before.url);

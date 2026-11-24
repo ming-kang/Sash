@@ -14,13 +14,13 @@ import { type SashLayout, sashLayout } from "./paths.js";
 import { inspectInstallation } from "./sash-installation.js";
 import { DEFAULT_SETTINGS, parseControllerAddress } from "./settings.js";
 import {
+  autostartPresentation,
   type CliRuntimeStatus,
   collectRuntimeStatus,
   describeDownloadTransport,
-  formatAutostart,
-  formatSystemProxyLine,
   type StatusObservationContext,
   type StatusObservationDependencies,
+  systemProxyPresentation,
 } from "./status.js";
 import {
   inspectWindowsProxyConnections,
@@ -305,6 +305,15 @@ async function tunChecks(context: StatusObservationContext): Promise<DoctorCheck
 
 function autostartChecks(runtime: CliRuntimeStatus, layout: SashLayout): DoctorCheck[] {
   const auto = runtime.autostart;
+  const line = autostartPresentation(auto);
+  const advice = [
+    line.advice,
+    auto.state === "stale" || auto.state === "disabled"
+      ? "Run sash auto on to repair the entry, or sash auto off to remove it"
+      : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n");
   const checks = [
     check(
       "autostart",
@@ -315,10 +324,8 @@ function autostartChecks(runtime: CliRuntimeStatus, layout: SashLayout): DoctorC
           : auto.state === "unsupported"
             ? "info"
             : "ok",
-      formatAutostart(auto),
-      auto.state === "stale" || auto.state === "disabled"
-        ? "Run sash auto on to repair the entry, or sash auto off to remove it"
-        : undefined,
+      line.message,
+      advice || undefined,
     ),
   ];
   if (auto.state === "on" || auto.state === "stale" || auto.state === "disabled") {
@@ -387,12 +394,16 @@ async function runtimeChecks(
         ),
       );
     const proxy = runtime.systemProxy;
+    const proxyLine = systemProxyPresentation(proxy.desired, proxy.osObserved);
+    const proxyAdvice = [runtime.queryError, proxyLine.advice]
+      .filter((part): part is string => Boolean(part))
+      .join("\n");
     checks.push(
       check(
         "proxy",
         proxy.osObserved.enabled === null || proxy.daemonApplied === null ? "warning" : "ok",
-        formatSystemProxyLine(proxy.desired, proxy.osObserved),
-        runtime.queryError ?? undefined,
+        proxyLine.message,
+        proxyAdvice || undefined,
       ),
     );
     if (context.settings.tun.enable || runtime.daemon.state === "healthy") {

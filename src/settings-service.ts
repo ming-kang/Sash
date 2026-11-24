@@ -1,6 +1,6 @@
 import type { SashStateStore } from "./app-state.js";
 import type { SettingsPatch } from "./contracts.js";
-import { errorMessage } from "./error-utils.js";
+import { errorMessage, withErrorPresentation } from "./error-utils.js";
 import type { ProfileCommitBoundary } from "./profile-service.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { listenerSettingsChanged } from "./runtime-lifecycle.js";
@@ -57,7 +57,13 @@ export class SettingsService {
       if (patch.systemProxy === true) {
         const core = await this.options.supervisor.status();
         if (!core.running || !core.healthy)
-          throw new CoreUnhealthyError("Cannot enable system proxy: Core is not healthy");
+          throw withErrorPresentation(
+            new CoreUnhealthyError("Cannot enable system proxy: Core is not healthy"),
+            {
+              message: "Core is not healthy. System proxy was not enabled.",
+              advice: "Run sash doctor for details.",
+            },
+          );
       }
       this.options.state.assertCurrent(state.revision);
       const changed =

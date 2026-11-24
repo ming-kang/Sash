@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { withErrorPresentation } from "./error-utils.js";
 import { atomicWriteFile } from "./fs-atomic.js";
 import type { SashLayout } from "./paths.js";
 import { buildSanitizedEnv } from "./process.js";
@@ -186,9 +187,14 @@ export async function validateCoreConfig(
         { cause: error },
       );
     }
-    throw new Error(`Core rejected generated configuration: ${errorOutput(error)}`, {
-      cause: error,
-    });
+    const output = errorOutput(error);
+    throw withErrorPresentation(
+      new Error(`Core rejected generated configuration: ${output}`, { cause: error }),
+      {
+        message: `Core rejected the configuration: ${output}`,
+        advice: "Fix the profile in WebUI and apply it again.",
+      },
+    );
   } finally {
     fs.rmSync(candidate, { force: true });
   }

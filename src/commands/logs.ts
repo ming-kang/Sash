@@ -1,5 +1,6 @@
 import { once } from "node:events";
 import { cliOutputSignal } from "../cli-output.js";
+import { withErrorPresentation } from "../error-utils.js";
 import { log } from "../log.js";
 import { followLogFile, readLogTail } from "../log-follow.js";
 import { sashLayout } from "../paths.js";
@@ -14,7 +15,13 @@ export async function runLogs(
   } = {},
 ): Promise<void> {
   if (opts.startup && (opts.daemon || opts.errors)) {
-    throw new Error("--startup cannot be combined with --daemon or --errors");
+    throw withErrorPresentation(
+      new Error("--startup cannot be combined with --daemon or --errors"),
+      {
+        message: "--startup cannot be combined with --daemon or --errors.",
+        advice: "Use sash logs --startup to read login startup logs.",
+      },
+    );
   }
   const layout = sashLayout();
   let file: string;

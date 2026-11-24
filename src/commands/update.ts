@@ -2,6 +2,7 @@ import { commandOutput, coreUpdateProgressPrinter } from "../cli-output.js";
 import { validateCoreReleaseTag } from "../core.js";
 import { checkCoreUpdate, updateCoreWithProgress } from "../core-update.js";
 import { ensureDaemonSession, resolveDaemonSession } from "../daemon-session.js";
+import { withErrorPresentation } from "../error-utils.js";
 import { formatProxyFallbackWarning } from "../http.js";
 import { log } from "../log.js";
 import { sashLayout } from "../paths.js";
@@ -11,7 +12,14 @@ export async function runUpdate(
   opts: { version?: string; check?: boolean; cancel?: boolean; json?: boolean } = {},
 ): Promise<void> {
   if (opts.cancel) {
-    if (opts.check) throw new Error("--cancel checks nothing; drop --check to cancel a download");
+    if (opts.check)
+      throw withErrorPresentation(
+        new Error("--cancel checks nothing; drop --check to cancel a download"),
+        {
+          message: "--check and --cancel cannot be used together.",
+          advice: "Use sash update --check or sash update --cancel.",
+        },
+      );
     await cancelUpdate(opts.json === true);
     return;
   }

@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import { it, onTestFinished, vi } from "vitest";
 import { formatCliError, withCliErrors } from "./cli-errors.js";
 import { commandOutput } from "./cli-output.js";
+import { withErrorPresentation } from "./error-utils.js";
 
 it("clarifies CLI errors without changing their JSON message", async () => {
-  const failure = new Error("--cancel checks nothing; drop --check to cancel a download");
+  const failure = withErrorPresentation(
+    new Error("--cancel checks nothing; drop --check to cancel a download"),
+    {
+      message: "--check and --cancel cannot be used together.",
+      advice: "Use sash update --check or sash update --cancel.",
+    },
+  );
   assert.equal(
     formatCliError(failure),
     "--check and --cancel cannot be used together.\nUse sash update --check or sash update --cancel.",
@@ -26,6 +33,20 @@ it("clarifies CLI errors without changing their JSON message", async () => {
     () => {},
   );
   assert.deepEqual(JSON.parse(output), { error: failure.message });
+});
+
+it("renders the raw message when an error carries no presentation", () => {
+  assert.equal(
+    formatCliError(new Error("--cancel checks nothing; drop --check to cancel a download")),
+    "--cancel checks nothing; drop --check to cancel a download",
+  );
+  assert.equal(formatCliError("plain failure"), "plain failure");
+  assert.equal(
+    formatCliError(
+      withErrorPresentation(new Error("wire message"), { message: "Only a message." }),
+    ),
+    "Only a message.",
+  );
 });
 
 it("scopes stack traces to SASH_DEBUG and leaves JSON errors on stdout", async () => {

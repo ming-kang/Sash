@@ -1,6 +1,6 @@
 import { AutostartUnavailableError } from "../autostart/service.js";
 import type { ApiErrorCode } from "../contracts.js";
-import { errorMessage } from "../error-utils.js";
+import { type ErrorPresentation, errorMessage, errorPresentation } from "../error-utils.js";
 import {
   ProfileConflictError,
   ProfileInputError,
@@ -20,6 +20,7 @@ export interface HttpErrorMapping {
   status: number;
   code: ApiErrorCode;
   message: string;
+  presentation?: ErrorPresentation;
 }
 
 export function defaultCodeForStatus(status: number): ApiErrorCode {
@@ -33,6 +34,12 @@ export function defaultCodeForStatus(status: number): ApiErrorCode {
 }
 
 export function errorToHttp(err: unknown): HttpErrorMapping {
+  const mapping = classifyHttpError(err);
+  const presentation = errorPresentation(err);
+  return presentation ? { ...mapping, presentation } : mapping;
+}
+
+function classifyHttpError(err: unknown): HttpErrorMapping {
   if (err instanceof HttpError) {
     return {
       status: err.statusCode,

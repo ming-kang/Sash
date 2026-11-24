@@ -10,7 +10,7 @@ import {
   evaluateDaemon,
   stopDaemonFromCli,
 } from "./daemon-lifecycle.js";
-import { errorMessage } from "./error-utils.js";
+import { errorMessage, withErrorPresentation } from "./error-utils.js";
 import type { SashLayout } from "./paths.js";
 import { createDaemonClient, type SashDaemonClient } from "./sash-client-node.js";
 import type { SashSettings } from "./settings.js";
@@ -54,7 +54,10 @@ export async function ensureDaemonSession(
   ctx.settings = loadSettings(ctx.layout);
   const owner = await resolveDaemonSession(ctx);
   if (owner.kind !== "daemon") {
-    throw new Error("Sash did not become healthy — run sash doctor to diagnose");
+    throw withErrorPresentation(
+      new Error("Sash did not become healthy — run sash doctor to diagnose"),
+      { message: "Sash did not become healthy.", advice: "Run sash doctor to diagnose" },
+    );
   }
   return owner;
 }
@@ -91,7 +94,10 @@ export async function stopRuntime(ctx: RuntimeContext): Promise<{ wasRunning: bo
     await ensureDaemonSession(ctx);
   }
   if (!(await stopDaemonFromCli({ layout: ctx.layout, settings: ctx.settings })))
-    throw new Error("Sash shutdown could not be verified — run sash doctor to diagnose");
+    throw withErrorPresentation(
+      new Error("Sash shutdown could not be verified — run sash doctor to diagnose"),
+      { message: "Sash shutdown could not be verified.", advice: "Run sash doctor to diagnose" },
+    );
   return { wasRunning: initial.kind === "daemon" };
 }
 

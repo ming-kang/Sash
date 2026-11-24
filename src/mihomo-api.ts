@@ -9,7 +9,7 @@ import {
   delayFailureState,
   validateDelayTarget,
 } from "./core-delay.js";
-import { errorDetail } from "./error-utils.js";
+import { errorDetail, withErrorPresentation } from "./error-utils.js";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
 import { isPlainObject } from "./json-shape.js";
 import { parseControllerAddress } from "./settings.js";
@@ -197,8 +197,14 @@ export class MihomoApi {
     });
     if (response.statusCode < 200 || response.statusCode >= 300) {
       const message = await readErrorSummary(response);
-      throw new Error(
-        `Core rejected the configuration reload: HTTP ${response.statusCode}: ${message}`,
+      throw withErrorPresentation(
+        new Error(
+          `Core rejected the configuration reload: HTTP ${response.statusCode}: ${message}`,
+        ),
+        {
+          message: `Core rejected the configuration: HTTP ${response.statusCode}: ${message}`,
+          advice: "Fix the profile in WebUI and apply it again.",
+        },
       );
     }
     await response.discard();

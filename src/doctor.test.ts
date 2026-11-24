@@ -10,7 +10,7 @@ import type { DownloadTransport } from "./http.js";
 import { sashLayout } from "./paths.js";
 import { npmPackageRoot } from "./sash-installation.js";
 import type { StatusObservationDependencies } from "./status.js";
-import { createTestState, testStatus } from "./testing/state.js";
+import { createTestState, testSettings, testStatus } from "./testing/state.js";
 
 function writeSashPackage(prefix: string, version: string): string {
   const packageRoot = npmPackageRoot(prefix);
@@ -130,6 +130,7 @@ it("reports the last login start when start at login is on", async () => {
       inspectAutostart: async () => ({ state: "on", canEnable: true, reason: null }),
     };
     const withoutRecord = await diagnoseSash({ ...f, status: autostartOn });
+    assert.equal(withoutRecord.checks.find((check) => check.id === "autostart")?.message, "On");
     const loginCheck = withoutRecord.checks.find((check) => check.id === "login-start");
     assert.equal(loginCheck?.status, "info");
     assert.equal(loginCheck?.message, "no login start recorded yet");
@@ -305,9 +306,25 @@ it("reports port conflicts and unknown proxy observations alongside verified Cor
     });
     assert.equal(result.checks.find((check) => check.id === "core")?.status, "ok");
     assert.equal(result.checks.find((check) => check.id === "mixed-port")?.status, "error");
-    assert.equal(result.checks.find((check) => check.id === "proxy")?.status, "warning");
+    const proxyCheck = result.checks.find((check) => check.id === "proxy");
+    assert.equal(proxyCheck?.status, "warning");
+    assert.equal(proxyCheck?.message, "unknown — could not read the OS setting");
+    assert.match(proxyCheck?.advice ?? "", /system proxy: access denied/);
     assert.equal(result.complete, false);
     assert.deepEqual(fs.readFileSync(f.layout.settingsFile), saved);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+it("renders the system proxy mismatch as a structured message with advice", async () => {
+  const f = fixture();
+  try {
+    createTestState(f.layout, { ...testSettings(), systemProxy: true });
+    const result = await diagnoseSash({ ...f, inspectPort: async () => ({ available: true }) });
+    const proxyCheck = result.checks.find((check) => check.id === "proxy");
+    assert.equal(proxyCheck?.message, "System proxy is Off; Sash is configured On.");
+    assert.equal(proxyCheck?.advice, "Run sash proxy on to apply it.");
   } finally {
     await f.cleanup();
   }

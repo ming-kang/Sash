@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Keep CLI recovery advice synchronized with daemon errors through structured presentation metadata instead of matching error text, and restore the intended system-proxy and autostart guidance in `sash doctor`.
 - Deduplicate dashboard profile refreshes, catch up when state changes during a fetch, and discard profile responses from a previous daemon process.
 - Reject malformed profile field types and invalid settings revision or port values with HTTP 400 at the local API boundary instead of passing them through handler fallbacks.
 - Restore Linux system proxy settings key-by-key, preserving externally modified keys while recovering Sash-owned settings after partial applies or interrupted restores; legacy interrupted-restore journals remain supported.

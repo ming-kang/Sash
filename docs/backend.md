@@ -53,7 +53,7 @@ Both downloads are daemon-owned operations, not properties of the command that a
 
 The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) enumerates routes; [contracts.ts](../src/contracts.ts) and [SashClient](../src/sash-client.ts) define the wire types.
 
-Authorization: health, status and proxy observations are public reads; private profile URLs always need the bearer; everything else accepts either the CLI bearer or browser same-origin evidence (`Origin` equal to the loopback `Host`, or `Sec-Fetch-Site: same-origin` without `Origin`). A presented bearer must be valid. Errors are `{error: {code, message}}`; empty success is `204`.
+Authorization: health, status and proxy observations are public reads; private profile URLs always need the bearer; everything else accepts either the CLI bearer or browser same-origin evidence (`Origin` equal to the loopback `Host`, or `Sec-Fetch-Site: same-origin` without `Origin`). A presented bearer must be valid. Errors are `{error: {code, message}}` with optional `error.presentation: {message, advice?}` for CLI display; the top-level error `message` remains the raw wire message. Empty success is `204`.
 
 Status projects saved vs. running state through `configuration: {pending, appliedProfile, appliedSettings}`; `daemon.bootId` identifies the process and `revisions.state`/`revisions.runtime` track saved and binary changes — clients key their refreshes off these. SSE sends full snapshots from one shared observer; slow clients retain only the newest pending snapshot.
 

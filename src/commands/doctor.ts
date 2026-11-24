@@ -1,4 +1,3 @@
-import { formatCliError } from "../cli-errors.js";
 import { commandOutput } from "../cli-output.js";
 import { diagnoseSash } from "../doctor.js";
 import { log } from "../log.js";
@@ -39,10 +38,10 @@ export async function runDoctor(options: { json?: boolean } = {}): Promise<void>
       const rows = [["Check", "Result", "Details"]];
       const labels = { ok: "OK", info: "Info", warning: "Warning", error: "Error" };
       for (const check of result.checks) {
-        const [message, ...details] = formatCliError(check.message).split("\n");
+        const [message, ...details] = check.message.split("\n");
         rows.push([CHECK_LABELS[check.id] ?? check.id, labels[check.status], message ?? ""]);
         for (const detail of details) rows.push(["", "", detail]);
-        if (check.advice) rows.push(["", "", check.advice]);
+        for (const line of check.advice?.split("\n") ?? []) rows.push(["", "", line]);
       }
       log.table(rows);
       const errors = result.checks.filter((check) => check.status === "error").length;

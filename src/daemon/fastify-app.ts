@@ -195,7 +195,9 @@ export function buildDaemonApp(ctx: DaemonContext, routes: readonly RouteDef[]):
       }
       console.error(`[sashd] unhandled error in ${request.method} ${routePathname}:`, error);
     }
-    void reply.code(mapping.status).send(apiErrorBody(mapping.code, mapping.message));
+    void reply
+      .code(mapping.status)
+      .send(apiErrorBody(mapping.code, mapping.message, mapping.presentation));
   });
 
   for (const def of routes) {

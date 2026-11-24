@@ -10,12 +10,15 @@ import { readSashPackageInfo } from "./package-info.js";
 import { sashLayout } from "./paths.js";
 import { createDaemonClient } from "./sash-client-node.js";
 import {
+  autostartPresentation,
+  type CliObservedSystemProxy,
   collectRuntimeStatus,
   markIncompleteObservation,
   resolveObservedSystemProxy,
   runtimeStatusHeadline,
   type StatusObservationContext,
   type StatusObservationDependencies,
+  systemProxyPresentation,
 } from "./status.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { testSettings, testStatus } from "./testing/state.js";
@@ -186,6 +189,70 @@ describe("system proxy observation resolver", () => {
       "system proxy: access denied",
       "system proxy: could not read the OS setting",
     ]);
+  });
+});
+
+describe("autostart presentation", () => {
+  it("keeps the established labels and repair advice structured", () => {
+    assert.deepEqual(autostartPresentation({ state: "on", reason: null }), { message: "On" });
+    assert.deepEqual(autostartPresentation({ state: "off", reason: null }), { message: "Off" });
+    assert.deepEqual(autostartPresentation({ state: "stale", reason: null }), {
+      message: "needs repair.",
+      advice: "Run sash auto on",
+    });
+    assert.deepEqual(autostartPresentation({ state: "disabled", reason: null }), {
+      message: "disabled by the OS.",
+      advice: "Run sash auto on to restore it",
+    });
+  });
+});
+
+describe("system proxy presentation", () => {
+  const observed = (patch: Partial<CliObservedSystemProxy>): CliObservedSystemProxy => ({
+    supported: true,
+    enabled: false,
+    server: null,
+    details: null,
+    ...patch,
+  });
+
+  it("renders a matching desired state as On or Off", () => {
+    assert.deepEqual(systemProxyPresentation(true, observed({ enabled: true })), {
+      message: "On",
+    });
+    assert.deepEqual(systemProxyPresentation(false, observed({ enabled: false })), {
+      message: "Off",
+    });
+  });
+
+  it("advises sash proxy on when the desired-on state is not applied to the OS", () => {
+    assert.deepEqual(systemProxyPresentation(true, observed({ enabled: false })), {
+      message: "System proxy is Off; Sash is configured On.",
+      advice: "Run sash proxy on to apply it.",
+    });
+  });
+
+  it("advises sash proxy status when the OS proxy outlives the desired-off state", () => {
+    assert.deepEqual(systemProxyPresentation(false, observed({ enabled: true })), {
+      message: "System proxy is On; Sash is configured Off.",
+      advice: "Run sash proxy status for details.",
+    });
+    assert.deepEqual(
+      systemProxyPresentation(false, observed({ enabled: true, server: "127.0.0.1:7890" })),
+      {
+        message: "System proxy is On (127.0.0.1:7890); Sash is configured Off.",
+        advice: "Run sash proxy status for details.",
+      },
+    );
+  });
+
+  it("preserves the unknown and unsupported wording", () => {
+    assert.deepEqual(systemProxyPresentation(true, observed({ supported: false })), {
+      message: "not supported on this system",
+    });
+    assert.deepEqual(systemProxyPresentation(false, observed({ enabled: null })), {
+      message: "unknown — could not read the OS setting",
+    });
   });
 });
 

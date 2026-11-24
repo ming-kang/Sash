@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "vitest";
 import { readState } from "./app-state.js";
-import type { DaemonStatus, SettingsWriteResult } from "./contracts.js";
+import { formatCliError } from "./cli-errors.js";
+import { type DaemonStatus, SashApiError, type SettingsWriteResult } from "./contracts.js";
+import { createDaemonClient } from "./sash-client-node.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
@@ -230,5 +232,39 @@ describe("save and apply API", () => {
     assert.equal((await starting).statusCode, 200);
     assert.equal((await status()).configuration.appliedSettings?.mixedPort, 18888);
     assert.equal((await status()).configuration.pending, false);
+  });
+
+  it("transports an error presentation through HTTP to SashApiError", async () => {
+    await h.startServer();
+    const response = await h.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { systemProxy: true },
+    });
+    assert.equal(response.statusCode, 409);
+    assert.deepEqual(response.data, {
+      error: {
+        code: "core_unhealthy",
+        message: "Cannot enable system proxy: Core is not healthy",
+        presentation: {
+          message: "Core is not healthy. System proxy was not enabled.",
+          advice: "Run sash doctor for details.",
+        },
+      },
+    });
+
+    const client = createDaemonClient(h.boundPort, h.settings.daemonSecret);
+    const failure = await client.patchSettings({ systemProxy: true }).then(
+      () => {
+        throw new Error("expected the request to fail");
+      },
+      (error: unknown) => error,
+    );
+    assert.ok(failure instanceof SashApiError);
+    assert.equal(failure.status, 409);
+    assert.equal(failure.message, "Cannot enable system proxy: Core is not healthy");
+    assert.equal(
+      formatCliError(failure),
+      "Core is not healthy. System proxy was not enabled.\nRun sash doctor for details.",
+    );
   });
 });
