@@ -6,55 +6,38 @@ The Vue 3 / Vite dashboard lives in `web/src/`, builds to `dist/ui/` and is serv
 
 ![Views send actions through the API client. Responses and streams update shared state, which renders the views.](./assets/frontend-architecture.svg)
 
-## State and actions
+## State and refresh
 
-[stores/state.ts](../web/src/stores/state.ts) holds shared shallow-reactive state; large collections are replaced by reference. [stores/index.ts](../web/src/stores/index.ts) exposes actions and selectors to views.
+[stores/state.ts](../web/src/stores/state.ts) holds shared shallow-reactive state; [stores/index.ts](../web/src/stores/index.ts) exposes actions and selectors to views.
 
-Refreshes follow three values from Sash: `daemon.bootId` reconnects to the new Sash process and resets saved-state comparisons; `revisions.state` refreshes profile metadata; `daemon.bootId` + `revisions.runtime` clears the replaced Core's resources, traffic and manual latency results.
+Refresh is keyed on three values from status: `daemon.bootId` reconnects to a new Sash process and resets saved-state comparisons; `revisions.state` refreshes profile metadata; `bootId` + `revisions.runtime` clears a replaced Core's resources, traffic and latency results.
 
-Each Core resource has its own loading state and error. A failed query preserves that resource's previous data and marks it stale; other resources remain usable. Stopping or replacing Core clears its data.
+Each Core resource keeps its own loading and error state: a failed query marks that resource's data stale instead of blanking it, and other resources stay usable. Stopping or replacing Core clears its data.
 
-## Refresh and streams
+## Streams
 
-Sash status arrives through SSE at `/sash/events`; a connection starts with a full snapshot. Core tables refresh on a two-second schedule scoped to the current page.
+Status arrives over SSE (`/sash/events`), opening with a full snapshot — reconnection always restarts from a complete state. Core tables poll on a schedule scoped to the open page. Traffic uses one shared WebSocket per Core runtime: it keeps appending history while the tab is hidden and throttles commits while visible; logs pause when hidden. Streams stop when Sash or Core is unavailable.
 
-Page entry loads the relevant resources immediately. Saving a profile refreshes metadata and applies it to the running Core; Apply refreshes visible Core resources after replacement. Traffic uses one shared WebSocket scoped to the connected, healthy Core runtime and keeps appending history while the tab is hidden. Visible bursts are committed at most every 100ms, while hidden tabs retain every frame. Logs still pause when hidden; both streams stop when Sash or Core is unavailable. A traffic disconnect cancels any pending rate and clears the displayed rate without immediately erasing recent history.
+Inbound frames are framing-, sequence- and process-checked before entering shared state, and reconnects discard data from replaced runtimes.
 
-Unchanged proxy data retains its references. Lists use memoization, pagination or batched content visibility where useful; off-screen proxy nodes are skipped in groups of 24 rather than observed card by card. Logs are batched and capped at 600 rows. Routes, the YAML editor and font slices load on demand. Full-screen interactive overlays avoid live `backdrop-filter`, and page-entry motion does not create scrollable overflow on 100%-height views. Group latency checks run at most eight node requests concurrently and publish each result as it settles instead of waiting for the whole group.
+## Views
 
-## Views and controls
+Pages cover Overview (preferences, proxy port and runtime — there is no separate Settings page), Profiles, Logs, Connections and Rules. Cross-cutting behaviors worth knowing:
 
-[App.vue](../web/src/App.vue) owns the connection gate, runtime banner and shared stream lifetime. [AppSidebar.vue](../web/src/components/AppSidebar.vue) keeps primary navigation, the Core card and the Apply prompt. [CoreStatus.vue](../web/src/components/CoreStatus.vue) fills that card: the lifecycle controls, download progress and a centered locally ticking uptime in DD:HH:MM under a dot that alone carries the tone and the animation. [core-display.ts](../web/src/composables/core-display.ts) derives the reported state — Running, Not responding when Core outlives its controller, Starting, Stopping, Stopped — for the dot, the tooltip and the screen-reader text; an unknown uptime reads as `--:--:--`. After the sidebar collapses on phones, the same panel stays at the top of Overview's left column. Live traffic stays on Overview. Pages cover Overview, Profiles, Logs, Connections and Rules. Overview combines preferences, the proxy port and runtime information in its left column; there is no separate Settings page. The proxy port is one row: the address reads `127.0.0.1:` with the port on an underline that edits in place, centered digits included. Enter or leaving the field saves a valid port and Esc or a bad value leaves the saved one; the error text sits under the row label while it stands.
-
-[CoreControls.vue](../web/src/components/CoreControls.vue) shares start, stop and Apply behavior through [useCoreControl](../web/src/composables/core-runtime.ts). In the Core card it appears as icon buttons for Start/Reload configuration and Stop; the sidebar's Apply prompt uses the same component as one text button, and [CoreUpdateProgress.vue](../web/src/components/CoreUpdateProgress.vue) shows the stage, a determinate or indeterminate bar and Cancel above the controls without moving them. Applying a profile reloads the running Core and keeps established connections, so it no longer asks for confirmation; a proxy port or LAN change still restarts Core.
-
-Notifications stay out of the way of page content. Saved changes that a running Core has not applied show an Apply prompt beside the sidebar's Core state; on phones it rests above the bottom navigation, and pages reserve its height. A stopped Core shows no prompt because Start applies the saved configuration. The banner above pages reports only an offline Sash or unavailable Core data. Toasts rise from the bottom corner for failures and for outcomes the page cannot show by itself; a change already visible in place, such as a switch, the selected node or the profile order, gets none. Confirmations fade within a few seconds, errors stay until dismissed, and at most three are shown.
-
-Profiles shows the saved selection; Overview shows the configuration Core is using. The editor saves against the content revision read on open. The proxy-port draft stays local, edits in place and survives status refreshes; saving keeps keyboard focus in the field. The system-proxy switch acts immediately and remains available for restoration when Core is stopped.
-
-Shared dialogs provide focus trapping, Escape handling and focus return. The dashboard supports Chinese/English, light/dark themes and mobile navigation. Dense interface text uses system and monospace fonts; the bundled LXGW font is reserved for the Sash wordmark. Motion is brief and follows the system's reduced-motion preference.
+- Saved-but-unapplied changes raise an Apply prompt by the sidebar's Core state; a stopped Core shows none because Start applies the saved configuration.
+- The editor saves against the content revision read on open, so a concurrent edit fails rather than silently overwriting — reopen before saving again.
+- Toasts report only outcomes the page cannot show in place; a change already visible in the UI gets none.
+- Long lists paginate or virtualize; routes, the YAML editor and font slices load on demand.
+- Chinese/English, light/dark, mobile navigation, and reduced-motion are supported throughout.
 
 ## Authorization and transport
 
-The dashboard holds no credential: Sash admits it because the browser marks its requests as coming from Sash's own origin (see [Local API](./backend.md#local-api)), so every tab, bookmark and reload works without a sign-in step. `store.connection` is `connecting` until the first SSE snapshot makes it `connected`; a failed stream makes it `offline` and a `401` makes it `refused`. Both show [ConnectionView.vue](../web/src/views/ConnectionView.vue) with the `sash web` command until the stream recovers.
+The dashboard holds no credential — the browser marks its requests same-origin and Sash admits them on that evidence (see [Local API](./backend.md#local-api)), so every tab, bookmark and reload just works. `store.connection` is `connecting` until the first SSE snapshot makes it `connected`; a failed stream makes it `offline` and a `401` makes it `refused` — [ConnectionView.vue](../web/src/views/ConnectionView.vue) renders both with the `sash web` recovery hint.
 
-[api/index.ts](../web/src/api/index.ts) uses the browser-safe [SashClient](../src/sash-client.ts) without a token, and WebSockets open without subprotocols. Sash forwards Core requests using its own controller credential.
+[api/index.ts](../web/src/api/index.ts) uses the browser-safe [SashClient](../src/sash-client.ts) without a token; Sash forwards Core requests with its own controller credential.
 
-SSE checks stream framing, sequence and process identity. Traffic/log frames are bounded and checked before entering shared state. Reconnects release old readers and ignore frames from replaced runtimes.
+## Development
 
-## Development and verification
+`node scripts/dev.mjs web` runs a development instance in its own `-dev` data folder; `build` rebuilds the UI; `stop` before loading backend changes. After edits: `npm run typecheck`, `npm run lint` and affected tests; after building: `npm run smoke:ui` plus the relevant `verify:ui*` browser check, in **both Chromium and Firefox** — [ui-harness.mts](../scripts/ui-harness.mts) provides the shared fixtures and [ui-shot.mjs](../scripts/ui-shot.mjs) captures routes for visual inspection.
 
-From a source checkout:
-
-```sh
-node scripts/dev.mjs web      # open the development dashboard
-node scripts/dev.mjs build    # rebuild after UI edits, then refresh
-node scripts/dev.mjs stop     # stop before loading backend changes
-node scripts/dev.mjs web
-```
-
-The launcher uses a separate `-dev` data folder and initial ports `18890`, `18990` and `28990`; set an absolute `SASH_DEV_HOME` to choose another folder. `web` starts Sash; `restart` applies the saved configuration and starts Core.
-
-After code changes, run `npm run typecheck`, `npm run lint` and affected tests; after building, run `npm run smoke:ui` plus the relevant browser check (`verify:ui`, `verify:ui:profiles`, `verify:ui:auth` or `verify:ui:autostart`). Browser checks share [ui-harness.mts](../scripts/ui-harness.mts) with temporary data, non-default ports and Core/OS fixtures; check both Chromium and Firefox. [ui-shot.mjs](../scripts/ui-shot.mjs) captures routes for visual inspection.
-
-Font build setup lives in [build-ui.mjs](../scripts/build-ui.mjs). Bundled licenses are generated into `dist/ui/licenses/` and preserved as comments inside the bundled assets at build time; the Remix Icon license ships as [remix-icon-license.txt](./remix-icon-license.txt).
+Bundled license texts are generated into `dist/ui/licenses/` at build time, with upstream license comments preserved inside the bundled assets; the Remix Icon license ships as [remix-icon-license.txt](./remix-icon-license.txt).

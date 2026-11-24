@@ -1,91 +1,66 @@
 # Backend Architecture
 
-Sash runs one background process per data folder. The CLI and dashboard use its local API; this process saves application state and manages Core.
+Sash runs one background process per data folder. The CLI and dashboard use its local API; the process owns saved state and manages Core.
 
 [Usage](./usage.md) · [Frontend](./frontend.md) · [Start at login](./autostart.md)
 
 ![CLI and dashboard requests enter Sash's local API. State and lifecycle changes are serialized; the Core gateway handles queries and streams.](./assets/backend-architecture.svg)
 
-## Responsibilities
+## Process model
 
-[daemon/entry.ts](../src/daemon/entry.ts) acquires the instance lock, loads state and recovers interrupted Core/proxy operations before opening the listener. The local API and dashboard work even when Core is missing or stopped. [daemon/app.ts](../src/daemon/app.ts) connects the services; [DaemonGate](../src/daemon/context.ts) serializes saved-state and lifecycle changes in memory while reads and live Core requests run independently. Preparation stays outside the queue; publication compares the relevant profile/listener target and runtime epoch. [CoreControlService](../src/daemon/core-service.ts) shares this flow across Start, Apply and active-profile reconciliation; reconciliation only reloads, while Start remains idempotent.
+[daemon/entry.ts](../src/daemon/entry.ts) acquires the instance lock, loads state, recovers interrupted Core/proxy operations, then opens the listener — the local API and dashboard work whether Core exists or not. [daemon/app.ts](../src/daemon/app.ts) wires the services; [DaemonGate](../src/daemon/context.ts) serializes saved-state and lifecycle mutations in memory while reads and live Core requests run independently. Preparation stays outside the queue: a prepared candidate is published only if the profile/listener target and runtime epoch it was built against are still current.
 
-CLI discovery uses the running instance's observed port. Process locks coordinate instance startup and per-user Windows operations; ordinary application writes use the in-memory queue. Lock contenders use unique bakery tickets, so recovery of a dead owner cannot remove a successor's lock.
+Process locks coordinate instance startup and per-user Windows operations; ordinary writes use the in-memory queue. Lock contenders hold unique bakery tickets, so recovering a dead owner cannot evict a successor's lock.
 
-## Saved state and profiles
+## Saved state
 
-`sash.json` contains `{schemaVersion: 2, revision, settings, profiles}`. `profiles` holds the saved `activeId` and metadata; source text lives in `profiles/<id>/<revision>.yaml`. [SashStateStore](../src/app-state.ts) keeps one frozen committed state, replaces it after a successful atomic write, and maintains `sash.json.bak` as a recovery copy.
+`sash.json` is the committed state; profile source text lives under `profiles/<id>/`. [SashStateStore](../src/app-state.ts) holds one frozen committed state, replaced only after a successful atomic write, with `sash.json.bak` as the recovery copy. Saves carry the revision they were read from — stale saves return `409` — and profile reads return raw text so damaged YAML can be repaired in the editor. Parsing and rendering run in a worker.
 
-The source publisher allocates content revisions, skipping files left by interrupted publication. Saving writes the new source file before committing its reference; deleting commits removal before cleaning up files; identical content retains its revision. Editor saves include the revision read on open; settings saves can include `expectedRevision`. Stale edits return `409`.
+`runtime/config.yaml` is generated from the saved profile (or a DIRECT-only default) and never written back into it. Sash owns the listener, controller credentials, LAN flag and the whole `tun` section of the generated config.
 
-Profile reads return raw text, so damaged YAML can be opened for repair. A worker inspects and renders profile YAML, returning only a proxy-count summary or generated YAML, including geodata mirror variants. It retains only the most recently parsed source and exits after thirty idle seconds. The document must be an object. Core's pre-flight check decides whether the generated configuration is usable. State is capped at 2 MiB and each profile at 8 MiB. Online settings, profile and core config writes use asynchronous atomic publication.
+## Apply: save → validate → apply
 
-Remote updates share one in-flight download per profile. Scheduled failures back off from 15 minutes to one day; manual updates bypass that delay. Maintenance removes recognized, unreferenced generated files after a 24-hour grace period.
+The ordering invariants:
 
-`runtime/config.yaml` is generated from the saved profile, or a DIRECT-only default when none is selected; source text stays unchanged. Sash supplies the proxy port, controller credentials and LAN setting, removes competing controller endpoints and tunnels, and owns the `tun` section: it is disabled unless TUN Mode is on, and then Sash's TUN settings override the profile's managed keys and Core DNS is enabled. See [State format and data](./usage.md#state-format-and-data) for settings and paths.
+1. Build a candidate and run Core's own configuration check **outside** the mutation queue; before applying, re-check that the profile revision, listener settings and runtime it was built for still hold. Unrelated metadata edits must not invalidate a candidate.
+2. When only the profile changed, publish the core config and ask Core to reload in place — it swaps proxies, rules and DNS while established connections keep their outbound.
+3. Otherwise restart: restore the prior system proxy, stop Core, verify the controller port is free, publish the config, start Core and wait for its controller to report the expected version, then apply the saved system-proxy preference.
 
-## Save, Apply and stop
+Failure semantics follow from the ordering: a rejected reload restores the previous on-disk config and leaves the previous configuration applied; a startup failure preserves saved edits and keeps the local API available. Geodata-only validation failures retry through mirrors, then Sash seeds the missing databases through its verified release pipeline — the configuration that passes is the one applied.
 
-Apply runs in this order:
-
-1. Generate a candidate and run Core's configuration check outside the state mutation queue. Before applying it, check that its profile revision, listener settings and runtime still match; unrelated metadata edits do not invalidate the candidate.
-2. Reload the running Core without forced listener rebinding when only the profile changed: atomically publish the core config, then ask Core to reload it through `PUT /configs`. Core swaps proxies, rules and DNS in place, so established connections keep their current outbound and only new connections wait for the reload to finish.
-3. Otherwise restart: restore the prior system proxy, stop the verified Core and check that its controller port is free, publish the core config, start Core and wait for its controller to report the expected version, then apply the saved system-proxy preference to the running proxy port.
-
-A reload the Core rejects restores the previous core config on disk, leaves the previous configuration applied, and reports the failure; the saved state stays pending for a retry.
-
-Validation or proxy-restoration failure leaves the current Core running; a later startup failure preserves saved edits and keeps the local API available for correction. Enabling the system proxy requires a healthy Core; disabling saves the off preference before restoration, so a failed restoration can be retried.
-
-Core downloads its own geodata during the configuration check and ignores `HTTP_PROXY`. A geodata-only failure rewrites `geox-url` in the already-generated YAML inside that worker, preserving key order and metadata without applying profile-input limits or managed settings again. If every mirror fails, Sash seeds the missing databases through the existing release pipeline and rechecks the original configuration. The configuration that passes is the one applied. See [troubleshooting](./usage.md#status-and-troubleshooting) if this fails.
-
-Stopping Core cancels its preparation work and any pending reload request. A cancelled reload has an unknown outcome, so its candidate stays on disk until the queued stop finishes. Full shutdown also cancels profile downloads, rejects new changes and drains active work before restoring the proxy and stopping Core. Cleanup failure leaves Sash available for retry. Unexpected Core exits trigger bounded proxy-restoration retries.
+Stopping Core cancels in-flight preparation and pending reloads; shutdown also cancels downloads and drains queued work before restoring the proxy. Unexpected Core exits trigger bounded proxy-restoration retries.
 
 ## TUN Mode
 
-TUN changes only how Core gets privilege; the controller, configuration reloads, logs and Apply are the same as without it. [TunService](../src/tun-service.ts) inspects a platform's privilege state (`ready`, `missing`, `stale` or `unknown`) and Apply refuses TUN before stopping the running Core unless it is `ready`. A TUN Core that fails to start rolls back to the previous configuration.
+TUN changes only *how Core gets privilege* — the controller, reloads, logs and Apply are identical. [TunService](../src/tun-service.ts) reports `ready`, `missing`, `stale` or `unknown`; Apply refuses TUN before stopping a running Core unless it is `ready`.
 
-Each [platform](../src/tun-platform/) acts on the managed Core (`bin/mihomo`) rather than a copy, so no Core version is pinned:
+Each platform acts on the managed `bin/mihomo` itself, so no Core version is pinned:
 
-- **Windows:** a LocalSystem service built from `helper/` starts and stops Core. Its Core path, data folder, configuration and log files are fixed as service arguments at installation; its pipe admits only the installing account and accepts `status`, `start` and `stop`. The supervisor treats this Core as *hosted*: the service reports liveness, and a Core left running by a crashed Sash is stopped on the next startup. The service puts Core in a kill-on-close job, so Core cannot outlive it.
-- **macOS:** the Core file is setuid root; **Linux:** it carries `cap_net_admin,cap_net_bind_service`. Core is then spawned like any other Core. Replacing the file in a Core update drops the grant.
+- **Windows:** a LocalSystem service built from `helper/` owns start/stop. Core path, data folder, configuration and log paths are fixed service arguments; its pipe admits only the installing account and accepts only `status`/`start`/`stop` — it never takes a path, arguments or configuration, so `sash update` needs no reinstall. Core runs inside a kill-on-close job and cannot outlive the service.
+- **macOS:** the Core file is setuid root; **Linux:** it carries `cap_net_admin,cap_net_bind_service`. A Core update replaces the file and drops the grant, so `helper install` must run again.
 
-The Windows helper stays this small. Its pipe never takes a path, arguments or configuration. It does not verify or configure Core, so `sash update` needs no reinstall. `--version` prints the build version without elevation or side effects. `protocolVersion` in [helper/server.go](../helper/server.go) and `HELPER_PROTOCOL` in [tun-platform/windows.ts](../src/tun-platform/windows.ts) must stay equal; change both together, and only when the request or reply shape changes. Sash reports an installed helper with another protocol as needing reinstall, so a protocol change belongs in the changelog. Other helper changes leave installed services working.
-
-`sash tun helper install` downloads `sash-tun-helper-win32-<arch>.exe` from the GitHub Release `v<installed Sash version>` and checks it against the release API's SHA-256. A source checkout of an unreleased version has no such Release: `npm run build:helper` writes both executables to `helper/bin/` (ignored by Git and absent from the npm package), and installation prefers that build when it exists. [RELEASING.md](../RELEASING.md) covers how the Release assets are built and published.
+`protocolVersion` in [helper/server.go](../helper/server.go) and `HELPER_PROTOCOL` in [tun-platform/windows.ts](../src/tun-platform/windows.ts) must change together, and only when the request or reply shape changes — Sash reports a protocol mismatch as needing reinstall, so such a change belongs in the changelog. [RELEASING.md](../RELEASING.md) covers how the helper is published.
 
 ## Updates
 
-Core updates download an unmodified release artifact selected by official GitHub metadata. HTTPS origins and redirects must be allowlisted; the archive is checked against the release API's SHA-256 while streaming; extraction rejects path traversal. Download and extracted-output limits are 128 MiB and 512 MiB.
+Both downloads are daemon-owned operations, not properties of the command that asked for them.
 
-On x64, staging tries available builds in preference order and runs each with `-v` to find one the processor supports; ARM64 uses its native build. Configuration validation finishes before the queued binary replacement.
-
-A running Core update prepares its applied configuration, so pending saved profile/listener edits do not invalidate the binary candidate or get applied by the update. A stopped update prepares the saved configuration and rejects changes to its active profile revision or listener settings, not unrelated metadata edits. A changed runtime epoch still invalidates either candidate.
-
-Release metadata and asset downloads choose one transport per operation: an inherited proxy variable (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) when Sash started with one, otherwise Sash's own Core port while a Core runs, otherwise direct with the mirror list. The choice is reported in status as `downloadTransport` and applied to release lookups, the archive and geodata seeding alike. A loopback refusal warns once and retries directly; the digest still comes from the release API, so a mirror or proxy transport cannot change what is installed.
-
-An update can be cancelled while it prepares: `DELETE /sash/core/update` aborts the in-flight operation, discards the staged files and admits the next update immediately, while any other client disconnect leaves the download running. Only the operation that still owns the observable progress may clear it, so a cancelled operation cannot blank its successor's state.
-
-[core-update.ts](../src/core-update.ts) records replacement progress in `state/core-update-transaction.json` and keeps the previous executable as `.bak` through the health check. Failure restores the binary, install record and prior running state; startup recovers interrupted replacements. An update requested while Core is stopped starts it briefly for verification, then stops it again.
-
-Sash package upgrades use [self-upgrade.ts](../src/self-upgrade.ts). npm installs one exact version **while Sash keeps running**, then Sash restarts to load it. npm owns package integrity; a failed install leaves the running instance available. Commands and supported installations are covered in [Updates](./usage.md#updates).
+- **Core** ([core-update.ts](../src/core-update.ts)): official release metadata selects the artifact; HTTPS origins and redirects are allowlisted; the archive is checked against the release API's SHA-256 while streaming; extraction rejects path traversal. Progress is journaled so startup recovers interrupted replacements, and the previous binary survives until the new Core passes its health check. A running update prepares against the *applied* configuration so pending saved edits stay pending; a stopped update prepares the *saved* one. `DELETE /sash/core/update` cancels and discards the stage; only the operation still owning the observable progress may clear it.
+- **Transport:** one choice per operation — a proxy variable inherited at startup, else the running Core's own port, else direct with mirrors. The digest always comes from the release API, so a mirror or proxy transport cannot change what gets installed.
+- **Sash package** ([self-upgrade.ts](../src/self-upgrade.ts)): npm installs one exact version while Sash keeps running, then Sash restarts to load it. npm owns package integrity; a failed install leaves the running instance available.
 
 ## Local API
 
-The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) lists every route and method; [contracts.ts](../src/contracts.ts) and [SashClient](../src/sash-client.ts) define request and response types.
+The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) enumerates routes; [contracts.ts](../src/contracts.ts) and [SashClient](../src/sash-client.ts) define the wire types.
 
-Health, status and proxy observations allow public reads; private profile URLs require authorization. Everything else requires the CLI bearer or a request from the dashboard's own origin: `Origin` equal to the request's loopback `Host`, or `Sec-Fetch-Site: same-origin` when there is no `Origin`. A bearer that is present must be valid. Errors use `{error: {code, message}}`; successful empty responses use `204`.
+Authorization: health, status and proxy observations are public reads; private profile URLs always need the bearer; everything else accepts either the CLI bearer or browser same-origin evidence (`Origin` equal to the loopback `Host`, or `Sec-Fetch-Site: same-origin` without `Origin`). A presented bearer must be valid. Errors are `{error: {code, message}}`; empty success is `204`.
 
-Status separates saved and running configuration through `configuration: {pending, appliedProfile, appliedSettings}`. CLI queries, disconnected observations and SSE snapshots use one projection; local installation facts are sampled once and local profile fallback is used only when Sash cannot provide the observation. `daemon.bootId` identifies Sash; `revisions.state` tracks saved changes and `revisions.runtime` tracks Core replacement.
+Status projects saved vs. running state through `configuration: {pending, appliedProfile, appliedSettings}`; `daemon.bootId` identifies the process and `revisions.state`/`revisions.runtime` track saved and binary changes — clients key their refreshes off these. SSE sends full snapshots from one shared observer; slow clients retain only the newest pending snapshot.
 
-SSE sends complete `{schemaVersion: 1, sequence, status, autostart}` snapshots. One shared observer samples external changes while clients are connected and publishes changes after mutations. Reconnection starts with a complete snapshot; slow clients retain only the newest pending snapshot. `sash status --watch` consumes this stream and rediscovers Sash after a restart. Latency tests run only on explicit request, independently of status sampling.
-
-## Windows and security boundaries
+## Security boundaries
 
 - **Processes:** verify the executable path before signaling a PID; uncertain ownership preserves the process record.
-- **Transport:** check loopback Host/Origin and send controller traffic directly, independently of remote-download proxy settings.
-- **Credentials:** the browser carries no credential of its own; the gateway substitutes the Core credential. Child environments are scrubbed. Only the Sash background process receives `GITHUB_TOKEN`/`GH_TOKEN` for release downloads.
-- **Persistence:** state writes use [fs-atomic.ts](../src/fs-atomic.ts). Private state/logs use POSIX `0600`; log appends do not follow symlinks.
-- **System proxy:** normalize persisted journals and registry input at their boundaries. The backend only captures/applies OS snapshots; targets, ownership comparisons and status projection are pure functions. Save original Windows proxy/PAC values before writing; restore values Sash still owns, preserving later changes made by another application. A per-user lock coordinates different data folders.
-- **Start at login:** the Windows current-user registration launches Sash without a console window. See [Automatic Startup](./autostart.md).
-
-Browser authorization rests on provenance the browser enforces, not on a stored credential, so there is nothing to hand off, expire or revoke. Pages on other origins, including other loopback ports, are refused at HTTP and WebSocket entry. Local processes can send those headers themselves, so every account on the machine is inside the trust boundary. See [Frontend authorization](./frontend.md#authorization-and-transport).
+- **Transport:** check loopback `Host`/`Origin` at HTTP and WebSocket entry; controller traffic always goes direct, independently of download-proxy settings.
+- **Credentials:** the browser holds no credential — provenance is what the browser enforces, so nothing exists to hand off, expire or revoke, and every local account is inside the trust boundary. Child environments are scrubbed; only Sash itself receives `GITHUB_TOKEN`/`GH_TOKEN` for release downloads.
+- **Persistence:** state writes go through [fs-atomic.ts](../src/fs-atomic.ts); private state and logs use `0600` and never follow symlinks on append.
+- **System proxy:** capture/apply OS snapshots only; targets, ownership comparisons and status projection are pure functions. Restore only values Sash still owns, preserving later changes by other applications; a per-user lock coordinates different data folders. See [Automatic Startup](./autostart.md) for the login registration.
