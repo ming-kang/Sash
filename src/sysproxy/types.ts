@@ -72,25 +72,20 @@ export type SystemProxySnapshot = WindowsSystemProxySnapshot | PosixSystemProxyS
 export interface SystemProxySnapshotCodec {
   parse(value: unknown): SystemProxySnapshot;
   equivalent(left: SystemProxySnapshot, right: SystemProxySnapshot): boolean;
-  compatible?(
-    current: SystemProxySnapshot,
-    original: SystemProxySnapshot,
-    target: SystemProxySnapshot,
-  ): boolean;
   target(options: EnableOptions, original: SystemProxySnapshot): SystemProxySnapshot;
   state(snapshot: SystemProxySnapshot): SystemProxyState;
 }
 
 export interface SystemProxyRestoreSkip {
-  /** Journal key of the service left untouched (UUID or legacy name). */
+  /** Journal key of the unit left untouched (service UUID, value name, setting key). */
   key: string;
-  /** Display name the service resolved to when it still exists. */
+  /** Display name the unit resolved to when it still exists. */
   service: string;
   reason: "modified" | "removed";
 }
 
 export interface SystemProxyRestoreResult {
-  /** Journal services that were NOT written: externally modified or gone. */
+  /** Journal units that were NOT written: externally modified or gone. */
   skipped: SystemProxyRestoreSkip[];
 }
 
@@ -100,13 +95,14 @@ export interface SystemProxyBackend {
   capture(): Promise<SystemProxySnapshot>;
   apply(snapshot: SystemProxySnapshot): Promise<void>;
   /**
-   * Optional journal-scoped restore: decides per recorded service (even
-   * offline ones) whether the journal's original values may be written back,
-   * skips services whose values were modified outside Sash or removed, and
-   * reports what it skipped. When present the manager uses this instead of
-   * the whole-snapshot compare/apply path.
+   * Journal-scoped restore — the single restore primitive. Decides per
+   * recorded unit (service, setting key, connection) whether the journal's
+   * original values may be written back, writes the units still holding
+   * Sash's target, and reports units skipped because they were modified
+   * outside Sash or removed. A state holding only original and target
+   * values must stay restorable: restore is retried after crashes.
    */
-  restore?(
+  restore(
     original: SystemProxySnapshot,
     target: SystemProxySnapshot,
   ): Promise<SystemProxyRestoreResult>;

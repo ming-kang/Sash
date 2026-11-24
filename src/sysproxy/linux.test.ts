@@ -87,9 +87,13 @@ describe("linux snapshot codec", () => {
 });
 
 describe("linux backend", () => {
-  it("reports unsupported in a headless session", () => {
+  it("reports unsupported in a headless session and rejects restore consistently", async () => {
     const backend = linuxSystemProxyBackend({ env: {} });
     assert.equal(backend.supported, false);
+    await assert.rejects(
+      backend.restore(gnomeSnapshot("none"), gnomeSnapshot("none")),
+      /not supported/,
+    );
   });
 
   it("aborts the GNOME snapshot when a key read fails", async () => {
@@ -103,26 +107,6 @@ describe("linux backend", () => {
     });
     if (!backend.supported) return;
     await assert.rejects(backend.capture(), /Could not read GNOME proxy setting ignore-hosts/);
-  });
-
-  it("compares bypass arrays by value on restore compatibility", () => {
-    const left = gnomeSnapshot("manual");
-    const right = {
-      version: 1 as const,
-      platform: "linux" as const,
-      values: { ...left.values, "ignore-hosts": ["localhost"] },
-    };
-    assert.equal(codec.compatible?.(right, left, right), true);
-    const drifted = {
-      ...right,
-      values: { ...right.values, "ignore-hosts": ["other"] },
-    };
-    const unrelated = {
-      version: 1 as const,
-      platform: "linux" as const,
-      values: {},
-    };
-    assert.equal(codec.compatible?.(drifted, left, unrelated), false);
   });
 
   it("captures and applies GNOME gsettings values", async () => {
@@ -339,6 +323,170 @@ describe("linux precise restore — GNOME conservative model", () => {
       calls.join("\n"),
     );
     assert.ok(!calls.some((c) => c.startsWith("gsettings reset")));
+  });
+});
+
+describe("linux backend restore", () => {
+  const GNOME_BASELINE: Record<string, string> = {
+    "org.gnome.system.proxy mode": "'none'",
+    "org.gnome.system.proxy autoconfig-url": "''",
+    "org.gnome.system.proxy ignore-hosts": "@as []",
+    "org.gnome.system.proxy.http enabled": "false",
+    "org.gnome.system.proxy.http host": "''",
+    "org.gnome.system.proxy.http port": "0",
+    "org.gnome.system.proxy.http use-authentication": "false",
+    "org.gnome.system.proxy.http authentication-user": "''",
+    "org.gnome.system.proxy.http authentication-password": "''",
+    "org.gnome.system.proxy.https host": "''",
+    "org.gnome.system.proxy.https port": "0",
+    "org.gnome.system.proxy.socks host": "''",
+    "org.gnome.system.proxy.socks port": "0",
+    "org.gnome.system.proxy.ftp host": "''",
+    "org.gnome.system.proxy.ftp port": "0",
+  };
+
+  function gnomeBackend(initial: Record<string, string>) {
+    const calls: string[] = [];
+    const store = { ...initial };
+    const run = async (cmd: string, args: string[]) => {
+      calls.push([cmd, ...args].join(" "));
+      const key = `${args[1]} ${args[2]}`;
+      if (cmd === "gsettings" && args[0] === "set") {
+        store[key] = args[3] as string;
+        return "";
+      }
+      return store[key] ?? "''";
+    };
+    return {
+      calls,
+      store,
+      backend: linuxSystemProxyBackend({
+        env: { XDG_CURRENT_DESKTOP: "GNOME", PATH: "/usr/bin" },
+        run,
+      }),
+    };
+  }
+
+  it("writes back captured raw values for keys still holding the target", async () => {
+    const { store, backend } = gnomeBackend(GNOME_BASELINE);
+    if (!backend.supported) return;
+    const original = await backend.capture();
+    const target = codec.target({ host: "127.0.0.1", port: 7890, bypass: ["x"] }, original);
+    await backend.apply(target);
+
+    const result = await backend.restore(original, target);
+
+    assert.deepEqual(result.skipped, []);
+    assert.equal(store["org.gnome.system.proxy mode"], "'none'");
+    assert.equal(store["org.gnome.system.proxy.http port"], "0");
+    assert.equal(store["org.gnome.system.proxy ignore-hosts"], "@as []");
+  });
+
+  it("skips an externally modified key while restoring the rest", async () => {
+    const { store, backend } = gnomeBackend(GNOME_BASELINE);
+    if (!backend.supported) return;
+    const original = await backend.capture();
+    const target = codec.target({ host: "127.0.0.1", port: 7890, bypass: ["x"] }, original);
+    await backend.apply(target);
+    store["org.gnome.system.proxy.http port"] = "3128";
+
+    const result = await backend.restore(original, target);
+
+    assert.deepEqual(result.skipped, [
+      {
+        key: "http.port",
+        service: "org.gnome.system.proxy.http port",
+        reason: "modified",
+      },
+    ]);
+    assert.equal(store["org.gnome.system.proxy.http port"], "3128", "foreign value untouched");
+    assert.equal(store["org.gnome.system.proxy mode"], "'none'", "other keys restored");
+    assert.equal(store["org.gnome.system.proxy.https port"], "0");
+  });
+
+  it("recovers a partial state holding only original and target values", async () => {
+    const { store, backend } = gnomeBackend(GNOME_BASELINE);
+    if (!backend.supported) return;
+    const original = await backend.capture();
+    const target = codec.target({ host: "127.0.0.1", port: 7890, bypass: ["x"] }, original);
+    await backend.apply(target);
+    // A crash mid-restore leaves some keys back at the original already.
+    store["org.gnome.system.proxy mode"] = "'none'";
+    store["org.gnome.system.proxy ignore-hosts"] = "@as []";
+
+    const result = await backend.restore(original, target);
+
+    assert.deepEqual(result.skipped, []);
+    assert.equal(store["org.gnome.system.proxy.http port"], "0");
+    assert.equal(store["org.gnome.system.proxy.socks host"], "''");
+  });
+
+  it("writes nothing when every key already holds the original", async () => {
+    const { calls, backend } = gnomeBackend(GNOME_BASELINE);
+    if (!backend.supported) return;
+    const original = await backend.capture();
+    const target = codec.target({ host: "127.0.0.1", port: 7890, bypass: ["x"] }, original);
+    calls.length = 0;
+
+    const result = await backend.restore(original, target);
+
+    assert.deepEqual(result.skipped, []);
+    assert.equal(
+      calls.some((line) => line.startsWith("gsettings set")),
+      false,
+      calls.join("\n"),
+    );
+  });
+
+  it("skips a KDE key modified outside Sash while deleting restored-absent keys", async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-kde-restore-"));
+    t.onTestFinished(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const configHome = path.join(dir, "config");
+    fs.mkdirSync(configHome, { recursive: true });
+    const rc = path.join(configHome, "kioslaverc");
+    fs.writeFileSync(rc, "[Proxy Settings]\nhttpProxy=\nProxyType=0\n");
+    const store: Record<string, string> = { httpProxy: "", ProxyType: "0" };
+    const syncFile = () => {
+      const lines = Object.entries(store).map(([k, v]) => `${k}=${v}`);
+      fs.writeFileSync(rc, `[Proxy Settings]\n${lines.join("\n")}\n`);
+    };
+    const run = async (cmd: string, args: string[]) => {
+      const keyIdx = args.indexOf("--key");
+      const key = keyIdx >= 0 ? (args[keyIdx + 1] as string) : "";
+      if (cmd.includes("kreadconfig")) return store[key] ?? "";
+      if (cmd.includes("kwriteconfig")) {
+        if (args.includes("--delete")) delete store[key];
+        else store[key] = args[args.length - 1] as string;
+        syncFile();
+      }
+      return "";
+    };
+    const backend = linuxSystemProxyBackend({
+      env: { XDG_CURRENT_DESKTOP: "KDE", PATH: "/usr/bin", XDG_CONFIG_HOME: configHome },
+      run,
+    });
+    if (!backend.supported) return;
+    const original = await backend.capture();
+    const target = codec.target({ host: "127.0.0.1", port: 7890, bypass: [] }, original);
+    await backend.apply(target);
+    // A foreign proxy on a managed key: skipped and never overwritten —
+    // while keys Sash added (absent in the original) are deleted back.
+    store.httpsProxy = "http://foreign.example 3128";
+    syncFile();
+
+    const result = await backend.restore(original, target);
+
+    assert.deepEqual(result.skipped, [
+      {
+        key: "Proxy Settings/httpsProxy",
+        service: "Proxy Settings/httpsProxy",
+        reason: "modified",
+      },
+    ]);
+    assert.equal(store.httpsProxy, "http://foreign.example 3128");
+    assert.equal(store.socksProxy, undefined);
+    assert.equal(store.ProxyType, "0");
+    assert.equal(store.httpProxy, "");
   });
 });
 

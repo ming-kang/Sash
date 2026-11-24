@@ -9,6 +9,7 @@ import type {
   PosixSystemProxySnapshot,
   SnapshotValue,
   SystemProxyBackend,
+  SystemProxyRestoreSkip,
   SystemProxySnapshot,
   SystemProxySnapshotCodec,
   SystemProxyState,
@@ -430,6 +431,100 @@ function valuesMatch(left: PosixSystemProxySnapshot, right: PosixSystemProxySnap
   );
 }
 
+/** One managed key matches a snapshot by value AND (KDE) presence. */
+function linuxSnapshotKeyEqual(
+  left: PosixSystemProxySnapshot,
+  right: PosixSystemProxySnapshot,
+  key: string,
+): boolean {
+  return (
+    snapshotValueEqual(left.values[key], right.values[key]) &&
+    absentSet(left.values).has(key) === absentSet(right.values).has(key)
+  );
+}
+
+const KDE_MANAGED_KEY_SET = new Set<string>(KDE_MANAGED_KEYS);
+
+/** Setting location shown in skip reports: KDE's group/key, gsettings' schema + leaf. */
+function linuxKeyService(key: string): string {
+  if (KDE_MANAGED_KEY_SET.has(key)) return key;
+  const dot = key.indexOf(".");
+  return dot > 0
+    ? `org.gnome.system.proxy.${key.slice(0, dot)} ${key.slice(dot + 1)}`
+    : `${GNOME_SCHEMAS.proxy} ${key}`;
+}
+
+interface LinuxRestorePlan {
+  /** Original values for just the keys to write, with restore metadata. */
+  writes: SnapshotValues;
+  keys: string[];
+  skipped: SystemProxyRestoreSkip[];
+}
+
+/**
+ * Per managed key, the current state (value AND presence) must equal the
+ * recorded original or the Sash target — anything else is an outside change
+ * reported as skipped and never written. Keys still at target get their
+ * original queued, so a crash mid-restore leaves every key at original or
+ * target and the journal stays recoverable.
+ */
+function planLinuxRestore(
+  original: PosixSystemProxySnapshot,
+  target: PosixSystemProxySnapshot,
+  current: PosixSystemProxySnapshot,
+): LinuxRestorePlan {
+  const desktop = linuxSnapshotDesktop(original.values);
+  const keys = desktop === null ? MANAGED_KEYS : DESKTOP_MANAGED_KEYS[desktop];
+  const absent = original.values[ABSENT_KEYS];
+  const writes: SnapshotValues = {
+    [RAW_VALUES]: rawMap(original.values),
+    [ABSENT_KEYS]: isPlainObject(absent) ? { ...absent } : {},
+  };
+  const plan: LinuxRestorePlan = { writes, keys: [], skipped: [] };
+  for (const key of keys) {
+    if (linuxSnapshotKeyEqual(current, original, key)) continue;
+    if (linuxSnapshotKeyEqual(current, target, key)) {
+      plan.keys.push(key);
+      const value = original.values[key];
+      // A key the original never recorded has nothing to write — it stays
+      // in plan.keys so verification reports it and the journal survives.
+      if (value !== undefined) writes[key] = value;
+      continue;
+    }
+    plan.skipped.push({ key, service: linuxKeyService(key), reason: "modified" });
+  }
+  return plan;
+}
+
+/**
+ * Journal-scoped restore built on the desktop's own capture/apply: writes
+ * the recorded originals for keys still holding Sash's target, then proves
+ * each written key by a fresh capture — what no longer matches is reported
+ * skipped so the journal stays as evidence.
+ */
+function linuxRestorer(
+  captureValues: () => Promise<SnapshotValues>,
+  applyValues: (values: SnapshotValues) => Promise<void>,
+): SystemProxyBackend["restore"] {
+  return async (original, target) => {
+    if (original.platform !== "linux" || target.platform !== "linux") {
+      throw new Error("Expected Linux system proxy snapshots");
+    }
+    const o = original as PosixSystemProxySnapshot;
+    const t = target as PosixSystemProxySnapshot;
+    const plan = planLinuxRestore(o, t, linuxSnapshot(await captureValues()));
+    if (plan.keys.length === 0) return { skipped: plan.skipped };
+    await applyValues(plan.writes);
+    const restored = linuxSnapshot(await captureValues());
+    for (const key of plan.keys) {
+      if (!linuxSnapshotKeyEqual(restored, o, key)) {
+        plan.skipped.push({ key, service: linuxKeyService(key), reason: "modified" });
+      }
+    }
+    return { skipped: plan.skipped };
+  };
+}
+
 function enabledState(values: SnapshotValues): {
   enabled: boolean;
   server?: string;
@@ -485,31 +580,6 @@ export function linuxSystemProxySnapshotCodec(): SystemProxySnapshotCodec {
         left.platform === "linux" &&
         right.platform === "linux" &&
         valuesMatch(left as PosixSystemProxySnapshot, right as PosixSystemProxySnapshot)
-      );
-    },
-    compatible(current, original, target) {
-      if (
-        current.platform !== "linux" ||
-        original.platform !== "linux" ||
-        target.platform !== "linux"
-      ) {
-        return false;
-      }
-      const c = (current as PosixSystemProxySnapshot).values;
-      const o = (original as PosixSystemProxySnapshot).values;
-      const t = (target as PosixSystemProxySnapshot).values;
-      const cAbsent = absentSet(c);
-      const oAbsent = absentSet(o);
-      const tAbsent = absentSet(t);
-      const desktop = linuxSnapshotDesktop(o);
-      const keys = desktop === null ? MANAGED_KEYS : DESKTOP_MANAGED_KEYS[desktop];
-      // Per key, the current state (value AND presence) must equal the
-      // captured original or the Sash target — an externally modified key
-      // matches neither and blocks the restore.
-      return keys.every(
-        (key) =>
-          (snapshotValueEqual(c[key], o[key]) && cAbsent.has(key) === oAbsent.has(key)) ||
-          (snapshotValueEqual(c[key], t[key]) && cAbsent.has(key) === tAbsent.has(key)),
       );
     },
     target(options: EnableOptions, original: SystemProxySnapshot): SystemProxySnapshot {
@@ -592,6 +662,9 @@ export function linuxSystemProxyBackend(deps: LinuxSystemProxyDeps = {}): System
     apply() {
       return Promise.reject(new Error("System proxy is not supported on this desktop"));
     },
+    restore() {
+      return Promise.reject(new Error("System proxy is not supported on this desktop"));
+    },
   };
 
   const desktop = detectLinuxDesktop(env);
@@ -602,6 +675,10 @@ export function linuxSystemProxyBackend(deps: LinuxSystemProxyDeps = {}): System
       snapshot,
       capture: () => captureGnome(runner).then(linuxSnapshot),
       apply: (value) => applyGnome(runner, (value as PosixSystemProxySnapshot).values),
+      restore: linuxRestorer(
+        () => captureGnome(runner),
+        (values) => applyGnome(runner, values),
+      ),
     };
   }
   if (desktop === "kde") {
@@ -612,6 +689,10 @@ export function linuxSystemProxyBackend(deps: LinuxSystemProxyDeps = {}): System
       snapshot,
       capture: () => captureKde(runner, tools, env).then(linuxSnapshot),
       apply: (value) => applyKde(runner, tools, (value as PosixSystemProxySnapshot).values, env),
+      restore: linuxRestorer(
+        () => captureKde(runner, tools, env),
+        (values) => applyKde(runner, tools, values, env),
+      ),
     };
   }
   return unsupported;

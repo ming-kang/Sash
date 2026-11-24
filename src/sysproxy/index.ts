@@ -28,6 +28,7 @@ export function createSystemProxyBackend(platform = process.platform): SystemPro
         },
         capture: unavailable,
         apply: unavailable,
+        restore: unavailable,
       };
     }
   }

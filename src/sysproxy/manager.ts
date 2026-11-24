@@ -39,7 +39,7 @@ export interface SystemProxyManagerOptions {
 
 export interface SystemProxyJournal {
   schemaVersion: 2;
-  phase: "prepared" | "applied" | "restoring";
+  phase: "prepared" | "applied";
   ownerPid: number;
   createdAt: string;
   original: SystemProxySnapshot;
@@ -88,6 +88,9 @@ function parseSystemProxyJournal(
   if (record.phase !== "prepared" && record.phase !== "applied" && record.phase !== "restoring") {
     throw journalError("phase must be prepared, applied, or restoring");
   }
+  // Legacy restoring journals must not report the target as applied; backends
+  // replay restoration from original/target regardless of the recorded phase.
+  const phase = record.phase === "restoring" ? "prepared" : record.phase;
   if (
     typeof record.ownerPid !== "number" ||
     !Number.isSafeInteger(record.ownerPid) ||
@@ -108,7 +111,7 @@ function parseSystemProxyJournal(
 
   return {
     schemaVersion: 2,
-    phase: record.phase,
+    phase,
     ownerPid: record.ownerPid,
     createdAt: parseCreatedAt(record.createdAt),
     original,
@@ -380,77 +383,21 @@ export class SystemProxyManager implements SystemProxyController {
   }
 
   private async restoreJournal(journal: SystemProxyJournal): Promise<void> {
-    if (this.backend.restore) {
-      // Journal-scoped restore: the backend decides per recorded service
-      // (offline included) whether writing is safe; services left untouched
-      // keep their journal entry as evidence and are reported.
-      const result = await this.backend.restore(journal.original, journal.target);
-      if (result.skipped.length === 0) {
-        this.clearJournal();
-        return;
-      }
-      const detail = result.skipped
-        .map(
-          (skip) =>
-            `${skip.service}${skip.service !== skip.key ? ` (${skip.key})` : ""}: ${
-              skip.reason === "modified" ? "modified outside Sash" : "service removed"
-            }`,
-        )
-        .join("; ");
-      throw new Error(`System proxy restore left services untouched: ${detail}`);
-    }
-    const current = await this.backend.capture();
-    if (this.snapshot.equivalent(current, journal.original)) {
+    // The backend decides per recorded unit whether writing is safe;
+    // units left untouched keep their journal entry as evidence.
+    const result = await this.backend.restore(journal.original, journal.target);
+    if (result.skipped.length === 0) {
       this.clearJournal();
       return;
     }
-
-    let canRestore = this.snapshot.equivalent(current, journal.target);
-    if (!canRestore && (journal.phase === "prepared" || journal.phase === "restoring")) {
-      if (!this.snapshot.compatible) {
-        throw new Error(
-          "System proxy journal cannot verify a partial restore: backend snapshot codec has no compatibility check",
-        );
-      }
-      canRestore = this.snapshot.compatible(current, journal.original, journal.target);
-    }
-    if (!canRestore) {
-      throw new Error(
-        "System proxy journal refuses to restore because current settings were modified outside Sash",
-      );
-    }
-
-    const restoring: SystemProxyJournal =
-      journal.phase === "restoring" ? journal : { ...journal, phase: "restoring" };
-    if (restoring !== journal) this.writeJournal(restoring);
-
-    let applyResult: { readonly ok: true } | { readonly ok: false; readonly error: unknown } = {
-      ok: true,
-    };
-    try {
-      await this.backend.apply(restoring.original);
-    } catch (error) {
-      applyResult = { ok: false, error };
-    }
-
-    let restored: SystemProxySnapshot;
-    try {
-      restored = await this.backend.capture();
-    } catch (err) {
-      const verificationError = new Error(
-        `Could not verify system proxy restoration: ${errorMessage(err)}`,
-      );
-      throw applyResult.ok
-        ? verificationError
-        : combinedError(applyResult.error, verificationError);
-    }
-    if (!this.snapshot.equivalent(restored, restoring.original)) {
-      const verificationError = new Error("System proxy restoration verification failed");
-      throw applyResult.ok
-        ? verificationError
-        : combinedError(applyResult.error, verificationError);
-    }
-
-    this.clearJournal();
+    const detail = result.skipped
+      .map(
+        (skip) =>
+          `${skip.service}${skip.service !== skip.key ? ` (${skip.key})` : ""}: ${
+            skip.reason === "modified" ? "modified outside Sash" : "service removed"
+          }`,
+      )
+      .join("; ");
+    throw new Error(`System proxy restore left services untouched: ${detail}`);
   }
 }

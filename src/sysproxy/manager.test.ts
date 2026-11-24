@@ -12,8 +12,8 @@ import {
 } from "./manager.js";
 import type {
   SystemProxyBackend,
+  SystemProxyRestoreSkip,
   SystemProxySnapshot,
-  SystemProxySnapshotCodec,
   WindowsSystemProxySnapshot,
 } from "./types.js";
 import {
@@ -35,20 +35,18 @@ function snapshot(name: string, port: number): WindowsSystemProxySnapshot {
   };
 }
 
+const FAKE_MANAGED_KEYS = [
+  "proxyEnable",
+  "proxyServer",
+  "proxyOverride",
+  "autoConfigUrl",
+  "autoDetect",
+  "connections",
+] as const;
+
 class FakeBackend implements SystemProxyBackend {
   readonly supported = true;
-  // No journal-scoped restore: this fake exercises the manager's generic
-  // compatible-check path, which the real Windows codec never reaches.
-  readonly snapshot: SystemProxySnapshotCodec = {
-    ...windowsSystemProxySnapshotCodec,
-    compatible: (current, original, target) =>
-      current.platform === "win32" &&
-      original.platform === "win32" &&
-      target.platform === "win32" &&
-      (["proxyEnable", "proxyServer", "proxyOverride", "autoConfigUrl"] as const).every(
-        (key) => current[key] === original[key] || current[key] === target[key],
-      ),
-  };
+  readonly snapshot = windowsSystemProxySnapshotCodec;
   current: WindowsSystemProxySnapshot;
   readonly applyCalls: WindowsSystemProxySnapshot[] = [];
   captureCalls = 0;
@@ -67,6 +65,35 @@ class FakeBackend implements SystemProxyBackend {
     this.applyCalls.push(next);
     if (this.onApply) await this.onApply(next, this);
     else this.current = next;
+  }
+  // Flat-field restore: write back each recorded original still holding
+  // Sash's target, skip fields changed outside Sash, then verify by capture.
+  async restore(
+    original: SystemProxySnapshot,
+    target: SystemProxySnapshot,
+  ): Promise<{ skipped: SystemProxyRestoreSkip[] }> {
+    const o = asWindowsSnapshot(original) as unknown as Record<string, unknown>;
+    const t = asWindowsSnapshot(target) as unknown as Record<string, unknown>;
+    const cur = asWindowsSnapshot(await this.capture()) as unknown as Record<string, unknown>;
+    const skipped: SystemProxyRestoreSkip[] = [];
+    const writes: string[] = [];
+    const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+    for (const key of FAKE_MANAGED_KEYS) {
+      if (same(cur[key], o[key])) continue;
+      if (same(cur[key], t[key])) writes.push(key);
+      else skipped.push({ key, service: "Internet Settings", reason: "modified" });
+    }
+    if (writes.length === 0) return { skipped };
+    const next = structuredClone(cur);
+    for (const key of writes) next[key] = structuredClone(o[key]);
+    await this.apply(next as unknown as WindowsSystemProxySnapshot);
+    const after = asWindowsSnapshot(await this.capture()) as unknown as Record<string, unknown>;
+    for (const key of writes) {
+      if (!same(after[key], o[key])) {
+        skipped.push({ key, service: "Internet Settings", reason: "modified" });
+      }
+    }
+    return { skipped };
   }
 }
 
@@ -91,9 +118,9 @@ describe("SystemProxyManager", () => {
   function writeJournal(
     original: SystemProxySnapshot,
     target: SystemProxySnapshot,
-    phase: SystemProxyJournal["phase"] = "prepared",
+    phase: SystemProxyJournal["phase"] | "restoring" = "prepared",
   ): string {
-    const journal: SystemProxyJournal = {
+    const journal = {
       schemaVersion: 2,
       phase,
       ownerPid: process.pid,
@@ -147,12 +174,15 @@ describe("SystemProxyManager", () => {
           return value as SystemProxySnapshot;
         },
         equivalent: (a, b) => JSON.stringify(a) === JSON.stringify(b),
-        compatible: () => false,
         target: ({ port }) => ({ version: 1, platform: "darwin", values: { port } }),
         state: (value) => ({
           supported: true,
           enabled: value.platform === "darwin" && value.values.port !== 0,
         }),
+      },
+      restore: async (original) => {
+        current = original;
+        return { skipped: [] };
       },
     };
     const manager = new SystemProxyManager({ layout, backend });
@@ -243,6 +273,10 @@ describe("SystemProxyManager", () => {
       backend.apply(createWindowsTarget({ port: 17890 })),
       /System proxy integration is not available on this platform/,
     );
+    await assert.rejects(
+      backend.restore(createWindowsTarget({ port: 17890 }), createWindowsTarget({ port: 17890 })),
+      /System proxy integration is not available on this platform/,
+    );
     await manager.release();
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
@@ -294,18 +328,18 @@ describe("SystemProxyManager", () => {
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
-  it("does not treat an applied journal with one reverted field as a crash partial", async () => {
+  it("restores the remaining target fields when one already matches the original", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const manager = new SystemProxyManager({ layout, backend });
     await manager.apply({ port: 17890 });
     backend.current.proxyServer = original.proxyServer;
 
-    await assert.rejects(manager.release(), /modified outside Sash/);
+    await manager.release();
 
-    assert.equal(fs.existsSync(layout.systemProxyStateFile), true);
-    assert.equal(backend.current.proxyServer, original.proxyServer);
-    assert.equal(backend.applyCalls.length, 1);
+    assert.deepEqual(backend.current, original);
+    assert.equal(backend.applyCalls.length, 2);
+    assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
   it("fails closed when a third-party proxy configuration is present", async () => {
@@ -347,7 +381,7 @@ describe("SystemProxyManager", () => {
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
-  it("keeps a restoring journal when compensation cannot restore the snapshot", async () => {
+  it("keeps the journal when compensation cannot restore the snapshot", async () => {
     const original = snapshot("proxy-a", 8000);
     const backend = new FakeBackend(original);
     const target = createWindowsTarget({ port: 17890 }, original);
@@ -371,7 +405,7 @@ describe("SystemProxyManager", () => {
       /target write failed; conditional restoration failed: restore write failed/,
     );
 
-    assert.equal(readJournal().phase, "restoring");
+    assert.equal(readJournal().phase, "prepared");
     assert.deepEqual(backend.current, partial);
   });
 
@@ -389,7 +423,7 @@ describe("SystemProxyManager", () => {
     };
 
     await assert.rejects(manager.release(), /restore interrupted/);
-    assert.equal(readJournal().phase, "restoring");
+    assert.equal(readJournal().phase, "applied");
     assert.deepEqual(backend.current, partial);
 
     backend.onApply = (snapshot, fake) => {
@@ -513,32 +547,49 @@ describe("SystemProxyManager", () => {
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
-  it("preserves falsy restoration failures unless fresh verification proves success", async () => {
+  it("propagates falsy restoration write failures and keeps the journal", async () => {
     const original = snapshot("proxy-a", 8000);
-    const verifiedBackend = new FakeBackend(original);
-    const verified = new SystemProxyManager({ layout, backend: verifiedBackend });
-    await verified.apply({ port: 17890 });
-    verifiedBackend.onApply = (snapshot, fake) => {
+    const backend = new FakeBackend(original);
+    const manager = new SystemProxyManager({ layout, backend });
+    await manager.apply({ port: 17890 });
+    backend.onApply = (snapshot, fake) => {
       fake.current = structuredClone(snapshot);
       return Promise.reject(undefined);
     };
 
-    await verified.release();
+    await assert.rejects(manager.release());
+    assert.equal(fs.existsSync(layout.systemProxyStateFile), true);
+  });
+
+  it("recovers a legacy journal left in the restoring phase", async () => {
+    const original = snapshot("proxy-a", 8000);
+    const backend = new FakeBackend(original);
+    const target = createWindowsTarget({ port: 17890 }, original);
+    backend.current = structuredClone(target);
+    writeJournal(original, target, "restoring");
+    const manager = new SystemProxyManager({ layout, backend });
+
+    assert.equal((await manager.inspect()).applied, false);
+    await manager.release();
+
+    assert.deepEqual(backend.current, original);
     assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
+  });
 
-    const failedLayout = {
-      ...layout,
-      systemProxyStateFile: path.join(tmpDir, "state", "system-proxy-failed.json"),
-    };
-    const failedBackend = new FakeBackend(original);
-    const failed = new SystemProxyManager({ layout: failedLayout, backend: failedBackend });
-    await failed.apply({ port: 17890 });
-    failedBackend.onApply = () => Promise.reject(undefined);
+  it("recovers a legacy restoring journal left mid-write in a partial state", async () => {
+    const original = snapshot("proxy-a", 8000);
+    const backend = new FakeBackend(original);
+    const target = createWindowsTarget({ port: 17890 }, original);
+    const partial = structuredClone(target);
+    partial.proxyServer = original.proxyServer;
+    backend.current = partial;
+    writeJournal(original, target, "restoring");
+    const manager = new SystemProxyManager({ layout, backend });
 
-    await assert.rejects(
-      failed.release(),
-      /undefined; conditional restoration failed: System proxy restoration verification failed/,
-    );
+    await manager.release();
+
+    assert.deepEqual(backend.current, original);
+    assert.equal(fs.existsSync(layout.systemProxyStateFile), false);
   });
 
   it("reports falsy capture failures and continues the queue after a falsy rejection", async () => {
