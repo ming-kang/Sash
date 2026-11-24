@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-24
+
 ### Added
 
-- Add the shared TUN configuration, status and privileged-helper foundation. TUN stays off by default; enabling it requires a platform helper and an explicit configuration Apply.
+- Introduce TUN Mode with shared configuration, live status and privileged-helper support. TUN stays off by default; enabling it requires an administrator-approved platform helper and an explicit configuration Apply.
 - Restrict privileged helper configurations to supported Mihomo fields and require verified Core binaries in a directory separate from runtime files.
 - On macOS, inject `tun.dns-mode: native` so the Core registers session-scoped DNS with configd instead of rewriting persistent service DNS.
 - Build available TUN helpers for macOS, Linux, and Windows on x64 and arm64, record their SHA-256 digests in the release manifest, and smoke-test the packaged host executable in CI.
