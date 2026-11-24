@@ -1,9 +1,8 @@
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import { errorMessage } from "../error-utils.js";
 import type { SashLayout } from "../paths.js";
-import { buildSanitizedEnv, findExecutableOnPath } from "../process.js";
+import { buildSanitizedEnv, findExecutableOnPath, runSanitizedCommandAsync } from "../process.js";
 import type { TunPlatform, TunPrivilege } from "../tun-service.js";
 import { refuseElevationInTests, requireCoreFile } from "./shared.js";
 
@@ -52,23 +51,11 @@ export type Runner = (
 ) => Promise<string>;
 
 const defaultRunner: Runner = (cmd, args, { timeoutMs, input }) =>
-  new Promise((resolve, reject) => {
-    const child = execFile(
-      cmd,
-      args,
-      {
-        encoding: "utf8",
-        env: buildSanitizedEnv(),
-        timeout: timeoutMs,
-        maxBuffer: 256 * 1024,
-      },
-      (error, stdout, stderr) => {
-        if (!error) return resolve(stdout ?? "");
-        const detail = `${stderr ?? ""}`.trim();
-        reject(new Error(detail ? `${error.message}: ${detail.slice(0, 400)}` : error.message));
-      },
-    );
-    child.stdin?.end(input);
+  runSanitizedCommandAsync(cmd, args, {
+    timeoutMs,
+    input,
+    maxBuffer: 256 * 1024,
+    stderrInError: true,
   });
 
 /**

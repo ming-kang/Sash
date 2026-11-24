@@ -15,7 +15,20 @@ export function createSystemProxyBackend(platform = process.platform): SystemPro
       const unavailable = async (): Promise<never> => {
         throw new Error("System proxy integration is not available on this platform");
       };
-      return { supported: false, capture: unavailable, apply: unavailable };
+      const unavailableCodec = (): never => {
+        throw new Error("System proxy integration is not available on this platform");
+      };
+      return {
+        supported: false,
+        snapshot: {
+          parse: unavailableCodec,
+          equivalent: unavailableCodec,
+          target: unavailableCodec,
+          state: unavailableCodec,
+        },
+        capture: unavailable,
+        apply: unavailable,
+      };
     }
   }
 }

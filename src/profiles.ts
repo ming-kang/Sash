@@ -4,6 +4,7 @@ import { isPlainObject } from "./json-shape.js";
 import {
   asCoreConfigDocument,
   PROFILE_DOWNLOAD_SIZE_LIMIT,
+  parseSafeHttpUrl,
   type SubscriptionUserinfo,
 } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
@@ -75,7 +76,7 @@ function parseProfileMeta(item: unknown): ProfileMeta | null {
   const timestamp = (key: "createdAt" | "updatedAt"): string =>
     typeof item[key] === "string" ? (item[key] as string) : EPOCH;
   const subInfo = parseSubInfo(item.subInfo);
-  const homePage = httpUrl(item.homePage);
+  const homePage = parseSafeHttpUrl(typeof item.homePage === "string" ? item.homePage : undefined);
   const lastError = typeof item.lastError === "string" ? item.lastError.slice(0, 300) : undefined;
   const lastAttemptAt = typeof item.lastAttemptAt === "string" ? item.lastAttemptAt : undefined;
   const failureCount =
@@ -114,16 +115,6 @@ function parseSubInfo(value: unknown): SubscriptionUserinfo | undefined {
   if (upload === undefined || download === undefined || total === undefined) return undefined;
   const expire = number("expire");
   return { upload, download, total, ...(expire !== undefined ? { expire } : {}) };
-}
-
-function httpUrl(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value) return undefined;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? value : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 export function profileFilePath(layout: SashLayout, id: string, revision: number): string {

@@ -2,7 +2,8 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { hasExactOwnKeys, isPlainObject } from "../json-shape.js";
-import { buildSanitizedEnv, findExecutableOnPath, runSanitizedCommandAsync } from "../process.js";
+import { buildSanitizedEnv, findExecutableOnPath } from "../process.js";
+import { normalizeEnableOptions, runCmd } from "./common.js";
 import type {
   EnableOptions,
   PosixSystemProxySnapshot,
@@ -16,9 +17,6 @@ import type {
 type Desktop = "gnome" | "kde";
 
 type Runner = (cmd: string, args: string[], timeoutMs?: number) => Promise<string>;
-
-const run: Runner = (cmd, args, timeoutMs = 5000) =>
-  runSanitizedCommandAsync(cmd, args, { timeoutMs });
 
 /**
  * The GNOME desktop names that honour org.gnome.system.proxy, and the KDE ones
@@ -224,15 +222,6 @@ function kdeProxyTypeName(env: NodeJS.ProcessEnv): { read: string; write: string
 }
 
 const KDE_GROUP = "Proxy Settings";
-const KDE_FIELD = {
-  ProxyType: "ProxyType",
-  "Proxy Config Script": "Proxy Config Script",
-  httpProxy: "httpProxy",
-  httpsProxy: "httpsProxy",
-  socksProxy: "socksProxy",
-  ftpProxy: "ftpProxy",
-  NoProxy: "NoProxy",
-} as const;
 
 /**
  * Read kioslaverc directly to tell an absent key (restored by deletion)
@@ -279,8 +268,7 @@ async function captureKde(
   const values: SnapshotValues = { [RAW_VALUES]: {}, [ABSENT_KEYS]: {} };
   const present = await kdePresentKeys(env);
   for (const key of KDE_MANAGED_KEYS) {
-    const field = key.slice(KDE_GROUP.length + 1) as keyof typeof KDE_FIELD;
-    const kdeKey = KDE_FIELD[field];
+    const kdeKey = key.slice(KDE_GROUP.length + 1);
     if (!present.has(kdeKey)) {
       values[key] = null;
       (values[ABSENT_KEYS] as Record<string, boolean>)[key] = true;
@@ -302,7 +290,7 @@ async function captureKde(
     // kreadconfig prints the entry text plus one terminator newline —
     // keep every other byte verbatim so spaced values round-trip.
     const text = raw.replace(/\r?\n$/, "");
-    values[key] = text === "" ? "" : field === "ProxyType" ? Number(text) : text;
+    values[key] = text === "" ? "" : kdeKey === "ProxyType" ? Number(text) : text;
     (values[RAW_VALUES] as Record<string, string>)[key] = text;
   }
   return values;
@@ -320,8 +308,7 @@ async function applyKde(
   for (const key of KDE_MANAGED_KEYS) {
     const value = values[key];
     if (value === undefined) continue;
-    const field = key.slice(KDE_GROUP.length + 1) as keyof typeof KDE_FIELD;
-    const kdeKey = KDE_FIELD[field];
+    const kdeKey = key.slice(KDE_GROUP.length + 1);
     if (absent.has(key)) {
       // Absent at capture: delete the key so it falls back to the
       // schema/merged default instead of leaving a user-level override.
@@ -377,6 +364,19 @@ async function applyKde(
 }
 
 const MANAGED_KEYS = [...GNOME_MANAGED_KEYS, ...KDE_MANAGED_KEYS];
+
+const DESKTOP_MANAGED_KEYS = { gnome: GNOME_MANAGED_KEYS, kde: KDE_MANAGED_KEYS } as const;
+
+/**
+ * Which desktop's key space a snapshot belongs to, by content — never by the
+ * current environment, so journals stay readable across environments. An
+ * empty snapshot matches neither and falls back to the managed-key union.
+ */
+function linuxSnapshotDesktop(values: SnapshotValues): Desktop | null {
+  if ("mode" in values) return "gnome";
+  if ("Proxy Settings/ProxyType" in values) return "kde";
+  return null;
+}
 
 function parsePosix(value: unknown): PosixSystemProxySnapshot {
   if (
@@ -435,8 +435,9 @@ function enabledState(values: SnapshotValues): {
   server?: string;
   pac?: boolean;
 } {
-  const mode = values.mode;
-  if (typeof mode === "string") {
+  const desktop = linuxSnapshotDesktop(values);
+  if (desktop === "gnome") {
+    const mode = values.mode;
     if (mode === "manual") {
       const host = values["http.host"];
       const port = values["http.port"];
@@ -453,9 +454,9 @@ function enabledState(values: SnapshotValues): {
     if (mode === "auto") return { enabled: true, pac: true };
     return { enabled: false };
   }
-  // KDE proxyType: 1 manual, 3 auto PAC, 4 env.
-  const proxyType = values["Proxy Settings/ProxyType"];
-  if (typeof proxyType === "number") {
+  if (desktop === "kde") {
+    // KDE proxyType: 1 manual, 3 auto PAC, 4 env.
+    const proxyType = values["Proxy Settings/ProxyType"];
     if (proxyType === 1) {
       const http = values["Proxy Settings/httpProxy"];
       const https = values["Proxy Settings/httpsProxy"];
@@ -500,20 +501,23 @@ export function linuxSystemProxySnapshotCodec(): SystemProxySnapshotCodec {
       const cAbsent = absentSet(c);
       const oAbsent = absentSet(o);
       const tAbsent = absentSet(t);
+      const desktop = linuxSnapshotDesktop(o);
+      const keys = desktop === null ? MANAGED_KEYS : DESKTOP_MANAGED_KEYS[desktop];
       // Per key, the current state (value AND presence) must equal the
       // captured original or the Sash target — an externally modified key
       // matches neither and blocks the restore.
-      return MANAGED_KEYS.every(
+      return keys.every(
         (key) =>
           (snapshotValueEqual(c[key], o[key]) && cAbsent.has(key) === oAbsent.has(key)) ||
           (snapshotValueEqual(c[key], t[key]) && cAbsent.has(key) === tAbsent.has(key)),
       );
     },
     target(options: EnableOptions, original: SystemProxySnapshot): SystemProxySnapshot {
+      const normalized = normalizeEnableOptions(options);
       const previous = (original as PosixSystemProxySnapshot).values ?? {};
-      const host = options.host ?? "127.0.0.1";
-      const port = options.port;
-      const bypass = options.bypass ?? [];
+      const host = normalized.host;
+      const port = normalized.port;
+      const bypass = normalized.bypass;
       const target: SnapshotValues = {
         ...previous,
         [RAW_VALUES]: { ...rawMap(previous) },
@@ -531,7 +535,7 @@ export function linuxSystemProxySnapshotCodec(): SystemProxySnapshotCodec {
           }
         }
       };
-      if ("mode" in previous || !("Proxy Settings/ProxyType" in previous)) {
+      if (linuxSnapshotDesktop(previous) !== "kde") {
         set({
           mode: "manual",
           "http.enabled": true,
@@ -577,32 +581,22 @@ export interface LinuxSystemProxyDeps {
 
 export function linuxSystemProxyBackend(deps: LinuxSystemProxyDeps = {}): SystemProxyBackend {
   const env = deps.env ?? buildSanitizedEnv();
-  const runner = deps.run ?? run;
-  const desktop = detectLinuxDesktop(env);
-  const tools =
-    desktop === "gnome"
-      ? findExecutableOnPath("gsettings", env)
-        ? ({ read: "gsettings", write: "gsettings" } as const)
-        : null
-      : desktop === "kde"
-        ? kdeProxyTypeName(env)
-        : null;
-
-  if (!desktop || !tools) {
-    return {
-      supported: false,
-      snapshot: linuxSystemProxySnapshotCodec(),
-      capture() {
-        return Promise.reject(new Error("System proxy is not supported on this desktop"));
-      },
-      apply() {
-        return Promise.reject(new Error("System proxy is not supported on this desktop"));
-      },
-    };
-  }
-
+  const runner = deps.run ?? runCmd;
   const snapshot = linuxSystemProxySnapshotCodec();
+  const unsupported: SystemProxyBackend = {
+    supported: false,
+    snapshot,
+    capture() {
+      return Promise.reject(new Error("System proxy is not supported on this desktop"));
+    },
+    apply() {
+      return Promise.reject(new Error("System proxy is not supported on this desktop"));
+    },
+  };
+
+  const desktop = detectLinuxDesktop(env);
   if (desktop === "gnome") {
+    if (!findExecutableOnPath("gsettings", env)) return unsupported;
     return {
       supported: true,
       snapshot,
@@ -610,17 +604,15 @@ export function linuxSystemProxyBackend(deps: LinuxSystemProxyDeps = {}): System
       apply: (value) => applyGnome(runner, (value as PosixSystemProxySnapshot).values),
     };
   }
-  return {
-    supported: true,
-    snapshot,
-    capture: () =>
-      captureKde(runner, tools as { read: string; write: string }, env).then(linuxSnapshot),
-    apply: (value) =>
-      applyKde(
-        runner,
-        tools as { read: string; write: string },
-        (value as PosixSystemProxySnapshot).values,
-        env,
-      ),
-  };
+  if (desktop === "kde") {
+    const tools = kdeProxyTypeName(env);
+    if (!tools) return unsupported;
+    return {
+      supported: true,
+      snapshot,
+      capture: () => captureKde(runner, tools, env).then(linuxSnapshot),
+      apply: (value) => applyKde(runner, tools, (value as PosixSystemProxySnapshot).values, env),
+    };
+  }
+  return unsupported;
 }

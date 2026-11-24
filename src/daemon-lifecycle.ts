@@ -15,7 +15,8 @@ import {
   githubTokenEnv,
   isProcessAlive,
   killProcessGracefully,
-  type ProcessIdentity,
+  type ProcessIdentityCache,
+  pidOwnershipGone,
   withPrivateAppendLogFds,
 } from "./process.js";
 import { createDaemonClient } from "./sash-client-node.js";
@@ -82,7 +83,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export type DaemonIdentityCache = Map<string, ProcessIdentity>;
+export type DaemonIdentityCache = ProcessIdentityCache;
 
 /** A live pid only means the daemon is up while its image matches the exe the
  * record was written for; a pid recycled by an unrelated process is dead.
@@ -92,20 +93,7 @@ async function daemonPidGone(
   pid: number,
   exe: string | undefined,
 ): Promise<boolean> {
-  if (!isProcessAlive(pid)) return true;
-  const key = `${pid} ${exe ?? ""}`;
-  let identity = cache.get(key);
-  if (identity === undefined) {
-    try {
-      identity = exe
-        ? await classifyProcessIdentityAsync(pid, exe)
-        : await classifyProcessNameAsync(pid, process.execPath);
-    } catch {
-      identity = "unknown";
-    }
-    cache.set(key, identity);
-  }
-  return identity === "mismatch";
+  return pidOwnershipGone(cache, classifyProcessIdentityAsync, classifyProcessNameAsync, pid, exe);
 }
 
 export async function evaluateDaemon(

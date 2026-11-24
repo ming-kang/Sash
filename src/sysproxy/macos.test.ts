@@ -97,14 +97,6 @@ describe("macOS system proxy snapshot codec", () => {
     const state = macosSystemProxySnapshotCodec.state(pac);
     assert.equal(state.enabled, true);
   });
-
-  it("marks a touched service as incompatible with the original", () => {
-    const target = macosSystemProxySnapshotCodec.target({ port: 7897 }, sample);
-    const tampered = macosSystemProxySnapshotCodec.parse(target);
-    service(tampered as PosixSystemProxySnapshot, "Wi-Fi").webProxy.server = "10.0.0.1";
-    assert.equal(macosSystemProxySnapshotCodec.compatible(tampered, sample, target), false);
-    assert.equal(macosSystemProxySnapshotCodec.compatible(target, sample, target), true);
-  });
 });
 
 describe("macOS system proxy disabled-state preservation", () => {
@@ -141,22 +133,6 @@ describe("macOS system proxy disabled-state preservation", () => {
     // Disabled-but-stored values are real state and participate in
     // equivalence — nothing Sash wrote can hide behind a disabled flag.
     assert.equal(macosSystemProxySnapshotCodec.equivalent(empty, stored), false);
-  });
-
-  it("detects an external change to a service we touched", () => {
-    const target = macosSystemProxySnapshotCodec.target({ port: 7897 }, pacService);
-    const tampered = macosSystemProxySnapshotCodec.parse(target);
-    const wifi = service(tampered as PosixSystemProxySnapshot, "Wi-Fi");
-    wifi.socksProxy = { ...wifi.socksProxy, enabled: false };
-    assert.equal(macosSystemProxySnapshotCodec.compatible(tampered, pacService, target), false);
-    assert.equal(macosSystemProxySnapshotCodec.compatible(target, pacService, target), true);
-  });
-
-  it("does not let a service rename veto restoring our proxy values", () => {
-    const target = macosSystemProxySnapshotCodec.target({ port: 7897 }, pacService);
-    const renamed = macosSystemProxySnapshotCodec.parse(target);
-    service(renamed as PosixSystemProxySnapshot, "Wi-Fi").serviceName = "Wi-Fi 2";
-    assert.equal(macosSystemProxySnapshotCodec.compatible(renamed, pacService, target), true);
   });
 });
 

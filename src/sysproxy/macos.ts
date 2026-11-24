@@ -1,8 +1,7 @@
 import { isPlainObject } from "../json-shape.js";
 import { runSanitizedCommandAsync } from "../process.js";
-import { formatHostPort } from "./common.js";
+import { formatHostPort, normalizeEnableOptions } from "./common.js";
 import {
-  DEFAULT_BYPASS_LIST,
   type EnableOptions,
   type PosixSystemProxySnapshot,
   SYSTEM_PROXY_SNAPSHOT_VERSION,
@@ -102,20 +101,21 @@ async function serviceIsActive(service: string): Promise<boolean> {
 
 async function activeNetworkServices(): Promise<string[]> {
   const names = await allNetworkServices();
-  const active: string[] = [];
-  for (const name of names) {
-    if (await serviceIsActive(name)) active.push(name);
-  }
-  return active;
+  const active = await Promise.all(names.map((name) => serviceIsActive(name)));
+  return names.filter((_, index) => active[index] === true);
 }
 
-function parseManualProxy(output: string): ManualProxyValues {
-  const fields = Object.fromEntries(
+function networksetupFields(output: string): Record<string, string> {
+  return Object.fromEntries(
     output
       .split("\n")
       .map((line) => line.match(/^([^:]+):\s*(.*)$/)?.slice(1) as [string, string])
       .filter((pair): pair is [string, string] => Array.isArray(pair)),
   );
+}
+
+function parseManualProxy(output: string): ManualProxyValues {
+  const fields = networksetupFields(output);
   const server = fields.Server ?? "";
   return {
     enabled: /^yes$/i.test(fields.Enabled ?? ""),
@@ -126,12 +126,7 @@ function parseManualProxy(output: string): ManualProxyValues {
 }
 
 function parseAutoProxyUrl(output: string): AutoProxyValues {
-  const fields = Object.fromEntries(
-    output
-      .split("\n")
-      .map((line) => line.match(/^([^:]+):\s*(.*)$/)?.slice(1) as [string, string])
-      .filter((pair): pair is [string, string] => Array.isArray(pair)),
-  );
+  const fields = networksetupFields(output);
   const url = fields.URL ?? "";
   // `networksetup` prints "(null)" for an unset PAC URL; normalize to "".
   return { enabled: /^yes$/i.test(fields.Enabled ?? ""), url: url === "(null)" ? "" : url };
@@ -411,43 +406,11 @@ export const macosSystemProxySnapshotCodec: SystemProxySnapshotCodec = {
     };
   },
   equivalent(left, right) {
-    if (left.platform !== "darwin" || right.platform !== "darwin") return left === right;
+    if (left.platform !== "darwin" || right.platform !== "darwin") return false;
     return canonical(left) === canonical(right);
   },
-  compatible(current, original, target) {
-    if (
-      current.platform !== "darwin" ||
-      original.platform !== "darwin" ||
-      target.platform !== "darwin"
-    ) {
-      return false;
-    }
-    const currentServices = readServices(current.values as Record<string, unknown>);
-    const originalServices = readServices(original.values as Record<string, unknown>);
-    const targetServices = readServices(target.values as Record<string, unknown>);
-    for (const [service, fields] of Object.entries(targetServices)) {
-      const currentService = currentServices[service];
-      const originalService = originalServices[service];
-      if (!currentService) continue;
-      for (const [key, targetValue] of Object.entries(fields)) {
-        // serviceName is identity metadata, not proxy state: a rename must
-        // not veto restoring the values we set.
-        if (key === "serviceName") continue;
-        const now = JSON.stringify(
-          (currentService as unknown as Record<string, unknown>)[key] ?? null,
-        );
-        const was = JSON.stringify(
-          (originalService as unknown as Record<string, unknown> | undefined)?.[key] ?? null,
-        );
-        const want = JSON.stringify(targetValue ?? null);
-        if (now !== was && now !== want) return false;
-      }
-    }
-    return true;
-  },
   target(options: EnableOptions, original: SystemProxySnapshot) {
-    const host = options.host ?? "127.0.0.1";
-    const bypass = options.bypass ?? [...DEFAULT_BYPASS_LIST];
+    const normalized = normalizeEnableOptions(options);
     const services = readServices(
       original.platform === "darwin" ? (original.values as Record<string, unknown>) : {},
     );
@@ -455,14 +418,29 @@ export const macosSystemProxySnapshotCodec: SystemProxySnapshotCodec = {
     for (const [service, originalService] of Object.entries(services)) {
       target[service] = {
         serviceName: originalService.serviceName,
-        webProxy: { enabled: true, server: host, port: options.port, authenticated: false },
-        secureWebProxy: { enabled: true, server: host, port: options.port, authenticated: false },
-        socksProxy: { enabled: true, server: host, port: options.port, authenticated: false },
+        webProxy: {
+          enabled: true,
+          server: normalized.host,
+          port: normalized.port,
+          authenticated: false,
+        },
+        secureWebProxy: {
+          enabled: true,
+          server: normalized.host,
+          port: normalized.port,
+          authenticated: false,
+        },
+        socksProxy: {
+          enabled: true,
+          server: normalized.host,
+          port: normalized.port,
+          authenticated: false,
+        },
         // Disabled PAC keeps its stored URL: only the state bit changes, so
         // the target equals what the machine will actually hold.
         autoProxyUrl: { enabled: false, url: originalService.autoProxyUrl.url },
         autoProxyDiscovery: { enabled: false },
-        bypass,
+        bypass: normalized.bypass,
       };
     }
     return {

@@ -23,10 +23,10 @@ import { uiInstalled } from "./webui.js";
 
 const CLI_STATUS_SCHEMA_VERSION = 2 as const;
 
-function describeDownloadTransport(transport: DownloadTransport): string {
+export function describeDownloadTransport(transport: DownloadTransport): string {
   return transport.source === "core"
     ? `Sash's own Core proxy: ${transport.uri}`
-    : `proxy environment variable: ${transport.uri}`;
+    : `the proxy environment variable: ${transport.uri}`;
 }
 
 export type CliDaemonState = "healthy" | "stopped" | "unhealthy";

@@ -89,6 +89,18 @@ interface DelayWatchOptions {
   intervalMs?: number;
 }
 
+function delayOwnerKey(status: CliRuntimeStatus): string {
+  return JSON.stringify([
+    status.daemon.state,
+    status.daemon.pid,
+    status.daemon.port,
+    status.core.running,
+    status.core.healthy,
+    status.core.pid,
+    status.core.version,
+  ]);
+}
+
 class SerialProbe {
   private inFlight: AbortController | undefined;
   private again = false;
@@ -148,8 +160,7 @@ export async function* watchStatusWithDelay(
   let latest: CliRuntimeStatus | undefined;
   let observation: StatusDelayObservation | undefined;
   let owner = "";
-  let failed: unknown;
-  let hasFailed = false;
+  let failed: { error: unknown } | undefined;
   let finished = false;
   let dirty = false;
   let wake: (() => void) | undefined;
@@ -175,10 +186,7 @@ export async function* watchStatusWithDelay(
         );
         if (!probeSignal.aborted) observation = result;
       } catch (error) {
-        if (!probeSignal.aborted && !signal.aborted) {
-          failed = error;
-          hasFailed = true;
-        }
+        if (!probeSignal.aborted && !signal.aborted) failed = { error };
       }
     },
     notify,
@@ -195,15 +203,7 @@ export async function* watchStatusWithDelay(
       for await (const status of options.statuses(signal)) {
         if (signal.aborted) return;
         latest = status;
-        const nextOwner = JSON.stringify([
-          status.daemon.state,
-          status.daemon.pid,
-          status.daemon.port,
-          status.core.running,
-          status.core.healthy,
-          status.core.pid,
-          status.core.version,
-        ]);
+        const nextOwner = delayOwnerKey(status);
         if (nextOwner !== owner) {
           owner = nextOwner;
           observation = initialObservation(status, name);
@@ -212,10 +212,7 @@ export async function* watchStatusWithDelay(
         notify();
       }
     } catch (error) {
-      if (!signal.aborted) {
-        failed = error;
-        hasFailed = true;
-      }
+      if (!signal.aborted) failed = { error };
     } finally {
       finished = true;
       notify();
@@ -230,7 +227,7 @@ export async function* watchStatusWithDelay(
         });
       dirty = false;
       if (signal.aborted) return;
-      if (hasFailed) throw failed;
+      if (failed) throw failed.error;
       if (latest && observation) yield withStatusDelay(latest, observation);
       if (finished) return;
     }

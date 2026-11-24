@@ -112,7 +112,7 @@ describe("linux backend", () => {
       platform: "linux" as const,
       values: { ...left.values, "ignore-hosts": ["localhost"] },
     };
-    assert.equal(codec.compatible(right, left, right), true);
+    assert.equal(codec.compatible?.(right, left, right), true);
     const drifted = {
       ...right,
       values: { ...right.values, "ignore-hosts": ["other"] },
@@ -122,7 +122,7 @@ describe("linux backend", () => {
       platform: "linux" as const,
       values: {},
     };
-    assert.equal(codec.compatible(drifted, left, unrelated), false);
+    assert.equal(codec.compatible?.(drifted, left, unrelated), false);
   });
 
   it("captures and applies GNOME gsettings values", async () => {

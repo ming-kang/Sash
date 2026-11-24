@@ -244,22 +244,14 @@ export class CoreSupervisor {
     }
 
     const api = this.controllerApi(settings);
-    const deadline = Date.now() + this.waitHealthyMs;
-    let version: string | undefined;
-
-    while (Date.now() < deadline) {
-      if (spawnError) {
-        const terminated = await this.abortStart(child, pid);
-        const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
-          maxLines: 20,
-        });
-        const cleanup = terminated ? "" : `; process ${pid} could not be confirmed stopped`;
-        throw new Error(
-          `Failed to start core: ${spawnError.message}${cleanup}${details ? `\n${details}` : ""}`,
-        );
-      }
-
-      if (!this.isAlive(pid)) {
+    try {
+      const version = await this.waitControllerHealthy(api, async () => {
+        if (spawnError) throw spawnError;
+        if (!this.isAlive(pid)) throw new Error("Core exited during startup");
+      });
+      return { pid, version };
+    } catch (error) {
+      if (error !== spawnError && !this.isAlive(pid)) {
         if (this.ownsDirectChild(child)) {
           this.session = undefined;
           this.childStartedAt = undefined;
@@ -267,20 +259,46 @@ export class CoreSupervisor {
         this.clearOwnedPidRecord(child);
         throw new Error(`Core exited during startup.${this.recentErrors(errLogCursor)}`);
       }
+      const terminated = await this.abortStart(child, pid);
+      if (error === spawnError) {
+        const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
+          maxLines: 20,
+        });
+        throw new Error(
+          `Failed to start core: ${(error as Error).message}${terminated ? "" : `; process ${pid} could not be confirmed stopped`}${details ? `\n${details}` : ""}`,
+        );
+      }
+      const cleanup = terminated
+        ? ""
+        : " The process could not be confirmed stopped; PID state was preserved.";
+      throw new Error(`${(error as Error).message}${cleanup}${this.recentErrors(errLogCursor)}`);
+    }
+  }
 
+  /**
+   * Poll the controller until it reports a version or the startup deadline
+   * passes; checkAlive throws the path-specific error when the Core is gone.
+   */
+  private async waitControllerHealthy(
+    api: { version(options?: { deadlineMs?: number; attempts?: number }): Promise<string> },
+    checkAlive: () => Promise<void>,
+    deadlineSuffix: () => string = () => "",
+  ): Promise<string> {
+    const deadline = Date.now() + this.waitHealthyMs;
+    while (Date.now() < deadline) {
+      await checkAlive();
+      let version: string | undefined;
       try {
         version = await api.version();
-        if (this.isAlive(pid)) return { pid, version };
       } catch {}
+      if (version !== undefined) {
+        await checkAlive();
+        return version;
+      }
       await sleep(250);
     }
-
-    const terminated = await this.abortStart(child, pid);
-    const cleanup = terminated
-      ? ""
-      : " The process could not be confirmed stopped; PID state was preserved.";
     throw new Error(
-      `Core started but external-controller did not become healthy within ${this.waitHealthyMs}ms.${cleanup}${this.recentErrors(errLogCursor)}`,
+      `Core started but external-controller did not become healthy within ${this.waitHealthyMs}ms.${deadlineSuffix()}`,
     );
   }
 
@@ -298,42 +316,37 @@ export class CoreSupervisor {
     this.session = session;
     this.childStartedAt = new Date().toISOString();
     const api = this.controllerApi(settings);
-    const deadline = Date.now() + this.waitHealthyMs;
-    let failure: Error;
+    let version: string;
     try {
-      while (true) {
-        const state = await host.status();
-        if (!state.running || state.pid !== pid) {
-          this.forgetHosted(session);
-          throw new Error(`Core exited during startup.${this.recentErrors(errLogCursor)}`);
-        }
-        try {
-          const version = await api.version();
-          this.watchHosted(session);
-          return { pid, version };
-        } catch {}
-        if (Date.now() >= deadline) break;
-        await sleep(250);
-      }
-      failure = new Error(
-        `Core started but external-controller did not become healthy within ${this.waitHealthyMs}ms.${this.recentErrors(errLogCursor)}`,
+      version = await this.waitControllerHealthy(
+        api,
+        async () => {
+          const state = await host.status();
+          if (!state.running || state.pid !== pid) {
+            this.forgetHosted(session);
+            throw new Error(`Core exited during startup.${this.recentErrors(errLogCursor)}`);
+          }
+        },
+        () => this.recentErrors(errLogCursor),
       );
     } catch (error) {
       if (!this.ownsHostedSession(session)) throw error;
-      failure = error instanceof Error ? error : new Error(String(error));
+      const failure = error instanceof Error ? error : new Error(String(error));
+      try {
+        await host.stop();
+        this.forgetHosted(session);
+      } catch (stopError) {
+        // Keep the session so a later stop can retry; the heartbeat still
+        // notices if the Core goes away on its own.
+        if (this.ownsHostedSession(session)) this.watchHosted(session);
+        throw new Error(
+          `${failure.message}\nThe TUN service could not stop the Core: ${errorMessage(stopError)}`,
+        );
+      }
+      throw failure;
     }
-    try {
-      await host.stop();
-      this.forgetHosted(session);
-    } catch (stopError) {
-      // Keep the session so a later stop can retry; the heartbeat still
-      // notices if the Core goes away on its own.
-      if (this.ownsHostedSession(session)) this.watchHosted(session);
-      throw new Error(
-        `${failure.message}\nThe TUN service could not stop the Core: ${errorMessage(stopError)}`,
-      );
-    }
-    throw failure;
+    this.watchHosted(session);
+    return { pid, version };
   }
 
   private forgetHosted(session: HostedSession): void {

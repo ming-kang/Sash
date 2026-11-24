@@ -1,24 +1,31 @@
-import { findExecutableOnPath, windowsSystemExecutable } from "../process.js";
-import { formatHostPort, normalizeEnableOptions, parseProxyString, runCmd } from "./common.js";
-import {
-  blobsSemanticallyEqual,
-  type ConnectionBlobSemantics,
-  LAN_CONNECTION_DEFAULT,
-  parseConnectionBlobSemantics,
-  serializeConnectionSemantics,
-  WIN_LAN_CONNECTIONS,
-} from "./snapshot.js";
+import { formatHostPort, normalizeEnableOptions, parseProxyString } from "./common.js";
 import type {
   EnableOptions,
   SystemProxyBackend,
   SystemProxyRestoreResult,
   SystemProxyRestoreSkip,
   SystemProxySnapshot,
+  SystemProxySnapshotCodec,
   SystemProxyState,
   WindowsRegistryProxyValues,
   WindowsSystemProxySnapshot,
 } from "./types.js";
 import { DEFAULT_BYPASS_LIST, SYSTEM_PROXY_SNAPSHOT_VERSION } from "./types.js";
+import {
+  blobsSemanticallyEqual,
+  buildExpectedLanBlob,
+  type CommandRunner,
+  LAN_CONNECTION_DEFAULT,
+  lanEffectiveMatch,
+  parseConnectionBlobSemantics,
+  parseSystemProxySnapshot,
+  parseWindowsConnectionLine,
+  runReg,
+  runWindowsPowerShell,
+  snapshotsEquivalent,
+  verifyWindowsLanConnections,
+  WIN_LAN_CONNECTIONS,
+} from "./windows-snapshot.js";
 
 const WIN_REG_PATH = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
 const WIN_CONNECTIONS_PATH = `${WIN_REG_PATH}\\Connections`;
@@ -151,8 +158,6 @@ export function parseWindowsRegistryProxyValues(output: string): WindowsRegistry
   return values;
 }
 
-type CommandRunner = typeof runCmd;
-
 /**
  * Every value under `...\Internet Settings\Connections`: name → REG_BINARY
  * hex string — LAN blobs plus named RAS/VPN entries, kept verbatim so
@@ -167,14 +172,16 @@ async function captureWindowsConnections(run: CommandRunner): Promise<Record<str
     return connections; // Connections subkey may not exist yet.
   }
   for (const line of output.split(/\r\n?|\n/)) {
-    const match = line.match(/^\s+(.+?)\s+REG_BINARY\s+([0-9a-fA-F]+)\s*$/);
-    if (match?.[1] && match[2]) connections[match[1].trim()] = match[2].toUpperCase();
+    const entry = parseWindowsConnectionLine(line);
+    if (entry?.type === "REG_BINARY" && /^[0-9a-fA-F]+$/.test(entry.data)) {
+      connections[entry.name] = entry.data.toUpperCase();
+    }
   }
   return connections;
 }
 
 export async function captureWindowsSnapshot(
-  run: CommandRunner = runCmd,
+  run: CommandRunner = runReg,
 ): Promise<WindowsSystemProxySnapshot> {
   const values = parseWindowsRegistryProxyValues(await run("reg.exe", ["query", WIN_REG_PATH]));
   return {
@@ -201,18 +208,8 @@ async function refreshWindowsWinINet(run: CommandRunner): Promise<void> {
     "  if (-not [Interop.WinINet]::InternetSetOption([IntPtr]::Zero, $option, [IntPtr]::Zero, 0)) { throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error()) }",
     "}",
   ].join("\n");
-  const shells = [
-    () => findExecutableOnPath("pwsh.exe"),
-    () => windowsSystemExecutable("WindowsPowerShell/v1.0/powershell.exe"),
-  ];
-  for (const resolveShell of shells) {
-    try {
-      const shell = resolveShell();
-      if (!shell) continue;
-      await run(shell, ["-NoProfile", "-NonInteractive", "-Command", script]);
-      return;
-    } catch {}
-  }
+  const notified = await runWindowsPowerShell(run, script, () => true);
+  if (notified) return;
   try {
     console.warn(
       "[sash] WinINet notification is unavailable. Restart affected applications to pick up proxy registry changes, or install PowerShell for immediate notification.",
@@ -272,7 +269,7 @@ const WIN_PROXY_KEYS = [
 
 export async function applyWindowsSnapshot(
   snapshot: WindowsSystemProxySnapshot,
-  run: CommandRunner = runCmd,
+  run: CommandRunner = runReg,
 ): Promise<void> {
   try {
     for (const [name, type, key] of WIN_PROXY_KEYS) {
@@ -281,7 +278,7 @@ export async function applyWindowsSnapshot(
   } finally {
     await refreshWindowsWinINet(run);
   }
-  await verifyWindowsLanConnections(snapshot, run);
+  await verifyWindowsLanConnections(snapshot, run, () => captureWindowsSnapshot(run));
 }
 
 /**
@@ -291,7 +288,7 @@ export async function applyWindowsSnapshot(
 export async function restoreWindowsSnapshot(
   original: WindowsSystemProxySnapshot,
   target: WindowsSystemProxySnapshot,
-  run: CommandRunner = runCmd,
+  run: CommandRunner = runReg,
 ): Promise<SystemProxyRestoreResult> {
   const skipped: SystemProxyRestoreSkip[] = [];
   const current = await captureWindowsSnapshot(run);
@@ -411,214 +408,6 @@ export async function restoreWindowsSnapshot(
   return { skipped };
 }
 
-/**
- * The semantic target a LAN blob must reach after `apply`: PROXY set,
- * AUTO_PROXY_URL cleared, ProxyServer/ProxyBypass verbatim from the flat
- * values. DIRECT/AUTO_DETECT come from a parseable original, else a
- * standard fallback (AUTO_DETECT from the flat setting; a fresh blob may
- * add DIRECT). A comparison/journal value — version/counter stay
- * WinINet-owned — never bytes to write.
- */
-function buildExpectedLanBlob(
-  originalHex: string | undefined,
-  server: string,
-  bypass: string,
-  autoDetect: number | null,
-): string {
-  const semantics = originalHex === undefined ? null : parseConnectionBlobSemantics(originalHex);
-  const flags =
-    semantics === null ? 0x02 | (autoDetect === 1 ? 0x08 : 0) : (semantics.flags & ~0x04) | 0x02;
-  return serializeConnectionSemantics({
-    flags,
-    proxyServer: server,
-    proxyBypass: bypass,
-    autoConfigUrl: "",
-  });
-}
-
-/**
- * A readback (registry blob or InternetQueryOption result) proves the
- * applied LAN settings when PROXY is on, AUTO_PROXY_URL is off, the strings
- * match the flat intent, and AUTO_DETECT is on when the expected asserts
- * it. DIRECT is environment-owned and never checked; an expected
- * AUTO_DETECT-off is WinINet's claim-free bit and never fails the readback.
- */
-function lanEffectiveMatch(
-  actual: ConnectionBlobSemantics,
-  expected: ConnectionBlobSemantics | null,
-  target: WindowsSystemProxySnapshot,
-): boolean {
-  return (
-    (actual.flags & 0x02) !== 0 &&
-    (actual.flags & 0x04) === 0 &&
-    (expected === null || (expected.flags & 0x08) === 0 || (actual.flags & 0x08) !== 0) &&
-    actual.proxyServer === (target.proxyServer ?? "") &&
-    actual.proxyBypass === (target.proxyOverride ?? "") &&
-    actual.autoConfigUrl === (target.autoConfigUrl ?? "")
-  );
-}
-
-/**
- * Effective LAN connection options via
- * InternetQueryOption(INTERNET_OPTION_PER_CONNECTION_OPTION) — the
- * supported source when the registry blob is absent or unreadable.
- */
-async function queryLanEffectiveOptions(
-  run: CommandRunner,
-): Promise<ConnectionBlobSemantics | null> {
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    '$signature = @"',
-    '[DllImport("wininet.dll", CharSet = CharSet.Ansi, SetLastError = true)]',
-    "public static extern IntPtr InternetOpen(string agent, int access, string proxy, string bypass, int flags);",
-    '[DllImport("wininet.dll", CharSet = CharSet.Ansi, SetLastError = true)]',
-    "public static extern IntPtr InternetConnect(IntPtr hInternet, string server, short port, string user, string pass, int service, int flags, int ctx);",
-    '[DllImport("wininet.dll", SetLastError = true)]',
-    "public static extern bool InternetQueryOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, ref int lpdwBufferLength);",
-    '[DllImport("wininet.dll", SetLastError = true)]',
-    "public static extern bool InternetCloseHandle(IntPtr hInternet);",
-    '"@',
-    "Add-Type -MemberDefinition $signature -Name WinINetQuery -Namespace Interop",
-    "$handle = [Interop.WinINetQuery]::InternetOpen('sash', 0, $null, $null, 0)",
-    "if ($handle -eq [IntPtr]::Zero) { throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error()) }",
-    "# PER_CONNECTION_OPTION only answers on a connection handle — the root",
-    "# handle returns inert DIRECT defaults regardless of the real settings.",
-    "$conn = [Interop.WinINetQuery]::InternetConnect($handle, 'invalid.sash', 80, $null, $null, 3, 0, 0)",
-    "if ($conn -eq [IntPtr]::Zero) { [Interop.WinINetQuery]::InternetCloseHandle($handle) | Out-Null; throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error()) }",
-    "$handle = $conn",
-    "try {",
-    "  $count = 4",
-    "  $options = [Runtime.InteropServices.Marshal]::AllocHGlobal(16 * $count)",
-    "  $strings = @()",
-    "  try {",
-    "    $optionIds = @(1, 2, 3, 4)",
-    "    for ($i = 0; $i -lt $count; $i++) {",
-    "      [Runtime.InteropServices.Marshal]::WriteInt32($options, 16 * $i, $optionIds[$i])",
-    "      if ($optionIds[$i] -ne 1) {",
-    "        $buf = [Runtime.InteropServices.Marshal]::AllocHGlobal(2048)",
-    "        $strings += $buf",
-    "        [Runtime.InteropServices.Marshal]::WriteIntPtr($options, 16 * $i + 8, $buf)",
-    "      }",
-    "    }",
-    "    $list = [Runtime.InteropServices.Marshal]::AllocHGlobal(32)",
-    "    try {",
-    "      [Runtime.InteropServices.Marshal]::WriteInt32($list, 0, 32)",
-    "      [Runtime.InteropServices.Marshal]::WriteIntPtr($list, 8, [IntPtr]::Zero)",
-    "      [Runtime.InteropServices.Marshal]::WriteInt32($list, 16, $count)",
-    "      [Runtime.InteropServices.Marshal]::WriteInt32($list, 20, 0)",
-    "      [Runtime.InteropServices.Marshal]::WriteIntPtr($list, 24, $options)",
-    "      $length = 32",
-    "      if (-not [Interop.WinINetQuery]::InternetQueryOption($handle, 75, $list, [ref]$length)) { throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error()) }",
-    "      $read = { param($i) [Runtime.InteropServices.Marshal]::PtrToStringAnsi([Runtime.InteropServices.Marshal]::ReadIntPtr($options, 16 * $i + 8)) }",
-    "      @{ flags = [Runtime.InteropServices.Marshal]::ReadInt32($options, 8); proxyServer = (& $read 1); proxyBypass = (& $read 2); autoConfigUrl = (& $read 3) } | ConvertTo-Json -Compress",
-    "    } finally { [Runtime.InteropServices.Marshal]::FreeHGlobal($list) }",
-    "  } finally {",
-    "    foreach ($buf in $strings) { [Runtime.InteropServices.Marshal]::FreeHGlobal($buf) }",
-    "    [Runtime.InteropServices.Marshal]::FreeHGlobal($options)",
-    "  }",
-    "} finally { [Interop.WinINetQuery]::InternetCloseHandle($handle) | Out-Null }",
-  ].join("\n");
-  const shells = [
-    () => findExecutableOnPath("pwsh.exe"),
-    () => windowsSystemExecutable("WindowsPowerShell/v1.0/powershell.exe"),
-  ];
-  for (const resolveShell of shells) {
-    try {
-      const shell = resolveShell();
-      if (!shell) continue;
-      const output = await run(shell, ["-NoProfile", "-NonInteractive", "-Command", script]);
-      const parsed = JSON.parse(output.trim()) as {
-        flags?: unknown;
-        proxyServer?: unknown;
-        proxyBypass?: unknown;
-        autoConfigUrl?: unknown;
-      };
-      if (typeof parsed?.flags !== "number") continue;
-      return {
-        flags: parsed.flags & 0x0f,
-        proxyServer: typeof parsed.proxyServer === "string" ? parsed.proxyServer : "",
-        proxyBypass: typeof parsed.proxyBypass === "string" ? parsed.proxyBypass : "",
-        autoConfigUrl: typeof parsed.autoConfigUrl === "string" ? parsed.autoConfigUrl : "",
-      };
-    } catch {}
-  }
-  return null;
-}
-
-/**
- * Prove every expected LAN blob after the WinINet refresh: a strict
- * semantic match passes; a parseable readback differing only in
- * environment-owned bits passes loosely and its proven semantics become
- * the target. A missing or unparseable DefaultConnectionSettings falls
- * back to InternetQueryOption; anything unproven fails the apply.
- */
-async function verifyWindowsLanConnections(
-  target: WindowsSystemProxySnapshot,
-  run: CommandRunner,
-): Promise<void> {
-  // WinINet regenerates the LAN blobs asynchronously after refresh.
-  let current = await captureWindowsSnapshot(run);
-  let stable = 0;
-  for (let attempt = 0; attempt < 8 && stable < 2; attempt += 1) {
-    const seen = JSON.stringify(current.connections);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    current = await captureWindowsSnapshot(run);
-    stable = JSON.stringify(current.connections) === seen ? stable + 1 : 0;
-  }
-  const names = new Set([
-    ...Object.keys(target.connections).filter((name) => WIN_LAN_CONNECTIONS.has(name)),
-    ...Object.keys(current.connections).filter((name) => WIN_LAN_CONNECTIONS.has(name)),
-    LAN_CONNECTION_DEFAULT,
-  ]);
-  const unresolved: string[] = [];
-  for (const name of names) {
-    const cur = current.connections[name];
-    const expected = target.connections[name];
-    if (cur === undefined && expected === undefined) continue;
-    if (cur !== undefined && expected !== undefined && blobsSemanticallyEqual(cur, expected)) {
-      continue;
-    }
-    const sem = cur === undefined ? null : parseConnectionBlobSemantics(cur);
-    const expectedSem = expected === undefined ? null : parseConnectionBlobSemantics(expected);
-    if (sem !== null && lanEffectiveMatch(sem, expectedSem, target)) {
-      // Loose check passed: record the proven effective semantics — the
-      // registry blob stays WinINet's own serialization, never adopted.
-      target.connections[name] = serializeConnectionSemantics(sem);
-      continue;
-    }
-    unresolved.push(name);
-  }
-  for (const name of unresolved) {
-    if (name !== LAN_CONNECTION_DEFAULT) {
-      // A LAN blob that never materialized cannot be proven by the
-      // per-connection API — record the absence; a present-but-unverifiable
-      // blob still fails the apply.
-      if (current.connections[name] === undefined) {
-        delete target.connections[name];
-        continue;
-      }
-      throw new Error(`System proxy apply could not verify the "${name}" connection settings`);
-    }
-    const curHex = current.connections[name];
-    if (curHex !== undefined && parseConnectionBlobSemantics(curHex) !== null) {
-      // A parseable blob matching neither check is a semantic conflict —
-      // the effective-settings API stands in only for a missing or
-      // unparseable blob, never overrides a proven registry difference.
-      throw new Error(`System proxy apply could not verify the "${name}" connection settings`);
-    }
-    const effective = await queryLanEffectiveOptions(run);
-    const expectedSem = parseConnectionBlobSemantics(target.connections[name] ?? "");
-    if (effective === null || !lanEffectiveMatch(effective, expectedSem, target)) {
-      throw new Error("System proxy apply could not verify the effective LAN proxy settings");
-    }
-    // Proven through the supported API: normalize the target so the
-    // post-apply equivalence check reflects what actually materialized.
-    const cur = current.connections[name];
-    if (cur === undefined) delete target.connections[name];
-    else target.connections[name] = cur;
-  }
-}
-
 export function createWindowsTarget(
   opts: EnableOptions,
   original?: SystemProxySnapshot,
@@ -689,9 +478,17 @@ export function asWindowsSnapshot(snapshot: SystemProxySnapshot): WindowsSystemP
   return snapshot;
 }
 
+export const windowsSystemProxySnapshotCodec: SystemProxySnapshotCodec = {
+  parse: parseSystemProxySnapshot,
+  equivalent: snapshotsEquivalent,
+  target: createWindowsTarget,
+  state: (snapshot) => windowsState(asWindowsSnapshot(snapshot)),
+};
+
 export function windowsSystemProxyBackend(): SystemProxyBackend {
   return {
     supported: true,
+    snapshot: windowsSystemProxySnapshotCodec,
     capture: captureWindowsSnapshot,
     apply: (snapshot) => applyWindowsSnapshot(asWindowsSnapshot(snapshot)),
     restore: (original, target) =>

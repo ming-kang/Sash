@@ -13,9 +13,14 @@ import {
 import type {
   SystemProxyBackend,
   SystemProxySnapshot,
+  SystemProxySnapshotCodec,
   WindowsSystemProxySnapshot,
 } from "./types.js";
-import { asWindowsSnapshot, createWindowsTarget } from "./windows.js";
+import {
+  asWindowsSnapshot,
+  createWindowsTarget,
+  windowsSystemProxySnapshotCodec,
+} from "./windows.js";
 
 function snapshot(name: string, port: number): WindowsSystemProxySnapshot {
   return {
@@ -32,6 +37,18 @@ function snapshot(name: string, port: number): WindowsSystemProxySnapshot {
 
 class FakeBackend implements SystemProxyBackend {
   readonly supported = true;
+  // No journal-scoped restore: this fake exercises the manager's generic
+  // compatible-check path, which the real Windows codec never reaches.
+  readonly snapshot: SystemProxySnapshotCodec = {
+    ...windowsSystemProxySnapshotCodec,
+    compatible: (current, original, target) =>
+      current.platform === "win32" &&
+      original.platform === "win32" &&
+      target.platform === "win32" &&
+      (["proxyEnable", "proxyServer", "proxyOverride", "autoConfigUrl"] as const).every(
+        (key) => current[key] === original[key] || current[key] === target[key],
+      ),
+  };
   current: WindowsSystemProxySnapshot;
   readonly applyCalls: WindowsSystemProxySnapshot[] = [];
   captureCalls = 0;

@@ -83,18 +83,25 @@ function classifyDarwinComm(commOutput: string, expectedExe: string): ProcessIde
   return imageMatchesExpectedExe(out, expectedExe) ? "unknown" : "mismatch";
 }
 
-export async function classifyProcessIdentityAsync(
+type ObservedPathMatcher = (observedPath: string, expectedExe: string) => boolean;
+
+type CommClassifier = (commOutput: string, expectedExe: string) => ProcessIdentity;
+
+async function classifyProcessAsync(
   pid: number,
   expectedExe: string,
+  matchObservedPath: ObservedPathMatcher,
+  classifyComm: CommClassifier,
 ): Promise<ProcessIdentity> {
   if (!isProcessAlive(pid)) return "mismatch";
   if (!expectedExe) return "unknown";
   if (pid === process.pid)
-    return exePathsMatch(process.execPath, expectedExe) ? "match" : "mismatch";
+    return matchObservedPath(process.execPath, expectedExe) ? "match" : "mismatch";
   try {
-    if (process.platform === "linux") return await classifyLinuxProcess(pid, expectedExe);
+    if (process.platform === "linux")
+      return await classifyLinuxProcess(pid, expectedExe, matchObservedPath);
     if (process.platform === "darwin")
-      return classifyDarwinComm(
+      return classifyComm(
         await runSanitizedCommandAsync("/bin/ps", ["-ww", "-p", String(pid), "-o", "comm="], {
           timeoutMs: 3000,
         }),
@@ -102,7 +109,11 @@ export async function classifyProcessIdentityAsync(
       );
     if (process.platform === "win32") {
       const observed = await windowsProcessImageAsync(pid);
-      return observed ? (exePathsMatch(observed, expectedExe) ? "match" : "mismatch") : "unknown";
+      return observed
+        ? matchObservedPath(observed, expectedExe)
+          ? "match"
+          : "mismatch"
+        : "unknown";
     }
   } catch {
     return isProcessAlive(pid) ? "unknown" : "mismatch";
@@ -110,12 +121,38 @@ export async function classifyProcessIdentityAsync(
   return "unknown";
 }
 
+export async function classifyProcessIdentityAsync(
+  pid: number,
+  expectedExe: string,
+): Promise<ProcessIdentity> {
+  return classifyProcessAsync(pid, expectedExe, exePathsMatch, classifyDarwinComm);
+}
+
+/**
+ * Loose identity check for records written before the owning exe was stored:
+ * matches when the process image's basename equals the expected exe's basename
+ * ("node" vs "chrome"), so an upgrade-era record is not cleared just because
+ * the CLI now runs under a different node install.
+ */
+export async function classifyProcessNameAsync(
+  pid: number,
+  expectedExe: string,
+): Promise<ProcessIdentity> {
+  return classifyProcessAsync(pid, expectedExe, imageMatchesExpectedExe, (commOutput, expected) =>
+    imageMatchesExpectedExe(commOutput, expected) ? "match" : "mismatch",
+  );
+}
+
 /**
  * A Core granted file capabilities for TUN is not dumpable, so its
  * /proc/<pid>/exe link is unreadable even to the user who started it. Its
  * cmdline stays world-readable; argv[0] is the path Sash spawned.
  */
-async function classifyLinuxProcess(pid: number, expectedExe: string): Promise<ProcessIdentity> {
+async function classifyLinuxProcess(
+  pid: number,
+  expectedExe: string,
+  matchObservedPath: ObservedPathMatcher,
+): Promise<ProcessIdentity> {
   let observed: string;
   try {
     observed = await fs.promises.readlink(`/proc/${pid}/exe`);
@@ -125,7 +162,7 @@ async function classifyLinuxProcess(pid: number, expectedExe: string): Promise<P
     if (!argv0) return "unknown";
     observed = argv0;
   }
-  return exePathsMatch(observed, expectedExe) ? "match" : "mismatch";
+  return matchObservedPath(observed, expectedExe) ? "match" : "mismatch";
 }
 
 async function windowsProcessImageAsync(pid: number): Promise<string> {
@@ -143,46 +180,41 @@ async function windowsProcessImageAsync(pid: number): Promise<string> {
   ).trim();
 }
 
-/**
- * Loose identity check for records written before the owning exe was stored:
- * matches when the process image's basename equals the expected exe's basename
- * ("node" vs "chrome"), so an upgrade-era record is not cleared just because
- * the CLI now runs under a different node install.
- */
-export async function classifyProcessNameAsync(
+export type ProcessIdentityCache = Map<string, ProcessIdentity>;
+
+export async function classifyCached(
+  cache: ProcessIdentityCache,
+  classify: ProcessIdentityVerifier,
   pid: number,
-  expectedExe: string,
+  exe: string,
 ): Promise<ProcessIdentity> {
-  if (!isProcessAlive(pid)) return "mismatch";
-  if (!expectedExe) return "unknown";
-  if (pid === process.pid)
-    return imageMatchesExpectedExe(process.execPath, expectedExe) ? "match" : "mismatch";
+  const key = `${pid} ${exe}`;
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+  let identity: ProcessIdentity;
   try {
-    if (process.platform === "linux") {
-      const observed = await fs.promises.readlink(`/proc/${pid}/exe`);
-      return imageMatchesExpectedExe(basenameLower(observed), expectedExe) ? "match" : "mismatch";
-    }
-    if (process.platform === "darwin") {
-      const observed = await runSanitizedCommandAsync(
-        "/bin/ps",
-        ["-ww", "-p", String(pid), "-o", "comm="],
-        { timeoutMs: 3000 },
-      );
-      const name = basenameLower(observed.trim());
-      return name && imageMatchesExpectedExe(name, expectedExe) ? "match" : "mismatch";
-    }
-    if (process.platform === "win32") {
-      const observed = await windowsProcessImageAsync(pid);
-      return observed
-        ? imageMatchesExpectedExe(basenameLower(observed), expectedExe)
-          ? "match"
-          : "mismatch"
-        : "unknown";
-    }
+    identity = await classify(pid, exe);
   } catch {
-    return isProcessAlive(pid) ? "unknown" : "mismatch";
+    identity = "unknown";
   }
-  return "unknown";
+  cache.set(key, identity);
+  return identity;
+}
+
+/** A live pid is a real owner only while its image matches the recorded exe;
+ * a pid recycled by an unrelated process means the owner is gone. Records
+ * written before `exe` was stored fall back to an image-name check against
+ * this process, so a recycled pid still loses to a foreign image. */
+export async function pidOwnershipGone(
+  cache: ProcessIdentityCache,
+  classifyIdentity: ProcessIdentityVerifier,
+  classifyName: ProcessIdentityVerifier,
+  pid: number,
+  exe?: string,
+): Promise<boolean> {
+  if (!isProcessAlive(pid)) return true;
+  if (exe) return (await classifyCached(cache, classifyIdentity, pid, exe)) === "mismatch";
+  return (await classifyCached(cache, classifyName, pid, process.execPath)) === "mismatch";
 }
 
 export const CREDENTIAL_ENV_KEYS: readonly string[] = [
@@ -238,6 +270,8 @@ export interface SanitizedCommandOptions {
   stdio?: "ignore" | ["ignore", "pipe", "pipe"];
   maxBuffer?: number;
   sourceEnv?: NodeJS.ProcessEnv;
+  input?: string;
+  stderrInError?: boolean;
 }
 
 export function runSanitizedCommand(
@@ -273,15 +307,16 @@ export function runSanitizedCommandAsync(
         timeout: options.timeoutMs ?? 5000,
         windowsHide: true,
       },
-      (error, stdout) => {
+      (error, stdout, stderr) => {
         if (error) {
-          reject(error);
+          const detail = options.stderrInError ? `${stderr ?? ""}`.trim().slice(0, 400) : "";
+          reject(detail ? new Error(`${error.message}: ${detail}`) : error);
           return;
         }
         resolve(options.stdio === "ignore" ? "" : (stdout ?? ""));
       },
     );
-    child.stdin?.end();
+    child.stdin?.end(options.input);
   });
 }
 

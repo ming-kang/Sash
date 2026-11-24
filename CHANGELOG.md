@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Apply the standard localhost bypass list when enabling the system proxy on Linux, matching Windows and macOS; previously an unset bypass proxied local traffic through Sash.
 - Re-apply the complete Sash-owned TUN and DNS policy after generation plugins, so enabled TUN sessions cannot lose managed fields or required DNS settings during final config generation.
 
 ## [0.7.0] - 2026-11-24

@@ -5,7 +5,6 @@ import { hasExactOwnKeys, isCanonicalIsoTimestamp, isPlainObject } from "../json
 import { sashLayout } from "../paths.js";
 import { withStateLock } from "../state-lock.js";
 import { createSystemProxyBackend } from "./index.js";
-import { parseSystemProxySnapshot, snapshotsCompatible, snapshotsEquivalent } from "./snapshot.js";
 import type {
   EnableOptions,
   SystemProxyBackend,
@@ -13,7 +12,6 @@ import type {
   SystemProxySnapshotCodec,
   SystemProxyState,
 } from "./types.js";
-import { asWindowsSnapshot, createWindowsTarget, windowsState } from "./windows.js";
 
 export interface SystemProxyInspection {
   applied: boolean;
@@ -135,13 +133,7 @@ export class SystemProxyManager implements SystemProxyController {
   constructor(options: SystemProxyManagerOptions = {}) {
     this.layout = options.layout ?? sashLayout();
     this.backend = options.backend ?? createSystemProxyBackend();
-    this.snapshot = this.backend.snapshot ?? {
-      parse: parseSystemProxySnapshot,
-      equivalent: snapshotsEquivalent,
-      compatible: snapshotsCompatible,
-      target: createWindowsTarget,
-      state: (snapshot) => windowsState(asWindowsSnapshot(snapshot)),
-    };
+    this.snapshot = this.backend.snapshot;
     if (!this.layout.systemProxyStateFile) {
       throw new Error("System proxy journal requires a systemProxyStateFile path");
     }
@@ -413,10 +405,15 @@ export class SystemProxyManager implements SystemProxyController {
       return;
     }
 
-    const canRestore =
-      this.snapshot.equivalent(current, journal.target) ||
-      ((journal.phase === "prepared" || journal.phase === "restoring") &&
-        this.snapshot.compatible(current, journal.original, journal.target));
+    let canRestore = this.snapshot.equivalent(current, journal.target);
+    if (!canRestore && (journal.phase === "prepared" || journal.phase === "restoring")) {
+      if (!this.snapshot.compatible) {
+        throw new Error(
+          "System proxy journal cannot verify a partial restore: backend snapshot codec has no compatibility check",
+        );
+      }
+      canRestore = this.snapshot.compatible(current, journal.original, journal.target);
+    }
     if (!canRestore) {
       throw new Error(
         "System proxy journal refuses to restore because current settings were modified outside Sash",

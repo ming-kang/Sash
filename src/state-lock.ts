@@ -6,8 +6,9 @@ import { atomicWriteFile } from "./fs-atomic.js";
 import {
   classifyProcessIdentityAsync,
   classifyProcessNameAsync,
-  isProcessAlive,
   type ProcessIdentity,
+  type ProcessIdentityCache,
+  pidOwnershipGone,
 } from "./process.js";
 
 export interface StateLockRecord {
@@ -79,43 +80,6 @@ interface Contender {
 
 type IdentityClassifier = NonNullable<StateLockOptions["classifyIdentity"]>;
 
-type IdentityCache = Map<string, ProcessIdentity>;
-
-async function classifyOnce(
-  cache: IdentityCache,
-  classify: IdentityClassifier,
-  pid: number,
-  exe: string,
-): Promise<ProcessIdentity> {
-  const key = `${pid}${exe}`;
-  const cached = cache.get(key);
-  if (cached !== undefined) return cached;
-  let identity: ProcessIdentity;
-  try {
-    identity = await classify(pid, exe);
-  } catch {
-    identity = "unknown";
-  }
-  cache.set(key, identity);
-  return identity;
-}
-
-/** A live pid is a real owner only while its image matches the recorded exe;
- * a pid recycled by an unrelated process means the owner is gone. Records
- * written before `exe` was stored fall back to an image-name check against
- * this process, so a recycled pid still loses to a foreign image. */
-async function pidGone(
-  cache: IdentityCache,
-  classify: IdentityClassifier,
-  classifyName: IdentityClassifier,
-  pid: number,
-  exe?: string,
-): Promise<boolean> {
-  if (!isProcessAlive(pid)) return true;
-  if (exe) return (await classifyOnce(cache, classify, pid, exe)) === "mismatch";
-  return (await classifyOnce(cache, classifyName, pid, process.execPath)) === "mismatch";
-}
-
 interface ContenderPayload {
   ticket: bigint | null;
   exe?: string;
@@ -139,7 +103,7 @@ function parseContenderPayload(value: string): ContenderPayload {
 
 async function contenders(
   directory: string,
-  cache: IdentityCache,
+  cache: ProcessIdentityCache,
   classify: IdentityClassifier,
   classifyName: IdentityClassifier,
 ): Promise<Contender[]> {
@@ -155,7 +119,7 @@ async function contenders(
     } catch (error) {
       if (errnoCode(error) === "ENOENT") continue;
     }
-    if (await pidGone(cache, classify, classifyName, pid, payload?.exe)) {
+    if (await pidOwnershipGone(cache, classify, classifyName, pid, payload?.exe)) {
       try {
         fs.unlinkSync(candidate);
       } catch {}
@@ -184,7 +148,7 @@ export async function acquireStateLock(
   };
   const classify = options.classifyIdentity ?? classifyProcessIdentityAsync;
   const classifyName = options.classifyName ?? classifyProcessNameAsync;
-  const identityCache: IdentityCache = new Map();
+  const identityCache: ProcessIdentityCache = new Map();
   const name = `${record.pid}.${record.token}`;
   const candidate = path.join(directory, name);
   // Lamport's bakery protocol: publish "choosing" before reading other tickets,
@@ -207,7 +171,8 @@ export async function acquireStateLock(
       );
       const owner = readLockRecord(file);
       let legacyBusy = Boolean(
-        owner && !(await pidGone(identityCache, classify, classifyName, owner.pid, owner.exe)),
+        owner &&
+          !(await pidOwnershipGone(identityCache, classify, classifyName, owner.pid, owner.exe)),
       );
       if (!owner) {
         try {

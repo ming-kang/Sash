@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { isSystemProxySupported, runCmd } from "./common.js";
-import { parseSystemProxySnapshot, snapshotsCompatible, snapshotsEquivalent } from "./snapshot.js";
 import { DEFAULT_BYPASS_LIST } from "./types.js";
 import {
   createWindowsTarget,
@@ -9,6 +8,7 @@ import {
   parseWindowsRegistryProxyValues,
   windowsState,
 } from "./windows.js";
+import { parseSystemProxySnapshot, snapshotsEquivalent } from "./windows-snapshot.js";
 
 describe("sysproxy", () => {
   describe("helper child environment", () => {
@@ -121,7 +121,7 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
   });
 
   describe("Windows snapshot ownership", () => {
-    it("recognizes only original and target leaf values as compatible", () => {
+    it("compares managed leaf values for equivalence", () => {
       const original = {
         version: 1 as const,
         platform: "win32" as const,
@@ -142,18 +142,13 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
         autoDetect: 0,
         connections: {},
       };
-      const partial = { ...original, proxyServer: target.proxyServer };
-      const thirdParty = { ...partial, proxyOverride: "proxy-b.example.test" };
 
       assert.equal(snapshotsEquivalent(original, { ...original }), true);
-      assert.equal(snapshotsCompatible(partial, original, target), true);
-      assert.equal(snapshotsCompatible(thirdParty, original, target), false);
+      assert.equal(snapshotsEquivalent(original, target), false);
 
       // The flat AutoDetect value is rewritten by Windows on WinINet refreshes,
-      // so it is excluded from ownership equivalence and compatibility.
+      // so it is excluded from ownership equivalence.
       assert.equal(snapshotsEquivalent(target, { ...target, autoDetect: null }), true);
-      assert.equal(snapshotsCompatible({ ...partial, autoDetect: null }, original, target), true);
-      assert.equal(snapshotsCompatible({ ...partial, autoDetect: 0 }, original, target), true);
     });
 
     it("parses legacy v1 snapshots that predate the connections field", () => {

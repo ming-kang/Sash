@@ -72,7 +72,7 @@ export type SystemProxySnapshot = WindowsSystemProxySnapshot | PosixSystemProxyS
 export interface SystemProxySnapshotCodec {
   parse(value: unknown): SystemProxySnapshot;
   equivalent(left: SystemProxySnapshot, right: SystemProxySnapshot): boolean;
-  compatible(
+  compatible?(
     current: SystemProxySnapshot,
     original: SystemProxySnapshot,
     target: SystemProxySnapshot,
@@ -96,7 +96,7 @@ export interface SystemProxyRestoreResult {
 
 export interface SystemProxyBackend {
   readonly supported: boolean;
-  readonly snapshot?: SystemProxySnapshotCodec;
+  readonly snapshot: SystemProxySnapshotCodec;
   capture(): Promise<SystemProxySnapshot>;
   apply(snapshot: SystemProxySnapshot): Promise<void>;
   /**

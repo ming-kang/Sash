@@ -1,4 +1,4 @@
-import { runCmd } from "./common.js";
+import { type CommandRunner, parseWindowsConnectionLine, runReg } from "./windows-snapshot.js";
 
 const CONNECTIONS_KEY =
   "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\Connections";
@@ -16,16 +16,16 @@ export function countWindowsProxyConnections(output: string): number {
   const names = new Set<string>();
   let count = 0;
   for (const line of lines) {
-    const match = line.match(/^\s+(.+?)\s+(REG_[A-Z0-9_]+)(?:\s+(.*))?$/i);
-    const name = match?.[1]?.trim().toLowerCase();
-    const type = match?.[2]?.toUpperCase();
-    if (!name || !type || names.has(name) || names.size >= 4096)
+    const entry = parseWindowsConnectionLine(line);
+    if (entry === null) throw new Error("Cannot parse Windows proxy connection records");
+    const name = entry.name.toLowerCase();
+    if (names.has(name) || names.size >= 4096)
       throw new Error("Cannot parse Windows proxy connection records");
     names.add(name);
-    if (DEFAULT_RECORDS.has(name) && type !== "REG_BINARY")
+    if (DEFAULT_RECORDS.has(name) && entry.type !== "REG_BINARY")
       throw new Error("Windows default proxy connection record has an unexpected type");
-    if (type !== "REG_BINARY") continue;
-    if (!/^(?:[a-f0-9]{2})*$/i.test(match?.[3]?.trim() ?? ""))
+    if (entry.type !== "REG_BINARY") continue;
+    if (!/^(?:[a-f0-9]{2})*$/i.test(entry.data))
       throw new Error("Windows proxy connection record has invalid binary data");
     if (!DEFAULT_RECORDS.has(name)) count += 1;
   }
@@ -33,9 +33,9 @@ export function countWindowsProxyConnections(output: string): number {
 }
 
 export async function inspectWindowsProxyConnections(
-  options: { platform?: NodeJS.Platform; run?: typeof runCmd } = {},
+  options: { platform?: NodeJS.Platform; run?: CommandRunner } = {},
 ): Promise<ProxyConnectionsObservation> {
   if ((options.platform ?? process.platform) !== "win32") return { supported: false };
-  const output = await (options.run ?? runCmd)("reg.exe", ["query", CONNECTIONS_KEY]);
+  const output = await (options.run ?? runReg)("reg.exe", ["query", CONNECTIONS_KEY]);
   return { supported: true, additionalRecords: countWindowsProxyConnections(output) };
 }

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { errorMessage } from "../error-utils.js";
+import { deepFreeze } from "../json-shape.js";
 import type { PublicSashSettings } from "../settings.js";
 
 export interface PluginProfileInfo {
@@ -36,14 +37,6 @@ const HOOK_TIMEOUT_MS = 5_000;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
-  }
-  return value;
 }
 
 /**

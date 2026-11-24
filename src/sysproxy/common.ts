@@ -1,12 +1,9 @@
-import { errorMessage } from "../error-utils.js";
 import { isPlainObject } from "../json-shape.js";
-import { runSanitizedCommandAsync, windowsSystemExecutable } from "../process.js";
+import { runSanitizedCommandAsync } from "../process.js";
 import type { EnableOptions } from "./types.js";
 import { DEFAULT_BYPASS_LIST } from "./types.js";
 
 const MAX_PROXY_STRING_LENGTH = 4096;
-
-export { errorMessage, isPlainObject };
 
 export function parseProxyString(value: unknown, label: string, allowEmpty = true): string {
   if (typeof value !== "string") {
@@ -35,11 +32,7 @@ export function parseProxyEnable(value: unknown): number | null {
 }
 
 export function runCmd(cmd: string, args: string[], timeoutMs = 5000): Promise<string> {
-  return runSanitizedCommandAsync(
-    cmd.toLowerCase() === "reg.exe" ? windowsSystemExecutable("reg.exe") : cmd,
-    args,
-    { timeoutMs },
-  );
+  return runSanitizedCommandAsync(cmd, args, { timeoutMs });
 }
 
 export function normalizeEnableOptions(opts: EnableOptions): {

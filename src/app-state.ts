@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { errorMessage } from "./error-utils.js";
 import { atomicWriteFile, atomicWriteFileSync } from "./fs-atomic.js";
-import { isPlainObject } from "./json-shape.js";
+import { deepFreeze, isPlainObject } from "./json-shape.js";
 import { type SashLayout, sashLayout } from "./paths.js";
 import { type ProfilesIndex, parseProfilesIndex } from "./profiles.js";
 import {
@@ -27,14 +27,6 @@ export class StateConflictError extends Error {
     super(message);
     this.name = "StateConflictError";
   }
-}
-
-function freezeSnapshot<T>(value: T): T {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value as Record<string, unknown>)) freezeSnapshot(child);
-  }
-  return value;
 }
 
 function readStateText(layout: SashLayout): string | undefined {
@@ -98,7 +90,7 @@ export class SashStateStore {
     settings?: SashSettings,
   ) {
     const stored = readState(layout);
-    this.state = freezeSnapshot(
+    this.state = deepFreeze(
       stored ?? {
         schemaVersion: 2,
         revision: 0,
@@ -148,9 +140,7 @@ export class SashStateStore {
 
   private prepare(candidate: SashState): { next: SashState; text: string } {
     this.assertCurrent(candidate.revision);
-    const next = freezeSnapshot(
-      structuredClone({ ...candidate, revision: candidate.revision + 1 }),
-    );
+    const next = deepFreeze(structuredClone({ ...candidate, revision: candidate.revision + 1 }));
     const text = `${JSON.stringify(next, null, 2)}\n`;
     if (Buffer.byteLength(text) > MAX_STATE_BYTES) throw new Error("Sash state is too large");
     return { next, text };
