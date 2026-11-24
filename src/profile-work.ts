@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import type { GeneratedConfig, GeoxMirrorSet } from "./mihomo-config.js";
 import { buildSanitizedEnv } from "./process.js";
@@ -41,7 +43,16 @@ function work(task: ProfileTask): Promise<ProfileWorkResult> {
         // Source checkouts run the TypeScript worker through tsx: `.js`
         // specifiers inside it must resolve to neighboring `.ts` files, which
         // plain `node` cannot do.
-        ...(source ? { execArgv: ["--import", "tsx"] } : {}),
+        ...(source
+          ? {
+              // Resolve tsx to an absolute URL: the daemon's cwd is SASH_HOME,
+              // where bare "tsx" has no node_modules to resolve against.
+              execArgv: [
+                "--import",
+                pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href,
+              ],
+            }
+          : {}),
       },
     );
     worker = instance;

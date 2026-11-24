@@ -71,6 +71,8 @@ export function runtimeDelta(
   return { pending: profilePending || restartRequired, restartRequired };
 }
 
+const TUN_RESTORE_DELAYS_MS = [500, 1_500, 3_000, 6_000, 10_000, 15_000, 25_000];
+
 export class RuntimeLifecycle {
   private readonly engine: CoreEngine;
   private runtimeRevision = 0;
@@ -356,5 +358,53 @@ export class RuntimeLifecycle {
         await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
       }
     }
+  }
+
+  /**
+   * Re-apply the last privileged configuration after the TUN helper (or the
+   * privileged Core under it) was lost. The platform service manager restarts
+   * the helper on its own, and the helper's journal teardown has already
+   * reverted OS routes and DNS, so restoring only needs a fresh `apply`.
+   * Retries live in the caller. Returns true once there is nothing left to
+   * restore — the Core is running again, or the saved TUN setting no longer
+   * matches what was applied — and throws on a retryable failure.
+   */
+  async restoreTunSession(expected: RuntimeConfiguration): Promise<boolean> {
+    if (this.options.supervisor.isRunning()) return true;
+    const desired = this.options.settings();
+    if (!desired.tun.enable || !sameTunSettings(desired.tun, expected.settings.tun)) return true;
+    await this.apply(expected);
+    console.warn("[sashd] TUN session restored after the helper restarted");
+    return true;
+  }
+
+  /**
+   * Retry budget for `restoreTunSession`. The platform service manager
+   * restarts the helper on its own schedule (systemd/launchd within ~1s, SCM
+   * recovery after a 10s delay), so attempts spread over roughly a minute.
+   * Each attempt runs under `mutate` so it serializes with user-initiated
+   * changes; the loop aborts early once the daemon starts closing.
+   */
+  async restoreTunSessionWithRetries(
+    expected: RuntimeConfiguration,
+    mutate: <T>(action: () => T | Promise<T>) => Promise<T>,
+    closing: () => boolean,
+    delays: readonly number[] = TUN_RESTORE_DELAYS_MS,
+  ): Promise<void> {
+    for (let index = 0; index < delays.length; index += 1) {
+      if (index > 0) await new Promise((resolve) => setTimeout(resolve, delays[index]));
+      if (closing()) return;
+      try {
+        if (await mutate(() => this.restoreTunSession(expected))) return;
+      } catch (error) {
+        if (closing()) return;
+        console.warn(
+          `[sashd] TUN session restore failed (attempt ${index + 1}/${delays.length}): ${errorMessage(error)}`,
+        );
+      }
+    }
+    console.warn(
+      "[sashd] TUN session did not come back with the helper — traffic is direct until `sash restart` or Apply succeeds",
+    );
   }
 }

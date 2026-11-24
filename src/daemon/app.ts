@@ -85,6 +85,19 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       onExit: () =>
         gate
           .mutate(() => lifecycle.handleUnexpectedCoreExit())
+          .then(() => {
+            const applied = lifecycle.configuration();
+            if (applied?.settings.tun.enable)
+              void lifecycle
+                .restoreTunSessionWithRetries(
+                  applied,
+                  (action) => gate.mutate(action),
+                  () => gate.isClosing,
+                )
+                .catch((error: unknown) => {
+                  console.error(`[sashd] TUN session restore failed: ${errorMessage(error)}`);
+                });
+          })
           .catch((error: unknown) => {
             console.error(`[sashd] Core exit cleanup failed: ${errorMessage(error)}`);
           }),

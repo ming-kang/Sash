@@ -38,6 +38,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Accept the target platform as the first `npm run build:helper` argument (for example `npm run build:helper -- linux x64`), matching the documented usage.
 - Stop warning on every network journal snapshot when the kernel has no IPv6 support or no IPv6 routing table for the TUN session; the family is treated as empty. `ip` stderr is now included in helper command errors, so missing-table and unsupported-family detection actually applies.
 - Keep the privileged Core controller private while supporting live routing-mode switches, profile reloads, and supervised restarts in TUN mode. The helper validates configuration changes and blocks raw configuration loads and Core upgrades.
+- Restore the TUN session automatically after the privileged helper restarts: the daemon detects the lost privileged Core and re-applies the saved TUN configuration once the platform service manager brings the helper back, instead of silently falling back to direct traffic until the next `sash restart`.
+- Fix profile operations (`sash profile add`, refresh, render) failing on a source checkout with `Cannot find package 'tsx'`: the profile worker now resolves the tsx loader by absolute path instead of relying on the daemon's working directory.
 - Authenticate TUN controller traffic through the local helper connection instead of issuing a second bearer token.
 - Apply TUN when the privileged Core is ready, without probing system routes or DNS. Core startup failures still roll back.
 - Install the TUN helper and its release-paired Core together with administrator consent. TUN no longer imports Core archives, reads consent receipts, or syncs the ordinary-mode Core.
