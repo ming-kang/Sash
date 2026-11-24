@@ -36,12 +36,35 @@
           @update:model-value="toggleAllowLan"
         />
       </div>
+      <div class="network-toggle">
+        <span class="toggle-name">{{ t('tun.title') }}</span>
+        <UiSwitch
+          :model-value="store.status?.settings.tun?.enable ?? false"
+          :label="t('tun.title')"
+          :disabled="store.operations.networkSetting || !store.status || (!tun?.privilege.installed && !store.status.settings.tun?.enable)"
+          @update:model-value="toggleTun"
+        />
+      </div>
+    </div>
+    <div v-if="tun" class="tun-details">
+      <span>{{ t('tun.desired') }}: {{ tun.desired ? t('tun.on') : t('tun.off') }}</span>
+      <span>{{ t('tun.applied') }}: {{ tun.applied ? t('tun.on') : t('tun.off') }}</span>
+      <span v-if="tun.applied">{{ t('tun.networkNotChecked') }}</span>
+      <span v-if="!tun.supported">{{ t('tun.unsupported') }}</span>
+      <button v-else-if="tun.privilege.installed === false || tun.privilege.needsReconsent" type="button"
+        :disabled="installingHelper" @click="installHelper">
+        {{ t(tun.privilege.needsReconsent ? 'tun.reconsent' : 'tun.install') }}
+      </button>
+      <span v-if="tun.desired !== tun.applied">{{ t('tun.apply') }}</span>
+      <span v-if="tun.applied && isSysProxyOn">{{ t('tun.proxyHint') }}</span>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import type { TunStatusResponse } from "../../../src/contracts.js";
+import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
 import {
   canToggleSystemProxy,
@@ -70,6 +93,45 @@ const modes = computed(() => [
 ]);
 
 const allowLanOn = computed(() => store.status?.settings.allowLan ?? false);
+const tun = ref<TunStatusResponse>();
+const installingHelper = ref(false);
+
+watch(
+  [() => store.status?.daemon.bootId, () => store.status?.revisions.state, () => store.status?.revisions.runtime],
+  async ([bootId], _previous, onCleanup) => {
+    let current = true;
+    onCleanup(() => { current = false; });
+    try {
+      const observed = bootId ? await api.getTun() : undefined;
+      if (current) tun.value = observed;
+    } catch {
+      if (current) tun.value = undefined;
+    }
+  },
+  { immediate: true },
+);
+
+async function installHelper(): Promise<void> {
+  installingHelper.value = true;
+  const bootId = store.status?.daemon.bootId;
+  try {
+    const status = await api.installTunHelper();
+    if (bootId === store.status?.daemon.bootId) tun.value = status;
+  } catch (error) {
+    toast.error(t("toast.failed", { msg: errorText(error) }));
+  } finally {
+    installingHelper.value = false;
+  }
+}
+
+async function toggleTun(enable: boolean): Promise<void> {
+  try {
+    if (!(await saveNetworkSettings({ tun: { enable } })))
+      toast.info(t("toast.settingSavedUnverified"));
+  } catch (error) {
+    toast.error(t("toast.failed", { msg: errorText(error) }));
+  }
+}
 
 async function switchMode(mode: RoutingMode): Promise<void> {
   if (mode === store.mode || pendingMode.value) return;
@@ -103,6 +165,13 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 </script>
 
 <style scoped>
+.tun-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  font-size: 0.8rem;
+}
 .mode-control {
   padding: 14px 16px;
   background: var(--bg-card);

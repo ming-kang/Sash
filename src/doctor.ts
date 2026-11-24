@@ -5,6 +5,7 @@ import { readState, type SashState } from "./app-state.js";
 import { readLoginStartRecord } from "./autostart/login-record.js";
 import { CORE_BINARY_SIZE_LIMIT, readInstallRecord } from "./core.js";
 import { GEODATA_FILE_NAMES } from "./core-config-validation.js";
+import { resolveDaemonSession } from "./daemon-session.js";
 import { errorMessage } from "./error-utils.js";
 import { pathEntryExists } from "./fs-atomic.js";
 import { type DownloadTransport, fetchWithRetry } from "./http.js";
@@ -284,6 +285,29 @@ export async function diagnoseSash(
         formatSystemProxyLine(proxy.desired, proxy.osObserved),
         runtime.queryError ?? undefined,
       );
+      if (context.settings.tun.enable || runtime.daemon.state === "healthy") {
+        try {
+          const owner = await resolveDaemonSession(context);
+          const tun = owner.kind === "daemon" ? await owner.client.tunStatus() : null;
+          add(
+            "tun-helper",
+            tun?.privilege.needsReconsent ? "warning" : "info",
+            !tun
+              ? "TUN helper status unavailable while Sash is stopped"
+              : !tun.supported
+                ? "TUN helper integration is not available on this platform"
+                : tun.privilege.needsReconsent
+                  ? "TUN helper needs re-consent; run sash tun helper install"
+                  : tun.privilege.installed
+                    ? "TUN helper installed"
+                    : "TUN helper not installed",
+          );
+          if (tun?.applied)
+            add("tun-network", "info", "TUN is applied; OS routes and DNS are not checked");
+        } catch {
+          add("tun-helper", "info", "Could not read TUN helper status");
+        }
+      }
       const auto = runtime.autostart;
       add(
         "autostart",

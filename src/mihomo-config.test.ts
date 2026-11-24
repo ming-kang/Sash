@@ -4,6 +4,7 @@ import { describe, it } from "vitest";
 import {
   asCoreConfigDocument,
   buildDefaultConfig,
+  enforceTunConfiguration,
   fetchSubscriptionProfile,
   overlayManagedKeys,
   parseContentDispositionFilename,
@@ -13,6 +14,7 @@ import {
   stripManagedKeys,
 } from "./mihomo-config.js";
 import type { SashSettings } from "./settings.js";
+import { defaultTunSettings } from "./tun-settings.js";
 
 describe("mihomo-config", () => {
   const mockSettings: SashSettings = {
@@ -23,6 +25,7 @@ describe("mihomo-config", () => {
     daemonPort: 19090,
     daemonSecret: "test-daemon-secret-1234",
     systemProxy: false,
+    tun: defaultTunSettings(),
   };
 
   describe("asCoreConfigDocument", () => {
@@ -140,6 +143,34 @@ describe("mihomo-config", () => {
   });
 
   describe("overlayManagedKeys", () => {
+    it("generates enabled TUN and fills only missing DNS fields", () => {
+      const options = { ...mockSettings, tun: { ...defaultTunSettings(), enable: true } };
+      const dns = { nameserver: ["1.1.1.1"], "enhanced-mode": "redir-host" };
+      const overlaid = overlayManagedKeys({ dns }, options);
+      assert.deepEqual(overlaid.dns, { ...dns, listen: "127.0.0.1:1053", enable: true });
+      assert.deepEqual(overlaid.tun, {
+        enable: true,
+        stack: "mixed",
+        "auto-route": true,
+        "strict-route": false,
+        "auto-detect-interface": true,
+        "dns-hijack": ["any:53", "tcp://any:53"],
+        "route-exclude-address": [],
+      });
+      assert.ok(overlayManagedKeys({}, options).dns);
+      assert.throws(() => overlayManagedKeys({ dns: { enable: false } }, options), /dns.enable/);
+    });
+
+    it("enforces the Sash TUN setting after generation hooks", () => {
+      const config = { tun: { enable: true, stack: "system" } };
+      enforceTunConfiguration(config, defaultTunSettings());
+      assert.deepEqual(config.tun, { enable: false, stack: "system" });
+      assert.throws(
+        () => enforceTunConfiguration({ listeners: [{ type: "tun" }] }, defaultTunSettings()),
+        /Independent TUN listeners/,
+      );
+    });
+
     it("preserves DNS and provider options while disabling profile TUN without mutating input", () => {
       const profile = {
         tun: { enable: true, "auto-route": true },
@@ -188,6 +219,7 @@ describe("mihomo-config", () => {
         daemonPort: 19090,
         daemonSecret: "daemon-secret",
         systemProxy: false,
+        tun: defaultTunSettings(),
       };
 
       const overlaid = overlayManagedKeys(subscriptionBase, settings);

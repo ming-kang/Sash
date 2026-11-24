@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 import { ERROR_BODY_LIMIT } from "./http.js";
 import { MihomoApi } from "./mihomo-api.js";
 import { fetchSubscriptionProfile } from "./mihomo-config.js";
+import { deferredValue } from "./testing/state.js";
 
 describe("MihomoApi", () => {
   it("never follows controller redirects carrying private credentials", async () => {
@@ -177,16 +178,11 @@ describe("MihomoApi", () => {
   });
 
   it("waits out a reload that blocks on provider loading, past the default API budget", async () => {
-    const reloadMs = 8_000;
+    const response = deferredValue<http.ServerResponse>();
     const server = http.createServer((req, res) => {
       if (req.method === "PUT" && req.url === "/configs") {
         req.resume();
-        req.on("end", () => {
-          setTimeout(() => {
-            res.writeHead(204);
-            res.end();
-          }, reloadMs);
-        });
+        req.on("end", () => response.resolve(res));
         return;
       }
       res.writeHead(404);
@@ -196,15 +192,27 @@ describe("MihomoApi", () => {
     const addr = server.address();
     const port = typeof addr === "object" && addr ? addr.port : 0;
 
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const api = new MihomoApi(`127.0.0.1:${port}`, "");
-      const started = Date.now();
-      await api.reloadConfig("/sash/runtime/config.yaml");
-      assert.ok(
-        Date.now() - started >= reloadMs,
-        "the reload gave up before the Core finished applying it",
+      const reload = api.reloadConfig("/sash/runtime/config.yaml");
+      let finished = false;
+      void reload.then(
+        () => {
+          finished = true;
+        },
+        () => {
+          finished = true;
+        },
       );
+      const res = await response.promise;
+      await vi.advanceTimersByTimeAsync(8_000);
+      assert.equal(finished, false, "the reload gave up before the Core finished applying it");
+      res.writeHead(204);
+      res.end();
+      await reload;
     } finally {
+      vi.useRealTimers();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

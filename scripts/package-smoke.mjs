@@ -5,6 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
+import {
+  helperArchitectures,
+  helperAsset,
+  helperFilename,
+  helperFilenames,
+  helperPlatforms,
+  helperTargets,
+  pairedCoreAsset,
+  pairedCoreFilename,
+} from "./helper-artifacts.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -62,6 +72,7 @@ function run(command, args, options = {}) {
     env: sanitizedEnv(options.env),
     maxBuffer: 16 * 1024 * 1024,
     shell: false,
+    timeout: options.timeout,
     windowsHide: true,
   });
   if (result.error) throw result.error;
@@ -168,8 +179,52 @@ function assertPackedFiles(files) {
     assert.doesNotMatch(file, /(?:^|\.)test\.[cm]?[jt]sx?$/i);
     assert.doesNotMatch(file, /(^|\/)(?:profiles|state|logs|bin)(\/|$)/i);
     assert.doesNotMatch(file, /(^|\/)(?:sash\.json|config\.ya?ml|\.npmrc|\.env(?:\..*)?)$/i);
-    assert.doesNotMatch(file, /\.(?:exe|dll|dylib|so|zip|gz|tgz|tar|bak|pid|lock)$/i);
+    if (
+      !helperFilenames.some((name) => file === `dist/${name}`) &&
+      !helperPlatforms.some((platform) =>
+        helperArchitectures.some((arch) => file === `dist/${pairedCoreFilename(platform, arch)}`),
+      )
+    )
+      assert.doesNotMatch(file, /\.(?:exe|dll|dylib|so|zip|gz|tgz|tar|bak|pid|lock)$/i);
   }
+}
+
+async function smokePackagedHelpers(installedRoot, packedFiles, manifest) {
+  const names = new Set(packedFiles.map((entry) => entry.path.replaceAll("\\", "/")));
+  const packed = helperFilenames.filter((name) => names.has(`dist/${name}`));
+  const assets = manifest?.helpers?.assets ?? [];
+  assert.ok(Array.isArray(assets), "manifest helpers.assets must be an array");
+  assert.deepEqual(assets.map((asset) => asset.name).sort(), packed.sort());
+  if (process.env.SASH_PACKAGE_SMOKE_REQUIRE_BOOTSTRAP === "1") {
+    assert.deepEqual(
+      packed,
+      helperTargets(root)
+        .map(({ platform, arch }) => helperFilename(platform, arch))
+        .sort(),
+      "package helper targets must match the platform entries in this checkout",
+    );
+  }
+  const dist = path.join(installedRoot, "dist");
+  const cores = manifest?.helpers?.cores ?? [];
+  assert.ok(Array.isArray(cores), "manifest helpers.cores must be an array");
+  const pairedCores = assets.map(({ platform, arch }) => pairedCoreFilename(platform, arch));
+  assert.deepEqual(cores.map(({ name }) => name).sort(), pairedCores.sort());
+  const packedCores = [...names].filter((name) => name.startsWith("dist/sash-tun-core-"));
+  assert.deepEqual(packedCores.sort(), pairedCores.map((name) => `dist/${name}`).sort());
+  for (const core of cores)
+    assert.deepEqual(await pairedCoreAsset(dist, core.platform, core.arch), core);
+  for (const asset of assets) {
+    assert.equal(asset.name, helperFilename(asset.platform, asset.arch));
+    assert.deepEqual(await helperAsset(dist, asset.platform, asset.arch), asset);
+  }
+  const host = helperFilename(process.platform, process.arch);
+  if (!packed.includes(host)) {
+    console.log(`[package-smoke] skipping ${host} --version (not packaged)`);
+    return;
+  }
+  const version = run(path.join(dist, host), ["--version"], { timeout: 10_000 }).trim();
+  assert.ok(version, `${host} --version printed no version`);
+  console.log(`[package-smoke] ran ${host} --version: ${version}`);
 }
 
 const installSpec = process.argv[2];
@@ -241,8 +296,10 @@ try {
     await worker.terminate();
   }
   const installedManifest = path.join(installedRoot, "dist", "bootstrap-manifest.json");
-  if (fs.existsSync(installedManifest)) {
-    const manifest = JSON.parse(fs.readFileSync(installedManifest, "utf8"));
+  const manifest = fs.existsSync(installedManifest)
+    ? JSON.parse(fs.readFileSync(installedManifest, "utf8"))
+    : undefined;
+  if (manifest) {
     assert.equal(typeof manifest.core?.tag, "string", "manifest is missing the Core tag");
     assert.equal(typeof manifest.geodata?.tag, "string", "manifest is missing the geodata tag");
     assert.ok(manifest.core.assets.length > 0, "manifest pins no Core assets");
@@ -252,6 +309,7 @@ try {
       assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0);
     }
   }
+  await smokePackagedHelpers(installedRoot, packedFiles, manifest);
   const { inspectInstallation } = await import(
     pathToFileURL(path.join(installedRoot, "dist", "sash-installation.js")).href
   );

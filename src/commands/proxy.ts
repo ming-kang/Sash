@@ -59,7 +59,7 @@ export async function runProxy(
       const rows = [["System Proxy", systemProxyValue(observed)]];
       if (observed.enabled !== null && observed.enabled !== result.desired) {
         rows.push(["Sash Setting", result.desired ? "On" : "Off"]);
-        if (observed.server) rows.push(["Windows", observed.server]);
+        if (observed.server) rows.push(["OS Proxy", observed.server]);
       }
       log.table(rows);
       printSystemProxyWarnings(result.desired, observed);

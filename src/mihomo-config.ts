@@ -1,7 +1,9 @@
 import YAML from "yaml";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
+import { isPlainObject } from "./json-shape.js";
 import { inspectProfileOffThread } from "./profile-work.js";
 import type { SashSettings } from "./settings.js";
+import type { TunSettings } from "./tun-settings.js";
 
 export interface GeneratedConfig {
   yaml: string;
@@ -245,8 +247,45 @@ export function overlayManagedKeys(
   out["allow-lan"] = settings.allowLan;
   out["external-controller"] = settings.controller;
   out.secret = settings.secret;
-  out.tun = { enable: false };
+  const tun = settings.tun;
+  out.tun = tun.enable
+    ? {
+        enable: true,
+        stack: tun.stack,
+        "auto-route": tun.autoRoute,
+        "strict-route": tun.strictRoute,
+        "auto-detect-interface": true,
+        "dns-hijack": tun.dnsHijack,
+        ...(tun.device !== undefined ? { device: tun.device } : {}),
+        "route-exclude-address": tun.routeExcludeAddress,
+      }
+    : { enable: false };
+  if (tun.enable) {
+    if (out.dns !== undefined && !isPlainObject(out.dns))
+      throw new Error("TUN requires a DNS configuration object");
+    const dns = out.dns ?? {
+      nameserver: ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"],
+    };
+    if (dns.enable !== undefined && dns.enable !== true)
+      throw new Error("TUN requires dns.enable: true; the selected profile disables DNS");
+    out.dns = { listen: "127.0.0.1:1053", "enhanced-mode": "fake-ip", ...dns, enable: true };
+  }
+  enforceTunConfiguration(out, tun);
   return out;
+}
+
+export function enforceTunConfiguration(config: Record<string, unknown>, tun: TunSettings): void {
+  const mapping = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  if (
+    Array.isArray(config.listeners) &&
+    config.listeners.some((entry) => mapping(entry) && String(entry.type).toLowerCase() === "tun")
+  ) {
+    throw new Error("Independent TUN listeners are not supported; use Sash TUN settings");
+  }
+  config.tun = { ...(mapping(config.tun) ? config.tun : {}), enable: tun.enable };
+  if (tun.enable && (!mapping(config.dns) || config.dns.enable !== true))
+    throw new Error("TUN requires dns.enable: true in the generated configuration");
 }
 
 export function countProxies(document: Record<string, unknown>): number {

@@ -60,7 +60,7 @@ export async function setSystemProxyEnabled(target: boolean): Promise<boolean> {
 }
 
 export async function saveNetworkSettings(
-  patch: Pick<SettingsPatch, "mixedPort" | "allowLan">,
+  patch: Pick<SettingsPatch, "mixedPort" | "allowLan" | "tun">,
 ): Promise<boolean> {
   if (store.operations.networkSetting) return false;
   store.operations = { ...store.operations, networkSetting: true };

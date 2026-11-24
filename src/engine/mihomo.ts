@@ -15,7 +15,7 @@ export const mihomoEngine: CoreEngine = {
   renderActiveConfig: (state, layout) => renderActiveConfig(state, layout),
   validateConfig: (executable, yaml, layout, options) =>
     validateCoreConfig(executable, yaml, layout, options),
-  api: (controller, secret) => new MihomoApi(controller, secret),
+  api: (controller, secret, dispatcher) => new MihomoApi(controller, secret, dispatcher),
   geodata: {
     mirrorSets: GEOX_MIRROR_SETS,
     isDownloadFailure: isGeodataDownloadFailure,

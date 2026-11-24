@@ -86,11 +86,14 @@ export function autostartContext(options: AutostartOptions = {}): AutostartConte
   const homedir = options.homedir ?? os.homedir();
   const env = buildSanitizedEnv(options.env ?? process.env);
   const packageRoot = options.packageRoot ?? currentPackageRoot();
-  const controlDir = path.join(
-    absoluteEnvPath(env.LOCALAPPDATA, path.join(homedir, "AppData", "Local")),
-    "Sash",
-    "autostart",
-  );
+  const controlDir =
+    platform === "darwin"
+      ? path.join(homedir, "Library", "Application Support", "Sash", "autostart")
+      : path.join(
+          absoluteEnvPath(env.LOCALAPPDATA, path.join(homedir, "AppData", "Local")),
+          "Sash",
+          "autostart",
+        );
   const runCommand = options.runCommand ?? runAutostartCommand;
   return {
     platform,

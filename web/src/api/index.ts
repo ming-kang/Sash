@@ -134,6 +134,8 @@ export const api = {
   events: (signal: AbortSignal) => sash.events(signal),
   getAutostart: () => sash.autostartStatus(),
   setAutostart: (enabled: boolean) => sash.setAutostart(enabled),
+  getTun: () => sash.tunStatus(),
+  installTunHelper: () => sash.setTunHelper(true),
 
   enableSystemProxy: (expectedRevision?: number) =>
     sash.patchSettings({ systemProxy: true, expectedRevision }),

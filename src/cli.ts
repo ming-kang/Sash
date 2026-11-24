@@ -8,6 +8,7 @@ import { withCliErrors } from "./cli-errors.js";
 import { cliOutputSignal, handleCliOutputError } from "./cli-output.js";
 import type { AutoMode } from "./commands/auto.js";
 import type { ProxyAction } from "./commands/proxy.js";
+import type { TunAction, TunHelperAction } from "./commands/tun.js";
 import type { RoutingMode } from "./contracts.js";
 import { errorMessage } from "./error-utils.js";
 import { parseLogLineCount } from "./log-follow.js";
@@ -202,6 +203,34 @@ program
     ),
   );
 program
+  .command("tun")
+  .description("Show or save TUN settings and manage the privileged helper.")
+  .addArgument(
+    new Argument("[action]", "TUN action (default: status)").choices([
+      "on",
+      "off",
+      "status",
+      "helper",
+    ]),
+  )
+  .addArgument(
+    new Argument("[helperAction]", "Helper action (default: status)").choices([
+      "install",
+      "uninstall",
+      "status",
+    ]),
+  )
+  .option("--json", "Output JSON")
+  .action(
+    lazyCommand(
+      async (
+        action: TunAction | undefined,
+        helperAction: TunHelperAction | undefined,
+        opts: { json?: boolean },
+      ) => (await import("./commands/tun.js")).runTun(action, helperAction, opts),
+    ),
+  );
+program
   .command("mode")
   .description("Set the running Core routing mode.")
   .addArgument(new Argument("<mode>", "Routing mode").choices(["rule", "global", "direct"]))
@@ -313,9 +342,9 @@ const helpDetails: Record<string, string> = {
   profile:
     "Use a profile ID or exact name. Quote names containing spaces.\nChanges to the selected profile are applied to a healthy running Core when\nno listener changes are pending. Otherwise, they remain saved.",
   proxy:
-    "Enabling requires a healthy running Core.\nTurning it off restores the previous Windows proxy settings.",
+    "Enabling requires a healthy running Core.\nTurning it off restores the previous system proxy settings.",
   mode: "The mode applies to the current Core session.\nApplying the saved configuration may reset it.",
-  auto: "Available on Windows with a supported global npm installation.\nSash may start to save a change. Core is not started by this command.",
+  auto: "Available on Windows with a supported global npm installation, and on\nLinux desktops through an XDG autostart entry.\nSash may start to save a change. Core is not started by this command.",
   logs: "Examples:\n  sash logs -f\n  sash logs --errors\n  sash logs --daemon --errors\n  sash logs --startup\n\n--startup cannot be combined with --daemon or --errors.\nSet SASH_DEBUG=1 to include stack traces for CLI errors.",
   update:
     "Examples:\n  sash update\n  sash update --check\n  sash update v1.19.31\n  sash update --cancel\n\nReplacing a running Core briefly interrupts proxy connections.\nCtrl+C requests download cancellation. An interrupted command exits 130.",

@@ -103,6 +103,19 @@ export function sashApiRoutes(): readonly RouteDef[] {
       handler: cancelCoreUpdate,
     },
     { methods: ["GET"], path: "/sash/proxy", auth: "public", handler: proxyStatus },
+    { methods: ["GET"], path: "/sash/tun", auth: "control", handler: readTun },
+    {
+      methods: ["POST"],
+      path: "/sash/tun/helper/install",
+      auth: "control",
+      handler: (ctx, req) => setTunHelper(ctx, req, true),
+    },
+    {
+      methods: ["POST"],
+      path: "/sash/tun/helper/uninstall",
+      auth: "control",
+      handler: (ctx, req) => setTunHelper(ctx, req, false),
+    },
     {
       methods: ["GET"],
       path: "/sash/autostart",
@@ -263,7 +276,7 @@ export async function setCoreMode(ctx: DaemonContext, req: DaemonRequest): Promi
     const owner = ctx.supervisor.ownedCoreSnapshot();
     if (!owner) throw new HttpError(409, "A running owned Core is required to change routing mode");
     const settings = ctx.settings.runtime();
-    await ctx.engine.api(settings.controller, settings.secret).setMode(body.data.mode);
+    await ctx.supervisor.controllerApi(settings).setMode(body.data.mode);
     if (!ctx.supervisor.ownsCore(owner))
       throw new HttpError(409, "Core changed during the mode request; inspect its current mode");
   });
@@ -287,9 +300,7 @@ export async function testCoreDelay(
     const owner = ctx.supervisor.ownedCoreSnapshot();
     if (!owner) throw new HttpError(409, "A running owned Core is required for a delay test");
     const settings = ctx.settings.runtime();
-    const result = await ctx.engine
-      .api(settings.controller, settings.secret)
-      .delay(name, req.signal);
+    const result = await ctx.supervisor.controllerApi(settings).delay(name, req.signal);
     if (!ctx.supervisor.ownsCore(owner))
       throw new HttpError(409, "Core changed during the delay test; try again");
     return result;
@@ -457,6 +468,31 @@ function readSettingsPatch(body: unknown): SettingsPatch {
     );
   }
   return parsed.data as SettingsPatch;
+}
+
+async function readTun(ctx: DaemonContext): Promise<RouteResponse> {
+  const applied = ctx.supervisor.isRunning()
+    ? ctx.lifecycle.configuration()?.settings.tun
+    : undefined;
+  return { status: 200, json: await ctx.tun.status(ctx.settings.committed().tun.enable, applied) };
+}
+
+async function setTunHelper(
+  ctx: DaemonContext,
+  req: DaemonRequest,
+  install: boolean,
+): Promise<RouteResponse> {
+  const peer = req.raw.socket.remoteAddress;
+  if (peer !== "127.0.0.1" && peer !== "::1" && peer !== "::ffff:127.0.0.1")
+    throw new HttpError(403, "TUN helper administration is local only", "unauthorized");
+  if (!ctx.tun.platform.supported)
+    throw new HttpError(501, "TUN helper integration is not available on this platform yet");
+  await ctx.mutate(async () => {
+    if (ctx.supervisor.isRunning() && ctx.lifecycle.configuration()?.settings.tun.enable)
+      throw new HttpError(409, "Disable TUN and Apply before changing the helper", "conflict");
+    await ctx.tun.setInstalled(install);
+  });
+  return readTun(ctx);
 }
 
 export function readSettings(ctx: DaemonContext): RouteResponse {

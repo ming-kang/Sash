@@ -8,6 +8,7 @@ import type { SashSettings } from "../settings.js";
 import type { SettingsService } from "../settings-service.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../sysproxy/manager.js";
+import type { TunService } from "../tun-service.js";
 import type { CoreControlService } from "./core-service.js";
 import { ShuttingDownError } from "./errors.js";
 import type { DaemonEvents } from "./events.js";
@@ -119,6 +120,7 @@ export interface DaemonContext {
   readonly lifecycle: RuntimeLifecycle;
   readonly supervisor: CoreSupervisor;
   readonly systemProxy: SystemProxyController;
+  readonly tun: TunService;
   readonly autostart: AutostartController;
   readonly gate: DaemonGate;
   readonly events: DaemonEvents;

@@ -22,7 +22,7 @@ import { type CoreEngine, mihomoEngine } from "../engine/index.js";
 import { errorMessage } from "../error-utils.js";
 import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
 import { type DownloadTransport, envProxyUri, formatProxyFallbackWarning } from "../http.js";
-import { countProxies, type GeneratedConfig } from "../mihomo-config.js";
+import { countProxies, enforceTunConfiguration, type GeneratedConfig } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
 import type { PluginGenerateContext } from "../plugins/index.js";
 import { renderGeodataMirrorsOffThread } from "../profile-work.js";
@@ -35,6 +35,8 @@ import type {
 import { runtimeDelta } from "../runtime-lifecycle.js";
 import { publicSettings } from "../settings.js";
 import type { CoreSupervisor } from "../supervisor.js";
+import type { TunSettings } from "../tun-settings.js";
+import { defaultTunSettings, sameTunSettings } from "../tun-settings.js";
 
 export interface CoreControlServiceOptions {
   layout: SashLayout;
@@ -239,6 +241,7 @@ export class CoreControlService {
     if (!hooksInstalled) return generated;
     const document = YAML.parse(generated.yaml) as Record<string, unknown>;
     const patched = await plugins.applyGenerated(document, context);
+    enforceTunConfiguration(patched, context.settings.tun);
     if (patched === document) return generated;
     return {
       yaml: YAML.stringify(patched, { indent: 2 }),
@@ -437,6 +440,25 @@ export class CoreControlService {
     }
   }
 
+  private async rollBackTunPreference(
+    revision: number,
+    tun: TunSettings,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await this.options.commit(async () => {
+        const state = this.options.state.snapshot();
+        if (state.revision === revision) {
+          await this.options.state.commitAsync({ ...state, settings: { ...state.settings, tun } });
+        }
+      });
+    } catch (rollbackError) {
+      throw new Error(
+        `${errorMessage(error)}; could not roll back TUN settings: ${errorMessage(rollbackError)}`,
+      );
+    }
+  }
+
   private applySavedConfiguration(intent: "start" | "apply"): Promise<CoreStartResult>;
   private applySavedConfiguration(intent: "reconcile"): Promise<CoreStartResult | undefined>;
   private async applySavedConfiguration(
@@ -448,7 +470,23 @@ export class CoreControlService {
       this.requireRecoveredInstall();
       signal.throwIfAborted();
       if (!coreInstalled(layout)) {
-        await this.update(undefined, true);
+        const snapshot = this.options.state.snapshot();
+        try {
+          await this.update(undefined, true);
+        } catch (error) {
+          if (
+            snapshot.settings.tun.enable &&
+            !signal.aborted &&
+            !(error instanceof StateConflictError)
+          ) {
+            await this.rollBackTunPreference(
+              snapshot.revision,
+              { ...snapshot.settings.tun, enable: false },
+              error,
+            );
+          }
+          throw error;
+        }
         return this.options.commit(() => {
           signal.throwIfAborted();
           const owner = supervisor.ownedCoreSnapshot();
@@ -478,26 +516,42 @@ export class CoreControlService {
         return undefined;
     }
 
-    const configuration = await this.savedConfiguration(plan.snapshot);
-    const validated = await this.validateConfiguration(
-      configuration,
-      layout.coreExe,
-      signal,
-      intent === "reconcile" ? undefined : this.downloadTransport()?.uri,
-    );
-    return this.options.commit(async () => {
-      signal.throwIfAborted();
-      if (intent !== "reconcile") this.requireRecoveredInstall();
-      if (intent === "start" && supervisor.isRunning()) return lifecycle.start();
-      this.assertCurrentConfiguration(validated);
-      if (lifecycle.revision !== plan.epoch) {
+    const previousTun = supervisor.isRunning()
+      ? (lifecycle.configuration()?.settings.tun ?? defaultTunSettings())
+      : { ...plan.snapshot.settings.tun, enable: false };
+    try {
+      const configuration = await this.savedConfiguration(plan.snapshot);
+      const validated = await this.validateConfiguration(
+        configuration,
+        layout.coreExe,
+        signal,
+        intent === "reconcile" ? undefined : this.downloadTransport()?.uri,
+      );
+      return await this.options.commit(async () => {
+        signal.throwIfAborted();
+        if (intent !== "reconcile") this.requireRecoveredInstall();
+        if (intent === "start" && supervisor.isRunning()) return lifecycle.start();
+        this.assertCurrentConfiguration(validated);
+        if (lifecycle.revision !== plan.epoch) {
+          if (intent === "reconcile") return undefined;
+          throw new StateConflictError("Core changed during preparation; retry Apply");
+        }
+        if (await this.canReload(validated)) return lifecycle.reload(validated, signal);
         if (intent === "reconcile") return undefined;
-        throw new StateConflictError("Core changed during preparation; retry Apply");
+        return lifecycle.apply(validated);
+      });
+    } catch (error) {
+      if (
+        intent !== "reconcile" &&
+        !signal.aborted &&
+        !(error instanceof StateConflictError) &&
+        (previousTun.enable || plan.snapshot.settings.tun.enable) &&
+        !sameTunSettings(previousTun, plan.snapshot.settings.tun)
+      ) {
+        await this.rollBackTunPreference(plan.snapshot.revision, previousTun, error);
       }
-      if (await this.canReload(validated)) return lifecycle.reload(validated, signal);
-      if (intent === "reconcile") return undefined;
-      return lifecycle.apply(validated);
-    });
+      throw error;
+    }
   }
 
   private async canReload(target: RuntimeTarget): Promise<boolean> {

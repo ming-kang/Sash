@@ -1,3 +1,4 @@
+import type { Dispatcher } from "undici";
 import type { SashState } from "../app-state.js";
 import type { RoutingMode } from "../contracts.js";
 import type { CoreDelayResult } from "../core-delay.js";
@@ -24,7 +25,7 @@ export interface CoreEngine {
     options: { signal?: AbortSignal; timeoutMs?: number },
   ): Promise<void>;
   /** External-controller client for probes, reloads, modes and delay tests. */
-  api(controller: string, secret: string): CoreControllerApi;
+  api(controller: string, secret: string, dispatcher?: Dispatcher): CoreControllerApi;
   readonly geodata: CoreGeodata;
 }
 

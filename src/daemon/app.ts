@@ -5,6 +5,7 @@ import type { resolveCoreRelease, stageCore } from "../core.js";
 import { type CoreEngine, mihomoEngine } from "../engine/index.js";
 import { errorMessage } from "../error-utils.js";
 import type { GeodataSeedResult } from "../geodata-seed.js";
+import { privilegedCoreLauncher } from "../launcher/index.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
@@ -15,6 +16,8 @@ import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../sysproxy/manager.js";
+import { createTunPlatform } from "../tun-platform/index.js";
+import { type TunPlatform, TunService } from "../tun-service.js";
 import { resolveUiDir } from "../webui.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
 import { CoreControlService } from "./core-service.js";
@@ -30,6 +33,7 @@ export interface DaemonDeps {
   settings?: SashSettings;
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
+  tunPlatform?: TunPlatform;
   autostart?: AutostartServiceOptions;
   bootId?: string;
   fetchProfileFn?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
@@ -63,6 +67,8 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   const settings = () => state.snapshot().settings;
   const bootId = deps.bootId ?? crypto.randomBytes(24).toString("hex");
   const systemProxy = deps.systemProxy ?? new SystemProxyManager({ layout });
+  const tunPlatform = deps.tunPlatform ?? createTunPlatform();
+  const tun = new TunService(tunPlatform, layout);
   const engine = deps.engine ?? mihomoEngine;
   let lifecycle: RuntimeLifecycle;
   let gate: DaemonGate;
@@ -74,6 +80,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     new CoreSupervisor({
       layout,
       engine,
+      privilegedLauncher: privilegedCoreLauncher(() => tunPlatform.connect(layout)),
       settings: () => lifecycle?.settings() ?? settings(),
       onExit: () =>
         gate
@@ -88,6 +95,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     systemProxy,
     settings,
     engine,
+    tun,
     controllerProbe: deps.controllerProbe,
   });
   const cancelPreparations = (): void => {
@@ -137,6 +145,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     lifecycle,
     supervisor,
     systemProxy,
+    tun,
     autostart: new AutostartService({
       layout,
       ...deps.autostart,

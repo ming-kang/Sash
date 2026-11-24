@@ -23,8 +23,8 @@ describe("stable autostart installation", () => {
       "install",
     );
     assert.equal(
-      installationIssue(autostartContext({ ...options, packageRoot, platform: "linux" }))?.code,
-      "install",
+      installationIssue(autostartContext({ ...options, packageRoot, platform: "linux" })),
+      null,
     );
     fs.unlinkSync(ctx.entryPath);
     assert.match(installationIssue(ctx)?.message ?? "", /global installation/);

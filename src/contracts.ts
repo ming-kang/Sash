@@ -5,6 +5,7 @@ import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy/types.js";
+import type { TunSettingsPatch } from "./tun-settings.js";
 
 export type { ProfileMeta, ProfilesIndex };
 
@@ -44,6 +45,7 @@ export interface SettingsPatch {
   mixedPort?: number;
   allowLan?: boolean;
   systemProxy?: boolean;
+  tun?: TunSettingsPatch;
 }
 export interface SettingsWriteResult {
   revision: number;
@@ -88,6 +90,16 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
   appliedKnown: boolean;
   stateKnown: boolean;
   queryError?: string;
+}
+export interface TunStatusResponse {
+  desired: boolean;
+  applied: boolean;
+  privilege: {
+    mode: "helper";
+    installed: boolean | null;
+    needsReconsent: boolean;
+  };
+  supported: boolean;
 }
 export interface DaemonStatus {
   coreUpdate?: CoreUpdateProgress | null;

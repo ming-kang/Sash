@@ -6,6 +6,7 @@ import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { listenerSettingsChanged } from "./runtime-lifecycle.js";
 import { type SashSettings, validateSettingsCandidate } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
+import { sameTunSettings } from "./tun-settings.js";
 
 export class SettingsInputError extends Error {
   constructor(message?: string) {
@@ -47,7 +48,11 @@ export class SettingsService {
       this.options.state.assertCurrent(expectedRevision ?? state.revision);
       let settings: SashSettings;
       try {
-        settings = validateSettingsCandidate({ ...state.settings, ...changes });
+        settings = validateSettingsCandidate({
+          ...state.settings,
+          ...changes,
+          tun: { ...state.settings.tun, ...changes.tun },
+        });
       } catch (error) {
         throw new SettingsInputError(errorMessage(error));
       }
@@ -60,7 +65,8 @@ export class SettingsService {
       const changed =
         settings.mixedPort !== state.settings.mixedPort ||
         settings.allowLan !== state.settings.allowLan ||
-        settings.systemProxy !== state.settings.systemProxy;
+        settings.systemProxy !== state.settings.systemProxy ||
+        !sameTunSettings(settings.tun, state.settings.tun);
       const saved = changed ? await this.options.state.commitAsync({ ...state, settings }) : state;
       if (patch.systemProxy !== undefined) {
         await this.applyCommittedSystemProxy();

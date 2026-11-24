@@ -1,22 +1,21 @@
 import type { ChildProcess } from "node:child_process";
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { Agent } from "undici";
 import { assertCoreBinaryFile } from "./core.js";
 import { type CoreEngine, mihomoEngine } from "./engine/index.js";
 import { errnoCode, errorMessage } from "./error-utils.js";
 import { durableRenameSync } from "./fs-atomic.js";
+import { type CoreLauncher, directCoreLauncher, type PrivilegedCore } from "./launcher/index.js";
 import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
 import type { SashLayout } from "./paths.js";
 import type { ProcessIdentity, ProcessIdentityVerifier } from "./process.js";
 import {
-  buildSanitizedEnv,
   classifyProcessIdentityAsync,
   clearPidRecord,
   isProcessAlive,
   killProcessGracefully,
   readPidRecord,
-  withPrivateAppendLogFds,
   writePidRecord,
 } from "./process.js";
 import type { SashSettings } from "./settings.js";
@@ -39,6 +38,7 @@ export interface CoreSupervisorOptions {
   settings: () => SashSettings;
   engine?: CoreEngine;
   spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
+  privilegedLauncher?: CoreLauncher;
   waitHealthyMs?: number;
   isAliveFn?: typeof isProcessAlive;
   killFn?: typeof killProcessGracefully;
@@ -87,7 +87,11 @@ export class CoreSupervisor {
   private readonly layout: SashLayout;
   private readonly engine: CoreEngine;
   private readonly getSettings: () => SashSettings;
-  private readonly spawnFn: (layout: SashLayout, settings: SashSettings) => ChildProcess;
+  private readonly direct: CoreLauncher;
+  private readonly privilegedLauncher: CoreLauncher | undefined;
+  private privileged: PrivilegedCore | undefined;
+  private controllerAgent: Agent | undefined;
+  private heartbeat: NodeJS.Timeout | undefined;
   private readonly waitHealthyMs: number;
   private readonly isAlive: typeof isProcessAlive;
   private readonly kill: typeof killProcessGracefully;
@@ -106,7 +110,11 @@ export class CoreSupervisor {
     this.kill = opts.killFn ?? killProcessGracefully;
     this.classifyIdentity = opts.classifyIdentityFn ?? classifyProcessIdentityAsync;
     this.onExitCallback = opts.onExit;
-    this.spawnFn = opts.spawnFn ?? this.defaultSpawn.bind(this);
+    const spawnFn = opts.spawnFn;
+    this.direct = spawnFn
+      ? { launch: (layout, settings) => ({ mode: "direct", child: spawnFn(layout, settings) }) }
+      : directCoreLauncher(this.engine);
+    this.privilegedLauncher = opts.privilegedLauncher;
   }
 
   private async ownedChildIdentity(child: ChildProcess): Promise<ProcessIdentity> {
@@ -116,25 +124,6 @@ export class CoreSupervisor {
     if (!child.pid || !this.isAlive(child.pid)) return "mismatch";
     const identity = await this.classifyIdentity(child.pid, this.layout.coreExe);
     return this.child === child && this.isAlive(child.pid) ? identity : "mismatch";
-  }
-
-  private defaultSpawn(layout: SashLayout, _settings: SashSettings): ChildProcess {
-    assertCoreBinaryFile(layout.coreExe);
-    fs.mkdirSync(layout.logsDir, { recursive: true });
-    fs.mkdirSync(layout.stateDir, { recursive: true });
-    rotateCoreLogs(layout);
-
-    return withPrivateAppendLogFds(
-      layout.coreLogFile,
-      layout.coreErrLogFile,
-      ({ stdoutFd, stderrFd }) =>
-        spawn(layout.coreExe, this.engine.spawnArguments(layout), {
-          cwd: layout.root,
-          stdio: ["ignore", stdoutFd, stderrFd],
-          windowsHide: true,
-          env: buildSanitizedEnv(),
-        }),
-    );
   }
 
   private clearOwnedPidRecord(child: ChildProcess): void {
@@ -156,8 +145,9 @@ export class CoreSupervisor {
   }
 
   async start(): Promise<{ pid: number; version?: string }> {
-    if (this.child && this.isAlive(this.child.pid ?? -1)) {
-      throw new Error(`Core is already running (PID=${this.child.pid})`);
+    const active = this.ownedCoreSnapshot();
+    if (active) {
+      throw new Error(`Core is already running (PID=${active.pid})`);
     }
 
     if (!fs.existsSync(this.layout.coreExe)) {
@@ -169,8 +159,16 @@ export class CoreSupervisor {
 
     this.stopping = false;
     const settings = this.getSettings();
+    if (settings.tun.enable) return this.startPrivileged(settings);
+    assertCoreBinaryFile(this.layout.coreExe);
+    fs.mkdirSync(this.layout.logsDir, { recursive: true });
+    fs.mkdirSync(this.layout.stateDir, { recursive: true });
+    rotateCoreLogs(this.layout);
     const errLogCursor = logTailCursor(this.layout.coreErrLogFile);
-    const child = this.spawnFn(this.layout, settings);
+    const launch = this.direct.launch(this.layout, settings);
+    const launched = launch instanceof Promise ? await launch : launch;
+    if (launched.mode !== "direct") throw new Error("Invalid launcher for non-TUN Core");
+    const child = launched.child;
     // Attach the error listener before any early return: an asynchronous
     // spawn failure must never surface as an unhandled "error" event.
     let spawnError: Error | undefined;
@@ -260,7 +258,103 @@ export class CoreSupervisor {
     );
   }
 
+  private forgetPrivileged(child: PrivilegedCore): void {
+    if (this.privileged !== child) return;
+    clearTimeout(this.heartbeat);
+    this.heartbeat = undefined;
+    this.privileged = undefined;
+    void this.controllerAgent?.destroy().catch(() => {});
+    this.controllerAgent = undefined;
+    this.childStartedAt = undefined;
+  }
+
+  private watchPrivileged(child: PrivilegedCore): void {
+    this.heartbeat = setTimeout(async () => {
+      if (this.privileged !== child || this.stopping) return;
+      let alive = false;
+      try {
+        alive = await child.alive();
+      } catch {
+        // The helper owns cleanup when IPC is disconnected.
+      }
+      if (this.privileged !== child || this.stopping) return;
+      if (alive) {
+        this.watchPrivileged(child);
+      } else {
+        this.forgetPrivileged(child);
+        Promise.resolve(this.onExitCallback?.(null, null)).catch(() => {});
+      }
+    }, 1000);
+    this.heartbeat.unref();
+  }
+
+  private async startPrivileged(
+    settings: SashSettings,
+  ): Promise<{ pid: number; version?: string }> {
+    if (!this.privilegedLauncher) throw new Error("Privileged TUN helper is unavailable");
+    const launch = await this.privilegedLauncher.launch(this.layout, settings);
+    if (launch.mode !== "privileged") throw new Error("TUN requires a privileged Core launcher");
+    const child = launch.child;
+    this.privileged = child;
+    this.controllerAgent = new Agent({
+      connect: (_options, callback) => {
+        let socket: ReturnType<PrivilegedCore["controller"]["connect"]>;
+        try {
+          socket = child.controller.connect();
+        } catch (error) {
+          callback(error instanceof Error ? error : new Error(String(error)), null);
+          return;
+        }
+        const failed = (error: Error) => callback(error, null);
+        socket.once("error", failed);
+        socket.once("connect", () => {
+          socket.removeListener("error", failed);
+          callback(null, socket);
+        });
+      },
+    });
+    this.childStartedAt = new Date().toISOString();
+    const deadline = Date.now() + this.waitHealthyMs;
+    const api = this.controllerApi(settings);
+    try {
+      while (Date.now() < deadline) {
+        if (!(await child.alive())) throw new Error("Privileged Core exited during startup");
+        let version: string | undefined;
+        try {
+          // 5s per attempt: the privileged controller transport may need to
+          // spawn its IPC shim before the first request completes (Windows
+          // pipe-client exe boot + pipe attach exceeds a 1s budget); the
+          // connection is then reused by later requests.
+          version = await api.version({ deadlineMs: 5_000, attempts: 1 });
+        } catch {
+          await sleep(250);
+          continue;
+        }
+        this.watchPrivileged(child);
+        return { pid: child.pid, version };
+      }
+      throw new Error("Privileged Core controller did not become healthy");
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
+  }
+
   async stop(): Promise<void> {
+    if (this.privileged) {
+      const child = this.privileged;
+      this.stopping = true;
+      try {
+        await child.stop();
+        this.forgetPrivileged(child);
+      } catch (error) {
+        this.stopping = false;
+        clearTimeout(this.heartbeat);
+        this.watchPrivileged(child);
+        throw error;
+      }
+      return;
+    }
     const child = this.child;
     if (!child?.pid || !this.isAlive(child.pid)) {
       this.child = null;
@@ -286,12 +380,31 @@ export class CoreSupervisor {
   }
 
   ownedCoreSnapshot(): CoreOwnershipSnapshot | undefined {
+    if (this.privileged) return { child: this.privileged, pid: this.privileged.pid };
     const child = this.child;
     if (!child?.pid || !this.isAlive(child.pid)) return undefined;
     return { child, pid: child.pid };
   }
 
+  privilegedController(): PrivilegedCore["controller"] | undefined {
+    return this.privileged?.controller;
+  }
+
+  async reloadPrivileged(configText: string): Promise<void> {
+    if (!this.privileged || this.stopping) throw new Error("Privileged Core is unavailable");
+    await this.privileged.reload(configText);
+  }
+
+  controllerApi(settings: SashSettings) {
+    if (this.privileged && this.controllerAgent) {
+      return this.engine.api("127.0.0.1:80", "", this.controllerAgent);
+    }
+    if (settings.tun.enable) throw new Error("Privileged Core controller unavailable");
+    return this.engine.api(settings.controller, settings.secret);
+  }
+
   ownsCore(snapshot: CoreOwnershipSnapshot): boolean {
+    if (this.privileged) return this.privileged === snapshot.child;
     return Boolean(this.child && this.child === snapshot.child && this.isAlive(snapshot.pid));
   }
 
@@ -304,11 +417,16 @@ export class CoreSupervisor {
 
   private async probeStatus(ownership: CoreOwnershipSnapshot): Promise<CoreState> {
     const settings = this.getSettings();
-    const api = this.engine.api(settings.controller, settings.secret);
     let healthy = false;
     let version: string | undefined;
     try {
-      version = await api.version({ deadlineMs: 1000, attempts: 1 });
+      // A privileged status probe may have to spawn the IPC shim (Windows
+      // pipe-client exe boot + pipe attach exceeds 1s), so give it the same
+      // budget as the startup health check.
+      version = await this.controllerApi(settings).version({
+        deadlineMs: this.privileged ? 5_000 : 1000,
+        attempts: 1,
+      });
       healthy = true;
       if (!this.ownsCore(ownership)) return { running: false };
     } catch {
@@ -327,7 +445,7 @@ export class CoreSupervisor {
   }
 
   isRunning(): boolean {
-    return Boolean(this.child && this.isAlive(this.child.pid ?? -1));
+    return this.ownedCoreSnapshot() !== undefined;
   }
 
   async cleanStaleCore(): Promise<void> {

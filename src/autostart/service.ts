@@ -12,7 +12,7 @@ import {
 } from "./context.js";
 import type { AutostartStatus } from "./contract.js";
 import { PENDING_AUTOSTART_STATUS } from "./contract.js";
-import { windowsAutostart } from "./windows.js";
+import { createAutostartBackend } from "./index.js";
 import { windowsSystemPath } from "./windows-registry.js";
 
 export interface InstallationIssue {
@@ -34,6 +34,7 @@ const WSH_ISSUE: InstallationIssue = {
 };
 
 export function installationIssue(ctx: AutostartContext): InstallationIssue | null {
+  if (ctx.platform !== "win32") return null;
   try {
     for (const value of [ctx.nodePath, ctx.entryPath, ctx.dataDir]) assertLauncherValue(value);
     assertAbsolutePath(ctx.entryPath);
@@ -78,9 +79,7 @@ export class AutostartService implements AutostartController {
 
   constructor(options: AutostartServiceOptions = {}) {
     this.context = autostartContext(options);
-    this.backend =
-      options.backend ??
-      (this.context.platform === "win32" ? windowsAutostart(this.context) : undefined);
+    this.backend = options.backend ?? createAutostartBackend(this.context);
     this.queue = new StateMutationQueue(path.join(this.context.controlDir, "registration.lock"));
     this.checkInstallation = options.checkInstallation ?? installationIssue;
     this.onChange = options.onChange;

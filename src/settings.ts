@@ -1,5 +1,11 @@
 import crypto from "node:crypto";
 import { isPlainObject } from "./json-shape.js";
+import {
+  defaultTunSettings,
+  parseStoredTunSettings,
+  type TunSettings,
+  tunSettingsSchema,
+} from "./tun-settings.js";
 
 export interface SashSettings {
   mixedPort: number;
@@ -9,6 +15,7 @@ export interface SashSettings {
   daemonPort: number;
   daemonSecret: string;
   systemProxy: boolean;
+  tun: TunSettings;
 }
 
 export type PublicSashSettings = Omit<SashSettings, "secret" | "daemonSecret">;
@@ -22,6 +29,7 @@ export const DEFAULT_SETTINGS: SashSettings = {
   daemonPort: development ? 28990 : 19090,
   daemonSecret: "",
   systemProxy: false,
+  tun: defaultTunSettings(),
 };
 
 export function generateSecret(): string {
@@ -29,7 +37,12 @@ export function generateSecret(): string {
 }
 
 export function initialSettings(): SashSettings {
-  return { ...DEFAULT_SETTINGS, secret: generateSecret(), daemonSecret: generateSecret() };
+  return {
+    ...DEFAULT_SETTINGS,
+    tun: defaultTunSettings(),
+    secret: generateSecret(),
+    daemonSecret: generateSecret(),
+  };
 }
 
 export function publicSettings(settings: SashSettings): PublicSashSettings {
@@ -39,6 +52,7 @@ export function publicSettings(settings: SashSettings): PublicSashSettings {
     allowLan: settings.allowLan,
     daemonPort: settings.daemonPort,
     systemProxy: settings.systemProxy,
+    tun: settings.tun,
   };
 }
 
@@ -99,6 +113,7 @@ export function validateSettingsCandidate(value: unknown): SashSettings {
     daemonPort: port("daemonPort"),
     daemonSecret: secret("daemonSecret"),
     systemProxy: boolean("systemProxy"),
+    tun: tunSettingsSchema.parse(value.tun),
   };
   assertDistinctPorts(result.mixedPort, result.daemonPort, controller.port);
   return result;
@@ -137,6 +152,7 @@ export function parseStoredSettings(value: unknown): SashSettings {
     daemonPort: port("daemonPort"),
     daemonSecret: secret("daemonSecret"),
     systemProxy: boolean("systemProxy"),
+    tun: parseStoredTunSettings(value.tun),
   };
   assertDistinctPorts(result.mixedPort, result.daemonPort, controller.port);
   return result;

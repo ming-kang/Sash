@@ -4,12 +4,20 @@ import {
   generateSecret,
   initialSettings,
   parseControllerAddress,
+  parseStoredSettings,
   publicSettings,
   validateSettingsCandidate,
 } from "./settings.js";
 import { testSettings } from "./testing/state.js";
 
 describe("settings boundaries", () => {
+  it("does not migrate a legacy boolean or malformed TUN settings to enabled", () => {
+    const settings = testSettings();
+    for (const tun of [undefined, true, { enable: true, stack: "other" }])
+      assert.equal(parseStoredSettings({ ...settings, tun }).tun.enable, false);
+    assert.equal(parseStoredSettings({ ...settings, tun: { enable: true } }).tun.enable, true);
+    assert.throws(() => validateSettingsCandidate({ ...settings, tun: true }));
+  });
   it("generates independent private credentials", () => {
     const settings = initialSettings();
     assert.match(generateSecret(), /^[a-f0-9]{48}$/);

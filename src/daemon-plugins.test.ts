@@ -19,6 +19,7 @@ describe("daemon configuration plugins", () => {
         name: "marker",
         onGenerate(config) {
           config["external-controller"] = "127.0.0.1:39999";
+          config.tun = { enable: true, stack: "system" };
           config["x-plugin-marker"] = "applied";
           return config;
         },
@@ -32,6 +33,7 @@ describe("daemon configuration plugins", () => {
     >;
     assert.equal(written["x-plugin-marker"], "applied");
     assert.equal(written["external-controller"], "127.0.0.1:39999");
+    assert.deepEqual(written.tun, { enable: false, stack: "system" });
   });
 
   it("generates an unchanged configuration when no plugins exist", async () => {

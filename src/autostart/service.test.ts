@@ -207,11 +207,9 @@ describe("AutostartService", () => {
   });
 
   it("reports unsupported systems without invoking any OS helper", async (t) => {
-    for (const platform of ["darwin", "linux", "freebsd"] as const) {
-      const { options } = testAutostartContext(t, platform);
-      const service = new AutostartService(options);
-      assert.equal((await service.inspect()).state, "unsupported");
-      await assert.rejects(service.set(true), /not supported/);
-    }
+    const { options } = testAutostartContext(t, "freebsd");
+    const service = new AutostartService(options);
+    assert.equal((await service.inspect()).state, "unsupported");
+    await assert.rejects(service.set(true), /not supported/);
   });
 });

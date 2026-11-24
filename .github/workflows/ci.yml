@@ -30,6 +30,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.27.4"
+          cache-dependency-path: helper/go.sum
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run lint
@@ -39,8 +43,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           node node_modules/cn-font-split/dist/cli.js i default@7.6.8
-          npm run build
-          node scripts/build-bootstrap-manifest.mjs
+          npm run build:release
           mkdir -p "$RUNNER_TEMP/sash-package"
           npm pack --ignore-scripts --silent --pack-destination "$RUNNER_TEMP/sash-package"
       - name: Save the package for testing and publication
@@ -81,3 +84,27 @@ jobs:
         run: |
           version="$(node -p "require('./package.json').version")"
           node scripts/package-smoke.mjs "$RUNNER_TEMP/sash-package/astralyn-sash-$version.tgz"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.27.4"
+          cache-dependency-path: helper/go.sum
+      - name: Check Go helper
+        working-directory: helper
+        run: |
+          go test ./...
+          go vet ./...
+      - name: Build and smoke-test the Go helper
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            npm run build:helper -- --all
+          else
+            npm run build:helper
+          fi
+          helper="$(node --input-type=module -e "import { helperFilename } from './scripts/helper-artifacts.mjs'; console.log(helperFilename(process.platform, process.arch))")"
+          version="$(node -p "require('./package.json').version")"
+          test "$("./dist/$helper" --version)" = "$version"
+      - name: Verify the unchanged TS IPC client against Go
+        run: |
+          binary="$(node -p "require('node:path').resolve('dist', 'go-helper-contract' + (process.platform === 'win32' ? '.exe' : ''))")"
+          CGO_ENABLED=0 go -C helper build -tags helpercontract -o "$binary" .
+          SASH_GO_CONTRACT_BINARY="$binary" npx vitest run src/launcher/ipc-go.test.ts

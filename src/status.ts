@@ -232,7 +232,7 @@ export function resolveObservedSystemProxy(
 
   osObserved ??= observedSystemProxy(undefined);
   if (osObserved.supported === null || osObserved.enabled === null) {
-    addError(errors, "system proxy: could not read the Windows setting");
+    addError(errors, "system proxy: could not read the OS setting");
   }
   return { daemonApplied, osObserved, errors };
 }
@@ -461,12 +461,12 @@ export function runtimeStatusHeadline(status: CliRuntimeStatus): StatusHeadline 
 
 export function formatSystemProxyLine(desired: boolean, observed: CliObservedSystemProxy): string {
   if (observed.supported === false) return "not supported on this system";
-  if (observed.enabled === null) return "unknown — could not read the Windows setting";
+  if (observed.enabled === null) return "unknown — could not read the OS setting";
   if (desired && observed.enabled) return "on";
-  if (desired) return "on — not applied to Windows yet; run sash proxy on";
+  if (desired) return "on — not applied to the OS yet; run sash proxy on";
   if (observed.enabled) {
     const server = observed.server ? ` to ${observed.server}` : "";
-    return `off — Windows is still set${server}; run sash proxy off`;
+    return `off — the OS proxy is still set${server}; run sash proxy off`;
   }
   return "off";
 }
@@ -487,8 +487,8 @@ export function formatAutostart(status: {
       return repairable ? "needs repair — run sash auto on" : (reason ?? "needs repair");
     case "disabled":
       return repairable
-        ? "disabled in Windows — run sash auto on to restore it"
-        : (reason ?? "disabled in Windows");
+        ? "disabled by the OS — run sash auto on to restore it"
+        : (reason ?? "disabled by the OS");
     case "unsupported":
       return reason ?? "not supported on this system";
     default:

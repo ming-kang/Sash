@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { isSystemProxySupported, runCmd } from "./common.js";
-import { snapshotsCompatible, snapshotsEquivalent } from "./snapshot.js";
+import { parseSystemProxySnapshot, snapshotsCompatible, snapshotsEquivalent } from "./snapshot.js";
 import { DEFAULT_BYPASS_LIST } from "./types.js";
 import {
   createWindowsTarget,
@@ -33,9 +33,9 @@ describe("sysproxy", () => {
   });
 
   describe("isSystemProxySupported", () => {
-    it("enables desktop integration only on Windows", () => {
+    it("enables desktop integration on Windows and macOS", () => {
       assert.equal(isSystemProxySupported("win32"), true);
-      assert.equal(isSystemProxySupported("darwin"), false);
+      assert.equal(isSystemProxySupported("darwin"), true);
     });
 
     it("reports false on unsupported platforms", () => {
@@ -130,6 +130,7 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
         proxyOverride: "<local>",
         autoConfigUrl: "https://pac.example.test/a.pac",
         autoDetect: 1,
+        connections: {},
       };
       const target = {
         version: 1 as const,
@@ -139,6 +140,7 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
         proxyOverride: "<local>;localhost",
         autoConfigUrl: null,
         autoDetect: 0,
+        connections: {},
       };
       const partial = { ...original, proxyServer: target.proxyServer };
       const thirdParty = { ...partial, proxyOverride: "proxy-b.example.test" };
@@ -152,6 +154,27 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
       assert.equal(snapshotsEquivalent(target, { ...target, autoDetect: null }), true);
       assert.equal(snapshotsCompatible({ ...partial, autoDetect: null }, original, target), true);
       assert.equal(snapshotsCompatible({ ...partial, autoDetect: 0 }, original, target), true);
+    });
+
+    it("parses legacy v1 snapshots that predate the connections field", () => {
+      const legacy = parseSystemProxySnapshot({
+        version: 1,
+        platform: "win32",
+        proxyEnable: 0,
+        proxyServer: null,
+        proxyOverride: "<local>",
+        autoConfigUrl: null,
+        autoDetect: 1,
+      });
+      assert.deepEqual(legacy.connections, {});
+      assert.throws(() => parseSystemProxySnapshot({ ...legacy, connections: { a: "not-hex!" } }));
+      assert.throws(() => parseSystemProxySnapshot({ ...legacy, connections: "x" }));
+      assert.throws(() => parseSystemProxySnapshot({ ...legacy, bogus: 1 }));
+      assert.throws(() => {
+        const missing = { ...(legacy as unknown as Record<string, unknown>) };
+        delete missing.proxyEnable;
+        return parseSystemProxySnapshot(missing);
+      });
     });
 
     it("leaves the unmanaged Windows AutoDetect value out of targets", () => {
@@ -192,6 +215,7 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
           proxyEnable: 0,
           autoConfigUrl: "https://pac.example.test/proxy.pac",
           autoDetect: 1,
+          connections: {},
         }),
         {
           supported: true,

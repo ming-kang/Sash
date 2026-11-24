@@ -19,6 +19,7 @@ import {
 } from "./status.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { testSettings, testStatus } from "./testing/state.js";
+import { defaultTunSettings } from "./tun-settings.js";
 
 const context: StatusObservationContext = {
   layout: sashLayout(path.join(os.tmpdir(), "sash-status-observation-test")),
@@ -66,6 +67,7 @@ function statusResponse(
       allowLan: false,
       daemonPort: 19090,
       systemProxy: true,
+      tun: defaultTunSettings(),
     },
     activeProfile: null,
   };
@@ -182,7 +184,7 @@ describe("system proxy observation resolver", () => {
     });
     assert.deepEqual(observation.errors, [
       "system proxy: access denied",
-      "system proxy: could not read the Windows setting",
+      "system proxy: could not read the OS setting",
     ]);
   });
 });

@@ -9,7 +9,7 @@ export function autoStartValue(status: AutostartStatus): string {
     on: "On",
     off: "Off",
     stale: "Needs Repair",
-    disabled: "Off (Disabled in Windows)",
+    disabled: "Off (Disabled by OS)",
     unknown: "Unknown",
     unsupported: "Not Supported",
   };
@@ -21,7 +21,7 @@ export function printAutoStartWarnings(status: AutostartStatus): void {
   if (status.state === "stale" || status.state === "disabled") {
     if (status.canEnable) log.info("Run sash auto on to repair the start-at-login entry.");
   } else if (status.state === "unknown" && !status.reason)
-    log.warn("Could not read the Windows start-at-login setting.");
+    log.warn("Could not read the start-at-login setting.");
 }
 
 export function systemProxyValue(observed: CliObservedSystemProxy): string {
@@ -37,10 +37,10 @@ export function systemProxyValue(observed: CliObservedSystemProxy): string {
 export function printSystemProxyWarnings(desired: boolean, observed: CliObservedSystemProxy): void {
   if (observed.supported === false) return;
   if (observed.enabled === null) {
-    log.warn(observed.details ?? "Could not read the Windows system proxy setting.");
+    log.warn(observed.details ?? "Could not read the system proxy setting.");
   } else if (desired !== observed.enabled) {
     log.warn(
-      `Windows system proxy is ${observed.enabled ? "On" : "Off"}, but Sash is configured ${desired ? "On" : "Off"}.`,
+      `System proxy is ${observed.enabled ? "On" : "Off"}, but Sash is configured ${desired ? "On" : "Off"}.`,
     );
     log.info(desired ? "Run sash proxy on to apply it." : "Run sash proxy status for details.");
   }

@@ -218,6 +218,7 @@ export async function readErrorSummary(response: FetchResponse): Promise<string>
 }
 
 export interface FetchOptions {
+  dispatcher?: Dispatcher;
   signal?: AbortSignal;
   attempts?: number;
   headersTimeoutMs?: number;
@@ -313,7 +314,7 @@ export async function fetchWithRetry(url: string, opts: FetchOptions = {}): Prom
           headersTimeout: headersTimeoutMs,
           bodyTimeout: 30_000,
           signal,
-          dispatcher: pickDispatcher(opts),
+          dispatcher: opts.dispatcher ?? pickDispatcher(opts),
         });
         if (RETRYABLE_STATUS.has(res.statusCode) && attempt < attempts) {
           await res.body.dump();

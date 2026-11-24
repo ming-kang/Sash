@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add the shared TUN configuration, status and privileged-helper foundation. TUN stays off by default; enabling it requires a platform helper and an explicit configuration Apply.
+- Restrict privileged helper configurations to supported Mihomo fields and require verified Core binaries in a directory separate from runtime files.
+- On macOS, inject `tun.dns-mode: native` so the Core registers session-scoped DNS with configd instead of rewriting persistent service DNS.
+- Build available TUN helpers for macOS, Linux, and Windows on x64 and arm64, record their SHA-256 digests in the release manifest, and smoke-test the packaged host executable in CI.
+- Ship the privileged TUN helpers as Go-compiled binaries for all six targets (~8 MB each, replacing ~110 MB Bun-compiled executables); the TypeScript helper implementation and the Bun build path are removed.
+- Linux TUN support through a root-owned systemd `sash-helper.service`. An administrator installs the Go helper and SHA-256-verified Core together under `/usr/local/lib/sash`; the control socket authorizes the installing user.
+- System proxy on Linux desktops: GNOME sessions manage `org.gnome.system.proxy` through gsettings and KDE Plasma sessions manage kioslaverc through kreadconfig/kwriteconfig5|6, with the same journal-based apply/restore as Windows; other desktops and headless sessions report unsupported.
+- Start at login on Linux through an XDG `~/.config/autostart/sash.desktop` entry managed by `sash auto` and the WebUI toggle.
+- macOS TUN support via a LaunchDaemon privileged helper (Go single executable in `/Library/Application Support/Sash`, installed once through an administrator-authorized osascript step; Core copy SHA-256-verified, utun routes and DNS restored on Core exit, unix socket restricted to the installing uid).
+- macOS system proxy integration: per-active-service `networksetup` HTTP/HTTPS/SOCKS proxy and PAC URL control with snapshot/restore, so system proxy mode and `sash` proxy toggling now work on macOS.
+- macOS start-at-login via a `~/Library/LaunchAgents` LaunchAgent, wired into `sash auto` and the `/sash/autostart` API.
+- Windows TUN support through a LocalSystem helper service managed natively by the Service Control Manager. Administrator-approved installation pairs the Go helper with a verified Core, and the service authenticates the installing user over a local named pipe.
+
+### Fixed
+
+- Keep the privileged Core controller private while supporting live routing-mode switches, profile reloads, and supervised restarts in TUN mode. The helper validates configuration changes and blocks raw configuration loads and Core upgrades.
+- Authenticate TUN controller traffic through the local helper connection instead of issuing a second bearer token.
+- Apply TUN when the privileged Core is ready, without probing system routes or DNS. Core startup failures still roll back.
+- Install the TUN helper and its release-paired Core together with administrator consent. TUN no longer imports Core archives, reads consent receipts, or syncs the ordinary-mode Core.
+- Anchor privileged Core updates to digests embedded in the helper or recorded during administrator-approved installation. Replacing the helper or using another Core requires administrator consent again.
+- Recover recorded TUN network state before serving helper IPC requests; refuse service if recovery fails.
+- Harden the Linux helper: stage and re-hash the helper and paired Core during authorized installation, use a root-owned control socket and kernel peer credentials, stop processes only within the service, and uninstall only manifest-recorded files.
+- Bound Linux crash recovery to the recorded Core and device. Verify policy-rule matches before deleting them, and reclaim routes through the verified non-persistent TUN link rather than deleting routes individually. Keep the journal if a route with a recorded destination remains or cleanup cannot be verified.
+- Refuse Linux `strict-route` at start and reload when automatic routing would install a global unreachable rule because the required IPv6 address is missing; manual routing with `auto-route: false` stays allowed.
+- Restore only changed GNOME proxy keys and report restore failures. On KDE, restore recorded values and remove keys that did not previously exist.
+- Apply the helper's configuration transform on hot reloads too, so `tun.dns-mode` is never dropped mid-session; only `native`, `hijack` and `disabled` are accepted (the paired Core's sing-tun values).
+- Key the macOS system-proxy snapshot by persistent service UUID and restore per journal service — including offline ones — comparing each recorded field so Sash's own partial writes roll back cleanly while services modified outside Sash or removed are skipped and reported; a vanished UUID never falls back to a same-named service.
+- Restore a failed LaunchAgent refresh to its recorded loaded/disabled state — including a persistent disabled override with no plist — refuse to change state when it cannot be determined, and report rollback failures separately.
+- Rebuild the helper's run directory as a fresh root-owned directory on install (migrating installs where it belonged to the user), strip ACLs before the helper touches the socket directory, and have the daemon verify the helper socket is root-owned on every connection, not just at probe time.
+- Verify Windows LAN proxy settings before reporting Apply success. Reject a conflicting registry value, use the effective-settings API only when the default LAN blob is missing or unreadable, and recheck a missing LAN blob immediately before restoring it.
+
 ## [0.6.1] - 2026-11-23
 
 ### Added

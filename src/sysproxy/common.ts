@@ -77,5 +77,5 @@ export function formatHostPort(host: string, port: number): string {
 }
 
 export function isSystemProxySupported(platform: NodeJS.Platform = process.platform): boolean {
-  return platform === "win32";
+  return platform === "win32" || platform === "linux" || platform === "darwin";
 }

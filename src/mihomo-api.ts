@@ -1,3 +1,4 @@
+import type { Dispatcher } from "undici";
 import type { RoutingMode } from "./contracts.js";
 import {
   CORE_DELAY_REQUEST_MS,
@@ -97,7 +98,11 @@ export class MihomoApi {
   readonly baseUrl: string;
   private readonly secret: string;
 
-  constructor(controller: string, secret: string) {
+  constructor(
+    controller: string,
+    secret: string,
+    private readonly dispatcher?: Dispatcher,
+  ) {
     const raw = controller.trim() || "127.0.0.1:9090";
     const address = parseControllerAddress(raw);
     if (!address) {
@@ -126,6 +131,7 @@ export class MihomoApi {
       headers,
       body: options.body,
       direct: true,
+      dispatcher: this.dispatcher,
       attempts: options.attempts,
       signal: options.signal,
       deadlineMs: options.deadlineMs ?? 5_000,

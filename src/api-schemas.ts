@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tunSettingsPatchSchema } from "./tun-settings.js";
 
 export const coreUpdateBodySchema = z.object({ version: z.string().optional() }).strict();
 
@@ -40,6 +41,7 @@ export const unvalidatedSettingsPatchBodySchema = z
     mixedPort: z.unknown().optional(),
     allowLan: z.unknown().optional(),
     systemProxy: z.unknown().optional(),
+    tun: tunSettingsPatchSchema.optional(),
   })
   .strict();
 

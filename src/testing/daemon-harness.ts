@@ -28,6 +28,7 @@ export interface DaemonServerOverrides {
   seedGeodata?: DaemonDeps["seedGeodataFn"];
   supervisor?: CoreSupervisor;
   systemProxy?: SystemProxyController;
+  tunPlatform?: DaemonDeps["tunPlatform"];
   autostart?: AutostartServiceOptions;
   fetchProfile?: (url: string, signal?: AbortSignal) => Promise<SubscriptionFetch>;
   validateConfig?: DaemonDeps["validateConfigFn"];
@@ -146,6 +147,7 @@ export class DaemonTestHarness {
       settings: this.settings,
       supervisor: fakeSupervisor,
       systemProxy: overrides.systemProxy ?? this.fakeSystemProxy(),
+      tunPlatform: overrides.tunPlatform,
       autostart: overrides.autostart ?? {
         backend: {
           inspect: async () => "off",

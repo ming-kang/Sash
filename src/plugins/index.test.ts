@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "vitest";
+import { defaultTunSettings } from "../tun-settings.js";
 import { type PluginGenerateContext, PluginRegistry } from "./index.js";
 
 const roots: string[] = [];
@@ -27,6 +28,7 @@ const context: PluginGenerateContext = {
     allowLan: false,
     daemonPort: 19090,
     systemProxy: false,
+    tun: defaultTunSettings(),
   },
   profile: null,
   source: "default",
