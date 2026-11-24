@@ -138,6 +138,87 @@ describe("state locks", () => {
     }
   });
 
+  it("reclaims a lock whose recorded pid was recycled by an unrelated process", async () => {
+    const child = execFile(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], () => {});
+    try {
+      writeLock({
+        pid: child.pid ?? 0,
+        token: "recycled-owner-token",
+        purpose: "dead sashd",
+        exe: "/nonexistent/sashd-image",
+      });
+      const lease = await acquireStateLock(lockFile, { purpose: "replacement", timeoutMs: 2000 });
+      try {
+        assert.equal(lease.record.purpose, "replacement");
+      } finally {
+        lease.release();
+      }
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("drops a stale contender whose pid was recycled by an unrelated process", async () => {
+    const child = execFile(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], () => {});
+    try {
+      const directory = `${lockFile}.contenders`;
+      fs.mkdirSync(directory, { recursive: true });
+      const name = `${child.pid}.${"a".repeat(48)}`;
+      const candidate = path.join(directory, name);
+      fs.writeFileSync(candidate, JSON.stringify({ ticket: "1", exe: "/nonexistent/sashd" }));
+
+      const lease = await acquireStateLock(lockFile, { purpose: "replacement", timeoutMs: 2000 });
+      try {
+        assert.equal(lease.record.purpose, "replacement");
+        assert.equal(fs.existsSync(candidate), false);
+      } finally {
+        lease.release();
+      }
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("drops a legacy contender whose pid belongs to a foreign image", async () => {
+    const child = execFile(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], () => {});
+    try {
+      const directory = `${lockFile}.contenders`;
+      fs.mkdirSync(directory, { recursive: true });
+      const name = `${child.pid}.${"b".repeat(48)}`;
+      fs.writeFileSync(path.join(directory, name), "3");
+
+      const lease = await acquireStateLock(lockFile, {
+        purpose: "replacement",
+        timeoutMs: 2000,
+        classifyName: () => "mismatch",
+      });
+      try {
+        assert.equal(lease.record.purpose, "replacement");
+      } finally {
+        lease.release();
+      }
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("keeps a live legacy contender whose image name still matches", async () => {
+    const child = execFile(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], () => {});
+    try {
+      const directory = `${lockFile}.contenders`;
+      fs.mkdirSync(directory, { recursive: true });
+      const name = `${child.pid}.${"c".repeat(48)}`;
+      fs.writeFileSync(path.join(directory, name), "1");
+
+      await assert.rejects(
+        acquireStateLock(lockFile, { purpose: "blocked", timeoutMs: 100, pollMs: 20 }),
+        /busy/,
+      );
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
   it("reclaims a corrupt record left behind by an interrupted write", async () => {
     fs.mkdirSync(path.dirname(lockFile), { recursive: true });
     fs.writeFileSync(lockFile, "{ not valid JSON");

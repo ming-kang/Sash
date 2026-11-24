@@ -12,6 +12,7 @@ export interface DaemonPidRecord {
   pid: number;
   token: string;
   port: number;
+  exe?: string;
 }
 
 async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
@@ -51,6 +52,7 @@ async function runDaemon(opts: { layout?: SashLayout } = {}): Promise<void> {
       pid: process.pid,
       token: current.bootId,
       port,
+      exe: process.execPath,
     };
     atomicWriteFileSync(layout.daemonPidFile, `${JSON.stringify(record, null, 2)}\n`);
     published = true;

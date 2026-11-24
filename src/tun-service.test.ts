@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, it } from "vitest";
 import { readSashPackageInfo } from "./package-info.js";
 import { sashLayout } from "./paths.js";
-import { TunService, type TunPlatform, unsupportedTunPlatform } from "./tun-service.js";
+import { type TunPlatform, TunService, unsupportedTunPlatform } from "./tun-service.js";
 
 const layout = sashLayout(fs.mkdtempSync(path.join(os.tmpdir(), "sash-tun-service-")));
 

@@ -281,9 +281,7 @@ export function macosTunPlatform(): TunPlatform {
           sha256File(PROTECTED_CORE_BIN).catch(() => null),
           sha256File(packagedCoreSource()).catch(() => null),
         ]).then(([installedCore, expectedCore]) =>
-          installedCore !== null && expectedCore !== null
-            ? installedCore === expectedCore
-            : null,
+          installedCore !== null && expectedCore !== null ? installedCore === expectedCore : null,
         ),
       ]);
       if (!plist || !helper) return { installed: false };

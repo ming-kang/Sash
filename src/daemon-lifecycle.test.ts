@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net, { type AddressInfo } from "node:net";
@@ -161,6 +162,60 @@ describe("daemon ownership evaluation", () => {
       healthy: false,
       pid: dead.pid,
     });
+  });
+
+  it("reports a recycled daemon pid record as stopped", async () => {
+    const layout = sashLayout(root);
+    const child = execFile(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], () => {});
+    try {
+      fs.mkdirSync(layout.stateDir, { recursive: true });
+      fs.writeFileSync(
+        layout.daemonPidFile,
+        `${JSON.stringify({
+          pid: child.pid,
+          token: "stale-token",
+          port: 19090,
+          exe: "/nonexistent/sashd-image",
+        })}\n`,
+      );
+      fs.writeFileSync(
+        layout.daemonLeaseFile,
+        `${JSON.stringify({
+          pid: child.pid,
+          token: "stale-lease",
+          purpose: "sashd singleton",
+          exe: "/nonexistent/sashd-image",
+        })}\n`,
+      );
+
+      const state = await evaluateDaemon(layout, { ...DEFAULT_SETTINGS });
+
+      assert.equal(state.kind, "stopped");
+      assert.equal(state.running, false);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  it("keeps a recycled-pid record alive when the image name matches a legacy record", async () => {
+    const layout = sashLayout(root);
+    const child = execFile(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], () => {});
+    try {
+      fs.mkdirSync(layout.stateDir, { recursive: true });
+      fs.writeFileSync(
+        layout.daemonPidFile,
+        `${JSON.stringify({ pid: child.pid, token: "stale-token", port: 19090 })}\n`,
+      );
+
+      const state = await evaluateDaemon(layout, { ...DEFAULT_SETTINGS });
+
+      // No recorded exe: only the image name is checked; a node child counts
+      // as possibly-alive, so the daemon still fails closed.
+      assert.equal(state.running, true);
+      assert.equal(state.healthy, false);
+    } finally {
+      child.kill("SIGKILL");
+    }
   });
 
   it("fails closed for a live PID without its singleton lease", async () => {

@@ -3,18 +3,26 @@ import fs from "node:fs";
 import path from "node:path";
 import { errnoCode, errorMessage } from "./error-utils.js";
 import { atomicWriteFile } from "./fs-atomic.js";
-import { isProcessAlive } from "./process.js";
+import {
+  classifyProcessIdentityAsync,
+  classifyProcessNameAsync,
+  isProcessAlive,
+  type ProcessIdentity,
+} from "./process.js";
 
 export interface StateLockRecord {
   pid: number;
   token: string;
   purpose: string;
+  exe?: string;
 }
 
 export interface StateLockOptions {
   purpose: string;
   timeoutMs?: number;
   pollMs?: number;
+  classifyIdentity?: (pid: number, exe: string) => ProcessIdentity | Promise<ProcessIdentity>;
+  classifyName?: (pid: number, exe: string) => ProcessIdentity | Promise<ProcessIdentity>;
 }
 
 export interface StateLockLease {
@@ -56,6 +64,7 @@ function readLockRecord(file: string): StateLockRecord | undefined {
     pid: value.pid,
     token: value.token,
     purpose: typeof value.purpose === "string" ? value.purpose : "unknown",
+    ...(typeof value.exe === "string" && value.exe ? { exe: value.exe } : {}),
   };
 }
 
@@ -68,24 +77,91 @@ interface Contender {
   ticket: bigint | null;
 }
 
-function contenders(directory: string): Contender[] {
+type IdentityClassifier = NonNullable<StateLockOptions["classifyIdentity"]>;
+
+type IdentityCache = Map<string, ProcessIdentity>;
+
+async function classifyOnce(
+  cache: IdentityCache,
+  classify: IdentityClassifier,
+  pid: number,
+  exe: string,
+): Promise<ProcessIdentity> {
+  const key = `${pid}${exe}`;
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+  let identity: ProcessIdentity;
+  try {
+    identity = await classify(pid, exe);
+  } catch {
+    identity = "unknown";
+  }
+  cache.set(key, identity);
+  return identity;
+}
+
+/** A live pid is a real owner only while its image matches the recorded exe;
+ * a pid recycled by an unrelated process means the owner is gone. Records
+ * written before `exe` was stored fall back to an image-name check against
+ * this process, so a recycled pid still loses to a foreign image. */
+async function pidGone(
+  cache: IdentityCache,
+  classify: IdentityClassifier,
+  classifyName: IdentityClassifier,
+  pid: number,
+  exe?: string,
+): Promise<boolean> {
+  if (!isProcessAlive(pid)) return true;
+  if (exe) return (await classifyOnce(cache, classify, pid, exe)) === "mismatch";
+  return (await classifyOnce(cache, classifyName, pid, process.execPath)) === "mismatch";
+}
+
+interface ContenderPayload {
+  ticket: bigint | null;
+  exe?: string;
+}
+
+function parseContenderPayload(value: string): ContenderPayload {
+  const trimmed = value.trim();
+  if (/^[1-9]\d{0,30}$/.test(trimmed)) return { ticket: BigInt(trimmed) };
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const ticket =
+      typeof parsed.ticket === "string" && /^[1-9]\d{0,30}$/.test(parsed.ticket)
+        ? BigInt(parsed.ticket)
+        : null;
+    const exe = typeof parsed.exe === "string" && parsed.exe ? parsed.exe : undefined;
+    return { ticket, ...(exe ? { exe } : {}) };
+  } catch {
+    return { ticket: null };
+  }
+}
+
+async function contenders(
+  directory: string,
+  cache: IdentityCache,
+  classify: IdentityClassifier,
+  classifyName: IdentityClassifier,
+): Promise<Contender[]> {
   const result: Contender[] = [];
   for (const name of fs.readdirSync(directory)) {
     const match = /^([1-9]\d*)\.[a-f0-9]{48}$/.exec(name);
     if (!match) continue;
     const candidate = path.join(directory, name);
-    if (!isProcessAlive(Number(match[1]))) {
+    const pid = Number(match[1]);
+    let payload: ContenderPayload | undefined;
+    try {
+      payload = parseContenderPayload(fs.readFileSync(candidate, "utf8"));
+    } catch (error) {
+      if (errnoCode(error) === "ENOENT") continue;
+    }
+    if (await pidGone(cache, classify, classifyName, pid, payload?.exe)) {
       try {
         fs.unlinkSync(candidate);
       } catch {}
       continue;
     }
-    try {
-      const value = fs.readFileSync(candidate, "utf8").trim();
-      result.push({ name, ticket: /^[1-9]\d{0,30}$/.test(value) ? BigInt(value) : null });
-    } catch (error) {
-      if (errnoCode(error) !== "ENOENT") result.push({ name, ticket: null });
-    }
+    result.push({ name, ticket: payload?.ticket ?? null });
   }
   return result;
 }
@@ -100,7 +176,15 @@ export async function acquireStateLock(
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const directory = `${file}.contenders`;
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const record = { pid: process.pid, token: crypto.randomBytes(24).toString("hex"), purpose };
+  const record = {
+    pid: process.pid,
+    token: crypto.randomBytes(24).toString("hex"),
+    purpose,
+    exe: process.execPath,
+  };
+  const classify = options.classifyIdentity ?? classifyProcessIdentityAsync;
+  const classifyName = options.classifyName ?? classifyProcessNameAsync;
+  const identityCache: IdentityCache = new Map();
   const name = `${record.pid}.${record.token}`;
   const candidate = path.join(directory, name);
   // Lamport's bakery protocol: publish "choosing" before reading other tickets,
@@ -108,13 +192,13 @@ export async function acquireStateLock(
   fs.writeFileSync(candidate, "", { flag: "wx", mode: 0o600 });
   try {
     const ticket =
-      contenders(directory).reduce(
+      (await contenders(directory, identityCache, classify, classifyName)).reduce(
         (max, entry) => (entry.ticket !== null && entry.ticket > max ? entry.ticket : max),
         0n,
       ) + 1n;
-    await atomicWriteFile(candidate, String(ticket));
+    await atomicWriteFile(candidate, JSON.stringify({ ticket: String(ticket), exe: record.exe }));
     for (;;) {
-      const ahead = contenders(directory).some(
+      const ahead = (await contenders(directory, identityCache, classify, classifyName)).some(
         (entry) =>
           entry.name !== name &&
           (entry.ticket === null ||
@@ -122,7 +206,9 @@ export async function acquireStateLock(
             (entry.ticket === ticket && entry.name < name)),
       );
       const owner = readLockRecord(file);
-      let legacyBusy = Boolean(owner && isProcessAlive(owner.pid));
+      let legacyBusy = Boolean(
+        owner && !(await pidGone(identityCache, classify, classifyName, owner.pid, owner.exe)),
+      );
       if (!owner) {
         try {
           legacyBusy = Date.now() - fs.statSync(file).mtimeMs < WRITE_GRACE_MS;

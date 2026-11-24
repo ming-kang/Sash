@@ -11,9 +11,11 @@ import { type SashLayout, sashLayout } from "./paths.js";
 import {
   buildSanitizedEnv,
   classifyProcessIdentityAsync,
+  classifyProcessNameAsync,
   githubTokenEnv,
   isProcessAlive,
   killProcessGracefully,
+  type ProcessIdentity,
   withPrivateAppendLogFds,
 } from "./process.js";
 import { createDaemonClient } from "./sash-client-node.js";
@@ -69,6 +71,7 @@ export function readDaemonPidRecord(
       pid: parsed.pid,
       token: parsed.token,
       port: parsed.port,
+      ...(typeof parsed.exe === "string" && parsed.exe ? { exe: parsed.exe } : {}),
     };
   } catch {
     return undefined;
@@ -79,14 +82,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export type DaemonIdentityCache = Map<string, ProcessIdentity>;
+
+/** A live pid only means the daemon is up while its image matches the exe the
+ * record was written for; a pid recycled by an unrelated process is dead.
+ * Records written before `exe` was stored fall back to an image-name check. */
+async function daemonPidGone(
+  cache: DaemonIdentityCache,
+  pid: number,
+  exe: string | undefined,
+): Promise<boolean> {
+  if (!isProcessAlive(pid)) return true;
+  const key = `${pid} ${exe ?? ""}`;
+  let identity = cache.get(key);
+  if (identity === undefined) {
+    try {
+      identity = exe
+        ? await classifyProcessIdentityAsync(pid, exe)
+        : await classifyProcessNameAsync(pid, process.execPath);
+    } catch {
+      identity = "unknown";
+    }
+    cache.set(key, identity);
+  }
+  return identity === "mismatch";
+}
+
 export async function evaluateDaemon(
   layout: SashLayout = sashLayout(),
   settings?: SashSettings,
+  identityCache: DaemonIdentityCache = new Map(),
 ): Promise<DaemonRunningInfo> {
   const record = readDaemonPidRecord(layout);
   const lease = readStateLockRecord(layout.daemonLeaseFile);
-  const liveLease = lease && isProcessAlive(lease.pid);
-  const liveRecord = record && isProcessAlive(record.pid);
+  const liveLease = lease && !(await daemonPidGone(identityCache, lease.pid, lease.exe));
+  const liveRecord = record && !(await daemonPidGone(identityCache, record.pid, record.exe));
   if (!liveLease && !liveRecord)
     return {
       kind: "stopped",
@@ -136,7 +166,8 @@ async function spawnDaemonUnlocked(
   const settings = opts.settings ?? loadSettings(layout);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_DAEMON_START_TIMEOUT_MS;
 
-  const state = await evaluateDaemon(layout, settings);
+  const identityCache: DaemonIdentityCache = new Map();
+  const state = await evaluateDaemon(layout, settings, identityCache);
   if (state.kind === "healthy") {
     return { pid: state.pid };
   }
@@ -144,7 +175,7 @@ async function spawnDaemonUnlocked(
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       await sleep(200);
-      const current = await evaluateDaemon(layout, settings);
+      const current = await evaluateDaemon(layout, settings, identityCache);
       if (current.kind === "healthy") return { pid: current.pid };
       if (current.kind === "stopped") break;
     }
@@ -257,12 +288,15 @@ export async function stopDaemonFromCli(
 ): Promise<boolean> {
   const layout = opts.layout ?? sashLayout();
   const settings = opts.settings ?? loadSettings(layout);
-  const state = await evaluateDaemon(layout, settings);
+  const identityCache: DaemonIdentityCache = new Map();
+  const state = await evaluateDaemon(layout, settings, identityCache);
   if (state.kind === "stopped") return true;
   if (state.kind !== "healthy") return false;
   const client = createDaemonClient(state.port, settings.daemonSecret);
+  const exe = readDaemonPidRecord(layout)?.exe;
   await client.shutdown();
   const deadline = Date.now() + (opts.timeoutMs ?? 20_000);
-  while (isProcessAlive(state.pid) && Date.now() < deadline) await sleep(100);
-  return !isProcessAlive(state.pid);
+  while (!(await daemonPidGone(identityCache, state.pid, exe)) && Date.now() < deadline)
+    await sleep(100);
+  return daemonPidGone(identityCache, state.pid, exe);
 }

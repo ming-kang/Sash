@@ -46,6 +46,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Surface the field-level validation reason in `PATCH /sash/settings` errors (for example `tun.device: Use utunN on macOS`) instead of a bare `Invalid settings patch`.
 - Report the installed helper version and paired-Core status in `sash tun helper status` and the TUN status payload, and keep the WebUI's TUN state in sync with out-of-band helper changes through the daemon event feed instead of per-mount polling.
 - Hint at `GITHUB_TOKEN` when `build:release` hits the GitHub API rate limit.
+- Start the daemon again after a reboot recycles the recorded `sashd.pid`, `sashd.lock` or contender pid for an unrelated process (e.g. Windows reusing it for a browser): pid records and state-lock contenders now carry the owning executable, and a live pid whose image does not match is treated as gone — legacy records without one fall back to an image-name check so a foreign process still loses while a real daemon under a different Node install survives.
 - Authenticate TUN controller traffic through the local helper connection instead of issuing a second bearer token.
 - Apply TUN when the privileged Core is ready, without probing system routes or DNS. Core startup failures still roll back.
 - Install the TUN helper and its release-paired Core together with administrator consent. TUN no longer imports Core archives, reads consent receipts, or syncs the ordinary-mode Core.

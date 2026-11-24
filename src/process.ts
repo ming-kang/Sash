@@ -101,19 +101,63 @@ export async function classifyProcessIdentityAsync(
         expectedExe,
       );
     if (process.platform === "win32") {
-      const shell =
-        findExecutableOnPath("pwsh.exe") ??
-        windowsSystemExecutable(path.join("WindowsPowerShell", "v1.0", "powershell.exe"));
-      const script = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $p = Get-Process -Id ${pid} -ErrorAction Stop; if ($p.Path) { [Console]::Out.Write($p.Path) }`;
-      const observed = (
-        await runSanitizedCommandAsync(shell, [
-          "-NoProfile",
-          "-NonInteractive",
-          "-EncodedCommand",
-          Buffer.from(script, "utf16le").toString("base64"),
-        ])
-      ).trim();
+      const observed = await windowsProcessImageAsync(pid);
       return observed ? (exePathsMatch(observed, expectedExe) ? "match" : "mismatch") : "unknown";
+    }
+  } catch {
+    return isProcessAlive(pid) ? "unknown" : "mismatch";
+  }
+  return "unknown";
+}
+
+async function windowsProcessImageAsync(pid: number): Promise<string> {
+  const shell =
+    findExecutableOnPath("pwsh.exe") ??
+    windowsSystemExecutable(path.join("WindowsPowerShell", "v1.0", "powershell.exe"));
+  const script = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $p = Get-Process -Id ${pid} -ErrorAction Stop; if ($p.Path) { [Console]::Out.Write($p.Path) } else { [Console]::Out.Write($p.ProcessName) }`;
+  return (
+    await runSanitizedCommandAsync(shell, [
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ])
+  ).trim();
+}
+
+/**
+ * Loose identity check for records written before the owning exe was stored:
+ * matches when the process image's basename equals the expected exe's basename
+ * ("node" vs "chrome"), so an upgrade-era record is not cleared just because
+ * the CLI now runs under a different node install.
+ */
+export async function classifyProcessNameAsync(
+  pid: number,
+  expectedExe: string,
+): Promise<ProcessIdentity> {
+  if (!isProcessAlive(pid)) return "mismatch";
+  if (!expectedExe) return "unknown";
+  try {
+    if (process.platform === "linux") {
+      const observed = await fs.promises.readlink(`/proc/${pid}/exe`);
+      return imageMatchesExpectedExe(basenameLower(observed), expectedExe) ? "match" : "mismatch";
+    }
+    if (process.platform === "darwin") {
+      const observed = await runSanitizedCommandAsync(
+        "/bin/ps",
+        ["-ww", "-p", String(pid), "-o", "comm="],
+        { timeoutMs: 3000 },
+      );
+      const name = basenameLower(observed.trim());
+      return name && imageMatchesExpectedExe(name, expectedExe) ? "match" : "mismatch";
+    }
+    if (process.platform === "win32") {
+      const observed = await windowsProcessImageAsync(pid);
+      return observed
+        ? imageMatchesExpectedExe(basenameLower(observed), expectedExe)
+          ? "match"
+          : "mismatch"
+        : "unknown";
     }
   } catch {
     return isProcessAlive(pid) ? "unknown" : "mismatch";
