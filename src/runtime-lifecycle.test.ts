@@ -4,6 +4,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "vitest";
+import { mihomoEngine } from "./engine/index.js";
 import { RequestDeadlineError } from "./http.js";
 import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle, runtimeDelta } from "./runtime-lifecycle.js";
@@ -50,6 +51,7 @@ describe("Core and proxy lifecycle", () => {
       supervisor: core,
       systemProxy: proxy,
       settings: () => settings,
+      engine: mihomoEngine,
       controllerProbe: async () => false,
     });
     const configuration = {
@@ -142,6 +144,7 @@ describe("Core and proxy lifecycle", () => {
       supervisor: f.core,
       systemProxy: f.proxy,
       settings: () => f.settings,
+      engine: mihomoEngine,
       controllerProbe: async () => true,
     });
     await assert.rejects(lifecycle.apply(f.configuration), /unowned Core controller/);
@@ -213,6 +216,7 @@ describe("configuration reload", () => {
       supervisor: core,
       systemProxy: proxy,
       settings: () => settings,
+      engine: mihomoEngine,
       controllerProbe: async () => false,
       ...(reloadConfig ? { reloadConfig } : {}),
     });
@@ -375,6 +379,7 @@ describe("TUN apply", () => {
       supervisor: core,
       systemProxy: proxy,
       settings: () => settings,
+      engine: mihomoEngine,
       controllerProbe: async () => false,
       tun: new TunService(
         {

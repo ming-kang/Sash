@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import YAML from "yaml";
-import { type SashStateStore, StateConflictError } from "../app-state.js";
+import { type SashState, type SashStateStore, StateConflictError } from "../app-state.js";
 import type { CoreStartResult } from "../contracts.js";
 import {
   assertCoreInstallationConsistent,
@@ -18,13 +18,14 @@ import {
   checkCoreUpdate,
   readCoreUpdateTransaction,
 } from "../core-update.js";
-import { type CoreEngine, mihomoEngine } from "../engine/index.js";
+import type { CoreEngine } from "../engine/index.js";
 import { errorMessage } from "../error-utils.js";
 import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
 import { type DownloadTransport, envProxyUri, formatProxyFallbackWarning } from "../http.js";
 import { countProxies, enforceTunConfiguration, type GeneratedConfig } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
 import type { PluginGenerateContext } from "../plugins/index.js";
+import { renderActiveConfig } from "../profile-service.js";
 import { renderGeodataMirrorsOffThread } from "../profile-work.js";
 import { getActiveProfile } from "../profiles.js";
 import type {
@@ -41,7 +42,7 @@ import { defaultTunSettings, sameTunSettings } from "../tun-settings.js";
 export interface CoreControlServiceOptions {
   layout: SashLayout;
   state: SashStateStore;
-  engine?: CoreEngine;
+  engine: CoreEngine;
   supervisor: CoreSupervisor;
   lifecycle: RuntimeLifecycle;
   commit: <T>(action: () => T | Promise<T>) => Promise<T>;
@@ -69,6 +70,15 @@ export interface CoreControlServiceOptions {
 
 const PROGRESS_NOTIFY_INTERVAL_MS = 250;
 
+interface ConfigurationPlan {
+  snapshot: SashState;
+  epoch: number;
+}
+
+type StartConfigurationCapture =
+  | { kind: "running"; result: CoreStartResult }
+  | { kind: "plan"; plan: ConfigurationPlan };
+
 export class CoreControlService {
   private validationTail: Promise<void> = Promise.resolve();
   private preparation = new AbortController();
@@ -78,7 +88,7 @@ export class CoreControlService {
   private readonly engine: CoreEngine;
 
   constructor(private readonly options: CoreControlServiceOptions) {
-    this.engine = options.engine ?? mihomoEngine;
+    this.engine = options.engine;
   }
 
   get progress(): CoreUpdateProgress | null {
@@ -258,7 +268,7 @@ export class CoreControlService {
     const meta = profile
       ? { id: profile.id, revision: profile.revision, name: profile.name, url: profile.url }
       : null;
-    const generated = await this.engine.renderActiveConfig(snapshot, this.options.layout);
+    const generated = await renderActiveConfig(snapshot, this.options.layout);
     const finalConfig = await this.applyGeneratePlugins(generated, {
       settings: publicSettings(snapshot.settings),
       profile: meta,
@@ -284,21 +294,65 @@ export class CoreControlService {
     return { profile: getActiveProfile(snapshot.profiles), settings: snapshot.settings };
   }
 
-  private configurationPlan() {
+  private configurationPlan(): ConfigurationPlan {
     return { snapshot: this.options.state.snapshot(), epoch: this.options.lifecycle.revision };
   }
 
-  private capturePlanAfterQueuedMutations(
-    intent: "start" | "apply" | "reconcile",
-    signal: AbortSignal,
-  ): Promise<CoreStartResult | ReturnType<CoreControlService["configurationPlan"]>> {
+  private captureConfigurationPlan(signal: AbortSignal): Promise<ConfigurationPlan> {
     return this.options.commit(async () => {
       signal.throwIfAborted();
       this.requireRecoveredInstall();
-      if (intent === "start" && this.options.supervisor.isRunning())
-        return this.options.lifecycle.start();
       return this.configurationPlan();
     });
+  }
+
+  private captureStartConfiguration(signal: AbortSignal): Promise<StartConfigurationCapture> {
+    return this.options.commit(async () => {
+      signal.throwIfAborted();
+      this.requireRecoveredInstall();
+      if (this.options.supervisor.isRunning())
+        return { kind: "running", result: await this.options.lifecycle.start() };
+      return { kind: "plan", plan: this.configurationPlan() };
+    });
+  }
+
+  private async prepareValidatedConfiguration(
+    plan: ConfigurationPlan,
+    signal: AbortSignal,
+    proxyUri?: string,
+  ): Promise<RuntimeConfiguration> {
+    const configuration = await this.savedConfiguration(plan.snapshot);
+    return this.validateConfiguration(configuration, this.options.layout.coreExe, signal, proxyUri);
+  }
+
+  private runExplicitConfiguration(
+    plan: ConfigurationPlan,
+    signal: AbortSignal,
+    commit: (configuration: RuntimeConfiguration) => Promise<CoreStartResult>,
+  ): Promise<CoreStartResult> {
+    return this.withExplicitTunRollback(plan, signal, async () => {
+      const validated = await this.prepareValidatedConfiguration(
+        plan,
+        signal,
+        this.downloadTransport()?.uri,
+      );
+      return commit(validated);
+    });
+  }
+
+  private assertPlanCurrent(configuration: RuntimeConfiguration, plan: ConfigurationPlan): void {
+    this.assertCurrentConfiguration(configuration);
+    if (this.options.lifecycle.revision !== plan.epoch)
+      throw new StateConflictError("Core changed during preparation; retry Apply");
+  }
+
+  private async applyValidatedConfiguration(
+    configuration: RuntimeConfiguration,
+    signal: AbortSignal,
+  ): Promise<CoreStartResult> {
+    if (await this.canReload(configuration))
+      return this.options.lifecycle.reload(configuration, signal);
+    return this.options.lifecycle.apply(configuration);
   }
 
   private assertCurrentConfiguration(configuration: RuntimeConfiguration): void {
@@ -424,22 +478,126 @@ export class CoreControlService {
 
   async apply(): Promise<CoreStartResult> {
     this.options.assertMutable();
-    return this.applySavedConfiguration("apply");
+    const { signal } = this.preparation;
+    this.requireRecoveredInstall();
+    signal.throwIfAborted();
+    if (!coreInstalled(this.options.layout)) return this.installAndStart(signal);
+
+    const plan = await this.captureConfigurationPlan(signal);
+    return this.runExplicitConfiguration(plan, signal, (validated) =>
+      this.options.commit(async () => {
+        signal.throwIfAborted();
+        this.requireRecoveredInstall();
+        this.assertPlanCurrent(validated, plan);
+        return this.applyValidatedConfiguration(validated, signal);
+      }),
+    );
   }
 
   async start(): Promise<CoreStartResult> {
     this.options.assertMutable();
-    return this.applySavedConfiguration("start");
+    const { lifecycle, supervisor } = this.options;
+    const { signal } = this.preparation;
+    this.requireRecoveredInstall();
+    signal.throwIfAborted();
+    if (!coreInstalled(this.options.layout)) return this.installAndStart(signal);
+
+    const captured = await this.captureStartConfiguration(signal);
+    if (captured.kind === "running") return captured.result;
+    const { plan } = captured;
+    return this.runExplicitConfiguration(plan, signal, (validated) =>
+      this.options.commit(async () => {
+        signal.throwIfAborted();
+        this.requireRecoveredInstall();
+        if (supervisor.isRunning()) return lifecycle.start();
+        this.assertPlanCurrent(validated, plan);
+        return this.applyValidatedConfiguration(validated, signal);
+      }),
+    );
   }
 
   async reconcileSaved(): Promise<boolean> {
     this.options.assertMutable();
     if (this.isUpdating || this.preparation.signal.aborted) return false;
+    const { lifecycle } = this.options;
+    const { signal } = this.preparation;
     try {
-      return Boolean(await this.applySavedConfiguration("reconcile"));
+      const plan = this.configurationPlan();
+      const target = this.savedTarget(plan.snapshot);
+      if (
+        !runtimeDelta(lifecycle.configuration(), target).pending ||
+        !(await this.canReload(target))
+      )
+        return false;
+
+      const validated = await this.prepareValidatedConfiguration(plan, signal);
+      const result = await this.options.commit(async () => {
+        signal.throwIfAborted();
+        this.assertCurrentConfiguration(validated);
+        if (lifecycle.revision !== plan.epoch) return undefined;
+        if (!(await this.canReload(validated))) return undefined;
+        return lifecycle.reload(validated, signal);
+      });
+      return result !== undefined;
     } catch (error) {
       console.warn(`[sashd] saved configuration was not applied: ${errorMessage(error)}`);
       return false;
+    }
+  }
+
+  private async installAndStart(signal: AbortSignal): Promise<CoreStartResult> {
+    const { layout, lifecycle, supervisor } = this.options;
+    const snapshot = this.options.state.snapshot();
+    try {
+      await this.update(undefined, true);
+    } catch (error) {
+      if (
+        snapshot.settings.tun.enable &&
+        !signal.aborted &&
+        !(error instanceof StateConflictError)
+      ) {
+        await this.rollBackTunPreference(
+          snapshot.revision,
+          { ...snapshot.settings.tun, enable: false },
+          error,
+        );
+      }
+      throw error;
+    }
+    return this.options.commit(() => {
+      signal.throwIfAborted();
+      const owner = supervisor.ownedCoreSnapshot();
+      if (!owner) throw new Error("Core exited after installation");
+      return {
+        pid: owner.pid,
+        version: currentCoreVersion(layout),
+        alreadyRunning: false,
+        mixedPort: lifecycle.settings().mixedPort,
+      };
+    });
+  }
+
+  private async withExplicitTunRollback(
+    plan: ConfigurationPlan,
+    signal: AbortSignal,
+    action: () => Promise<CoreStartResult>,
+  ): Promise<CoreStartResult> {
+    const { lifecycle, supervisor } = this.options;
+    const previousTun = supervisor.isRunning()
+      ? (lifecycle.configuration()?.settings.tun ?? defaultTunSettings())
+      : { ...plan.snapshot.settings.tun, enable: false };
+    try {
+      return await action();
+    } catch (error) {
+      if (
+        !signal.aborted &&
+        !(error instanceof StateConflictError) &&
+        (previousTun.enable || plan.snapshot.settings.tun.enable) &&
+        !sameTunSettings(previousTun, plan.snapshot.settings.tun)
+      ) {
+        await this.rollBackTunPreference(plan.snapshot.revision, previousTun, error);
+      }
+      throw error;
     }
   }
 
@@ -459,101 +617,6 @@ export class CoreControlService {
       throw new Error(
         `${errorMessage(error)}; could not roll back TUN settings: ${errorMessage(rollbackError)}`,
       );
-    }
-  }
-
-  private applySavedConfiguration(intent: "start" | "apply"): Promise<CoreStartResult>;
-  private applySavedConfiguration(intent: "reconcile"): Promise<CoreStartResult | undefined>;
-  private async applySavedConfiguration(
-    intent: "start" | "apply" | "reconcile",
-  ): Promise<CoreStartResult | undefined> {
-    const { layout, supervisor, lifecycle } = this.options;
-    const { signal } = this.preparation;
-    if (intent !== "reconcile") {
-      this.requireRecoveredInstall();
-      signal.throwIfAborted();
-      if (!coreInstalled(layout)) {
-        const snapshot = this.options.state.snapshot();
-        try {
-          await this.update(undefined, true);
-        } catch (error) {
-          if (
-            snapshot.settings.tun.enable &&
-            !signal.aborted &&
-            !(error instanceof StateConflictError)
-          ) {
-            await this.rollBackTunPreference(
-              snapshot.revision,
-              { ...snapshot.settings.tun, enable: false },
-              error,
-            );
-          }
-          throw error;
-        }
-        return this.options.commit(() => {
-          signal.throwIfAborted();
-          const owner = supervisor.ownedCoreSnapshot();
-          if (!owner) throw new Error("Core exited after installation");
-          return {
-            pid: owner.pid,
-            version: currentCoreVersion(layout),
-            alreadyRunning: false,
-            mixedPort: lifecycle.settings().mixedPort,
-          };
-        });
-      }
-    }
-
-    const plan =
-      intent === "reconcile"
-        ? this.configurationPlan()
-        : await this.capturePlanAfterQueuedMutations(intent, signal);
-    if (!("snapshot" in plan)) return plan;
-
-    if (intent === "reconcile") {
-      const target = this.savedTarget(plan.snapshot);
-      if (
-        !runtimeDelta(lifecycle.configuration(), target).pending ||
-        !(await this.canReload(target))
-      )
-        return undefined;
-    }
-
-    const previousTun = supervisor.isRunning()
-      ? (lifecycle.configuration()?.settings.tun ?? defaultTunSettings())
-      : { ...plan.snapshot.settings.tun, enable: false };
-    try {
-      const configuration = await this.savedConfiguration(plan.snapshot);
-      const validated = await this.validateConfiguration(
-        configuration,
-        layout.coreExe,
-        signal,
-        intent === "reconcile" ? undefined : this.downloadTransport()?.uri,
-      );
-      return await this.options.commit(async () => {
-        signal.throwIfAborted();
-        if (intent !== "reconcile") this.requireRecoveredInstall();
-        if (intent === "start" && supervisor.isRunning()) return lifecycle.start();
-        this.assertCurrentConfiguration(validated);
-        if (lifecycle.revision !== plan.epoch) {
-          if (intent === "reconcile") return undefined;
-          throw new StateConflictError("Core changed during preparation; retry Apply");
-        }
-        if (await this.canReload(validated)) return lifecycle.reload(validated, signal);
-        if (intent === "reconcile") return undefined;
-        return lifecycle.apply(validated);
-      });
-    } catch (error) {
-      if (
-        intent !== "reconcile" &&
-        !signal.aborted &&
-        !(error instanceof StateConflictError) &&
-        (previousTun.enable || plan.snapshot.settings.tun.enable) &&
-        !sameTunSettings(previousTun, plan.snapshot.settings.tun)
-      ) {
-        await this.rollBackTunPreference(plan.snapshot.revision, previousTun, error);
-      }
-      throw error;
     }
   }
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { readState } from "./app-state.js";
 import { DaemonGate } from "./daemon/context.js";
+import { mihomoEngine } from "./engine/index.js";
 import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { SettingsService } from "./settings-service.js";
@@ -45,6 +46,7 @@ describe("saved settings", () => {
       supervisor: core,
       systemProxy: proxy,
       settings: () => state.snapshot().settings,
+      engine: mihomoEngine,
       controllerProbe: async () => false,
     });
     const gate = new DaemonGate(

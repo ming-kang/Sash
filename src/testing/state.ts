@@ -3,6 +3,7 @@ import path from "node:path";
 import { SashStateStore } from "../app-state.js";
 import type { DaemonStatus, ProfileMeta } from "../contracts.js";
 import { currentCoreVersion } from "../core.js";
+import { mihomoEngine } from "../engine/index.js";
 import type { SashLayout } from "../paths.js";
 import { DEFAULT_SETTINGS, publicSettings, type SashSettings } from "../settings.js";
 import { type CoreOwnershipSnapshot, type CoreState, CoreSupervisor } from "../supervisor.js";
@@ -109,7 +110,7 @@ export class FakeCoreSupervisor extends CoreSupervisor {
     private readonly testLayout: SashLayout,
     settings = testSettings(),
   ) {
-    super({ layout: testLayout, settings: () => settings });
+    super({ layout: testLayout, settings: () => settings, engine: mihomoEngine });
   }
   override isRunning(): boolean {
     return this.running;

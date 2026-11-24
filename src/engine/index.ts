@@ -1,20 +1,13 @@
 import type { Dispatcher } from "undici";
-import type { SashState } from "../app-state.js";
 import type { RoutingMode } from "../contracts.js";
 import type { CoreDelayResult } from "../core-delay.js";
-import type { GeneratedConfig, GeoxMirrorSet } from "../mihomo-config.js";
+import type { GeoxMirrorSet } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
 
-/**
- * The daemon's view of a proxy core. Everything engine-specific — how the
- * binary is launched, how the merged configuration is rendered and checked,
- * and how the external controller is spoken to — crosses this boundary so a
- * second engine can be added without touching orchestration code.
- */
+/** Process, configuration-check and controller operations provided by the managed Core. */
 export interface CoreEngine {
   readonly id: string;
   spawnArguments(layout: SashLayout): string[];
-  renderActiveConfig(state: SashState, layout: SashLayout): Promise<GeneratedConfig>;
   validateConfig(
     executable: string,
     yaml: string,

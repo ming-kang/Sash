@@ -159,6 +159,31 @@ describe("Core configuration preparation ownership", () => {
     }
   }
 
+  it("shares one Core start across concurrent requests", async () => {
+    const core = new FakeCoreSupervisor(h.layout, h.settings);
+    const entered = deferred();
+    const release = deferred();
+    await h.startServer({
+      supervisor: core,
+      validateConfig: async () => {
+        entered.resolve();
+        await release.promise;
+      },
+    });
+    const first = h.apiRequest("/sash/core/start", { method: "POST" });
+    await entered.promise;
+    const second = h.apiRequest("/sash/core/start", { method: "POST" });
+    release.resolve();
+
+    const responses = await Promise.all([first, second]);
+
+    assert.deepEqual(
+      responses.map((response) => response.statusCode),
+      [200, 200],
+    );
+    assert.equal(core.starts, 1);
+  });
+
   it("retains the runtime epoch conflict when another Apply finishes during download", async () => {
     const download = stagedDownload();
     await h.startMockCore((req, res) => {

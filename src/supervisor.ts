@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { assertCoreBinaryFile } from "./core.js";
-import { type CoreEngine, mihomoEngine } from "./engine/index.js";
+import type { CoreEngine } from "./engine/index.js";
 import { errnoCode, errorMessage } from "./error-utils.js";
 import { durableRenameSync } from "./fs-atomic.js";
 import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-follow.js";
@@ -37,7 +37,7 @@ export interface CoreOwnershipSnapshot {
 export interface CoreSupervisorOptions {
   layout: SashLayout;
   settings: () => SashSettings;
-  engine?: CoreEngine;
+  engine: CoreEngine;
   spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
   /**
    * Starts TUN Cores when the platform runs them outside Sash's process tree
@@ -131,7 +131,7 @@ export class CoreSupervisor {
 
   constructor(opts: CoreSupervisorOptions) {
     this.layout = opts.layout;
-    this.engine = opts.engine ?? mihomoEngine;
+    this.engine = opts.engine;
     this.getSettings = opts.settings;
     this.waitHealthyMs = opts.waitHealthyMs ?? 10_000;
     this.isAlive = opts.isAliveFn ?? isProcessAlive;

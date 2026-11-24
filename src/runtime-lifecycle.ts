@@ -9,7 +9,7 @@ import {
   recoverBinaryUnlockProbe,
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
-import { type CoreEngine, mihomoEngine } from "./engine/index.js";
+import type { CoreEngine } from "./engine/index.js";
 import { errorMessage } from "./error-utils.js";
 import { atomicWriteFile } from "./fs-atomic.js";
 import { isRequestDeadlineError } from "./http.js";
@@ -41,7 +41,7 @@ export interface RuntimeLifecycleOptions {
   supervisor: CoreSupervisor;
   systemProxy: SystemProxyController;
   settings: () => SashSettings;
-  engine?: CoreEngine;
+  engine: CoreEngine;
   tun?: TunService;
 }
 
@@ -77,7 +77,7 @@ export class RuntimeLifecycle {
   private runtimeSettings: SashSettings;
 
   constructor(private readonly options: RuntimeLifecycleOptions) {
-    this.engine = options.engine ?? mihomoEngine;
+    this.engine = options.engine;
     this.runtimeSettings = { ...options.settings() };
   }
 

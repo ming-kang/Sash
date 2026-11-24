@@ -49,6 +49,7 @@ test("restart: stale exit event from the replaced core does not clobber the new 
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => settings,
+    engine: mihomoEngine,
     spawnFn,
     classifyIdentityFn: (pid) => classifyProcessIdentityAsync(pid, process.execPath),
     waitHealthyMs: 8000,
@@ -119,6 +120,7 @@ test("stop preserves Core ownership when termination cannot be confirmed", async
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => settings,
+    engine: mihomoEngine,
     spawnFn: () => fakeChild,
     isAliveFn: (pid) => pid === fakeChild.pid,
     classifyIdentityFn: async (pid, exe) => {
@@ -156,6 +158,7 @@ test("stale Core cleanup preserves PID state when identity is unknown", async ()
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     isAliveFn: () => true,
+    engine: mihomoEngine,
     classifyIdentityFn: () => "unknown",
     killFn: async () => {
       killCalled = true;
@@ -184,6 +187,7 @@ test("stale Core cleanup clears a PID record that belongs to another executable"
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     isAliveFn: () => true,
+    engine: mihomoEngine,
     classifyIdentityFn: () => "mismatch",
   });
 
@@ -209,6 +213,7 @@ test("start terminates the child when PID ownership cannot be persisted", async 
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
+    engine: mihomoEngine,
     spawnFn: () => fakeChild,
     isAliveFn: () => alive,
     killFn: async () => {
@@ -235,6 +240,7 @@ test("stale Core cleanup rejects a corrupt PID record", async () => {
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
+    engine: mihomoEngine,
   });
 
   try {
@@ -278,6 +284,7 @@ test("status reports stopped when its controller probe outlives the owned child"
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS, controller: `127.0.0.1:${port}` }),
+    engine: mihomoEngine,
     spawnFn: () => child,
     isAliveFn: () => alive,
     waitHealthyMs: 2000,
@@ -312,6 +319,7 @@ test("stale Core cleanup never trusts an executable path supplied by the PID rec
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     isAliveFn: () => true,
+    engine: mihomoEngine,
     classifyIdentityFn: () => "match",
     killFn: async () => {
       killCalled = true;
@@ -343,6 +351,7 @@ test("start installs an error listener before rejecting a child without a PID", 
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
+    engine: mihomoEngine,
     spawnFn: () => child,
   });
 
@@ -373,6 +382,7 @@ test("PID write failure preserves uncertain ownership when termination fails", a
     settings: () => ({ ...DEFAULT_SETTINGS }),
     spawnFn: () => child,
     isAliveFn: () => true,
+    engine: mihomoEngine,
     killFn: async () => false,
   });
 
@@ -410,6 +420,7 @@ test("start aborts an owned child after an asynchronous spawn error", async () =
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS, controller: "127.0.0.1:1" }),
+    engine: mihomoEngine,
     spawnFn: () => {
       setImmediate(() => child.emit("error", new Error("synthetic spawn failure")));
       return child;
@@ -457,6 +468,7 @@ test("health timeout aborts the child and clears its owned PID record", async ()
       alive = false;
       return true;
     },
+    engine: mihomoEngine,
     waitHealthyMs: 20,
   });
 
@@ -752,6 +764,7 @@ test("defaultSpawn rotates oversized log files before opening append fds", async
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS, controller: "127.0.0.1:1" }),
+    engine: mihomoEngine,
     waitHealthyMs: 50,
   });
 
