@@ -191,7 +191,7 @@ export class RuntimeLifecycle {
 
   async restartPrivileged(): Promise<CoreStartResult> {
     const applied = this.applied;
-    if (!applied?.settings.tun.enable || !this.options.supervisor.privilegedController())
+    if (!applied?.settings.tun.enable || !this.options.supervisor.isPrivileged())
       throw new Error("No privileged Core is running");
     return this.apply(applied);
   }
@@ -219,7 +219,7 @@ export class RuntimeLifecycle {
       ((path, signal) => this.engine.api(controller, secret).reloadConfig(path, signal));
     try {
       if (configuration.settings.tun.enable)
-        await this.options.supervisor.reloadPrivileged(configuration.generated.yaml);
+        await this.options.supervisor.reload(configuration.generated.yaml);
       else await reloadConfig(this.options.layout.configFile, signal);
     } catch (error) {
       signal?.throwIfAborted();

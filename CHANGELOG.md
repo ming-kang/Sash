@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Re-apply the complete Sash-owned TUN and DNS policy after generation plugins, so enabled TUN sessions cannot lose managed fields or required DNS settings during final config generation.
+
 ## [0.7.0] - 2026-11-24
 
 ### Added

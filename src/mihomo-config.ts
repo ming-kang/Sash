@@ -1,6 +1,5 @@
 import YAML from "yaml";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
-import { isPlainObject } from "./json-shape.js";
 import { inspectProfileOffThread } from "./profile-work.js";
 import type { SashSettings } from "./settings.js";
 import type { TunSettings } from "./tun-settings.js";
@@ -266,13 +265,43 @@ export function overlayManagedKeys(
   settings: SashSettings,
   warnings: string[] = [],
 ): Record<string, unknown> {
-  const profileTun = isPlainObject(base.tun) ? base.tun : {};
   const out = stripManagedKeys(base);
   out["mixed-port"] = settings.mixedPort;
   out["allow-lan"] = settings.allowLan;
   out["external-controller"] = settings.controller;
   out.secret = settings.secret;
-  const tun = settings.tun;
+  out.tun = base.tun;
+  enforceTunConfiguration(out, settings.tun, warnings);
+  return out;
+}
+
+/**
+ * Apply the complete TUN policy at every final generation boundary. Profile
+ * rendering and generation plugins both end here, so a plugin cannot leave a
+ * weaker, differently merged TUN configuration than the normal render path.
+ */
+export function enforceTunConfiguration(
+  config: Record<string, unknown>,
+  tun: TunSettings,
+  warnings: string[] = [],
+): void {
+  // Looser than isPlainObject: plugin hooks run in a vm context, and their
+  // object literals fail the main realm's prototype check.
+  const mapping = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  if (Array.isArray(config.listeners)) {
+    const kept = config.listeners.filter(
+      (entry) => !(mapping(entry) && String(entry.type).toLowerCase() === "tun"),
+    );
+    if (kept.length !== config.listeners.length) {
+      warnings.push(
+        "profile TUN listeners are not supported and were removed; use Sash TUN settings",
+      );
+      config.listeners = kept;
+    }
+  }
+
+  const profileTun = mapping(config.tun) ? config.tun : {};
   const managedTun: Record<string, unknown> = {
     enable: tun.enable,
     ...(tun.enable
@@ -299,53 +328,17 @@ export function overlayManagedKeys(
       warnings.push(`profile tun.${key} is managed by Sash TUN settings; its value was ignored`);
     }
   }
-  out.tun = { ...profileTun, ...managedTun };
+  config.tun = { ...profileTun, ...managedTun };
+
   if (tun.enable) {
-    if (out.dns !== undefined && !isPlainObject(out.dns))
+    if (config.dns !== undefined && !mapping(config.dns))
       warnings.push("profile dns is not a mapping; replaced with Core DNS defaults");
-    const dns = (isPlainObject(out.dns) ? out.dns : undefined) ?? {
+    const dns = (mapping(config.dns) ? config.dns : undefined) ?? {
       nameserver: ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"],
     };
     if (dns.enable === false)
       warnings.push("profile dns.enable: false ignored; TUN requires the Core DNS resolver");
-    out.dns = { listen: "127.0.0.1:1053", "enhanced-mode": "fake-ip", ...dns, enable: true };
-  }
-  enforceTunConfiguration(out, tun, warnings);
-  return out;
-}
-
-export function enforceTunConfiguration(
-  config: Record<string, unknown>,
-  tun: TunSettings,
-  warnings: string[] = [],
-): void {
-  // Looser than isPlainObject: plugin hooks run in a vm context, and their
-  // object literals fail the main realm's prototype check.
-  const mapping = (value: unknown): value is Record<string, unknown> =>
-    value !== null && typeof value === "object" && !Array.isArray(value);
-  if (Array.isArray(config.listeners)) {
-    const kept = config.listeners.filter(
-      (entry) => !(mapping(entry) && String(entry.type).toLowerCase() === "tun"),
-    );
-    if (kept.length !== config.listeners.length) {
-      warnings.push(
-        "profile TUN listeners are not supported and were removed; use Sash TUN settings",
-      );
-      config.listeners = kept;
-    }
-  }
-  config.tun = { ...(mapping(config.tun) ? config.tun : {}), enable: tun.enable };
-  if (tun.enable) {
-    if (!mapping(config.dns)) {
-      if ("dns" in config)
-        warnings.push("profile dns is not a mapping; replaced with Core DNS defaults");
-      config.dns = {};
-    }
-    const dns = config.dns as Record<string, unknown>;
-    if (dns.enable !== true) {
-      warnings.push("profile dns.enable: false ignored; TUN requires the Core DNS resolver");
-      dns.enable = true;
-    }
+    config.dns = { listen: "127.0.0.1:1053", "enhanced-mode": "fake-ip", ...dns, enable: true };
   }
 }
 

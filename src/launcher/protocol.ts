@@ -1,4 +1,4 @@
-import type { Socket } from "node:net";
+import type { Duplex } from "node:stream";
 import { z } from "zod";
 
 export const CORE_SHA256 = /^[a-f0-9]{64}$/;
@@ -34,11 +34,13 @@ export const helperStatusSchema = z.strictObject({
 export type HelperRequest = z.output<typeof helperRequestSchema>;
 export type HelperStatus = z.output<typeof helperStatusSchema>;
 export type HelperLaunch = z.output<typeof helperLaunchSchema>;
+/** Byte stream used by helper requests and controller forwarding. */
+export type IpcTransport = Duplex;
 
 export interface HelperClient {
   status(): Promise<HelperStatus>;
   start(configText: string): Promise<HelperLaunch>;
-  connectController(): Socket;
+  connectController(): IpcTransport;
   reload(configText: string): Promise<void>;
   stop(): Promise<void>;
   logs(): Promise<string>;

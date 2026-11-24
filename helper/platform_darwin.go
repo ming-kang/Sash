@@ -71,7 +71,9 @@ func newPlatform(args []string) (Platform, error) {
 		if binDir == "" || helperSource == "" || helperSha256 == "" || coreSource == "" {
 			return nil, errors.New("Usage: sash-helper --bin <binDir> --install-consent --helper-src <f> --helper-sha <sha> --core-src <f>")
 		}
-		digest, err := installConsentedHelper(binDir, helperSource, helperSha256, coreSource)
+		digest, err := installConsentedPair(
+			binDir, helperSource, helperSha256, coreSource, verifyProtectedPath, durableRename,
+		)
 		if err != nil {
 			return nil, err
 		}

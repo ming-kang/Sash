@@ -57,7 +57,9 @@ async function probeHelper(timeoutMs = 2500): Promise<boolean> {
   try {
     const sock = await fsp.lstat(HELPER_SOCKET);
     if (!sock.isSocket() || sock.uid !== 0) return false;
-    const client = createIpcHelperClient(HELPER_SOCKET, timeoutMs, verifyHelperSocket);
+    const client = createIpcHelperClient(HELPER_SOCKET, timeoutMs, {
+      verifyEndpoint: verifyHelperSocket,
+    });
     await Promise.race([
       client.status(),
       new Promise((_, reject) => setTimeout(() => reject(new Error("probe")), timeoutMs)),
@@ -322,7 +324,9 @@ export function macosTunPlatform(): TunPlatform {
     },
 
     connect(): HelperClient {
-      return createIpcHelperClient(HELPER_SOCKET, 10_000, verifyHelperSocket);
+      return createIpcHelperClient(HELPER_SOCKET, 10_000, {
+        verifyEndpoint: verifyHelperSocket,
+      });
     },
   };
 }

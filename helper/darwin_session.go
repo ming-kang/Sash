@@ -4,13 +4,9 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -369,109 +365,4 @@ func prepareMacosConfig(configText []byte) ([]byte, error) {
 		tun["dns-mode"] = "native"
 	}
 	return yaml.Marshal(doc)
-}
-
-// installConsentedHelper is the consent-anchored install invoked elevated
-// from the osascript install script only. The helper digest binds the staged
-// helper to exactly the bytes the admin consented to; the Core digest is the
-// one embedded in that consented helper build — callers never supply it.
-func installConsentedHelper(binDir, helperSource, helperSha256, coreSource string) (string, error) {
-	if !filepath.IsAbs(binDir) {
-		return "", errors.New("Core bin directory must be a canonical absolute path")
-	}
-	real, err := filepath.EvalSymlinks(binDir)
-	if err != nil || real != binDir {
-		return "", errors.New("Core bin directory must be a canonical absolute path")
-	}
-	if err := (&darwinPlatform{}).VerifyProtectedPath(context.Background(), binDir); err != nil {
-		return "", err
-	}
-	dir, err := os.MkdirTemp(binDir, ".core-publish-")
-	if err != nil {
-		return "", err
-	}
-	defer os.RemoveAll(dir)
-	digest := coreSHA256
-	if !digestPattern.MatchString(digest) {
-		return "", errors.New("No paired Core digest embedded")
-	}
-	stagedCore := filepath.Join(dir, "core")
-	stagedHelper := filepath.Join(dir, "helper")
-	if err := copyConsentedFile(helperSource, helperSha256, stagedHelper); err != nil {
-		return "", err
-	}
-	if err := copyConsentedFile(coreSource, digest, stagedCore); err != nil {
-		return "", err
-	}
-	for _, staged := range []string{stagedCore, stagedHelper} {
-		if err := os.Chmod(staged, 0o755); err != nil {
-			return "", err
-		}
-	}
-	if err := durableRename(stagedCore, filepath.Join(binDir, "mihomo")); err != nil {
-		return "", err
-	}
-	if err := durableRename(stagedHelper, filepath.Join(binDir, "sash-helper")); err != nil {
-		return "", err
-	}
-	return digest, nil
-}
-
-func copyConsentedFile(source, expectedSha256, staged string) error {
-	if !digestPattern.MatchString(expectedSha256) {
-		return errors.New("Consented file digest required")
-	}
-	if err := copyProtectedInput(source, staged); err != nil {
-		return err
-	}
-	actual, err := fileSha256(staged)
-	if err != nil {
-		return err
-	}
-	if subtle.ConstantTimeCompare([]byte(actual), []byte(expectedSha256)) != 1 {
-		return errors.New("Consented file digest mismatch")
-	}
-	return nil
-}
-
-// copyProtectedInput opens the source with O_NOFOLLOW, re-stats it as the
-// same file, and publishes size-bounded bytes into an exclusive new file.
-func copyProtectedInput(source, target string) error {
-	before, err := os.Lstat(source)
-	if err != nil || !before.Mode().IsRegular() {
-		return errors.New("Expected a regular Core input file")
-	}
-	f, err := openRegular(source)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	stat, err := f.Stat()
-	if err != nil || !os.SameFile(before, stat) || !stat.Mode().IsRegular() {
-		return errors.New("Core input changed before opening")
-	}
-	if stat.Size() < 1 || stat.Size() > maxCoreSize {
-		return errors.New("Invalid Core input file size")
-	}
-	dest, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(dest, io.LimitReader(f, maxCoreSize))
-	syncErr := dest.Sync()
-	closeErr := dest.Close()
-	return errors.Join(copyErr, syncErr, closeErr)
-}
-
-func fileSha256(path string) (string, error) {
-	f, err := openRegular(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, io.LimitReader(f, maxCoreSize+1)); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }

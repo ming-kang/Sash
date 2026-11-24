@@ -45,9 +45,11 @@ it("runs the verifyEndpoint hook before any transport is opened", async () => {
   const seen: string[] = [];
   assert.throws(
     () =>
-      createIpcHelperClient(endpoint, 1_000, (candidate) => {
-        seen.push(candidate);
-        throw new Error("endpoint rejected");
+      createIpcHelperClient(endpoint, 1_000, {
+        verifyEndpoint: (candidate) => {
+          seen.push(candidate);
+          throw new Error("endpoint rejected");
+        },
       }),
     /endpoint rejected/,
   );

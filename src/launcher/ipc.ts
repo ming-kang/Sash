@@ -1,4 +1,4 @@
-import { createConnection as libuvConnection, type Socket } from "node:net";
+import { createConnection } from "node:net";
 import { isPlainObject } from "../json-shape.js";
 import {
   HELPER_CONTROLLER_PREFACE,
@@ -8,11 +8,26 @@ import {
   type HelperRequest,
   helperLaunchSchema,
   helperStatusSchema,
+  type IpcTransport,
   MAX_HELPER_FRAME,
   validHelperEndpoint,
 } from "./protocol.js";
 
-export function readHelperFrames(socket: Socket, onFrame: (frame: unknown) => void): void {
+export interface IpcHelperClientOptions {
+  /**
+   * Runs synchronously before each transport is opened — once for the
+   * request socket and again for every `connectController()` link.
+   */
+  verifyEndpoint?: (endpoint: string) => void;
+  /**
+   * Per-client transport factory. When set it opens BOTH the request socket
+   * and every `connectController()` link, so a custom transport can never
+   * leak into other clients through process-global state.
+   */
+  connect?: () => IpcTransport;
+}
+
+export function readHelperFrames(socket: IpcTransport, onFrame: (frame: unknown) => void): void {
   let chunks: Buffer[] = [];
   let size = 0;
   socket.on("data", (data: Buffer) => {
@@ -43,11 +58,15 @@ export function readHelperFrames(socket: Socket, onFrame: (frame: unknown) => vo
 export function createIpcHelperClient(
   endpoint: string,
   timeoutMs = 10_000,
-  verifyEndpoint?: (endpoint: string) => void,
+  options: IpcHelperClientOptions = {},
 ): HelperClient {
   if (!validHelperEndpoint(endpoint)) throw new Error("Expected a local helper pipe or socket");
-  verifyEndpoint?.(endpoint);
-  const socket = createConnection({ path: endpoint });
+  const { verifyEndpoint, connect } = options;
+  const openTransport = (): IpcTransport => {
+    verifyEndpoint?.(endpoint);
+    return connect?.() ?? createConnection({ path: endpoint });
+  };
+  const socket = openTransport();
   let tail: Promise<unknown> = Promise.resolve();
   let pending: { resolve(value: unknown): void; reject(error: Error): void } | undefined;
   let failure: Error | undefined;
@@ -106,8 +125,7 @@ export function createIpcHelperClient(
     start: async (configText) =>
       helperLaunchSchema.parse(await request({ method: "start", configText })),
     connectController() {
-      verifyEndpoint?.(endpoint);
-      const transport = createConnection({ path: endpoint });
+      const transport = openTransport();
       transport.write(Buffer.from([HELPER_CONTROLLER_PREFACE]));
       return transport;
     },
@@ -124,23 +142,4 @@ export function createIpcHelperClient(
     },
     close: () => socket.destroy(),
   };
-}
-
-export type IpcTransport = Socket | import("node:stream").Duplex;
-
-let ipcTransport: (() => IpcTransport) | undefined;
-
-/**
- * Platforms whose endpoint a libuv connection cannot open (e.g. the Windows
- * helper pipe, which requires an exact minimal client mask) register the
- * transport factory here; createIpcHelperClient then uses it for both the
- * request socket and controller connections. Hoisted so the createConnection
- * call sites stay identical to platforms that only set verifyEndpoint.
- */
-export function setIpcTransportFactory(factory: (() => IpcTransport) | undefined): void {
-  ipcTransport = factory;
-}
-
-function createConnection(options: { path: string }): Socket {
-  return (ipcTransport?.() ?? libuvConnection(options)) as Socket;
 }

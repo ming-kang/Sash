@@ -65,9 +65,9 @@ function segmentsSurviveDecoding(pathname: string): boolean {
 
 export function coreControllerTarget(ctx: DaemonContext): ControllerTarget | undefined {
   const runtime = ctx.settings.runtime();
-  const privileged = ctx.supervisor.privilegedController();
-  return privileged
-    ? { createConnection: privileged.connect }
+  const connect = ctx.supervisor.controllerConnect();
+  return connect
+    ? { createConnection: connect }
     : runtime.tun.enable
       ? undefined
       : directControllerTarget(runtime.controller, runtime.secret);
@@ -81,8 +81,7 @@ export async function forwardToCore(
 ): Promise<void> {
   const method = req.method?.toUpperCase() ?? "GET";
   const upstream = coreApiTarget(target);
-  const privileged =
-    ctx.settings.runtime().tun.enable || Boolean(ctx.supervisor.privilegedController());
+  const privileged = ctx.settings.runtime().tun.enable || ctx.supervisor.isPrivileged();
   const pathname = upstream.split("?")[0] ?? "/";
   const allowedMutation =
     segmentsSurviveDecoding(pathname) &&

@@ -7,6 +7,8 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test, vi } from "vitest";
+import { mihomoEngine } from "./engine/index.js";
+import type { PrivilegedCore } from "./launcher/index.js";
 import { sashLayout } from "./paths.js";
 import { classifyProcessIdentityAsync, readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
@@ -464,6 +466,66 @@ test("health timeout aborts the child and clears its owned PID record", async ()
     assert.equal(supervisor.isRunning(), false);
     assert.equal(readPidRecord(layout.pidFile), undefined);
   } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("privileged Core uses the same ownership lifecycle and clears its session on stop", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-privileged-test-"));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
+  fs.writeFileSync(layout.configFile, "tun: {enable: true}\n");
+
+  let alive = true;
+  const reloads: string[] = [];
+  const child: PrivilegedCore = {
+    pid: 6565,
+    controller: {
+      connect: () => {
+        throw new Error("controller transport is not needed by the fake engine");
+      },
+    },
+    alive: async () => alive,
+    reload: async (configText) => {
+      reloads.push(configText);
+    },
+    stop: async () => {
+      alive = false;
+    },
+  };
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    tun: { ...DEFAULT_SETTINGS.tun, enable: true },
+  };
+  const supervisor = new CoreSupervisor({
+    layout,
+    settings: () => settings,
+    privilegedLauncher: { launch: () => ({ mode: "privileged", child }) },
+    engine: {
+      ...mihomoEngine,
+      api(controller, secret, dispatcher) {
+        const api = mihomoEngine.api(controller, secret, dispatcher);
+        return { ...api, version: async () => "v-privileged" };
+      },
+    },
+  });
+
+  try {
+    assert.deepEqual(await supervisor.start(), { pid: 6565, version: "v-privileged" });
+    assert.equal(supervisor.isPrivileged(), true);
+    const owner = supervisor.ownedCoreSnapshot();
+    assert.ok(owner);
+    assert.equal(supervisor.ownsCore(owner), true);
+    await supervisor.reload("tun: {enable: true, stack: system}\n");
+    assert.deepEqual(reloads, ["tun: {enable: true, stack: system}\n"]);
+    await supervisor.stop();
+    assert.equal(supervisor.isRunning(), false);
+    assert.equal(supervisor.isPrivileged(), false);
+    assert.equal(supervisor.ownsCore(owner), false);
+  } finally {
+    await supervisor.stop().catch(() => {});
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { type Entry, openPromise } from "yauzl";
 import { currentCoreVersion } from "../core.js";
 import { coreSha256 } from "../launcher/index.js";
-import { createIpcHelperClient, setIpcTransportFactory } from "../launcher/ipc.js";
+import { createIpcHelperClient } from "../launcher/ipc.js";
 import type { HelperClient } from "../launcher/protocol.js";
 import { currentPackageRoot } from "../package-info.js";
 import type { TunPlatform } from "../tun-service.js";
@@ -430,9 +430,11 @@ export function windowsTunPlatform(): TunPlatform {
     },
     connect(): HelperClient {
       // `start` pays for path audits (PowerShell) and the Core spawn; the
-      // default 10s IPC timeout is too tight on a cold service.
-      setIpcTransportFactory(() => openHelperSocket());
-      return createIpcHelperClient(helperPipePath(), 60_000);
+      // default 10s IPC timeout is too tight on a cold service. The helper's
+      // front pipe needs the DACL's exact client mask, which libuv cannot
+      // open, so both the request socket and controller links go through the
+      // per-client pipe-client shim transport.
+      return createIpcHelperClient(helperPipePath(), 60_000, { connect: openHelperSocket });
     },
   };
 }

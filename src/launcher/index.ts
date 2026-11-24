@@ -1,16 +1,15 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import type { Socket } from "node:net";
 import type { CoreEngine } from "../engine/index.js";
 import type { SashLayout } from "../paths.js";
 import { buildSanitizedEnv, withPrivateAppendLogFds } from "../process.js";
 import type { SashSettings } from "../settings.js";
-import type { HelperClient } from "./protocol.js";
+import type { HelperClient, IpcTransport } from "./protocol.js";
 
 export interface PrivilegedCore {
   pid: number;
-  controller: { connect(): Socket };
+  controller: { connect(): IpcTransport };
   alive(): Promise<boolean>;
   reload(configText: string): Promise<void>;
   stop(): Promise<void>;

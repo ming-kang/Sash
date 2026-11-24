@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import type { Socket } from "node:net";
 import path from "node:path";
 import { Agent } from "undici";
 import { assertCoreBinaryFile } from "./core.js";
@@ -79,8 +80,12 @@ function managedPathsMatch(leftPath: string, rightPath: string): boolean {
   return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
+type CoreSession =
+  | { mode: "direct"; child: ChildProcess }
+  | { mode: "privileged"; child: PrivilegedCore; agent: Agent };
+
 export class CoreSupervisor {
-  private child: ChildProcess | null = null;
+  private session: CoreSession | undefined;
   private readonly pidRecordOwners = new WeakSet<ChildProcess>();
   private childStartedAt: string | undefined;
   private stopping = false;
@@ -89,8 +94,6 @@ export class CoreSupervisor {
   private readonly getSettings: () => SashSettings;
   private readonly direct: CoreLauncher;
   private readonly privilegedLauncher: CoreLauncher | undefined;
-  private privileged: PrivilegedCore | undefined;
-  private controllerAgent: Agent | undefined;
   private heartbeat: NodeJS.Timeout | undefined;
   private readonly waitHealthyMs: number;
   private readonly isAlive: typeof isProcessAlive;
@@ -117,13 +120,24 @@ export class CoreSupervisor {
     this.privilegedLauncher = opts.privilegedLauncher;
   }
 
+  private ownsDirectChild(child: ChildProcess): boolean {
+    return this.session?.mode === "direct" && this.session.child === child;
+  }
+
+  private privilegedSession(child?: PrivilegedCore) {
+    const session = this.session;
+    return session?.mode === "privileged" && (!child || session.child === child)
+      ? session
+      : undefined;
+  }
+
   private async ownedChildIdentity(child: ChildProcess): Promise<ProcessIdentity> {
-    if (this.child !== child) return "mismatch";
+    if (!this.ownsDirectChild(child)) return "mismatch";
     if (child.exitCode !== null && child.exitCode !== undefined) return "mismatch";
     if (child.signalCode !== null && child.signalCode !== undefined) return "mismatch";
     if (!child.pid || !this.isAlive(child.pid)) return "mismatch";
     const identity = await this.classifyIdentity(child.pid, this.layout.coreExe);
-    return this.child === child && this.isAlive(child.pid) ? identity : "mismatch";
+    return this.ownsDirectChild(child) && this.isAlive(child.pid) ? identity : "mismatch";
   }
 
   private clearOwnedPidRecord(child: ChildProcess): void {
@@ -136,8 +150,8 @@ export class CoreSupervisor {
       timeoutMs: 3000,
       verify: () => this.ownedChildIdentity(child),
     });
-    if (terminated && this.child === child) {
-      this.child = null;
+    if (terminated && this.ownsDirectChild(child)) {
+      this.session = undefined;
       this.childStartedAt = undefined;
       this.clearOwnedPidRecord(child);
     }
@@ -180,13 +194,13 @@ export class CoreSupervisor {
       throw new Error("Failed to start core process (no PID returned)");
     }
 
-    this.child = child;
+    this.session = { mode: "direct", child };
     this.childStartedAt = new Date().toISOString();
 
     child.once("exit", (code, signal) => {
-      if (this.child !== child) return;
+      if (!this.ownsDirectChild(child)) return;
       const wasStopping = this.stopping;
-      this.child = null;
+      this.session = undefined;
       this.childStartedAt = undefined;
       this.clearOwnedPidRecord(child);
       if (!wasStopping) {
@@ -224,8 +238,8 @@ export class CoreSupervisor {
       }
 
       if (!this.isAlive(pid)) {
-        if (this.child === child) {
-          this.child = null;
+        if (this.ownsDirectChild(child)) {
+          this.session = undefined;
           this.childStartedAt = undefined;
         }
         this.clearOwnedPidRecord(child);
@@ -259,25 +273,25 @@ export class CoreSupervisor {
   }
 
   private forgetPrivileged(child: PrivilegedCore): void {
-    if (this.privileged !== child) return;
+    const session = this.privilegedSession(child);
+    if (!session) return;
     clearTimeout(this.heartbeat);
     this.heartbeat = undefined;
-    this.privileged = undefined;
-    void this.controllerAgent?.destroy().catch(() => {});
-    this.controllerAgent = undefined;
+    this.session = undefined;
+    void session.agent.destroy().catch(() => {});
     this.childStartedAt = undefined;
   }
 
   private watchPrivileged(child: PrivilegedCore): void {
     this.heartbeat = setTimeout(async () => {
-      if (this.privileged !== child || this.stopping) return;
+      if (!this.privilegedSession(child) || this.stopping) return;
       let alive = false;
       try {
         alive = await child.alive();
       } catch {
         // The helper owns cleanup when IPC is disconnected.
       }
-      if (this.privileged !== child || this.stopping) return;
+      if (!this.privilegedSession(child) || this.stopping) return;
       if (alive) {
         this.watchPrivileged(child);
       } else {
@@ -295,8 +309,7 @@ export class CoreSupervisor {
     const launch = await this.privilegedLauncher.launch(this.layout, settings);
     if (launch.mode !== "privileged") throw new Error("TUN requires a privileged Core launcher");
     const child = launch.child;
-    this.privileged = child;
-    this.controllerAgent = new Agent({
+    const agent = new Agent({
       connect: (_options, callback) => {
         let socket: ReturnType<PrivilegedCore["controller"]["connect"]>;
         try {
@@ -309,10 +322,13 @@ export class CoreSupervisor {
         socket.once("error", failed);
         socket.once("connect", () => {
           socket.removeListener("error", failed);
-          callback(null, socket);
+          // undici accepts Duplex transports at runtime but currently declares
+          // only net.Socket in its connector callback type.
+          callback(null, socket as Socket);
         });
       },
     });
+    this.session = { mode: "privileged", child, agent };
     this.childStartedAt = new Date().toISOString();
     const deadline = Date.now() + this.waitHealthyMs;
     const api = this.controllerApi(settings);
@@ -341,8 +357,9 @@ export class CoreSupervisor {
   }
 
   async stop(): Promise<void> {
-    if (this.privileged) {
-      const child = this.privileged;
+    const session = this.session;
+    if (session?.mode === "privileged") {
+      const child = session.child;
       this.stopping = true;
       try {
         await child.stop();
@@ -355,9 +372,9 @@ export class CoreSupervisor {
       }
       return;
     }
-    const child = this.child;
+    const child = session?.child;
     if (!child?.pid || !this.isAlive(child.pid)) {
-      this.child = null;
+      this.session = undefined;
       this.childStartedAt = undefined;
       clearPidRecord(this.layout.pidFile);
       return;
@@ -372,40 +389,46 @@ export class CoreSupervisor {
     if (!terminated) {
       throw new Error("Core process is still running after termination attempt");
     }
-    if (this.child === child) {
-      this.child = null;
+    if (this.ownsDirectChild(child)) {
+      this.session = undefined;
       this.childStartedAt = undefined;
       this.clearOwnedPidRecord(child);
     }
   }
 
   ownedCoreSnapshot(): CoreOwnershipSnapshot | undefined {
-    if (this.privileged) return { child: this.privileged, pid: this.privileged.pid };
-    const child = this.child;
-    if (!child?.pid || !this.isAlive(child.pid)) return undefined;
-    return { child, pid: child.pid };
+    const session = this.session;
+    const pid = session?.child.pid;
+    if (!session || !pid) return undefined;
+    if (session.mode === "direct" && !this.isAlive(pid)) return undefined;
+    return { child: session.child, pid };
   }
 
-  privilegedController(): PrivilegedCore["controller"] | undefined {
-    return this.privileged?.controller;
+  isPrivileged(): boolean {
+    return this.session?.mode === "privileged";
   }
 
-  async reloadPrivileged(configText: string): Promise<void> {
-    if (!this.privileged || this.stopping) throw new Error("Privileged Core is unavailable");
-    await this.privileged.reload(configText);
+  controllerConnect(): PrivilegedCore["controller"]["connect"] | undefined {
+    return this.privilegedSession()?.child.controller.connect;
+  }
+
+  async reload(configText: string): Promise<void> {
+    const session = this.privilegedSession();
+    if (!session || this.stopping) throw new Error("Privileged Core is unavailable");
+    await session.child.reload(configText);
   }
 
   controllerApi(settings: SashSettings) {
-    if (this.privileged && this.controllerAgent) {
-      return this.engine.api("127.0.0.1:80", "", this.controllerAgent);
-    }
+    const session = this.privilegedSession();
+    if (session) return this.engine.api("127.0.0.1:80", "", session.agent);
     if (settings.tun.enable) throw new Error("Privileged Core controller unavailable");
     return this.engine.api(settings.controller, settings.secret);
   }
 
   ownsCore(snapshot: CoreOwnershipSnapshot): boolean {
-    if (this.privileged) return this.privileged === snapshot.child;
-    return Boolean(this.child && this.child === snapshot.child && this.isAlive(snapshot.pid));
+    const session = this.session;
+    if (!session || session.child !== snapshot.child) return false;
+    return session.mode === "privileged" || this.isAlive(snapshot.pid);
   }
 
   async status(): Promise<CoreState> {
@@ -424,7 +447,7 @@ export class CoreSupervisor {
       // pipe-client exe boot + pipe attach exceeds 1s), so give it the same
       // budget as the startup health check.
       version = await this.controllerApi(settings).version({
-        deadlineMs: this.privileged ? 5_000 : 1000,
+        deadlineMs: this.session?.mode === "privileged" ? 5_000 : 1000,
         attempts: 1,
       });
       healthy = true;
