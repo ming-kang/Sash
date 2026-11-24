@@ -16,14 +16,11 @@ import (
 )
 
 var recordedCalls []string
-var commandResponder func(tool string, argv []string) (string, error)
 
-// stubCommands swaps the command lane for the fixture responder, mirroring
-// the TS test's vi.mock of runSanitizedCommandAsync.
 func stubCommands(t *testing.T, responder func(tool string, argv []string) (string, error)) {
 	t.Helper()
 	saved := runCommand
-	runCommand = func(_ time.Duration, tool string, argv ...string) (string, error) {
+	runCommand = func(_ context.Context, _ time.Duration, tool string, argv ...string) (string, error) {
 		recordedCalls = append(recordedCalls, strings.Join(append([]string{tool}, argv...), " "))
 		if responder == nil {
 			return "", nil
@@ -231,6 +228,7 @@ func TestPrepareConfigInjectsNativeDnsMode(t *testing.T) {
 		{"disabled", "tun:\n  enable: true\n  dns-mode: disabled\n", "disabled", false},
 		{"fake-ip rejected", "tun:\n  enable: true\n  dns-mode: fake-ip\n", "", true},
 		{"empty rejected", "tun:\n  enable: true\n  dns-mode: \"\"\n", "", true},
+		{"non-string rejected", "tun:\n  enable: true\n  dns-mode: 3\n", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

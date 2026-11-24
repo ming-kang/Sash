@@ -28,19 +28,11 @@ const OSASCRIPT = "/usr/bin/osascript";
 const ELEVATE_TIMEOUT_MS = 300_000;
 
 export function helperBinarySource(): string {
-  return path.join(
-    currentPackageRoot(),
-    "dist",
-    `sash-helper-${process.platform}-${process.arch}${process.platform === "win32" ? ".exe" : ""}`,
-  );
+  return path.join(currentPackageRoot(), "dist", `sash-helper-darwin-${process.arch}`);
 }
 
 function packagedCoreSource(): string {
-  return path.join(
-    currentPackageRoot(),
-    "dist",
-    `sash-tun-core-${process.platform}-${process.arch}${process.platform === "win32" ? ".exe" : ""}`,
-  );
+  return path.join(currentPackageRoot(), "dist", `sash-tun-core-darwin-${process.arch}`);
 }
 
 async function sha256File(file: string): Promise<string> {

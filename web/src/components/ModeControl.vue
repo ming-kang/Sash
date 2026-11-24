@@ -28,6 +28,21 @@
         />
       </div>
       <div class="network-toggle">
+        <button type="button" class="toggle-name toggle-link" @click="showTunInfo = true">
+          {{ t('tun.title') }}
+        </button>
+        <UiSwitch
+          :model-value="tunEnabled"
+          :label="t('tun.title')"
+          :disabled="
+            store.operations.networkSetting ||
+            !store.status ||
+            (!tun?.privilege.installed && !tunEnabled)
+          "
+          @update:model-value="toggleTun"
+        />
+      </div>
+      <div class="network-toggle">
         <span class="toggle-name">{{ t('overview.lan') }}</span>
         <UiSwitch
           :model-value="allowLanOn"
@@ -36,28 +51,15 @@
           @update:model-value="toggleAllowLan"
         />
       </div>
-      <div class="network-toggle">
-        <span class="toggle-name">{{ t('tun.title') }}</span>
-        <UiSwitch
-          :model-value="store.status?.settings.tun?.enable ?? false"
-          :label="t('tun.title')"
-          :disabled="store.operations.networkSetting || !store.status || (!tun?.privilege.installed && !store.status.settings.tun?.enable)"
-          @update:model-value="toggleTun"
-        />
-      </div>
     </div>
-    <div v-if="tun" class="tun-details">
-      <span>{{ t('tun.desired') }}: {{ tun.desired ? t('tun.on') : t('tun.off') }}</span>
-      <span>{{ t('tun.applied') }}: {{ tun.applied ? t('tun.on') : t('tun.off') }}</span>
-      <span v-if="tun.applied">{{ t('tun.networkNotChecked') }}</span>
-      <span v-if="!tun.supported">{{ t('tun.unsupported') }}</span>
-      <button v-else-if="tun.privilege.installed === false || tun.privilege.needsReconsent" type="button"
-        :disabled="installingHelper" @click="installHelper">
-        {{ t(tun.privilege.needsReconsent ? 'tun.reconsent' : 'tun.install') }}
-      </button>
-      <span v-if="tun.desired !== tun.applied">{{ t('tun.apply') }}</span>
-      <span v-if="tun.applied && isSysProxyOn">{{ t('tun.proxyHint') }}</span>
-    </div>
+
+    <TunInfoDialog
+      v-if="showTunInfo"
+      :tun="tun"
+      :installing="installingHelper"
+      @close="showTunInfo = false"
+      @install="installHelper"
+    />
   </section>
 </template>
 
@@ -78,6 +80,7 @@ import {
 } from "../stores/index.js";
 import type { RoutingMode } from "../types/index.js";
 import Icon from "./Icon.vue";
+import TunInfoDialog from "./TunInfoDialog.vue";
 import UiSwitch from "./UiSwitch.vue";
 
 const props = defineProps<{
@@ -93,8 +96,11 @@ const modes = computed(() => [
 ]);
 
 const allowLanOn = computed(() => store.status?.settings.allowLan ?? false);
+const tunEnabled = computed(() => store.status?.settings.tun?.enable ?? false);
 const tun = ref<TunStatusResponse>();
 const installingHelper = ref(false);
+
+const showTunInfo = ref(false);
 
 watch(
   [() => store.status?.daemon.bootId, () => store.status?.revisions.state, () => store.status?.revisions.runtime],
@@ -165,12 +171,43 @@ async function toggleAllowLan(next: boolean): Promise<void> {
 </script>
 
 <style scoped>
-.tun-details {
+.network-switches {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 8px;
-  font-size: 0.8rem;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.network-toggle {
+  display: flex;
+  min-width: 0;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.toggle-name {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toggle-link {
+  padding: 0 0 1px;
+  border: 0;
+  border-bottom: 1px dashed var(--border-strong);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
+}
+.toggle-link:hover {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
 }
 .mode-control {
   padding: 14px 16px;
@@ -232,28 +269,5 @@ async function toggleAllowLan(next: boolean): Promise<void> {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.network-switches {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.network-toggle {
-  display: flex;
-  min-width: 0;
-  min-height: 24px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.toggle-name {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 </style>

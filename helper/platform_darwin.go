@@ -21,25 +21,17 @@ import (
 const sessionFile = ".tun-session.json"
 
 // runCommand is the single command lane for the platform layer; tests swap
-// it to replay the TS responder fixtures.
-var runCommand = func(timeout time.Duration, tool string, argv ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// it to replay command fixtures.
+var runCommand = func(ctx context.Context, timeout time.Duration, tool string, argv ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, tool, argv...).Output()
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
-}
-
-var killProcess = func(pid, signal int) error {
-	return syscall.Kill(pid, syscall.Signal(signal))
+	out, err := exec.CommandContext(ctx, tool, argv...).CombinedOutput()
+	return string(out), err
 }
 
 type darwinPlatform struct {
 	bin, work, socket string
 	ownerUID          int
-	ownerName         string
 }
 
 // newPlatform implements the three entry modes of helper-entry-darwin.ts:
@@ -108,10 +100,10 @@ func newPlatform(args []string) (Platform, error) {
 func (p *darwinPlatform) BinDir() string  { return p.bin }
 func (p *darwinPlatform) WorkDir() string { return p.work }
 
-// Listen mirrors runMacosTunHelper: verify the socket directory, normalize
-// ACLs BEFORE touching anything inside it, probe a stale socket only long
-// enough to prove no live peer serves it, bind 0600, then grant the owner
-// uid exactly write on the socket.
+// Listen verifies the socket directory, normalizes ACLs BEFORE touching
+// anything inside it, probes a stale socket only long enough to prove no
+// live peer serves it, binds 0600, then grants the owner uid exactly write
+// on the socket.
 func (p *darwinPlatform) Listen(_ context.Context) (net.Listener, error) {
 	runDir := filepath.Dir(p.socket)
 	if err := p.VerifyProtectedPath(context.Background(), runDir); err != nil {
@@ -139,11 +131,7 @@ func (p *darwinPlatform) Listen(_ context.Context) (net.Listener, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	// Socket must be born restricted: umask 077 makes it 0600 from bind,
-	// before any peer can reach it.
-	old := unix.Umask(0o077)
 	listener, err := net.Listen("unix", p.socket)
-	unix.Umask(old)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +143,6 @@ func (p *darwinPlatform) Listen(_ context.Context) (net.Listener, error) {
 		listener.Close()
 		return nil, fmt.Errorf("could not restrict helper socket: %w", err)
 	}
-	p.ownerName = owner
 	return listener, nil
 }
 
@@ -230,7 +217,7 @@ func (p *darwinPlatform) ValidateConfig(ctx context.Context, executable string, 
 		return err
 	}
 	defer os.Remove(probe)
-	out, err := runCommandCtx(ctx, 15*time.Second, executable, "-t", "-d", root, "-f", probe)
+	out, err := runCommand(ctx, 15*time.Second, executable, "-t", "-d", root, "-f", probe)
 	if err != nil {
 		return fmt.Errorf("Core config validation failed: %s %w", out, err)
 	}
@@ -254,7 +241,7 @@ func (p *darwinPlatform) PrepareNetwork(_ context.Context, _ []byte, workDir str
 }
 
 func ownerUserName(uid int) (string, error) {
-	out, err := runCommand(10*time.Second, "/usr/bin/id", "-un", strconv.Itoa(uid))
+	out, err := runCommand(context.Background(), 10*time.Second, "/usr/bin/id", "-un", strconv.Itoa(uid))
 	if err != nil {
 		return "", err
 	}
@@ -263,19 +250,12 @@ func ownerUserName(uid int) (string, error) {
 
 // aclGrant gives the owning uid exactly what it needs on a file/dir.
 func aclGrant(target, user, rights string) error {
-	_, err := runCommand(10*time.Second, "/bin/chmod", "+a", fmt.Sprintf("user:%s allow %s", user, rights), target)
+	_, err := runCommand(context.Background(), 10*time.Second, "/bin/chmod", "+a", fmt.Sprintf("user:%s allow %s", user, rights), target)
 	return err
 }
 
 // aclStrip removes every ACL so a stale grant can never widen the directory.
 func aclStrip(target string) error {
-	_, err := runCommand(10*time.Second, "/bin/chmod", "-N", target)
+	_, err := runCommand(context.Background(), 10*time.Second, "/bin/chmod", "-N", target)
 	return err
-}
-
-var runCommandCtx = func(ctx context.Context, timeout time.Duration, tool string, argv ...string) (string, error) {
-	c, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	out, err := exec.CommandContext(c, tool, argv...).CombinedOutput()
-	return string(out), err
 }

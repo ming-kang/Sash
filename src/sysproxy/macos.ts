@@ -299,13 +299,11 @@ async function restoreMacosSnapshot(
       skipped.push({ key, service, reason: "modified" });
       continue;
     }
-    // Setter-granularity check: comparing whole services (or even whole
-    // proxy objects) would misreport a service left mid-write as externally
-    // modified — `-setwebproxy` writes host/port AND implicitly enables, so
-    // a failed `-setwebproxystate off` legitimately leaves host/port at the
-    // original with enabled at the target. Every leaf field must hold either
-    // the recorded original or the recorded target; anything else is an
-    // outside change and the whole service is skipped, never overwritten.
+    // Leaf-granularity check: `-setwebproxy` writes host/port AND implicitly
+    // enables, so a service left mid-write legitimately holds a mix of
+    // original and target values. Every leaf must be either the recorded
+    // original or the recorded target; anything else is an outside change
+    // and the whole service is skipped, never overwritten.
     const currentRecord = current as unknown as Record<string, unknown>;
     const originalRecord = originalValues as unknown as Record<string, unknown>;
     const targetRecord = (targetValues ?? {}) as unknown as Record<string, unknown>;
@@ -460,8 +458,7 @@ export const macosSystemProxySnapshotCodec: SystemProxySnapshotCodec = {
       original.platform === "darwin" ? (original.values as Record<string, unknown>) : {},
     );
     const target: MacosServices = {};
-    for (const service of Object.keys(services)) {
-      const originalService = services[service]!;
+    for (const [service, originalService] of Object.entries(services)) {
       target[service] = {
         serviceName: originalService.serviceName,
         webProxy: { enabled: true, server: host, port: options.port, authenticated: false },

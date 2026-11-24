@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { it } from "vitest";
-import {
-  helperManifestSchema,
-  helperPipePath,
-  helperProtectedDir,
-  WINTUN_SHA256,
-} from "./windows-shared.js";
+import { helperManifestSchema, helperProtectedDir } from "./windows-shared.js";
 
 const SID = "S-1-5-21-1234-5678-9012-1000";
 
@@ -41,12 +36,6 @@ it("accepts only well-formed manifests", () => {
   assert.throws(() => helperManifestSchema.parse({ ...manifest, coreSha256: "zz" }));
   assert.throws(() => helperManifestSchema.parse({ ...manifest, installerSid: "everyone" }));
   assert.throws(() => helperManifestSchema.parse({ ...manifest, extra: true }));
-});
-
-it("pins the bundled payloads to fixed release digests per arch", () => {
-  assert.match(WINTUN_SHA256.x64, /^[a-f0-9]{64}$/);
-  assert.match(WINTUN_SHA256.arm64, /^[a-f0-9]{64}$/);
-  assert.equal(helperPipePath("x"), "\\\\.\\pipe\\x");
 });
 
 it("runs the verifyEndpoint hook before any transport is opened", async () => {

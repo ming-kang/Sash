@@ -19,7 +19,7 @@ export const helperFilenames = helperPlatforms.flatMap((platform) =>
 );
 
 /** The Go helper in helper/ builds for every supported platform target. */
-export function helperTargets(_root = ".") {
+export function helperTargets() {
   return helperPlatforms.flatMap((platform) =>
     helperArchitectures.map((arch) => ({ platform, arch })),
   );

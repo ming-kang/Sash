@@ -241,12 +241,13 @@ export class CoreControlService {
     if (!hooksInstalled) return generated;
     const document = YAML.parse(generated.yaml) as Record<string, unknown>;
     const patched = await plugins.applyGenerated(document, context);
-    enforceTunConfiguration(patched, context.settings.tun);
-    if (patched === document) return generated;
+    const warnings = [...(generated.warnings ?? [])];
+    enforceTunConfiguration(patched, context.settings.tun, warnings);
     return {
       yaml: YAML.stringify(patched, { indent: 2 }),
       proxyCount: countProxies(patched),
       source: generated.source,
+      ...(warnings.length ? { warnings } : {}),
     };
   }
 
@@ -258,12 +259,14 @@ export class CoreControlService {
       ? { id: profile.id, revision: profile.revision, name: profile.name, url: profile.url }
       : null;
     const generated = await this.engine.renderActiveConfig(snapshot, this.options.layout);
+    const finalConfig = await this.applyGeneratePlugins(generated, {
+      settings: publicSettings(snapshot.settings),
+      profile: meta,
+      source: generated.source,
+    });
+    for (const warning of finalConfig.warnings ?? []) console.warn(`[sashd] ${warning}`);
     return {
-      generated: await this.applyGeneratePlugins(generated, {
-        settings: publicSettings(snapshot.settings),
-        profile: meta,
-        source: generated.source,
-      }),
+      generated: finalConfig,
       settings: snapshot.settings,
       profile: meta,
     };

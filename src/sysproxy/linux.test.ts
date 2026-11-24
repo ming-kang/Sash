@@ -153,9 +153,6 @@ describe("linux backend", () => {
   });
 });
 
-// Round-5 review: exact restore must round-trip raw GVariant text
-// (typed-empty `@as []`), write only changed keys, and distinguish
-// KDE absent/empty/default keys with versioned kded notify.
 describe("linux precise restore", () => {
   it("restores the typed-empty GNOME ignore-hosts verbatim", async () => {
     const calls: string[] = [];
@@ -168,12 +165,8 @@ describe("linux precise restore", () => {
       "org.gnome.system.proxy.http authentication-user": "'alice'",
       "org.gnome.system.proxy.http authentication-password": "'s3cret'",
     };
-    const run = async (cmd: string, args: string[]) => {
+    const run = async (_cmd: string, args: string[]) => {
       calls.push(args.join(" "));
-      if (cmd === "dconf") {
-        // Every key in the store is user-set (dump prints the user layer).
-        return "[/]\nmode='none'\nignore-hosts=@as []\n\n[http]\nhost=''\nport=0\nuse-authentication=false\nauthentication-user='alice'\nauthentication-password='s3cret'\n";
-      }
       const key = `${args[1]} ${args[2]}`;
       if (args[0] === "set") {
         store[key] = args[3] as string;

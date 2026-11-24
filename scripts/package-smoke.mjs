@@ -198,7 +198,7 @@ async function smokePackagedHelpers(installedRoot, packedFiles, manifest) {
   if (process.env.SASH_PACKAGE_SMOKE_REQUIRE_BOOTSTRAP === "1") {
     assert.deepEqual(
       packed,
-      helperTargets(root)
+      helperTargets()
         .map(({ platform, arch }) => helperFilename(platform, arch))
         .sort(),
       "package helper targets must match the platform entries in this checkout",

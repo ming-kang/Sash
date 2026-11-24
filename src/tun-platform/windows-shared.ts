@@ -16,14 +16,9 @@ export const HELPER_MANIFEST_NAME = "helper-manifest.json";
 
 export const SID_PATTERN = /^S-1-\d+(-\d+)+$/;
 
-/**
- * The system Known Folder for shared application data (FOLDERID_ProgramData).
- * Resolved through the shell, never `%ProgramData%`: an unprivileged caller
- * can rewrite its own environment and aim the protected root anywhere.
- */
+// Use the system Known Folder rather than the caller's ProgramData environment variable.
 let programDataCache: string | undefined;
 export function programDataDir(env: NodeJS.ProcessEnv = process.env): string {
-  // Test isolation only — the override is ignored outside NODE_ENV=test.
   const override = env.SASH_PROGRAMDATA_DIR?.trim();
   if (override && env.NODE_ENV === "test" && path.win32.isAbsolute(override)) {
     return path.win32.resolve(override);
@@ -48,7 +43,6 @@ export function programDataDir(env: NodeJS.ProcessEnv = process.env): string {
   return "C:\\ProgramData";
 }
 
-/** The test suite overrides the protected root; production must not. */
 export function helperProtectedDir(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.SASH_HELPER_DIR?.trim();
   if (override && env.NODE_ENV === "test" && path.win32.isAbsolute(override))

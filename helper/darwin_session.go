@@ -25,8 +25,8 @@ import (
 // The crash journal records ONLY the Core's process identity and the utun it
 // provably owns (attributed via the Core's own utun_control fd). Objects the
 // kernel reaps with the interface — routes on the utun, the utun itself, the
-// session DNS registration — are deliberately not listed: macOS removes them
-// when the fd closes, so there is nothing to delete and nothing to guess at.
+// session DNS registration — are not listed: macOS removes them when the fd
+// closes, so there is nothing to delete.
 type tunSessionJournal struct {
 	Version   int
 	PID       int
@@ -171,7 +171,7 @@ func utunIfaceFromLsof(output string) string {
 }
 
 func coreUtunInterface(pid int) string {
-	output, err := runCommand(10*time.Second, "/usr/sbin/lsof", "-nP", "-p", strconv.Itoa(pid))
+	output, err := runCommand(context.Background(), 10*time.Second, "/usr/sbin/lsof", "-nP", "-p", strconv.Itoa(pid))
 	if err != nil {
 		return ""
 	}
@@ -179,20 +179,17 @@ func coreUtunInterface(pid int) string {
 }
 
 // processStartTime is `ps -o lstart=`; the bool distinguishes "ps failed"
-// from "ps answered empty" — callers must never guess on a failure.
+// from "ps answered empty" — callers must not guess on a failure.
 func processStartTime(pid int) (string, bool) {
-	output, err := runCommand(10*time.Second, "/bin/ps", "-p", strconv.Itoa(pid), "-o", "lstart=")
+	output, err := runCommand(context.Background(), 10*time.Second, "/bin/ps", "-p", strconv.Itoa(pid), "-o", "lstart=")
 	if err != nil {
 		return "", false
 	}
 	return strings.TrimSpace(output), true
 }
 
-// pidExists: kill(pid, 0) is the ground truth for existence — ESRCH means
-// gone, any other error means the pid exists but is not signallable.
 func pidExists(pid int) bool {
-	err := killProcess(pid, 0)
-	return !errors.Is(err, syscall.ESRCH)
+	return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 }
 
 type recordedProcessState int
@@ -207,7 +204,7 @@ const (
 // Is the process the journal recorded still that process? A live pid is
 // compared on its start time so PID reuse is never honoured.
 func checkRecordedProcess(pid int, procStart string) recordedProcessState {
-	if err := killProcess(pid, 0); err != nil {
+	if err := syscall.Kill(pid, 0); err != nil {
 		if errors.Is(err, syscall.ESRCH) {
 			return stateGone
 		}
@@ -246,7 +243,7 @@ func reapRecordedCore(journal *tunSessionJournal) error {
 	case stateGone, stateReused:
 		return nil
 	}
-	_ = killProcess(journal.PID, int(syscall.SIGTERM))
+	_ = syscall.Kill(journal.PID, syscall.SIGTERM)
 	if err := waitForExit(journal, "SIGTERM"); err != nil {
 		return err
 	}
@@ -256,7 +253,7 @@ func reapRecordedCore(journal *tunSessionJournal) error {
 
 func waitForExit(journal *tunSessionJournal, signal string) error {
 	if signal == "SIGKILL" {
-		_ = killProcess(journal.PID, int(syscall.SIGKILL))
+		_ = syscall.Kill(journal.PID, syscall.SIGKILL)
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -290,7 +287,11 @@ func recoverTunSession(workDir string) error {
 	if err := reapRecordedCore(journal); err != nil {
 		return err
 	}
-	return durableRemoveFile(journalPath(workDir))
+	if err := durableRemoveFile(journalPath(workDir)); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "[sash-helper] recovered tun session pid=%d iface=%s\n", journal.PID, journal.Iface)
+	return nil
 }
 
 type darwinNetworkSession struct {
@@ -358,15 +359,14 @@ func prepareMacosConfig(configText []byte) ([]byte, error) {
 	if !ok || tun["enable"] != true {
 		return configText, nil
 	}
-	mode, pinned := tun["dns-mode"].(string)
-	if !pinned {
-		mode = "native"
-		tun["dns-mode"] = mode
-	}
-	switch mode {
-	case "native", "hijack", "disabled":
-	default:
-		return nil, fmt.Errorf("Unsupported tun.dns-mode %s", mode)
+	if raw, present := tun["dns-mode"]; present {
+		switch raw {
+		case "native", "hijack", "disabled":
+		default:
+			return nil, fmt.Errorf("Unsupported tun.dns-mode %v", raw)
+		}
+	} else {
+		tun["dns-mode"] = "native"
 	}
 	return yaml.Marshal(doc)
 }

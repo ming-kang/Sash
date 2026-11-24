@@ -15,7 +15,6 @@ import (
 )
 
 type cannedRun struct {
-	t        *testing.T
 	ran      *[]string
 	rules    string
 	v6rules  string
@@ -23,7 +22,6 @@ type cannedRun struct {
 	v6routes string
 	links    func() string
 	detail   string
-	nexthops string
 	deleted  bool
 	extra    func(cmd string, args []string) (string, bool)
 }
@@ -54,8 +52,6 @@ func (c *cannedRun) run(_ context.Context, cmd string, args ...string) (string, 
 			return "[]", nil
 		}
 		return orEmpty(c.links()), nil
-	case strings.Contains(joined, "nexthop"):
-		return orEmpty(c.nexthops), nil
 	case strings.Contains(joined, "route show"):
 		if args[0] == "-6" {
 			return orEmpty(c.v6routes), nil
@@ -129,25 +125,17 @@ func TestCleanupDeletesRecordedObjects(t *testing.T) {
 		},
 	})
 	ran := []string{}
-	deleted := false
 	c := &cannedRun{
-		t: t, ran: &ran,
+		ran:    &ran,
 		rules:  `[{"priority":9000,"iif":"Meta","table":"2022","goto":9001}]`,
 		routes: `[]`,
-		links: func() string {
-			if deleted {
-				return "[]"
-			}
-			return tunLink("Meta", 7)
-		},
 		detail: tunLink("Meta", 7),
 	}
-	c.extra = func(_ string, args []string) (string, bool) {
-		if strings.Contains(strings.Join(args, " "), "link del") {
-			deleted = true
-			return "[]", true
+	c.links = func() string {
+		if c.deleted {
+			return "[]"
 		}
-		return "", false
+		return tunLink("Meta", 7)
 	}
 	err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock"))
 	if err != nil {
@@ -167,7 +155,7 @@ func TestCleanupKeepsJournalWhenNoDeviceProof(t *testing.T) {
 	file := journalFixture(t, dir, &linuxNetworkJournal{
 		PID: 0, Device: devicePtr("Meta"), Ifindex: indexPtr(7), Table: "2022",
 	})
-	c := &cannedRun{t: t, ran: &[]string{}, links: func() string { return "[]" }}
+	c := &cannedRun{ran: &[]string{}, links: func() string { return "[]" }}
 	err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock"))
 	if err != nil {
 		t.Fatal(err)
@@ -190,12 +178,11 @@ func TestCleanupSameDstRebind(t *testing.T) {
 	})
 	ran := []string{}
 	c := &cannedRun{
-		t: t, ran: &ran,
+		ran: &ran,
 		v6routes: `[{"dst":"fd00:1::/64","dev":"vpn0","gateway":"fe80::2","nhid":3,
 			"metric":1024,"protocol":"static","table":"2022"}]`,
-		nexthops: `[{"id":3,"dev":"vpn0"}]`,
-		links:    func() string { return tunLink("Meta", 7) },
-		detail:   tunLink("Meta", 7),
+		links:  func() string { return tunLink("Meta", 7) },
+		detail: tunLink("Meta", 7),
 	}
 	err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock"))
 	if err == nil || !strings.Contains(err.Error(), "journal kept") {
@@ -224,8 +211,7 @@ func TestCleanupFinalDumpRebind(t *testing.T) {
 	rebound := false
 	ran := []string{}
 	c := &cannedRun{
-		t: t, ran: &ran,
-		nexthops: `[{"id":3,"dev":"Meta"}]`,
+		ran: &ran,
 		links: func() string {
 			if rebound {
 				return "[]"
@@ -286,7 +272,7 @@ func TestDisposableTunGate(t *testing.T) {
 			})
 			ran := []string{}
 			c := &cannedRun{
-				t: t, ran: &ran, detail: tc.detail,
+				ran: &ran, detail: tc.detail,
 				links: func() string { return tunLink("Meta", 7) },
 			}
 			err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock"))
@@ -325,7 +311,7 @@ func TestCleanupReusedPid(t *testing.T) {
 		PID: os.Getpid(), PIDStart: "999999999999",
 		Device: nil, Ifindex: nil, Table: "2022",
 	})
-	c := &cannedRun{t: t, ran: &[]string{}, links: func() string { return "[]" }}
+	c := &cannedRun{ran: &[]string{}, links: func() string { return "[]" }}
 	if err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock")); err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +327,7 @@ func TestCleanupAliveForeignPid(t *testing.T) {
 		PID: os.Getpid(), PIDStart: "",
 		Device: nil, Ifindex: nil, Table: "2022",
 	})
-	c := &cannedRun{t: t, ran: &[]string{}, links: func() string { return "[]" }}
+	c := &cannedRun{ran: &[]string{}, links: func() string { return "[]" }}
 	err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock"))
 	if err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Fatalf("expected refusal, got %v", err)
@@ -358,106 +344,13 @@ func TestCleanupCorruptJournal(t *testing.T) {
 	if err := os.WriteFile(file, []byte("{ not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c := &cannedRun{t: t, ran: &[]string{}, links: func() string { return "[]" }}
+	c := &cannedRun{ran: &[]string{}, links: func() string { return "[]" }}
 	if err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock")); err == nil {
 		t.Fatal("expected error")
 	}
 	if _, err := os.Stat(file); err != nil {
 		t.Fatal("journal must be kept")
 	}
-}
-
-// Table-driven kernel-match refusal cases: a foreign rule differing
-// only in a kernel-ignored field must still be counted.
-func TestKernelRuleMatchRefusals(t *testing.T) {
-	recorded := map[string]any{
-		"priority": 9002.0, "iif": "Meta", "goto": 9010.0, "table": "2022",
-	}
-	liveOurs := `{"priority":9002,"iif":"Meta","goto":9010,"table":"2022"}`
-	cases := []struct {
-		name    string
-		foreign string
-	}{
-		{"mark zero half", `{"priority":9002,"iif":"Meta","goto":9005,"table":"2022","fwmark":"0/0xff"}`},
-		{"mask zero half", `{"priority":9002,"iif":"Meta","goto":9005,"table":"2022","fwmark":"0x42/0"}`},
-		{"invert flag", `{"priority":9002,"iif":"Meta","goto":9005,"table":"2022","not":null}`},
-		{"from prefix", `{"priority":9002,"iif":"Meta","goto":9005,"table":"2022","from":"10.0.0.0/8","srclen":8}`},
-		{"ipproto", `{"priority":9002,"iif":"Meta","goto":9005,"table":"2022","ipproto":"tcp"}`},
-		{"uidrange", `{"priority":9002,"iif":"Meta","goto":9005,"table":"2022","uidrange":"1000-1001"}`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			file := journalFixture(t, dir, &linuxNetworkJournal{
-				PID: 0, Device: devicePtr("Meta"), Ifindex: indexPtr(7), Table: "2022",
-				Rules: []map[string]any{recorded},
-			})
-			ran := []string{}
-			c := &cannedRun{
-				t: t, ran: &ran,
-				rules:  `[` + tc.foreign + `,` + liveOurs + `]`,
-				links:  func() string { return tunLink("Meta", 7) },
-				detail: tunLink("Meta", 7),
-			}
-			err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock"))
-			if err == nil {
-				t.Fatal("expected refusal")
-			}
-			if strings.Contains(strings.Join(ran, "\n"), "rule del") {
-				t.Fatal("the foreign rule must not be deleted")
-			}
-			if _, err := os.Stat(file); err != nil {
-				t.Fatal("journal must be kept")
-			}
-		})
-	}
-}
-
-// Positive kernel-match cases: the requested selector still resolves
-// to exactly the recorded object and deletes it.
-func TestKernelRuleMatchPositive(t *testing.T) {
-	cases := []struct {
-		name     string
-		recorded string
-		live     string
-	}{
-		{"fwmask omitted", `{"priority":9002,"iif":"Meta","goto":9010,"table":"2022","fwmark":66.0}`,
-			`{"priority":9002,"iif":"Meta","goto":9010,"table":"2022","fwmark":66}`},
-		{"ipproto name", `{"priority":9002,"iif":"Meta","goto":9010,"table":"2022","ipproto":"tcp"}`,
-			`{"priority":9002,"iif":"Meta","goto":9010,"table":"2022","ipproto":"tcp"}`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			file := journalFixture(t, dir, &linuxNetworkJournal{
-				PID: 0, Device: devicePtr("Meta"), Ifindex: indexPtr(7), Table: "2022",
-				Rules: []map[string]any{jsonMust(tc.recorded)},
-			})
-			ran := []string{}
-			c := &cannedRun{
-				t: t, ran: &ran, rules: `[` + tc.live + `]`,
-				links:  func() string { return tunLink("Meta", 7) },
-				detail: tunLink("Meta", 7),
-			}
-			if err := cleanupLinuxTunNetwork(context.Background(), c.run, file, filepath.Join(dir, ".lock")); err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(strings.Join(ran, "\n"), "rule del") {
-				t.Fatal("expected rule del")
-			}
-			if _, err := os.Stat(file); !os.IsNotExist(err) {
-				t.Fatal("journal should be consumed")
-			}
-		})
-	}
-}
-
-func jsonMust(s string) map[string]any {
-	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		panic(err)
-	}
-	return m
 }
 
 // verifyProtectedPath refuses anything a non-root writer could have

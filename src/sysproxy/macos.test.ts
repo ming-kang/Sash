@@ -191,7 +191,7 @@ describe("macOS system proxy restore by stable service id", () => {
 
   it("follows a service across a rename/uuid switch, not its stale name", async () => {
     calls.length = 0;
-    responder = (tool, argv) => {
+    responder = (tool) => {
       if (tool === "/usr/bin/plutil") {
         // The recorded uuid now belongs to a DIFFERENT display name — the
         // same service after the user renamed it / switched networks.
@@ -388,7 +388,7 @@ describe("macOS system proxy restore through SystemProxyManager", () => {
     await mgr.apply({ port: 7897 });
     // Simulate the network switch: Wi-Fi drops its IP, Ethernet comes up.
     (services["Wi-Fi"] as FixtureService).ip = "";
-    (services["Ethernet"] as FixtureService).ip = "10.0.0.2";
+    (services.Ethernet as FixtureService).ip = "10.0.0.2";
     calls.length = 0;
     await mgr.release();
     const writes = calls.filter(

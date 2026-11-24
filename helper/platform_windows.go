@@ -1,13 +1,5 @@
 //go:build windows && !helpercontract
 
-// Windows platform: a single binary handling `install`, `uninstall`,
-// `serve --installer-sid <sid>` (run by the SCM as LocalSystem) and
-// `pipe-client` (the unprivileged stdio shim the daemon spawns). Subcommands
-// other than `serve` run fully inside newPlatform and exit the process —
-// shared main() never sees them. `serve` under the SCM runs the shared
-// serve() inside svc.Run, so this file also exits the process once the
-// service stops; a non-SCM `serve` returns the platform so main() serves
-// directly (LocalSystem is verified either way).
 package main
 
 import (
@@ -20,6 +12,7 @@ import (
 	"strings"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
 )
 
 const (
@@ -28,17 +21,19 @@ const (
 	helperExeName     = "sash-helper.exe"
 	wintunDllName     = "wintun.dll"
 	networkJournal    = "network-journal.json"
-	// The DACL's client mask: FILE_READ_DATA|FILE_WRITE_DATA|SYNCHRONIZE
-	// (0x12019b) — no FILE_CREATE_PIPE_INSTANCE, WRITE_DAC, WRITE_OWNER or
-	// DELETE.
-	helperPipeClientRights = 0x0012019b
+	// FILE_APPEND_DATA is FILE_CREATE_PIPE_INSTANCE on named pipes.
+	helperPipeClientRights = (windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE) &^ windows.FILE_APPEND_DATA
 	sidLocalSystem         = "S-1-5-18"
 	sidAdministrators      = "S-1-5-32-544"
 	sidTrustedInstallerPre = "S-1-5-80-"
 )
 
-func helperProtectedDir() string {
-	return filepath.Join(os.Getenv("ProgramData"), "Sash", "core")
+func helperProtectedDir() (string, error) {
+	programData, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, windows.KF_FLAG_DEFAULT)
+	if err != nil {
+		return "", fmt.Errorf("could not resolve ProgramData folder: %w", err)
+	}
+	return filepath.Join(programData, "Sash", "core"), nil
 }
 
 type windowsPlatform struct {
@@ -96,7 +91,10 @@ func processIsLocalSystem() (bool, error) {
 }
 
 func newPlatform(args []string) (Platform, error) {
-	protected := helperProtectedDir()
+	protected, err := helperProtectedDir()
+	if err != nil {
+		return nil, err
+	}
 	p := &windowsPlatform{
 		protectedDir: protected,
 		binDir:       filepath.Join(protected, "bin"),
@@ -129,11 +127,9 @@ func newPlatform(args []string) (Platform, error) {
 		if !system {
 			return nil, errors.New("serve must run as LocalSystem")
 		}
-		if inService, err := isWindowsService(); err != nil {
+		if inService, err := svc.IsWindowsService(); err != nil {
 			return nil, err
 		} else if inService {
-			// Serve under the SCM: svc.Run owns the process lifetime; the
-			// shared serve loop runs inside and Stop unwinds it.
 			os.Exit(runAsService(p))
 		}
 		return p, nil

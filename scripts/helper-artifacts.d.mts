@@ -12,10 +12,9 @@ interface HelperAsset extends HelperTarget {
 export declare const helperPlatforms: string[];
 export declare const helperArchitectures: string[];
 export declare const helperFilenames: string[];
-export declare function helperEntry(platform: string): string;
 export declare function helperFilename(platform: string, arch: string): string;
 export declare function pairedCoreFilename(platform: string, arch: string): string;
-export declare function helperTargets(root: string): HelperTarget[];
+export declare function helperTargets(): HelperTarget[];
 export declare function helperAsset(
   dist: string,
   platform: string,

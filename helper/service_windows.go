@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,11 +21,6 @@ import (
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
-
-// isWindowsService reports whether this process was started by the SCM.
-func isWindowsService() (bool, error) {
-	return svc.IsWindowsService()
-}
 
 func parseFlag(args []string, name string) (string, error) {
 	for i, arg := range args {
@@ -38,11 +34,16 @@ func parseFlag(args []string, name string) (string, error) {
 	return "", fmt.Errorf("missing required flag %s", name)
 }
 
-// --- service host ---
-
-// runAsService hosts the shared serve loop inside svc.Run: the SCM's Stop
-// unwinds through ctx, and serve() exiting reports the service stopped.
 func runAsService(p *windowsPlatform) int {
+	// SCM does not capture a service's stderr; mirror it to a file under the
+	// protected work dir so crash-recovery logging survives reboots.
+	if logFile, err := os.OpenFile(
+		filepath.Join(p.workDir, "sash-helper.err.log"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600,
+	); err == nil {
+		defer logFile.Close()
+		os.Stderr = logFile
+	}
 	err := svc.Run(helperServiceName, &serviceHandler{platform: p})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "service failed: %v\n", err)
@@ -92,8 +93,6 @@ func (h *serviceHandler) Execute(
 	}
 }
 
-// --- elevation / identity ---
-
 func isElevated() (bool, error) {
 	var token windows.Token
 	if err := windows.OpenProcessToken(
@@ -104,8 +103,6 @@ func isElevated() (bool, error) {
 	defer token.Close()
 	return token.IsElevated(), nil
 }
-
-// --- install ---
 
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
@@ -120,8 +117,6 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// installVerifiedBinary copies a payload into the protected bin dir and
-// proves its digest after the copy lands.
 func installVerifiedBinary(src, dst, expectedSHA string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -149,13 +144,7 @@ func installVerifiedBinary(src, dst, expectedSHA string) error {
 	return nil
 }
 
-// aclProtectedDir restricts a protected directory: SYSTEM + Administrators
-// full control, installer read-only (the daemon must hash the binaries and
-// read the manifest unprivileged for needsReconsent). Ownership is forced
-// to Administrators: files created by an elevated installer keep the
-// installer's user SID, which the serve-time audit rejects. Mirrors the
-// TS aclProtectedDir — icacls for the DACL, Set-Acl for the owner
-// (icacls /setowner silently no-ops on some builds).
+// Elevation alone does not make Administrators the owner of newly created files.
 func aclProtectedDir(dir, installerSid string) error {
 	if out, err := exec.Command("icacls.exe", dir,
 		"/setowner", "*S-1-5-32-544",
@@ -176,18 +165,15 @@ func aclProtectedDir(dir, installerSid string) error {
 // helperManifest is the install-time pairing record the daemon's inspect
 // reads: needsReconsent is derived from these digests.
 type helperManifest struct {
-	Version      int    `json:"version"`
-	InstallerSid string `json:"installerSid"`
-	CoreSha256   string `json:"coreSha256"`
-	HelperSha256 string `json:"helperSha256"`
+	Version       int    `json:"version"`
+	InstallerSid  string `json:"installerSid"`
+	CoreSha256    string `json:"coreSha256"`
+	HelperSha256  string `json:"helperSha256"`
 	HelperVersion string `json:"helperVersion"`
-	WintunSha256 string `json:"wintunSha256"`
-	CoreVersion  string `json:"coreVersion"`
-	InstalledAt  string `json:"installedAt"`
+	WintunSha256  string `json:"wintunSha256"`
+	CoreVersion   string `json:"coreVersion"`
+	InstalledAt   string `json:"installedAt"`
 }
-
-// The daemon's installer verifies the downloaded wintun.dll digest before
-// invoking this command, so install records (not pins) its sha256.
 
 func runInstall(p *windowsPlatform, args []string) int {
 	if err := doInstall(p, args); err != nil {
@@ -199,7 +185,6 @@ func runInstall(p *windowsPlatform, args []string) int {
 	return 0
 }
 
-// writeResult reports the outcome to the daemon's staging wrapper.
 func writeResult(args []string, installErr error) {
 	resultPath, err := parseFlag(args, "--result")
 	if err != nil {
@@ -253,9 +238,6 @@ func doInstall(p *windowsPlatform, args []string) error {
 	if err != nil {
 		return fmt.Errorf("could not hash core payload: %w", err)
 	}
-	// Pairing check: the packaged Core must be the build-paired release
-	// whose digest is baked into this helper — an unpaired mihomo must not
-	// install cleanly and only fail later at serve→verifyCore.
 	if !digestPattern.MatchString(coreSHA256) {
 		return errors.New("no paired Core digest embedded in this helper build")
 	}
@@ -276,13 +258,9 @@ func doInstall(p *windowsPlatform, args []string) error {
 		}
 	}
 
-	// A prior install may still be running: stop it and kill stragglers.
-	// A service that refuses to stop holds an image lock on binDir — fail
-	// here rather than letting the publish fail unpredictably.
-	if _, err := stopAndDeleteService(false); err != nil {
+	if err := removeService(); err != nil {
 		return err
 	}
-	killOwnedProcesses(p.binDir)
 
 	for _, dir := range []string{p.protectedDir, p.binDir, p.workDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -309,21 +287,11 @@ func doInstall(p *windowsPlatform, args []string) error {
 		}
 	}
 
-	// Refuse to install over a retained journal — unverified machine state.
-	// A reclaim that cannot prove ownership fails the install rather than
-	// dropping evidence.
-	if _, err := os.Stat(journalPath(p.workDir)); err == nil {
-		remaining, err := cleanupNetworkJournal(context.Background(), p.workDir)
-		if err != nil {
-			return err
-		}
-		if remaining {
-			return errors.New("network journal could not be reclaimed; refusing install")
-		}
+	if err := p.RecoverNetwork(context.Background()); err != nil {
+		return fmt.Errorf("cannot reinstall with an unrecovered network journal: %w", err)
 	}
 
-	// Publish the binaries while a stopping service may still hold image
-	// locks — retry the copy a few times like the TS publish loop.
+	// SCM may report stopped before the old process releases its image.
 	publish := func(src, dst, expectedSHA string) error {
 		var lastErr error
 		for attempt := 0; attempt < 5; attempt++ {
@@ -375,15 +343,9 @@ func doInstall(p *windowsPlatform, args []string) error {
 		return err
 	}
 
-	if err := installService(p, installerSid); err != nil {
-		return err
-	}
-	return startService()
+	return installService(p, installerSid)
 }
 
-// installService registers the service running the protected helper directly
-// (no WinSW): LocalSystem, auto-start with a delayed start, restart on
-// failure — matching the old serviceXml contract.
 func installService(p *windowsPlatform, installerSid string) error {
 	m, err := mgr.Connect()
 	if err != nil {
@@ -394,10 +356,10 @@ func installService(p *windowsPlatform, installerSid string) error {
 	s, err := m.CreateService(
 		helperServiceName, exePath,
 		mgr.Config{
-			DisplayName:     "Sash TUN Helper",
-			StartType:       mgr.StartAutomatic,
+			DisplayName:      "Sash TUN Helper",
+			StartType:        mgr.StartAutomatic,
 			DelayedAutoStart: true,
-			ServiceType:     windows.SERVICE_WIN32_OWN_PROCESS,
+			ServiceType:      windows.SERVICE_WIN32_OWN_PROCESS,
 		},
 		"serve", "--installer-sid", installerSid,
 	)
@@ -405,7 +367,6 @@ func installService(p *windowsPlatform, installerSid string) error {
 		return fmt.Errorf("CreateService failed: %w", err)
 	}
 	defer s.Close()
-	// Restart on failure, 10s — matches the old WinSW recovery block.
 	if err := s.SetRecoveryActions([]mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
@@ -413,81 +374,75 @@ func installService(p *windowsPlatform, installerSid string) error {
 	}, 0); err != nil {
 		return fmt.Errorf("SetRecoveryActions failed: %w", err)
 	}
-	return nil
-}
-
-func startService() error {
-	m, err := mgr.Connect()
-	if err != nil {
-		return err
-	}
-	defer m.Disconnect()
-	s, err := m.OpenService(helperServiceName)
-	if err != nil {
-		return err
-	}
-	defer s.Close()
 	return s.Start()
 }
 
-// stopAndDeleteService stops and removes the service; returns (wasRunning, err).
-// Failure to stop or to delete is a real error — a live service holds an
-// image lock on binDir and a lingering registration must not be silently
-// overwritten.
-func stopAndDeleteService(remove bool) (bool, error) {
+func removeService() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(helperServiceName)
-	if err != nil {
-		return false, nil // not installed
-	}
-	defer s.Close()
-	status, _ := s.Query()
-	if status.State != svc.Stopped {
-		if _, err := s.Control(svc.Stop); err != nil {
-			return true, fmt.Errorf("could not stop %s: %w", helperServiceName, err)
+	switch {
+	case errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST):
+		return nil
+	case errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE):
+	case err != nil:
+		return err
+	default:
+		err := stopService(s)
+		if err == nil {
+			err = s.Delete()
 		}
-		deadline := time.Now().Add(20 * time.Second)
-		stopped := false
-		for time.Now().Before(deadline) && !stopped {
-			if st, err := s.Query(); err == nil && st.State == svc.Stopped {
-				stopped = true
-				break
-			}
-			time.Sleep(250 * time.Millisecond)
-		}
-		if !stopped {
-			return true, fmt.Errorf("%s did not stop within 20s", helperServiceName)
-		}
-	}
-	if remove {
-		if err := s.Delete(); err != nil {
-			return true, fmt.Errorf("could not delete %s: %w", helperServiceName, err)
-		}
-		// Deletion is deferred while any SCM handle is still open — including
-		// ours — and while the just-stopped service process exits. Close our
-		// handle, then keep retrying until the registration is really gone.
+		// Deletion is deferred until the last SCM handle is closed.
 		s.Close()
-		deadline := time.Now().Add(30 * time.Second)
-		for time.Now().Before(deadline) {
-			again, err := m.OpenService(helperServiceName)
-			if err != nil {
-				return true, nil
-			}
-			_ = again.Delete() // ERROR_SERVICE_MARKED_FOR_DELETE once flagged
-			again.Close()
-			time.Sleep(500 * time.Millisecond)
+		if err != nil && !errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
+			return err
 		}
-		return true, fmt.Errorf("%s registration was not removed", helperServiceName)
 	}
-	return true, nil
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		s, err := m.OpenService(helperServiceName)
+		switch {
+		case errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST):
+			return nil
+		case errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE):
+		case err != nil:
+			return err
+		default:
+			s.Close()
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return fmt.Errorf("%s registration was not removed", helperServiceName)
+}
+
+func stopService(s *mgr.Service) error {
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err := s.Query()
+		if err != nil {
+			return err
+		}
+		switch status.State {
+		case svc.Stopped:
+			return nil
+		case svc.StartPending, svc.StopPending:
+		default:
+			if _, err := s.Control(svc.Stop); err != nil &&
+				!errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) &&
+				!errors.Is(err, windows.ERROR_SERVICE_CANNOT_ACCEPT_CTRL) {
+				return fmt.Errorf("could not stop %s: %w", helperServiceName, err)
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return fmt.Errorf("%s did not stop within 20s", helperServiceName)
 }
 
 func runUninstall(p *windowsPlatform, args []string) int {
-	if err := doUninstall(p, args); err != nil {
+	if err := doUninstall(p); err != nil {
 		writeResult(args, err)
 		fmt.Fprintf(os.Stderr, "uninstall failed: %v\n", err)
 		return 1
@@ -496,7 +451,7 @@ func runUninstall(p *windowsPlatform, args []string) int {
 	return 0
 }
 
-func doUninstall(p *windowsPlatform, args []string) error {
+func doUninstall(p *windowsPlatform) error {
 	elevated, err := isElevated()
 	if err != nil {
 		return err
@@ -504,33 +459,11 @@ func doUninstall(p *windowsPlatform, args []string) error {
 	if !elevated {
 		return errors.New("uninstall requires elevation")
 	}
-	// The installed manifest's helper digest must match the binary being
-	// run — the daemon already verified pairing, this is the final audit.
-	if data, err := os.ReadFile(filepath.Join(p.protectedDir, "helper-manifest.json")); err == nil {
-		var manifest helperManifest
-		if err := json.Unmarshal(data, &manifest); err != nil {
-			return fmt.Errorf("corrupt helper manifest: %w", err)
-		}
-		self, err := os.Executable()
-		if err == nil {
-			if digest, err := sha256File(self); err == nil &&
-				!strings.EqualFold(digest, manifest.HelperSha256) {
-				return fmt.Errorf(
-					"installed helper digest mismatch: refusing to run uninstall",
-				)
-			}
-		}
-	}
-	if _, err := stopAndDeleteService(true); err != nil {
+	if err := removeService(); err != nil {
 		return err
 	}
-	killOwnedProcesses(p.binDir)
-	remaining, err := cleanupNetworkJournal(context.Background(), p.workDir)
-	if err != nil {
-		return err
-	}
-	if remaining {
-		fmt.Fprintln(os.Stderr, "network journal retained as evidence")
+	if err := p.RecoverNetwork(context.Background()); err != nil {
+		return fmt.Errorf("cannot uninstall with an unrecovered network journal: %w", err)
 	}
 	// A running image cannot delete itself: when the protected copy is doing
 	// the uninstall, hand the removal to a detached helper that runs after
@@ -594,12 +527,12 @@ func runPipeClient(p *windowsPlatform, args []string) int {
 		fmt.Fprintf(os.Stderr, "pipe-client: %v\n", err)
 		return 1
 	}
-	done := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(conn, os.Stdin)
-		close(done)
-	}()
-	_, _ = io.Copy(os.Stdout, conn)
-	<-done
+	bridgePipe(conn, os.Stdin, os.Stdout)
 	return 0
+}
+
+func bridgePipe(conn net.Conn, input io.Reader, output io.Writer) {
+	defer conn.Close()
+	go io.Copy(conn, input)
+	_, _ = io.Copy(output, conn)
 }

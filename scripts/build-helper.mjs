@@ -12,18 +12,18 @@ import {
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const args = process.argv.slice(2);
-const [source, platform = process.platform, arch = process.arch] = args;
-const all = source === "--all" && args.length === 1;
+const [platform = process.platform, arch = process.arch] = args;
+const all = args[0] === "--all" && args.length === 1;
 if (
-  source === "--help" ||
+  args[0] === "--help" ||
   (!all &&
     (args.length > 2 ||
-      source?.startsWith("-") ||
+      args[0]?.startsWith("-") ||
       !helperPlatforms.includes(platform) ||
       !helperArchitectures.includes(arch)))
 ) {
   console.error("Usage: npm run build:helper -- [--all | [darwin|linux|win32] [x64|arm64]]");
-  process.exit(source === "--help" ? 0 : 1);
+  process.exit(args[0] === "--help" ? 0 : 1);
 }
 
 function build(targetPlatform, targetArch) {

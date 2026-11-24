@@ -131,8 +131,7 @@ describe("macOS LaunchAgent registration edge cases", () => {
   it("clears a disabled override before bootstrapping", async () => {
     const home = await tempDir();
     const { ctx, calls } = recordingContext(home, {
-      [`print ${process.getuid!()}`]: { code: 0, stdout: "state = running", stderr: "" },
-      [`print gui`]: { code: 0, stdout: "state = running", stderr: "" },
+      "print gui": { code: 0, stdout: "state = running", stderr: "" },
       "print-disabled": { code: 0, stdout: "", stderr: "" },
     });
     await macosAutostart(ctx).set(true);
@@ -158,7 +157,7 @@ describe("macOS LaunchAgent registration edge cases", () => {
     const home = await tempDir();
     const { ctx } = recordingContext(home, {
       "print-disabled": { code: 1, stdout: "", stderr: "disabled query failed" },
-      [`print gui/`]: { code: 0, stdout: "state = running", stderr: "" },
+      "print gui/": { code: 0, stdout: "state = running", stderr: "" },
     });
     const backend = macosAutostart(ctx);
     // The undeterminable state must abort before any change.
@@ -169,7 +168,7 @@ describe("macOS LaunchAgent registration edge cases", () => {
   it("fails disable when bootout errors but the service is still loaded", async () => {
     const home = await tempDir();
     const handlers: Record<string, CommandResult> = {
-      [`print gui/`]: { code: 0, stdout: "state = running", stderr: "" },
+      "print gui/": { code: 0, stdout: "state = running", stderr: "" },
       "print-disabled": { code: 0, stdout: "", stderr: "" },
     };
     const { ctx } = recordingContext(home, handlers);
@@ -185,7 +184,7 @@ describe("macOS LaunchAgent registration edge cases", () => {
     const home = await tempDir();
     const { ctx } = recordingContext(home, {
       "bootout ": { code: 1, stdout: "", stderr: "Could not find service" },
-      [`print gui/`]: { code: 113, stdout: "", stderr: "Could not find service" },
+      "print gui/": { code: 113, stdout: "", stderr: "Could not find service" },
       "print-disabled": { code: 0, stdout: "", stderr: "" },
     });
     const backend = macosAutostart(ctx);
@@ -197,7 +196,7 @@ describe("macOS LaunchAgent registration edge cases", () => {
   it("treats a GUI-domain error as an error, never as 'not registered'", async () => {
     const home = await tempDir();
     const { ctx } = recordingContext(home, {
-      [`print gui/`]: {
+      "print gui/": {
         code: 5,
         stdout: "",
         stderr: "Bootstrap failed: 5: Input/output error",

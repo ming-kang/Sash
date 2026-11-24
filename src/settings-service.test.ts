@@ -80,6 +80,19 @@ describe("saved settings", () => {
     assert.equal(f.core.starts, 0);
     assert.equal(fs.existsSync(f.layout.configFile), false);
   });
+  it("merges TUN field patches and clears the interface name on null", async () => {
+    const f = fixture();
+    const device = process.platform === "darwin" ? "utun7" : "sash-tun";
+    const first = await f.service.apply({
+      tun: { strictRoute: true, routeExcludeAddress: ["10.0.0.0/8"], device },
+    });
+    assert.equal(first.settings.tun.strictRoute, true);
+    assert.deepEqual(first.settings.tun.routeExcludeAddress, ["10.0.0.0/8"]);
+    assert.equal(first.settings.tun.device, device);
+    const cleared = await f.service.apply({ tun: { device: null } });
+    assert.equal(cleared.settings.tun.device, undefined);
+    assert.equal(cleared.settings.tun.strictRoute, true);
+  });
   it("rejects a stale revision before saving preferences or changing the system proxy", async () => {
     const f = fixture();
     const first = await f.service.apply({ mixedPort: 18888, expectedRevision: 0 });

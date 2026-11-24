@@ -33,7 +33,19 @@ export interface BootstrapManifest {
 }
 
 export function defaultBootstrapManifestPath(): string {
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "bootstrap-manifest.json");
+  const bundled = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "bootstrap-manifest.json",
+  );
+  // Development checkouts build the manifest into dist/ instead of src/.
+  return fs.existsSync(bundled)
+    ? bundled
+    : path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "dist",
+        "bootstrap-manifest.json",
+      );
 }
 
 export function bootstrapManifestPath(): string {

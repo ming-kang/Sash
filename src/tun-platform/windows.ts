@@ -31,17 +31,14 @@ function helperExePath(): string {
   return resolveHelperDistExe(currentPackageRoot());
 }
 
-/** The paired Core executable shipped in the same release package. */
 function pairedCoreExePath(): string {
   return path.join(path.dirname(helperExePath()), `sash-tun-core-win32-${process.arch}.exe`);
 }
 
-/** The already-installed, digest-protected helper executable. */
 function protectedHelperExePath(): string {
   return path.join(helperBinDir(), HELPER_EXE_NAME);
 }
 
-/** Paired Core digest pinned by `dist/bootstrap-manifest.json` (`helpers.cores`). */
 async function pairedCoreDigest(): Promise<string | undefined> {
   try {
     const manifest = JSON.parse(
@@ -58,12 +55,6 @@ async function pairedCoreDigest(): Promise<string | undefined> {
   }
 }
 
-/**
- * SHA-256 the packaged helper must have. The trust anchor is the release
- * manifest `dist/bootstrap-manifest.json` (`helpers.assets`); the file's own
- * hash is only a cross-check — a missing manifest or entry rejects, there is
- * no self-hash fallback.
- */
 async function helperDistDigest(helperExe: string): Promise<string> {
   const manifestFile = path.join(path.dirname(helperExe), "bootstrap-manifest.json");
   const manifest = JSON.parse(await fs.readFile(manifestFile, "utf8")) as {
@@ -112,7 +103,6 @@ async function isElevated(): Promise<boolean> {
   return out.includes("S-1-16-12288");
 }
 
-/** Downloads the pinned wintun build and returns the digest-verified DLL for this arch. */
 export async function fetchWintun(destination: string): Promise<string> {
   const arch = process.arch === "arm64" ? "arm64" : "x64";
   const dllName = `wintun/bin/${arch === "arm64" ? "arm64" : "amd64"}/wintun.dll`;
@@ -182,22 +172,13 @@ interface ElevatedResult {
  * quotes; escape backslashes that precede a quote or the closing quote.
  */
 function quoteWinArg(arg: string): string {
-  // CommandLineToArgvW: backslashes only matter before a quote (escape it)
-  // or at the very end (they'd precede our closing quote). Everything else
-  // stays literal.
   return `"${arg.replace(
     /(\\*)("|$)/g,
     (_m, bs: string, tail: string) => bs + bs + (tail === '"' ? '\\"' : ""),
   )}"`;
 }
 
-/**
- * Elevated entry point: a system-signed PowerShell runs an -EncodedCommand
- * script that copies the consented helper into an administrator-created
- * staging directory under the system ProgramData Known Folder, re-hashes the
- * STAGED bytes against the packaged digest, and only then executes the
- * staged copy. The unverified package path is never executed elevated.
- */
+// Check the digest again after copying into the elevated staging directory.
 async function runElevatedStaged(
   helperExe: string,
   helperDigest: string,
@@ -297,13 +278,6 @@ try {
   if (!result?.ok) throw new Error("Elevated helper operation produced no result");
 }
 
-/**
- * Elevated entry for operations that may run against the already-installed
- * protected helper (e.g. uninstall): the protected copy is ACL'd to
- * administrators and its digest must match the installed manifest — it is
- * executed directly, never a package-path executable. Falls back to the
- * staging flow when the protected copy is missing.
- */
 async function runElevatedProtected(
   helperExe: string,
   helperDigest: string,
@@ -341,6 +315,7 @@ function openHelperSocket(): Duplex {
     windowsHide: true,
   });
   const duplex = new Duplex({
+    allowHalfOpen: false,
     write(chunk, _enc, cb) {
       if (child.stdin.destroyed) {
         cb(new Error("Helper pipe shim closed"));
@@ -352,20 +327,20 @@ function openHelperSocket(): Duplex {
     final(cb) {
       child.stdin.end(cb);
     },
-    destroy(_err, cb) {
+    destroy(error, cb) {
       child.kill();
-      cb(null);
+      cb(error);
     },
   });
   child.stdout.on("data", (chunk: Buffer) => duplex.push(chunk));
   child.stdout.on("end", () => duplex.push(null));
+  child.stdin.on("error", (error) => duplex.destroy(error));
   child.on("error", (error) =>
     duplex.destroy(error instanceof Error ? error : new Error(String(error))),
   );
   child.stderr.on("data", () => {}); // drain so a noisy shim can never block on a full pipe
-  child.on("exit", (code) => {
+  child.on("close", (code) => {
     if (code) duplex.destroy(new Error(`Helper pipe shim exited ${code}`));
-    else duplex.push(null);
   });
   // The supervisor's HTTP agent waits for 'connect' like a net.Socket; the
   // shim connects to the pipe at startup, so from the caller's perspective
@@ -393,10 +368,6 @@ export function windowsTunPlatform(): TunPlatform {
           coreSha256(path.join(helperBinDir(), "mihomo.exe")).catch(() => null),
           coreSha256(protectedHelperExePath()).catch(() => null),
         ]);
-        // needsReconsent when: pairing metadata is missing, either installed
-        // binary is unreadable, the installed Core diverges from the paired
-        // release digest, or the installed helper diverges from what its own
-        // manifest recorded at install time.
         const needsReconsent =
           expected === undefined ||
           manifest === undefined ||

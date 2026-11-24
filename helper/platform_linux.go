@@ -24,12 +24,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-/**
- * Linux platform port of src/launcher/helper-entry-linux.ts +
- * src/launcher/helper-linux.ts: same trust model, same journal semantics,
- * same kernel-faithful cleanup. Translated function-for-function.
- */
-
 const (
 	linuxHelperBinDir   = "/usr/local/lib/sash"
 	linuxHelperWorkDir  = "/var/lib/sash-helper"
@@ -110,7 +104,7 @@ func newPlatform(args []string) (Platform, error) {
 	if cleanup {
 		// ExecStopPost and `helper uninstall` run this in a fresh process;
 		// the journal records exactly what the last launch created.
-		if err := cleanupLinuxTunNetwork(context.Background(), p.run,
+		if err := recoverLinuxTunSession(context.Background(), p.run,
 			filepath.Join(p.workDir, linuxJournalName), filepath.Join(p.workDir, ".cleanup.lock")); err != nil {
 			return nil, err
 		}
@@ -266,67 +260,6 @@ func tunCoordinates(configText string) (device string, table, rule int) {
 	return
 }
 
-// sing-tun's StrictRoute emits a GLOBAL `unreachable` rule for every
-// address family the TUN device lacks — unattributable after kill -9.
-func strictRouteFamilyMissing(configText string) string {
-	var cfg map[string]any
-	if yaml.Unmarshal([]byte(configText), &cfg) != nil {
-		return ""
-	}
-	tun, ok := cfg["tun"].(map[string]any)
-	if !ok || tun["strict-route"] != true || tun["auto-route"] != true {
-		return ""
-	}
-	if cfg["ipv6"] == false {
-		return "IPv6"
-	}
-	return ""
-}
-
-func strictRouteEnabled(configText string) bool {
-	var cfg map[string]any
-	if yaml.Unmarshal([]byte(configText), &cfg) != nil {
-		return false
-	}
-	tun, ok := cfg["tun"].(map[string]any)
-	return ok && tun["strict-route"] == true && tun["auto-route"] == true
-}
-
-// True when the host owns at least one global-scope IPv6 address.
-func hostHasGlobalIPv6(ctx context.Context, run runFunc) bool {
-	out, err := run(ctx, "ip", "-6", "-j", "addr", "show")
-	if err != nil {
-		// Can't prove the family exists — fail closed.
-		return false
-	}
-	var parsed []map[string]any
-	if json.Unmarshal([]byte(strings.TrimSpace(out)), &parsed) != nil {
-		return false
-	}
-	for _, link := range parsed {
-		for _, a := range listObjects(link["addr_info"]) {
-			if a["scope"] == "global" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func assertStrictRouteSafe(ctx context.Context, run runFunc, configText string) error {
-	if missing := strictRouteFamilyMissing(configText); missing != "" {
-		return fmt.Errorf("TUN strict-route is disabled when the %s TUN address is absent: "+
-			"sing-tun would install a global unreachable rule that crash cleanup cannot "+
-			"attribute. Enable ipv6 or turn strict-route off.", missing)
-	}
-	if strictRouteEnabled(configText) && !hostHasGlobalIPv6(ctx, run) {
-		return errors.New("TUN strict-route is disabled on this host: it has no global IPv6 address, so " +
-			"sing-tun would install a global unreachable IPv6 rule that crash cleanup " +
-			"cannot attribute. Give the host IPv6 connectivity or turn strict-route off.")
-	}
-	return nil
-}
-
 func linuxRun(ctx context.Context, cmd string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -334,7 +267,12 @@ func linuxRun(ctx context.Context, cmd string, args ...string) (string, error) {
 	c.Env = coreEnvironment(os.Environ())
 	out, err := c.Output()
 	if err != nil {
-		return "", fmt.Errorf("%s %s: %w %s", cmd, strings.Join(args, " "), err, out)
+		stderr := ""
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			stderr = strings.TrimSpace(string(exitErr.Stderr))
+		}
+		return "", fmt.Errorf("%s %s: %w %s %s", cmd, strings.Join(args, " "), err, out, stderr)
 	}
 	return string(out), nil
 }
@@ -597,288 +535,6 @@ func ruleDeleteArgs(rule map[string]any) []string {
 	return args
 }
 
-// Parse the args after `ip rule del` into bare flags vs key/value pairs.
-func parseDeleteArgs(delArgs []string) (flags map[string]bool, values map[string]string) {
-	flags = map[string]bool{}
-	values = map[string]string{}
-	bare := map[string]bool{"not": true, "l3mdev": true, "nop": true}
-	for i := 0; i < len(delArgs); i++ {
-		key := delArgs[i]
-		if bare[key] {
-			flags[key] = true
-			continue
-		}
-		if i+1 >= len(delArgs) {
-			flags[key] = true
-		} else {
-			values[key] = delArgs[i+1]
-			i++
-		}
-	}
-	return
-}
-
-var protoNames = map[string]int64{
-	"icmp": 1, "tcp": 6, "udp": 17, "gre": 47, "esp": 50, "ah": 51,
-	"icmpv6": 58, "icmp6": 58, "sctp": 132, "udplite": 136,
-}
-
-func protoNum(value string) any {
-	if value == "" {
-		return int64(0)
-	}
-	if n, ok := parseNum(value); ok {
-		return n
-	}
-	if n, ok := protoNames[value]; ok {
-		return n
-	}
-	return value
-}
-
-func parseNum(value string) (int64, bool) {
-	if value == "" {
-		return 0, true
-	}
-	n, err := strconv.ParseInt(value, 0, 64)
-	if err != nil {
-		return 0, false
-	}
-	return n, true
-}
-
-func numStr(value string) int64 {
-	n, _ := parseNum(value)
-	return n
-}
-
-// Live rule prefix normalized to `addr/len`; "all"/missing is len 0.
-func livePrefix(rule map[string]any, side string) string {
-	addr := "all"
-	if side == "from" {
-		if v, ok := firstPresent(rule, "from", "src"); ok {
-			addr = fmt.Sprintf("%v", v)
-		}
-	} else if v, ok := firstPresent(rule, "to", "dst"); ok {
-		addr = fmt.Sprintf("%v", v)
-	}
-	lenKey := "dstlen"
-	if side == "from" {
-		lenKey = "srclen"
-	}
-	if l, ok := rule[lenKey]; ok && l != nil {
-		return fmt.Sprintf("%s/%v", addr, l)
-	}
-	return addr
-}
-
-// A from/to request value wildcards when it encodes prefix length 0.
-func isWildcardPrefix(value string, present bool) bool {
-	return !present || value == "all" || strings.HasSuffix(value, "/0")
-}
-
-func rangeText(lo, hi any) string {
-	if lo == nil {
-		return ""
-	}
-	if hi != nil && hi != lo {
-		return fmt.Sprintf("%v-%v", lo, hi)
-	}
-	return fmt.Sprintf("%v", lo)
-}
-
-/**
- * Whether the exact `ip rule del` request hits `live`, modelled on
- * net/core/fib_rules.c::rule_find + fib4/fib6_rule_compare: absent or
- * zero fields wildcard; `not` never filters; goto compares the action
- * only; iif/oif compare as strings (detached keeps the name); fwmark
- * and mask are compared independently, each only when nonzero.
- */
-func kernelRuleMatches(delArgs []string, live map[string]any) bool {
-	flags, values := parseDeleteArgs(delArgs)
-
-	if pref, ok := values["pref"]; ok && fmt.Sprintf("%v", live["priority"]) != pref {
-		return false
-	}
-	from, hasFrom := values["from"]
-	if !isWildcardPrefix(from, hasFrom) && livePrefix(live, "from") != from {
-		return false
-	}
-	to, hasTo := values["to"]
-	if !isWildcardPrefix(to, hasTo) && livePrefix(live, "to") != to {
-		return false
-	}
-	if tos := values["tos"]; numStr(tos) != 0 && numStr(fmt.Sprintf("%v", live["tos"])) != numStr(tos) {
-		return false
-	}
-	if fwmark, ok := values["fwmark"]; ok {
-		halves := strings.SplitN(fwmark, "/", 2)
-		mark := numStr(halves[0])
-		var mask int64
-		if len(halves) == 2 {
-			mask = numStr(halves[1])
-		} else if mark != 0 {
-			mask = 0xffffffff
-		}
-		if mark != 0 && numStr(fmt.Sprintf("%v", live["fwmark"])) != mark {
-			return false
-		}
-		var liveMask int64
-		if v, ok := live["fwmask"]; ok && v != nil {
-			liveMask = numStr(fmt.Sprintf("%v", v))
-		} else if v, ok := live["fwmark"]; ok && v != nil {
-			liveMask = 0xffffffff
-		}
-		if mask != 0 && liveMask != mask {
-			return false
-		}
-	}
-	if iif, ok := values["iif"]; ok && fmt.Sprintf("%v", live["iif"]) != iif {
-		return false
-	}
-	if oif, ok := values["oif"]; ok && fmt.Sprintf("%v", live["oif"]) != oif {
-		return false
-	}
-	if flags["l3mdev"] && live["l3mdev"] != true {
-		return false
-	}
-	if p := protoNum(values["ipproto"]); p != int64(0) &&
-		protoNum(fmt.Sprintf("%v", live["ipproto"])) != p {
-		return false
-	}
-	if sport, ok := values["sport"]; ok &&
-		rangeText(firstOr(live["sport_start"], live["sport"]), firstOr(live["sport_end"], live["sport"])) != sport {
-		return false
-	}
-	if dport, ok := values["dport"]; ok &&
-		rangeText(firstOr(live["dport_start"], live["dport"]), firstOr(live["dport_end"], live["dport"])) != dport {
-		return false
-	}
-	if uids, ok := values["uidrange"]; ok &&
-		rangeText(firstOr(live["uid_start"], live["uidrange"]), firstOr(live["uid_end"], live["uidrange"])) != uids {
-		return false
-	}
-	for _, key := range []string{"suppress_prefixlength", "suppress_ifgroup"} {
-		if want, ok := values[key]; ok && fmt.Sprintf("%v", live[key]) != want {
-			return false
-		}
-	}
-	if flags["nop"] {
-		if _, ok := live["nop"]; !ok {
-			return false
-		}
-	}
-	if _, ok := values["goto"]; ok && live["goto"] == nil {
-		return false
-	}
-	if lookup, ok := values["lookup"]; ok {
-		lv := fmt.Sprintf("%v", live["table"])
-		if live["table"] == nil {
-			lv = fmt.Sprintf("%v", live["lookup"])
-		}
-		if lv != lookup {
-			return false
-		}
-	}
-	return true
-}
-
-func firstOr(a, b any) any {
-	if a != nil {
-		return a
-	}
-	return b
-}
-
-// The recorded route without its top-level `dev` — nhid/nexthops stay.
-func stripRouteDev(route map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range route {
-		if k != "dev" {
-			out[k] = v
-		}
-	}
-	return out
-}
-
-// `ip -j nexthop show` → nhid -> set of bound ifindexes.
-func listNexthopIfindexes(ctx context.Context, run runFunc, ifindexByName map[string]int) (map[string]map[int]bool, error) {
-	out, err := run(ctx, "ip", "-j", "nexthop", "show")
-	if err != nil {
-		return nil, err
-	}
-	raw, err := ipList(out, "nexthop")
-	if err != nil {
-		return nil, err
-	}
-	bound := map[string]map[int]bool{}
-	type group struct {
-		id      string
-		members []string
-	}
-	var groups []group
-	for _, nh := range raw {
-		set := map[int]bool{}
-		if dev, ok := strField(nh, "dev"); ok {
-			if i, ok := ifindexByName[dev]; ok {
-				set[i] = true
-			}
-		}
-		id := fmt.Sprintf("%v", nh["id"])
-		bound[id] = set
-		var members []string
-		for _, key := range []string{"group", "nexthops"} {
-			for _, m := range listObjects(nh[key]) {
-				members = append(members, fmt.Sprintf("%v", m["id"]))
-			}
-		}
-		if len(members) > 0 {
-			groups = append(groups, group{id, members})
-		}
-	}
-	for _, g := range groups {
-		for _, member := range g.members {
-			for i := range bound[member] {
-				bound[g.id][i] = true
-			}
-		}
-	}
-	return bound, nil
-}
-
-// The ifindexes a live route is bound to: dev, nhid's nexthop object,
-// or inline nexthops[] hops. Empty set = unprovable.
-func routeBoundIfindexes(route map[string]any, ifindexByName map[string]int,
-	nexthops func() (map[string]map[int]bool, error)) (map[int]bool, error) {
-	set := map[int]bool{}
-	if dev, ok := strField(route, "dev"); ok {
-		if i, ok := ifindexByName[dev]; ok {
-			set[i] = true
-		}
-		return set, nil
-	}
-	if nh, ok := route["nhid"]; ok && nh != nil {
-		table, err := nexthops()
-		if err != nil {
-			return nil, err
-		}
-		if set2, ok := table[fmt.Sprintf("%v", nh)]; ok {
-			return set2, nil
-		}
-		return set, nil
-	}
-	if hops, ok := route["nexthops"]; ok && hops != nil {
-		for _, hop := range listObjects(hops) {
-			if dev, ok := strField(hop, "dev"); ok {
-				if i, ok := ifindexByName[dev]; ok {
-					set[i] = true
-				}
-			}
-		}
-	}
-	return set, nil
-}
-
 // Whether `name` is a non-persistent TUN whose detail response answers
 // for the SAME ifindex the journal verified.
 func isDisposableTun(ctx context.Context, run runFunc, name string, ifindex int) (bool, error) {
@@ -1068,13 +724,18 @@ type netObjects struct {
 }
 
 // Exact IPv4 (`ip`) or IPv6 (`ip -6`) rule/route tables; a kernel
-// without IPv6 support reports the family as empty truthfully.
+// without IPv6 support yields an empty family table.
 var v6UnsupportedRe = regexp.MustCompile(`(?i)address family|not supported|ipv6.*(disabled|unsupported)|EINVAL`)
 var fibTableMissingRe = regexp.MustCompile(`(?i)table does not exist|FIB table`)
 
 func listNetObjects(ctx context.Context, run runFunc, family string, table string) (netObjects, error) {
 	flag := "-4"
 	if family == "6" {
+		// No if_inet6 means the kernel lacks IPv6 entirely; `ip -6` then
+		// exits nonzero with error text that varies by iproute2 version.
+		if _, err := os.Stat("/proc/net/if_inet6"); err != nil {
+			return netObjects{[]map[string]any{}, []map[string]any{}}, nil
+		}
 		flag = "-6"
 	}
 	var out netObjects
@@ -1102,12 +763,9 @@ func listNetObjects(ctx context.Context, run runFunc, family string, table strin
 	return out, nil
 }
 
-/**
- * Remove only the network objects journaled for a launch. Direct port
- * of cleanupLinuxTunNetwork: journal proven Core-exited first, then
- * per-family rule deletes through the kernel-match gate and the device
- * via the non-persistent-TUN gate; routes are reclaimed by the link.
- */
+// Remove only the network objects journaled for a launch: proven-Core-
+// exited first, then per-family rule deletes by exact live match and the
+// device via the non-persistent-TUN gate; routes are reclaimed by the link.
 func cleanupLinuxTunNetwork(ctx context.Context, run runFunc, journalFile, lockDir string) error {
 	if lockDir == "" {
 		lockDir = filepath.Join(filepath.Dir(journalFile), ".cleanup.lock")
@@ -1200,69 +858,8 @@ func cleanupLinuxTunNetwork(ctx context.Context, run runFunc, journalFile, lockD
 		return errors.New("recorded network objects cannot be attributed to a verified interface; keeping the journal")
 	}
 
-	// Every journaled route must still be bound to the journal's
-	// original interface — resolved by ifindex so a renamed device still
-	// proves binding, and via the nhid's nexthop object when the route
-	// has no top-level dev.
-	if len(journal.Routes)+len(journal.Routes6) > 0 {
-		var nexthops map[string]map[int]bool
-		loaded := false
-		loadNexthops := func() (map[string]map[int]bool, error) {
-			if !loaded {
-				loaded = true
-				var err error
-				nexthops, err = listNexthopIfindexes(ctx, run, ifindexByName)
-				if err != nil {
-					return nil, fmt.Errorf("could not enumerate nexthops (%s); keeping the journal", err)
-				}
-			}
-			return nexthops, nil
-		}
-		for _, flag := range []string{"4", "6"} {
-			wanted := journal.Routes
-			if flag == "6" {
-				wanted = journal.Routes6
-			}
-			if len(wanted) == 0 {
-				continue
-			}
-			live, err := listNetObjects(ctx, run, flag, journal.Table)
-			if err != nil {
-				return fmt.Errorf("could not enumerate IPv%s routes (%s); keeping the journal", flag, err)
-			}
-			for _, recorded := range wanted {
-				if dev, _ := strField(recorded, "dev"); dev != journalDevice {
-					failures = append(failures, fmt.Sprintf(
-						"route %v: recorded binding to %s cannot be proven", recorded, journalDevice))
-					continue
-				}
-				rest := stripRouteDev(recorded)
-				// Every live route still carrying the recorded dst must be
-				// the recorded object itself — identical once `dev` is
-				// stripped — AND still resolve to the original ifindex.
-				dst, _ := strField(recorded, "dst")
-				for _, candidate := range live.routes {
-					if cdst, _ := strField(candidate, "dst"); cdst != dst {
-						continue
-					}
-					identical := objectIdentical(stripRouteDev(candidate), rest)
-					bound, err := routeBoundIfindexes(candidate, ifindexByName, loadNexthops)
-					if err != nil {
-						return err
-					}
-					if !identical || len(bound) == 0 || !bound[journalIfindex] {
-						failures = append(failures, fmt.Sprintf(
-							"route %s: live object is changed, re-bound or unprovable", dst))
-						break
-					}
-				}
-			}
-		}
-	}
-
 	// Delete by exact live match only: a recorded object is deleted only
-	// when EXACTLY ONE live object is identical to it AND the selector
-	// sent to the kernel matches exactly that object.
+	// when exactly one live object is identical to it.
 	for _, family := range []struct {
 		flag  string
 		rules []map[string]any
@@ -1285,21 +882,12 @@ func cleanupLinuxTunNetwork(ctx context.Context, run runFunc, journalFile, lockD
 					candidates = append(candidates, rule)
 				}
 			}
-			var kernelHits []map[string]any
-			if len(candidates) > 0 {
-				delArgs := ruleDeleteArgs(candidates[0])
-				for _, rule := range live.rules {
-					if kernelRuleMatches(delArgs, rule) {
-						kernelHits = append(kernelHits, rule)
-					}
-				}
+			if len(candidates) > 1 {
+				failures = append(failures, fmt.Sprintf(
+					"rule %v: cannot be uniquely identified in the live table", recorded))
+				continue
 			}
-			if len(candidates) != 1 || len(kernelHits) != 1 ||
-				!objectIdentical(stripDetached(kernelHits[0]), stripDetached(expected)) {
-				if len(candidates) != 0 {
-					failures = append(failures, fmt.Sprintf(
-						"rule %v: cannot be uniquely identified in the live table", recorded))
-				}
+			if len(candidates) == 0 {
 				continue
 			}
 			flag := "-4"
@@ -1376,9 +964,7 @@ func cleanupLinuxTunNetwork(ctx context.Context, run runFunc, journalFile, lockD
 			if len(lingering) > 0 {
 				failures = append(failures, fmt.Sprintf("IPv%s rules still present: %v", flag, lingering))
 			}
-			// Same rule as the pre-check: ANY live route still carrying a
-			// recorded dst keeps the journal — an nhid re-pointed between
-			// the dumps (new dev AND gateway) would slip an identity check.
+			// A live route still carrying a recorded dst keeps the journal.
 			var left []map[string]any
 			for _, recorded := range wantedRoutes {
 				dst, _ := strField(recorded, "dst")
@@ -1446,10 +1032,10 @@ func (p *linuxPlatform) installConsent(src, sha, coreSrc string) (string, error)
 	if err := os.Chmod(stagedHelper, 0o755); err != nil {
 		return "", err
 	}
-	if err := durableRename(stagedCore, corePath(p.binDir)); err != nil {
+	if err := publishJournal(stagedCore, corePath(p.binDir)); err != nil {
 		return "", err
 	}
-	if err := durableRename(stagedHelper, filepath.Join(p.binDir, "sash-helper")); err != nil {
+	if err := publishJournal(stagedHelper, filepath.Join(p.binDir, "sash-helper")); err != nil {
 		return "", err
 	}
 	return digest, nil
@@ -1505,13 +1091,32 @@ func copyConsentedFile(src, sha, staged string) error {
 	return nil
 }
 
-func durableRename(from, to string) error {
-	return publishJournal(from, to)
+func (p *linuxPlatform) RecoverNetwork(ctx context.Context) error {
+	return recoverLinuxTunSession(ctx, p.run,
+		filepath.Join(p.workDir, linuxJournalName), filepath.Join(p.workDir, ".cleanup.lock"))
 }
 
-func (p *linuxPlatform) RecoverNetwork(ctx context.Context) error {
-	return cleanupLinuxTunNetwork(ctx, p.run,
-		filepath.Join(p.workDir, linuxJournalName), filepath.Join(p.workDir, ".cleanup.lock"))
+// recoverLinuxTunSession reclaims a leftover TUN session — from service
+// startup (RecoverNetwork) or the one-shot --cleanup systemd runs via
+// ExecStopPost after a kill — and logs the reclaimed session like the
+// darwin helper's --recover path.
+func recoverLinuxTunSession(ctx context.Context, run runFunc, journalFile, lockDir string) error {
+	journal, err := readLinuxJournal(journalFile)
+	if err != nil {
+		return err
+	}
+	if err := cleanupLinuxTunNetwork(ctx, run, journalFile, lockDir); err != nil {
+		return err
+	}
+	if journal != nil {
+		iface := ""
+		if journal.Device != nil {
+			iface = *journal.Device
+		}
+		fmt.Fprintf(os.Stderr, "[sash-helper] recovered tun session pid=%d iface=%s\n",
+			journal.PID, iface)
+	}
+	return nil
 }
 
 func (p *linuxPlatform) ValidateConfig(ctx context.Context, executable string, configText []byte, root string) error {
@@ -1530,9 +1135,6 @@ func (p *linuxPlatform) ValidateConfig(ctx context.Context, executable string, c
 	}
 	if _, ok := tun["file-descriptor"]; ok {
 		return errors.New("TUN file-descriptor passthrough is not supported by the helper")
-	}
-	if err := assertStrictRouteSafe(ctx, p.run, string(configText)); err != nil {
-		return err
 	}
 	// A real parse with the protected binary catches malformed fields the
 	// whitelist cannot see; -t exits before touching the network.
@@ -1566,10 +1168,7 @@ func (p *linuxPlatform) PrepareConfig(_ context.Context, configText []byte, _ st
 	return configText, nil
 }
 
-func (p *linuxPlatform) PrepareNetwork(ctx context.Context, configText []byte, workRoot string) (NetworkSession, error) {
-	if err := assertStrictRouteSafe(ctx, p.run, string(configText)); err != nil {
-		return nil, err
-	}
+func (p *linuxPlatform) PrepareNetwork(_ context.Context, configText []byte, workRoot string) (NetworkSession, error) {
 	device, table, _ := tunCoordinates(string(configText))
 	journalPath := filepath.Join(workRoot, linuxJournalName)
 	lockDir := filepath.Join(workRoot, ".cleanup.lock")

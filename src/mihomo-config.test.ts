@@ -158,17 +158,54 @@ describe("mihomo-config", () => {
         "route-exclude-address": [],
       });
       assert.ok(overlayManagedKeys({}, options).dns);
-      assert.throws(() => overlayManagedKeys({ dns: { enable: false } }, options), /dns.enable/);
+      const fixed = overlayManagedKeys(
+        { dns: { enable: false, nameserver: ["1.1.1.1"] } },
+        options,
+      );
+      assert.equal((fixed.dns as { enable: boolean }).enable, true);
+    });
+
+    it("keeps profile TUN keys while merging managed keys and warning on overrides", () => {
+      const options = { ...mockSettings, tun: { ...defaultTunSettings(), enable: true } };
+      const warnings: string[] = [];
+      const overlaid = overlayManagedKeys(
+        {
+          tun: {
+            enable: true,
+            "strict-route": true,
+            mtu: 1500,
+            "udp-timeout": 300,
+            "dns-hijack": ["any:53", "tls://8.8.8.8:853"],
+            "route-exclude-address": ["10.0.0.0/8"],
+          },
+        },
+        options,
+        warnings,
+      );
+      assert.deepEqual(overlaid.tun, {
+        enable: true,
+        stack: "mixed",
+        "auto-route": true,
+        "strict-route": false,
+        "auto-detect-interface": true,
+        "dns-hijack": ["any:53", "tls://8.8.8.8:853", "tcp://any:53"],
+        "route-exclude-address": ["10.0.0.0/8"],
+        mtu: 1500,
+        "udp-timeout": 300,
+      });
+      assert.ok(warnings.some((w) => w.includes("tun.strict-route")));
+      assert.ok(!warnings.some((w) => w.includes("tun.enable")));
     });
 
     it("enforces the Sash TUN setting after generation hooks", () => {
       const config = { tun: { enable: true, stack: "system" } };
       enforceTunConfiguration(config, defaultTunSettings());
       assert.deepEqual(config.tun, { enable: false, stack: "system" });
-      assert.throws(
-        () => enforceTunConfiguration({ listeners: [{ type: "tun" }] }, defaultTunSettings()),
-        /Independent TUN listeners/,
-      );
+      const warnings: string[] = [];
+      const stripped: Record<string, unknown> = { listeners: [{ type: "tun" }, { type: "http" }] };
+      enforceTunConfiguration(stripped, defaultTunSettings(), warnings);
+      assert.deepEqual(stripped.listeners, [{ type: "http" }]);
+      assert.ok(warnings.some((w) => w.includes("TUN listeners")));
     });
 
     it("preserves DNS and provider options while disabling profile TUN without mutating input", () => {
@@ -183,7 +220,7 @@ describe("mihomo-config", () => {
       const original = structuredClone(profile);
       const overlaid = overlayManagedKeys(profile, mockSettings);
       assert.deepEqual(profile, original);
-      assert.deepEqual(overlaid.tun, { enable: false });
+      assert.deepEqual(overlaid.tun, { enable: false, "auto-route": true });
       assert.deepEqual(overlaid.dns, profile.dns);
       assert.deepEqual(overlaid["proxy-groups"], profile["proxy-groups"]);
       assert.deepEqual(overlaid["rule-providers"], profile["rule-providers"]);

@@ -263,50 +263,31 @@ async function applyWindowsValue(
   await run("reg.exe", ["add", WIN_REG_PATH, "/v", name, "/t", type, "/d", String(value), "/f"]);
 }
 
-export async function applyWindowsSnapshot(
-  snapshot: WindowsSystemProxySnapshot,
-  run: CommandRunner = runCmd,
-): Promise<void> {
-  try {
-    // Disable/restore PAC metadata before enabling the manual proxy, and keep
-    // ProxyEnable last so a partial write does not become active first. AutoDetect
-    // is never written: Windows rewrites it from DefaultConnectionSettings on
-    // every WinINet refresh.
-    await applyWindowsValue("AutoConfigURL", "REG_SZ", snapshot.autoConfigUrl, run);
-    await applyWindowsValue("ProxyServer", "REG_SZ", snapshot.proxyServer, run);
-    await applyWindowsValue("ProxyOverride", "REG_SZ", snapshot.proxyOverride, run);
-    await applyWindowsValue("ProxyEnable", "REG_DWORD", snapshot.proxyEnable, run);
-    // Per-connection blobs are never written here: the flat keys carry the
-    // intent and the WinINet refresh below regenerates the LAN blobs from
-    // them. snapshot.connections holds semantic expectations for readback
-    // verification and restore comparison only — writing the synthesized LAN
-    // blobs would lose WinINet-owned tail bytes, and writing named RAS/VPN
-    // blobs would overwrite another client's connection.
-  } finally {
-    await refreshWindowsWinINet(run);
-  }
-  // Apply succeeds only when every expected LAN blob is proven — a parseable
-  // readback matching the semantic expectation, or the effective settings
-  // from InternetQueryOption when the registry never materialized one.
-  await verifyWindowsLanConnections(snapshot, run);
-}
-
-const WIN_RESTORE_KEYS = [
+// Write ProxyEnable last; WinINet owns AutoDetect and regenerates the LAN blobs.
+const WIN_PROXY_KEYS = [
   ["AutoConfigURL", "REG_SZ", "autoConfigUrl"],
   ["ProxyServer", "REG_SZ", "proxyServer"],
   ["ProxyOverride", "REG_SZ", "proxyOverride"],
   ["ProxyEnable", "REG_DWORD", "proxyEnable"],
 ] as const;
 
+export async function applyWindowsSnapshot(
+  snapshot: WindowsSystemProxySnapshot,
+  run: CommandRunner = runCmd,
+): Promise<void> {
+  try {
+    for (const [name, type, key] of WIN_PROXY_KEYS) {
+      await applyWindowsValue(name, type, snapshot[key], run);
+    }
+  } finally {
+    await refreshWindowsWinINet(run);
+  }
+  await verifyWindowsLanConnections(snapshot, run);
+}
+
 /**
- * Journal-scoped restore: every field and every per-connection blob is
- * compared against both journal snapshots by user-visible semantics (flags'
- * PROXY_TYPE bits, ProxyServer, ProxyBypass, AutoConfigURL) — WinINet-owned
- * counter bytes never enter the comparison. current==target means Sash wrote
- * it → restore the original bytes; current==original means already restored
- * → skip; anything else was modified outside Sash → skip, report, keep the
- * journal. After writing, a fresh capture re-verifies semantics — a refresh
- * that rewrote configuration keeps the journal rather than clearing it.
+ * Only revert Sash's own changes. Ignore WinINet's connection-blob counters
+ * when comparing snapshots, but write the original bytes when restoring.
  */
 export async function restoreWindowsSnapshot(
   original: WindowsSystemProxySnapshot,
@@ -319,11 +300,11 @@ export async function restoreWindowsSnapshot(
     [
       WindowsValueName,
       "REG_DWORD" | "REG_SZ",
-      (typeof WIN_RESTORE_KEYS)[number][2],
+      (typeof WIN_PROXY_KEYS)[number][2],
       number | string | null,
     ]
   > = [];
-  for (const [regName, type, key] of WIN_RESTORE_KEYS) {
+  for (const [regName, type, key] of WIN_PROXY_KEYS) {
     const cur = current[key];
     const orig = original[key];
     if (cur === orig) continue;
@@ -432,8 +413,6 @@ export async function restoreWindowsSnapshot(
   }
   return { skipped };
 }
-
-/** The per-connection blobs WinINet rewrites for the machine LAN settings. */
 
 /**
  * The semantic target a LAN connection blob must reach after `apply`: PROXY
@@ -585,11 +564,7 @@ async function verifyWindowsLanConnections(
   target: WindowsSystemProxySnapshot,
   run: CommandRunner,
 ): Promise<void> {
-  // WinINet regenerates the LAN blobs asynchronously after the refresh
-  // notification — poll until the connection map stops changing so the
-  // verification below and the post-apply equivalence check see the same
-  // settled state (a blob materializing between the two captures would
-  // otherwise read as an external modification).
+  // WinINet regenerates the LAN blobs asynchronously after refresh.
   let current = await captureWindowsSnapshot(run);
   let stable = 0;
   for (let attempt = 0; attempt < 8 && stable < 2; attempt += 1) {

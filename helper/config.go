@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -137,6 +138,8 @@ func either(a, b schema) schema {
 var stringsList = list(str)
 var strLists = record(either(str, stringsList))
 var nonneg = integer(1<<53 - 1)
+var intList = list(nonneg)
+var stringOrIntList = list(either(nonneg, str))
 var ports = integer(65535)
 var mode = choice("rule", "global", "direct")
 var logLevel = choice("silent", "error", "warning", "info", "debug")
@@ -162,7 +165,7 @@ func loopback(x any, p string) error {
 }
 
 var proxySchema = shape([]string{"name", "type"}, map[string]schema{
-	"name": str, "type": choice("ss", "vmess", "vless", "trojan", "socks5", "http", "hysteria2", "tuic", "direct", "reject"),
+	"name": str, "type": choice("ss", "vmess", "vless", "trojan", "socks5", "http", "hysteria2", "tuic", "anytls", "direct", "reject"),
 	"server": str, "port": nonneg, "password": str, "username": str, "uuid": str, "cipher": str, "alterId": nonneg, "flow": str, "udp": flag,
 	"network": choice("tcp", "ws", "grpc"), "dialer-proxy": str, "tls": flag, "sni": str, "servername": str, "skip-cert-verify": flag,
 	"client-fingerprint": str, "alpn": stringsList,
@@ -174,22 +177,46 @@ var proxySchema = shape([]string{"name", "type"}, map[string]schema{
 var groupSchema = shape([]string{"name", "type"}, map[string]schema{
 	"name": str, "type": choice("select", "url-test", "fallback", "load-balance", "relay"), "proxies": stringsList, "use": stringsList,
 	"url": webURL, "interval": nonneg, "tolerance": nonneg, "timeout": nonneg, "lazy": flag, "strategy": str,
+	"expected-status": either(nonneg, str), "filter": str, "exclude-filter": str, "max-failed-times": nonneg,
+	"include-all": flag, "hidden": flag, "icon": str,
+})
+var healthCheckSchema = object(map[string]schema{
+	"enable": flag, "url": webURL, "interval": nonneg, "lazy": flag, "expected-status": either(nonneg, str), "timeout": str,
 })
 var rulesSchema = object(map[string]schema{
 	"path": str, "type": choice("file", "http", "inline"), "behavior": choice("domain", "ipcidr", "classical"),
 	"format": choice("yaml", "text", "mrs"), "interval": nonneg, "url": webURL, "payload": stringsList,
+	"proxy": str, "header": strLists,
 })
-var providersSchema = shape([]string{"type", "payload"}, map[string]schema{"path": str, "type": choice("inline"), "payload": list(proxySchema)})
+var providersSchema = shape([]string{"type"}, map[string]schema{
+	"path": str, "type": choice("inline", "http", "file"), "payload": list(proxySchema),
+	"url": webURL, "interval": nonneg, "header": strLists, "filter": str, "exclude-filter": str, "exclude-type": str,
+	"proxy": str, "health-check": healthCheckSchema,
+	"override": object(map[string]schema{"additional-prefix": str, "additional-suffix": str}),
+})
 var tunSchema = shape([]string{"enable"}, map[string]schema{
 	"enable": enabled, "device": stringTest(deviceName.MatchString), "stack": choice("mixed", "system", "gvisor"), "dns-mode": str,
 	"dns-hijack": stringsList, "auto-route": flag, "auto-detect-interface": flag, "strict-route": flag, "route-exclude-address": stringsList, "mtu": nonneg,
+	"udp-timeout": nonneg, "gso": flag, "endpoint-independent-nat": flag, "disable-icmp-forwarding": flag, "congestion-controller": str,
+	"route-address": stringsList, "route-address-set": stringsList, "route-exclude-address-set": stringsList,
+	"include-interface": stringsList, "exclude-interface": stringsList,
+	"include-uid": intList, "exclude-uid": intList, "include-uid-range": stringsList, "exclude-uid-range": stringsList,
+	"include-android-user": intList, "include-package": stringsList, "exclude-package": stringsList,
+	"exclude-src-port": intList, "exclude-dst-port": intList, "exclude-src-port-range": stringsList, "exclude-dst-port-range": stringsList,
+	"auto-redirect": flag, "loopback-address": str,
 })
 var dnsSchema = shape([]string{"enable"}, map[string]schema{
 	"enable": enabled, "ipv6": flag, "listen": loopback, "enhanced-mode": choice("fake-ip", "redir-host", "normal"), "fake-ip-range": str,
-	"fake-ip-range6": str, "fake-ip-filter": stringsList, "fake-ip-filter-mode": str, "use-hosts": flag, "use-system-hosts": flag,
+	"fake-ip-range6": str, "fake-ip-ttl": nonneg, "fake-ip-filter": stringsList, "fake-ip-filter-mode": str, "use-hosts": flag, "use-system-hosts": flag,
 	"respect-rules": flag, "prefer-h3": flag, "nameserver": stringsList, "default-nameserver": stringsList, "proxy-server-nameserver": stringsList,
 	"direct-nameserver": stringsList, "fallback": stringsList, "nameserver-policy": strLists, "proxy-server-nameserver-policy": strLists,
 	"fallback-filter": object(map[string]schema{"geoip": flag, "geoip-code": str, "ipcidr": stringsList, "domain": stringsList, "geosite": stringsList}),
+})
+var snifferSchema = object(map[string]schema{
+	"enable": flag, "force-dns-mapping": flag, "parse-pure-ip": flag, "override-destination": flag,
+	"force-domain": stringsList, "skip-domain": stringsList, "skip-src-address": stringsList, "skip-dst-address": stringsList,
+	"sniff":          record(object(map[string]schema{"ports": stringOrIntList, "override-destination": flag})),
+	"port-whitelist": stringOrIntList,
 })
 var privilegedSchema = shape([]string{"external-controller", "secret", "tun", "dns"}, map[string]schema{
 	"mixed-port": ports, "allow-lan": flag, "bind-address": str, "external-controller": loopback, "external-ui": str,
@@ -197,6 +224,7 @@ var privilegedSchema = shape([]string{"external-controller", "secret", "tun", "d
 	"unified-delay": flag, "tcp-concurrent": flag, "find-process-mode": findProcess, "geo-auto-update": flag, "geo-update-interval": nonneg,
 	"geodata-mode": flag, "geoxurl": object(map[string]schema{"geoip": webURL, "geosite": webURL, "mmdb": webURL, "asn": webURL}),
 	"profile": object(map[string]schema{"store-selected": flag, "store-fake-ip": flag}), "tun": tunSchema, "dns": dnsSchema,
+	"udp": flag, "sniffer": snifferSchema,
 	"hosts": strLists, "proxies": list(proxySchema), "proxy-groups": list(groupSchema), "rule-providers": record(rulesSchema),
 	"proxy-providers": record(providersSchema), "rules": stringsList, "sub-rules": record(stringsList),
 })
@@ -256,7 +284,8 @@ func yamlValue(n *yaml.Node, depth int) (any, error) {
 }
 
 func protectedRelativePath(root, s string) error {
-	parts := strings.Split(strings.ReplaceAll(s, "\\", "/"), "/")
+	cleaned := path.Clean(strings.ReplaceAll(s, "\\", "/"))
+	parts := strings.Split(cleaned, "/")
 	if len(parts) < 2 {
 		return errors.New("Configuration paths must use a subdirectory of the work directory")
 	}

@@ -3,10 +3,17 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 const testSid = "S-1-5-21-1234-5678-9012-1000"
@@ -143,27 +150,15 @@ func TestNetworkJournalSchema(t *testing.T) {
 	if journal.DnsV6 == nil || len(*journal.DnsV6) != 0 {
 		t.Fatalf("dnsV6 must round-trip as empty (not unknown): %+v", journal.DnsV6)
 	}
-	for name, patch := range map[string]string{
-		"version":       `"version":1`,
-		"adapterIndex":  `"adapterIndex":-1`,
-		"route family":  `"family":"v5"`,
-		"startedAt bad": `"startedAt":""`,
+	for _, tc := range []struct{ old, new string }{
+		{`"version":3`, `"version":1`},
+		{`"adapterIndex":42`, `"adapterIndex":-1`},
+		{`"family":"v6"`, `"family":"v5"`},
+		{`"startedAt":"2026-01-01T00:00:00Z"`, `"startedAt":""`},
 	} {
-		bad := valid
-		switch name {
-		case "version":
-			bad = strings.Replace(valid, `"version":3`, `"version":1`, 1)
-		case "adapterIndex":
-			bad = strings.Replace(valid, `"adapterIndex":42`, `"adapterIndex":-1`, 1)
-		case "route family":
-			bad = strings.Replace(valid, `"family":"v6"`, `"family":"v5"`, 1)
-		case "startedAt bad":
-			bad = strings.Replace(valid, `"startedAt":"2026-01-01T00:00:00Z"`, `"startedAt":""`, 1)
-		}
-		_ = patch
-		write(bad)
+		write(strings.Replace(valid, tc.old, tc.new, 1))
 		if _, err := readNetworkJournal(dir); err == nil {
-			t.Fatalf("%s should reject", name)
+			t.Fatalf("%s should reject", tc.new)
 		}
 	}
 	// Unknown fields are rejected by the shared strict decoder.
@@ -189,6 +184,96 @@ func TestNetworkJournalSchema(t *testing.T) {
 	}
 }
 
+func TestCoreJobTerminatesOnClose(t *testing.T) {
+	cmd := exec.Command("ping.exe", "-n", "30", "127.0.0.1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	proc, err := openProcessHandle(cmd.Process.Pid)
+	if err != nil || proc == nil {
+		t.Fatalf("process handle unavailable: %v", err)
+	}
+	defer proc.close()
+	job, err := assignCoreToKillJob(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.CloseHandle(job); err != nil {
+		t.Fatal(err)
+	}
+	if !proc.waitExit(5 * time.Second) {
+		t.Fatal("Core outlived its job")
+	}
+}
+
+func TestJournalRecoveryAllowsExitedCoreWithOpenHandle(t *testing.T) {
+	cmd := exec.Command("ping.exe", "-n", "30", "127.0.0.1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	proc, err := openProcessHandle(cmd.Process.Pid)
+	if err != nil || proc == nil {
+		t.Fatalf("process handle unavailable: %v", err)
+	}
+	defer proc.close()
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	exited, err := openProcessHandle(cmd.Process.Pid)
+	if err != nil || exited == nil {
+		t.Fatalf("the exited process still has a handle: %v", err)
+	}
+	defer exited.close()
+	if !exited.waitExit(0) {
+		t.Fatal("process handle must be signaled before reclaim")
+	}
+	if err := killIfOurCore(&windowsJournal{PID: cmd.Process.Pid}); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &windowsPlatform{workDir: t.TempDir()}
+	journal := windowsJournal{
+		Version: 3, PID: cmd.Process.Pid, CorePath: cmd.Path,
+		AdapterName: fmt.Sprintf("SashTest-%d", os.Getpid()), AdapterIndex: 1,
+		AdapterGuid: "{00000000-0000-0000-0000-000000000000}", AdapterLuid: "0",
+		StartedAt: time.Now().Format(time.RFC3339),
+	}
+	if err := writeJournal(journalPath(p.workDir), journal); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(p.workDir, "stderr.log")
+	log, err := os.Create(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	stderr := os.Stderr
+	os.Stderr = log
+	defer func() { os.Stderr = stderr }()
+	for range 2 {
+		if err := p.RecoverNetwork(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(journalPath(p.workDir)); !os.IsNotExist(err) {
+		t.Fatalf("journal not removed: %v", err)
+	}
+	got, err := os.ReadFile(logPath)
+	want := fmt.Sprintf("[sash-helper] recovered tun session pid=%d iface=%s\n", journal.PID, journal.AdapterName)
+	if err != nil || string(got) != want {
+		t.Fatalf("stderr = %q, %v; want %q", got, err, want)
+	}
+}
+
 func TestOwnsControllerConnection(t *testing.T) {
 	table := strings.Join([]string{
 		"TCP  127.0.0.1:4000  0.0.0.0:0  LISTENING  42",
@@ -207,6 +292,24 @@ func TestOwnsControllerConnection(t *testing.T) {
 		if got := ownsControllerConnection(table, tc.port, tc.clientPort, tc.pid); got != tc.want {
 			t.Fatalf("(%d,%d,%d) → %v, want %v", tc.port, tc.clientPort, tc.pid, got, tc.want)
 		}
+	}
+}
+
+func TestPipeShimReturnsWhenServiceDisconnects(t *testing.T) {
+	client, service := net.Pipe()
+	input, daemon := io.Pipe()
+	defer input.Close()
+	defer daemon.Close()
+	done := make(chan struct{})
+	go func() {
+		bridgePipe(client, input, io.Discard)
+		close(done)
+	}()
+	service.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shim waited for daemon stdin after service disconnected")
 	}
 }
 
@@ -249,7 +352,10 @@ func TestEarlyListenerContract(t *testing.T) {
 }
 
 func TestProtectedDirLockedUnderProgramData(t *testing.T) {
-	dir := helperProtectedDir()
+	dir, err := helperProtectedDir()
+	if err != nil {
+		t.Fatalf("helperProtectedDir: %v", err)
+	}
 	if !strings.HasSuffix(strings.ToLower(dir), `sash\core`) {
 		t.Fatalf("protected dir %q", dir)
 	}

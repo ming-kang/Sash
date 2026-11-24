@@ -27,7 +27,7 @@ import type { TunPlatform } from "../tun-service.js";
  * resynchronizes the protected helper binary and the protected Core after a
  * Sash upgrade or Core update.
  *
- * Arguments: <helper binary> <helper sha256> <core binary> <core sha256> <uid>
+ * Arguments: <helper binary> <helper sha256> <core binary> <uid>
  */
 export const LINUX_HELPER_INSTALL_SCRIPT = `set -euo pipefail
 
@@ -51,32 +51,6 @@ if ! command -v setfacl >/dev/null 2>&1; then
   exit 2
 fi
 
-# Protected-identity checks run BEFORE any fixed path is touched and
-# before "systemctl stop" — a running unit's ExecStopPost executes the
-# old helper as root, so the unit, the install directory and the old
-# leaf must all prove their identity first. Checks are bitwise: no
-# group/other write bit at all (a "-le 755" compare accepts 666/707).
-protected_ok() {
-  local f="$1" w
-  # A symlink is never trusted — checked BEFORE -e so a dangling link
-  # cannot pass as "absent".
-  [ -L "$f" ] && return 1
-  [ -e "$f" ] || return 1
-  [ "$(stat -c '%u:%g' "$f")" = "0:0" ] || return 1
-  # Any group/other write bit — or a failed probe — is not trusted.
-  w="$(find "$f" -maxdepth 0 -perm /022 -print -quit 2>/dev/null)" || return 1
-  [ -z "$w" ]
-}
-
-old_trusted=0
-if { [ ! -e "$BIN" ] && [ ! -L "$BIN" ]; } && { [ ! -e "$UNIT" ] && [ ! -L "$UNIT" ]; }; then
-  old_trusted=1   # fresh install — nothing foreign to execute
-elif protected_ok "$BIN" && \
-     { { [ ! -e "$BIN/sash-helper" ] && [ ! -L "$BIN/sash-helper" ]; } || { [ -f "$BIN/sash-helper" ] && protected_ok "$BIN/sash-helper"; }; } && \
-     { { [ ! -e "$UNIT" ] && [ ! -L "$UNIT" ]; } || { [ -f "$UNIT" ] && protected_ok "$UNIT"; }; }; then
-  old_trusted=1
-fi
-
 install -d -m 0700 -o root -g root "$WORK"
 
 helper_changed=0
@@ -84,41 +58,28 @@ if [ "$(sha256sum "$BIN/sash-helper" 2>/dev/null | cut -d' ' -f1)" != "$HELPER_S
   helper_changed=1
 fi
 
-if [ "$old_trusted" = "1" ]; then
-  # Verified install: stopping runs ExecStopPost on bytes we just
-  # proved are the protected old helper, then it cleans up explicitly.
-  if systemctl is-active --quiet sash-helper.service 2>/dev/null; then
-    systemctl stop sash-helper.service
-  fi
-  if [ -x "$BIN/sash-helper" ]; then
-    "$BIN/sash-helper" --work-dir "$WORK" --cleanup
-  fi
-else
-  # Unverified old install: remove the unit first so no ExecStopPost can
-  # ever run unverified bytes, then kill the process directly and let
-  # the verified staged binary (below) recover the journal.
-  # Remove the unit first — with no unit file there is no ExecStopPost
-  # for systemd to run. THEN the leftover process is killed directly.
-  { [ -e "$UNIT" ] || [ -L "$UNIT" ]; } && rm -f "$UNIT"
-  # The unit's loaded config is only gone once reload SUCCEEDS — while it
-  # may still hold ExecStopPost, no stop/start may be issued. A failed
-  # reload aborts the install entirely.
-  if ! systemctl daemon-reload; then
-    echo "systemctl daemon-reload failed; aborting install" >&2
-    exit 5
-  fi
-  systemctl stop sash-helper.service 2>/dev/null || true
-  systemctl reset-failed sash-helper.service 2>/dev/null || true
-  # Kill only the processes in THIS service's cgroup/MainPID — never a
-  # name-matched global pkill.
-  main_pid="$(systemctl show -p MainPID --value sash-helper.service 2>/dev/null)"
-  if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
-    kill -9 "$main_pid" 2>/dev/null || true
-  fi
-  for p in $(cat /sys/fs/cgroup/system.slice/sash-helper.service/cgroup.procs 2>/dev/null); do
-    kill -9 "$p" 2>/dev/null || true
-  done
+# Never execute a previous install's bytes: remove the unit first so no
+# ExecStopPost can run them, then kill the leftover process directly and
+# let the verified staged binary (below) recover the journal.
+{ [ -e "$UNIT" ] || [ -L "$UNIT" ]; } && rm -f "$UNIT"
+# The unit's loaded config is only gone once reload SUCCEEDS — while it
+# may still hold ExecStopPost, no stop/start may be issued. A failed
+# reload aborts the install entirely.
+if ! systemctl daemon-reload; then
+  echo "systemctl daemon-reload failed; aborting install" >&2
+  exit 5
 fi
+systemctl stop sash-helper.service 2>/dev/null || true
+systemctl reset-failed sash-helper.service 2>/dev/null || true
+# Kill only the processes in THIS service's cgroup/MainPID — never a
+# name-matched global pkill.
+main_pid="$(systemctl show -p MainPID --value sash-helper.service 2>/dev/null)"
+if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
+  kill -9 "$main_pid" 2>/dev/null || true
+fi
+for p in $(cat /sys/fs/cgroup/system.slice/sash-helper.service/cgroup.procs 2>/dev/null); do
+  kill -9 "$p" 2>/dev/null || true
+done
 
 install -d -m 0755 -o root -g root "$BIN"
 
@@ -133,10 +94,8 @@ if [ "$staged_sha" != "$HELPER_SHA" ]; then
   exit 4
 fi
 
-if [ "$old_trusted" = "0" ]; then
-  # Trusted recovery entry for leftovers the unverified old helper left.
-  "$BIN/.sash-helper.new" --work-dir "$WORK" --cleanup
-fi
+# Recovery entry for leftovers the killed helper left behind.
+"$BIN/.sash-helper.new" --work-dir "$WORK" --cleanup
 
 # The verified staged binary performs the consented install of the pair:
 # it re-verifies its own digest plus the embedded paired-Core digest and

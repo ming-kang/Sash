@@ -26,15 +26,19 @@ afterEach(() => {
 });
 
 describe("packaged binaries", () => {
-  it("pairs the helper and Core names by platform and arch", () => {
-    const root = "/opt/sash";
-    expect(packagedHelperBinary(root)).toBe(
-      path.join(root, "dist", `sash-helper-${process.platform}-${process.arch}`),
-    );
-    expect(packagedCoreBinary(root)).toBe(
-      path.join(root, "dist", `sash-tun-core-${process.platform}-${process.arch}`),
-    );
-  });
+  // Linux binaries carry no .exe suffix; this assertion is only meaningful on unix hosts.
+  it.skipIf(process.platform === "win32")(
+    "pairs the helper and Core names by platform and arch",
+    () => {
+      const root = "/opt/sash";
+      expect(packagedHelperBinary(root)).toBe(
+        path.join(root, "dist", `sash-helper-${process.platform}-${process.arch}`),
+      );
+      expect(packagedCoreBinary(root)).toBe(
+        path.join(root, "dist", `sash-tun-core-${process.platform}-${process.arch}`),
+      );
+    },
+  );
 });
 
 describe("install script", () => {
@@ -85,9 +89,8 @@ describe("inspectProtectedPair", () => {
     const root = tempRoot(t);
     const dist = path.join(root, "dist");
     fs.mkdirSync(dist, { recursive: true });
-    const suffix = `${process.platform}-${process.arch}`;
-    fs.writeFileSync(path.join(dist, `sash-helper-${suffix}`), "helper-v1");
-    fs.writeFileSync(path.join(dist, `sash-tun-core-${suffix}`), "core-v1");
+    fs.writeFileSync(packagedHelperBinary(root), "helper-v1");
+    fs.writeFileSync(packagedCoreBinary(root), "core-v1");
     const install = path.join(root, "protected");
     fs.mkdirSync(install, { recursive: true });
     const paths = {

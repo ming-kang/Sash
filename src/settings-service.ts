@@ -46,13 +46,11 @@ export class SettingsService {
       const state = this.options.state.snapshot();
       const { expectedRevision, ...changes } = patch;
       this.options.state.assertCurrent(expectedRevision ?? state.revision);
+      const tun = { ...state.settings.tun, ...changes.tun };
+      if (changes.tun?.device === null) delete tun.device;
       let settings: SashSettings;
       try {
-        settings = validateSettingsCandidate({
-          ...state.settings,
-          ...changes,
-          tun: { ...state.settings.tun, ...changes.tun },
-        });
+        settings = validateSettingsCandidate({ ...state.settings, ...changes, tun });
       } catch (error) {
         throw new SettingsInputError(errorMessage(error));
       }

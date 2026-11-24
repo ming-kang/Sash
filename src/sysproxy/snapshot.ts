@@ -189,7 +189,7 @@ export function snapshotsCompatible(
   const targetConns = target.connections ?? {};
   const names = new Set([...Object.keys(current.connections ?? {}), ...Object.keys(origConns)]);
   for (const name of names) {
-    const cur = (current.connections ?? {})[name];
+    const cur = current.connections?.[name];
     const orig = origConns[name];
     const tgt = targetConns[name];
     if (cur === undefined) {

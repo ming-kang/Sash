@@ -17,8 +17,8 @@ import (
 	"time"
 	"unsafe"
 
-	"golang.org/x/sys/windows"
 	yaml "go.yaml.in/yaml/v3"
+	"golang.org/x/sys/windows"
 )
 
 var powershellArgs = []string{
@@ -287,16 +287,26 @@ func killIfOurCore(journal *windowsJournal) error {
 		return err
 	}
 	if proc == nil {
-		return nil // already exited — confirmed by the kernel
+		return nil
 	}
 	defer proc.close()
+	// An exited process can still be opened while another handle keeps it alive.
+	if proc.waitExit(0) {
+		return nil
+	}
 	image, err := proc.imagePath()
 	if err != nil {
-		return fmt.Errorf("could not read identity of journaled Core %d", journal.PID)
+		if proc.waitExit(0) {
+			return nil
+		}
+		return fmt.Errorf("could not read image of journaled Core %d: %w", journal.PID, err)
 	}
 	createdAt, err := proc.createdAt()
 	if err != nil {
-		return fmt.Errorf("could not read identity of journaled Core %d", journal.PID)
+		if proc.waitExit(0) {
+			return nil
+		}
+		return fmt.Errorf("could not read creation time of journaled Core %d: %w", journal.PID, err)
 	}
 	if normalizePath(image) != normalizePath(journal.CorePath) ||
 		createdAt != journal.CoreCreatedAt {
@@ -557,7 +567,11 @@ func (p *windowsPlatform) RecoverNetwork(ctx context.Context) error {
 	if journal == nil {
 		return nil
 	}
-	return reclaimJournaledNetwork(ctx, journal, p.workDir, true)
+	if err := reclaimJournaledNetwork(ctx, journal, p.workDir, true); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "[sash-helper] recovered tun session pid=%d iface=%s\n", journal.PID, journal.AdapterName)
+	return nil
 }
 
 // --- config ---

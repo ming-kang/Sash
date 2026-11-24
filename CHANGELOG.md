@@ -21,8 +21,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - macOS start-at-login via a `~/Library/LaunchAgents` LaunchAgent, wired into `sash auto` and the `/sash/autostart` API.
 - Windows TUN support through a LocalSystem helper service managed natively by the Service Control Manager. Administrator-approved installation pairs the Go helper with a verified Core, and the service authenticates the installing user over a local named pipe.
 
+### Changed
+
+- Rework the overview's network controls: system proxy, TUN mode and LAN access are three switch rows; the TUN label opens a dialog describing the helper status and offering the install action.
+- The TUN dialog is now the TUN Mode settings menu: stack, auto-route and strict-route controls plus an advanced section for DNS hijack addresses, excluded CIDRs and the interface name (clear it to let the Core choose).
+- Merge profile `tun:` content key-by-key instead of discarding it: unmanaged keys (mtu, udp-timeout, route-address, include/exclude filters, ...) pass through, Sash settings own enable/stack/auto-route/auto-detect-interface/strict-route/device, and dns-hijack/route-exclude-address merge as profile ∪ settings; overridden profile keys are logged as warnings.
+- A profile that disables `dns` or declares `tun` listeners no longer fails to render when TUN is enabled; the daemon fixes Core DNS and drops the listeners with a warning instead.
+- Accept more Mihomo fields in the privileged helper whitelist: additional `tun` tuning and routing keys, `sniffer`, top-level `udp`, `dns.fake-ip-ttl`, the `anytls` proxy type and `dialer-proxy`, http/file proxy providers with health checks, and provider/group `expected-status`, `filter` and `proxy` fields. Relative provider paths starting with `./` are accepted.
+
 ### Fixed
 
+- Reject a non-string `tun.dns-mode` on macOS instead of silently rewriting it to `native`.
+- Log macOS TUN session recovery (pid and interface) to the helper's error log.
+- Fix Windows TUN cleanup when Core has exited but Windows still has an open process handle. Report helper disconnects promptly after a service crash, replace the previous service registration on reinstall, and preserve an unrecovered network journal during uninstall.
+- Resolve the Windows ProgramData folder through the OS known-folder API instead of the environment, and keep the helper service's stderr in `sash-helper.err.log` under the protected work directory.
+- Accept the target platform as the first `npm run build:helper` argument (for example `npm run build:helper -- linux x64`), matching the documented usage.
+- Stop warning on every network journal snapshot when the kernel has no IPv6 support or no IPv6 routing table for the TUN session; the family is treated as empty. `ip` stderr is now included in helper command errors, so missing-table and unsupported-family detection actually applies.
 - Keep the privileged Core controller private while supporting live routing-mode switches, profile reloads, and supervised restarts in TUN mode. The helper validates configuration changes and blocks raw configuration loads and Core upgrades.
 - Authenticate TUN controller traffic through the local helper connection instead of issuing a second bearer token.
 - Apply TUN when the privileged Core is ready, without probing system routes or DNS. Core startup failures still roll back.
@@ -30,8 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Anchor privileged Core updates to digests embedded in the helper or recorded during administrator-approved installation. Replacing the helper or using another Core requires administrator consent again.
 - Recover recorded TUN network state before serving helper IPC requests; refuse service if recovery fails.
 - Harden the Linux helper: stage and re-hash the helper and paired Core during authorized installation, use a root-owned control socket and kernel peer credentials, stop processes only within the service, and uninstall only manifest-recorded files.
-- Bound Linux crash recovery to the recorded Core and device. Verify policy-rule matches before deleting them, and reclaim routes through the verified non-persistent TUN link rather than deleting routes individually. Keep the journal if a route with a recorded destination remains or cleanup cannot be verified.
-- Refuse Linux `strict-route` at start and reload when automatic routing would install a global unreachable rule because the required IPv6 address is missing; manual routing with `auto-route: false` stays allowed.
+- Bound Linux crash recovery to the recorded Core and device, and reclaim routes through the verified non-persistent TUN link rather than deleting routes individually. Keep the journal if a route with a recorded destination remains or cleanup cannot be verified.
 - Restore only changed GNOME proxy keys and report restore failures. On KDE, restore recorded values and remove keys that did not previously exist.
 - Apply the helper's configuration transform on hot reloads too, so `tun.dns-mode` is never dropped mid-session; only `native`, `hijack` and `disabled` are accepted (the paired Core's sing-tun values).
 - Key the macOS system-proxy snapshot by persistent service UUID and restore per journal service — including offline ones — comparing each recorded field so Sash's own partial writes roll back cleanly while services modified outside Sash or removed are skipped and reported; a vanished UUID never falls back to a same-named service.

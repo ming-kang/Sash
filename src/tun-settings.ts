@@ -25,7 +25,10 @@ const tunFields = z.strictObject({
   routeExcludeAddress: z.array(z.string().refine(isCidr, "Expected an IP CIDR")).max(256),
 });
 
-export const tunSettingsPatchSchema = tunFields.partial();
+export const tunSettingsPatchSchema = tunFields.partial().extend({
+  // null removes a previously configured interface name.
+  device: tunFields.shape.device.nullable(),
+});
 export type TunSettings = z.output<typeof tunFields>;
 export type TunSettingsPatch = z.input<typeof tunSettingsPatchSchema>;
 
@@ -43,9 +46,10 @@ export function defaultTunSettings(): TunSettings {
   };
 }
 
-export const tunSettingsSchema = tunSettingsPatchSchema.transform(
-  (value): TunSettings => ({ ...defaultTunSettings(), ...value }),
-);
+export const tunSettingsSchema = tunSettingsPatchSchema.transform((value): TunSettings => {
+  const { device, ...rest } = value;
+  return { ...defaultTunSettings(), ...rest, ...(typeof device === "string" ? { device } : {}) };
+});
 
 export function parseStoredTunSettings(value: unknown): TunSettings {
   const parsed = tunSettingsSchema.safeParse(value);

@@ -97,7 +97,7 @@ const manifest = {
 };
 fs.mkdirSync(path.dirname(outFile), { recursive: true });
 if (buildHelpers) {
-  const targets = helperTargets(root);
+  const targets = helperTargets();
   if (targets.length > 0) {
     const { extractCoreArchive, mihomoAssetCandidates, validateCoreReleaseTag } = await import(
       "../src/core.ts"

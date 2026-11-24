@@ -9,6 +9,8 @@ export interface GeneratedConfig {
   yaml: string;
   proxyCount: number;
   source: "subscription" | "default";
+  /** Profile content Sash rewrote or ignored, one line each. */
+  warnings?: string[];
 }
 
 export function buildDefaultConfig(): Record<string, unknown> {
@@ -238,54 +240,113 @@ export function stripManagedKeys(base: Record<string, unknown>): Record<string, 
   return Object.fromEntries(Object.entries(base).filter(([key]) => !MANAGED_KEYS.has(key)));
 }
 
+/** TUN keys Sash owns outright; a profile's value for one is ignored. */
+const TUN_MANAGED_KEYS = [
+  "enable",
+  "stack",
+  "auto-route",
+  "strict-route",
+  "auto-detect-interface",
+  "device",
+] as const;
+
+function unionStrings(...values: unknown[]): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      if (typeof item === "string" && !out.includes(item)) out.push(item);
+    }
+  }
+  return out;
+}
+
 export function overlayManagedKeys(
   base: Record<string, unknown>,
   settings: SashSettings,
+  warnings: string[] = [],
 ): Record<string, unknown> {
+  const profileTun = isPlainObject(base.tun) ? base.tun : {};
   const out = stripManagedKeys(base);
   out["mixed-port"] = settings.mixedPort;
   out["allow-lan"] = settings.allowLan;
   out["external-controller"] = settings.controller;
   out.secret = settings.secret;
   const tun = settings.tun;
-  out.tun = tun.enable
-    ? {
-        enable: true,
-        stack: tun.stack,
-        "auto-route": tun.autoRoute,
-        "strict-route": tun.strictRoute,
-        "auto-detect-interface": true,
-        "dns-hijack": tun.dnsHijack,
-        ...(tun.device !== undefined ? { device: tun.device } : {}),
-        "route-exclude-address": tun.routeExcludeAddress,
-      }
-    : { enable: false };
+  const managedTun: Record<string, unknown> = {
+    enable: tun.enable,
+    ...(tun.enable
+      ? {
+          stack: tun.stack,
+          "auto-route": tun.autoRoute,
+          "strict-route": tun.strictRoute,
+          "auto-detect-interface": true,
+          ...(tun.device !== undefined ? { device: tun.device } : {}),
+          "dns-hijack": unionStrings(profileTun["dns-hijack"], tun.dnsHijack),
+          "route-exclude-address": unionStrings(
+            profileTun["route-exclude-address"],
+            tun.routeExcludeAddress,
+          ),
+        }
+      : {}),
+  };
+  for (const key of TUN_MANAGED_KEYS) {
+    if (
+      key in managedTun &&
+      key in profileTun &&
+      JSON.stringify(profileTun[key]) !== JSON.stringify(managedTun[key])
+    ) {
+      warnings.push(`profile tun.${key} is managed by Sash TUN settings; its value was ignored`);
+    }
+  }
+  out.tun = { ...profileTun, ...managedTun };
   if (tun.enable) {
     if (out.dns !== undefined && !isPlainObject(out.dns))
-      throw new Error("TUN requires a DNS configuration object");
-    const dns = out.dns ?? {
+      warnings.push("profile dns is not a mapping; replaced with Core DNS defaults");
+    const dns = (isPlainObject(out.dns) ? out.dns : undefined) ?? {
       nameserver: ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"],
     };
-    if (dns.enable !== undefined && dns.enable !== true)
-      throw new Error("TUN requires dns.enable: true; the selected profile disables DNS");
+    if (dns.enable === false)
+      warnings.push("profile dns.enable: false ignored; TUN requires the Core DNS resolver");
     out.dns = { listen: "127.0.0.1:1053", "enhanced-mode": "fake-ip", ...dns, enable: true };
   }
-  enforceTunConfiguration(out, tun);
+  enforceTunConfiguration(out, tun, warnings);
   return out;
 }
 
-export function enforceTunConfiguration(config: Record<string, unknown>, tun: TunSettings): void {
+export function enforceTunConfiguration(
+  config: Record<string, unknown>,
+  tun: TunSettings,
+  warnings: string[] = [],
+): void {
+  // Looser than isPlainObject: plugin hooks run in a vm context, and their
+  // object literals fail the main realm's prototype check.
   const mapping = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === "object" && !Array.isArray(value);
-  if (
-    Array.isArray(config.listeners) &&
-    config.listeners.some((entry) => mapping(entry) && String(entry.type).toLowerCase() === "tun")
-  ) {
-    throw new Error("Independent TUN listeners are not supported; use Sash TUN settings");
+  if (Array.isArray(config.listeners)) {
+    const kept = config.listeners.filter(
+      (entry) => !(mapping(entry) && String(entry.type).toLowerCase() === "tun"),
+    );
+    if (kept.length !== config.listeners.length) {
+      warnings.push(
+        "profile TUN listeners are not supported and were removed; use Sash TUN settings",
+      );
+      config.listeners = kept;
+    }
   }
   config.tun = { ...(mapping(config.tun) ? config.tun : {}), enable: tun.enable };
-  if (tun.enable && (!mapping(config.dns) || config.dns.enable !== true))
-    throw new Error("TUN requires dns.enable: true in the generated configuration");
+  if (tun.enable) {
+    if (!mapping(config.dns)) {
+      if ("dns" in config)
+        warnings.push("profile dns is not a mapping; replaced with Core DNS defaults");
+      config.dns = {};
+    }
+    const dns = config.dns as Record<string, unknown>;
+    if (dns.enable !== true) {
+      warnings.push("profile dns.enable: false ignored; TUN requires the Core DNS resolver");
+      dns.enable = true;
+    }
+  }
 }
 
 export function countProxies(document: Record<string, unknown>): number {
@@ -298,10 +359,12 @@ export function renderConfig(
   settings: SashSettings,
   source: GeneratedConfig["source"],
 ): GeneratedConfig {
-  const merged = overlayManagedKeys(base, settings);
+  const warnings: string[] = [];
+  const merged = overlayManagedKeys(base, settings, warnings);
   return {
     yaml: YAML.stringify(merged, { indent: 2 }),
     proxyCount: countProxies(merged),
     source,
+    ...(warnings.length ? { warnings } : {}),
   };
 }

@@ -5,7 +5,7 @@ import { describe, it } from "vitest";
 import { testAutostartContext } from "../testing/autostart-context.js";
 import { linuxAutostart, linuxAutostartFile, linuxDesktopEntry } from "./linux.js";
 
-describe("linux autostart (XDG)", () => {
+describe.skipIf(process.platform === "win32")("linux autostart (XDG)", () => {
   it("writes a desktop entry under XDG_CONFIG_HOME/autostart", async (t) => {
     const { ctx } = testAutostartContext(t, "linux");
     const file = linuxAutostartFile(ctx);
