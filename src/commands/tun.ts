@@ -60,11 +60,13 @@ export async function runTun(
               ],
               [
                 "Paired Core",
-                status.privilege.coreSynced === true
-                  ? "Synced"
-                  : status.privilege.coreSynced === false
-                    ? "Drifted"
-                    : "Unknown",
+                status.privilege.installed === true
+                  ? status.privilege.coreSynced === true
+                    ? "Synced"
+                    : status.privilege.coreSynced === false
+                      ? "Drifted"
+                      : "Unknown"
+                  : "—",
               ],
             ]
           : [
