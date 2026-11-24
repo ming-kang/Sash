@@ -5,21 +5,21 @@ export const coreUpdateBodySchema = z.object({ version: z.string().optional() })
 
 export const coreModeBodySchema = z.object({ mode: z.enum(["rule", "global", "direct"]) }).strict();
 
-export const coreDelayBodySchema = z.object({ name: z.unknown() }).strict();
+export const coreDelayBodySchema = z.object({ name: z.string() }).strict();
 
 export const profilesReorderBodySchema = z.object({
   ids: z.array(z.string()),
 });
 
 export const profileAddBodySchema = z.object({
-  url: z.unknown().optional(),
-  name: z.unknown().optional(),
-  activate: z.unknown().optional(),
+  url: z.string().optional(),
+  name: z.string().optional(),
+  activate: z.boolean().optional(),
 });
 
 export const profileImportBodySchema = z.object({
-  name: z.unknown().optional(),
-  content: z.unknown().optional(),
+  name: z.string().optional(),
+  content: z.string().optional(),
 });
 
 export const profileActivateBodySchema = z.object({
@@ -27,20 +27,20 @@ export const profileActivateBodySchema = z.object({
 });
 
 export const profileContentBodySchema = z.object({
-  content: z.unknown().optional(),
+  content: z.string().optional(),
   revision: z.number().int().min(1).safe(),
 });
 
 export const profileRenameBodySchema = z.object({
-  name: z.unknown().optional(),
+  name: z.string().optional(),
 });
 
-export const unvalidatedSettingsPatchBodySchema = z
+export const settingsPatchBodySchema = z
   .object({
-    expectedRevision: z.unknown().optional(),
-    mixedPort: z.unknown().optional(),
-    allowLan: z.unknown().optional(),
-    systemProxy: z.unknown().optional(),
+    expectedRevision: z.number().int().min(0).safe().optional(),
+    mixedPort: z.number().int().min(1).max(65_535).optional(),
+    allowLan: z.boolean().optional(),
+    systemProxy: z.boolean().optional(),
     tun: tunSettingsPatchSchema.optional(),
   })
   .strict();
@@ -54,4 +54,4 @@ export type ProfileImportBody = z.infer<typeof profileImportBodySchema>;
 export type ProfileActivateBody = z.infer<typeof profileActivateBodySchema>;
 export type ProfileContentBody = z.infer<typeof profileContentBodySchema>;
 export type ProfileRenameBody = z.infer<typeof profileRenameBodySchema>;
-export type SettingsPatchBody = z.infer<typeof unvalidatedSettingsPatchBodySchema>;
+export type SettingsPatchBody = z.infer<typeof settingsPatchBodySchema>;

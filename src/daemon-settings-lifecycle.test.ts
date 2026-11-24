@@ -33,6 +33,36 @@ describe("save and apply API", () => {
     assert.equal(after.core.running, false);
     assert.equal(fs.existsSync(h.layout.configFile), false);
   });
+  it("rejects settings patches with wrong primitive types and keeps valid writes working", async () => {
+    await h.startServer();
+    for (const body of [
+      { expectedRevision: "0" },
+      { expectedRevision: -1 },
+      { expectedRevision: 1.5 },
+      { mixedPort: "18888" },
+      { mixedPort: 0 },
+      { mixedPort: 70000 },
+      { allowLan: "true" },
+      { allowLan: 1 },
+      { systemProxy: "no" },
+      { tun: "off" },
+      { tun: { enable: "yes" } },
+      { daemonPort: 1234 },
+    ]) {
+      const response = await h.apiRequest("/sash/settings", { method: "PATCH", body });
+      assert.equal(response.statusCode, 400, JSON.stringify(body));
+    }
+    const before = await status();
+    const applied = await h.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { mixedPort: 18888, allowLan: true, expectedRevision: before.revisions.state },
+    });
+    assert.equal(applied.statusCode, 200);
+    const after = await status();
+    assert.equal(after.settings.mixedPort, 18888);
+    assert.equal(after.settings.allowLan, true);
+    assert.equal(after.revisions.state, before.revisions.state + 1);
+  });
   it("keeps saved settings consistent with the returned revision during a slow status probe", async () => {
     const entered = deferred();
     const release = deferred();

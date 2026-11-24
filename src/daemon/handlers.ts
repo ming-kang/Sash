@@ -8,7 +8,7 @@ import {
   profileImportBodySchema,
   profileRenameBodySchema,
   profilesReorderBodySchema,
-  unvalidatedSettingsPatchBodySchema,
+  settingsPatchBodySchema,
 } from "../api-schemas.js";
 import { parseAutostartEnabled } from "../autostart/contract.js";
 import type { HealthInfo, SettingsPatch, SystemProxyStatusResponse } from "../contracts.js";
@@ -360,12 +360,12 @@ export async function reorderProfiles(
 
 export async function addProfile(ctx: DaemonContext, req: DaemonRequest): Promise<RouteResponse> {
   const body = profileAddBodySchema.safeParse(await req.readJson());
-  const data = body.success ? body.data : {};
-  const url = typeof data.url === "string" ? data.url.trim() : "";
-  const name = typeof data.name === "string" ? data.name.trim() : undefined;
-  const result = await ctx.profiles.addRemote(url, {
+  if (!body.success)
+    throw new ProfileInputError("Expected a profile URL with optional name and activate flag");
+  const name = body.data.name?.trim();
+  const result = await ctx.profiles.addRemote(body.data.url?.trim() ?? "", {
     ...(name ? { name } : {}),
-    activate: data.activate === true,
+    activate: body.data.activate === true,
   });
   return { status: 200, json: result };
 }
@@ -375,10 +375,11 @@ export async function importProfile(
   req: DaemonRequest,
 ): Promise<RouteResponse> {
   const body = profileImportBodySchema.safeParse(await req.readJson());
-  const data = body.success ? body.data : {};
-  const name = typeof data.name === "string" ? data.name : "imported";
-  const content = typeof data.content === "string" ? data.content : "";
-  const result = await ctx.profiles.importLocal(name, content);
+  if (!body.success) throw new ProfileInputError("Expected profile content with an optional name");
+  const result = await ctx.profiles.importLocal(
+    body.data.name ?? "imported",
+    body.data.content ?? "",
+  );
   return { status: 200, json: result };
 }
 
@@ -414,11 +415,11 @@ export async function writeProfileContent(
   req: DaemonRequest,
 ): Promise<RouteResponse> {
   const body = profileContentBodySchema.safeParse(await req.readJson());
-  if (!body.success) throw new ProfileInputError("A positive profile revision is required");
-  const content = typeof body.data.content === "string" ? body.data.content : "";
+  if (!body.success)
+    throw new ProfileInputError("Expected profile content with a positive revision");
   const result = await ctx.profiles.writeContent(
     requiredParam(req, "id"),
-    content,
+    body.data.content ?? "",
     body.data.revision,
   );
   return { status: 200, json: result };
@@ -429,8 +430,8 @@ export async function renameProfile(
   req: DaemonRequest,
 ): Promise<RouteResponse> {
   const body = profileRenameBodySchema.safeParse(await req.readJson());
-  const name = body.success && typeof body.data.name === "string" ? body.data.name : "";
-  const result = await ctx.profiles.rename(requiredParam(req, "id"), name);
+  if (!body.success) throw new ProfileInputError("Expected a profile name");
+  const result = await ctx.profiles.rename(requiredParam(req, "id"), body.data.name ?? "");
   return { status: 200, json: result };
 }
 
@@ -459,7 +460,7 @@ export async function proxyStatus(ctx: DaemonContext, req: DaemonRequest): Promi
 }
 
 function readSettingsPatch(body: unknown): SettingsPatch {
-  const parsed = unvalidatedSettingsPatchBodySchema.safeParse(body);
+  const parsed = settingsPatchBodySchema.safeParse(body);
   if (!parsed.success) {
     const unknownKey = parsed.error.issues.find((issue) => issue.code === "unrecognized_keys")
       ?.keys?.[0];
@@ -474,7 +475,7 @@ function readSettingsPatch(body: unknown): SettingsPatch {
         : `Invalid settings patch: ${detail}`,
     );
   }
-  return parsed.data as SettingsPatch;
+  return parsed.data;
 }
 
 async function readTun(ctx: DaemonContext): Promise<RouteResponse> {

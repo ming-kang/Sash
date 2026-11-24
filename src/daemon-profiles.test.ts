@@ -249,6 +249,41 @@ describe("profile management API", () => {
       1,
     );
   });
+  it("rejects profile request bodies with wrong primitive types before touching storage", async () => {
+    await h.startServer();
+    const added = await add("a");
+    const profile = added.profile;
+    const read = (await h.apiRequest(`/sash/profiles/${profile.id}/content`))
+      .data as ProfileContentResponse;
+    for (const [pathname, body] of [
+      ["/sash/profiles", { url: 42 }],
+      ["/sash/profiles", { url: "https://example.test", activate: "yes" }],
+      ["/sash/profiles/import", { name: 7, content }],
+      ["/sash/profiles/import", { content: 9 }],
+      [`/sash/profiles/${profile.id}/content`, { content, revision: "1" }],
+      [`/sash/profiles/${profile.id}/content`, { content: 5, revision: read.revision }],
+      [`/sash/profiles/${profile.id}/content`, { content }],
+      [`/sash/profiles/${profile.id}`, { name: 42 }],
+      [`/sash/profiles/${profile.id}`, { name: true }],
+    ] as const) {
+      const method = pathname.endsWith("/content")
+        ? "PUT"
+        : pathname === "/sash/profiles" || pathname.endsWith("/import")
+          ? "POST"
+          : "PATCH";
+      const response = await h.apiRequest(pathname, { method, body });
+      assert.equal(response.statusCode, 400, JSON.stringify(body));
+    }
+    const stored = (await h.apiRequest(`/sash/profiles/${profile.id}/content`))
+      .data as ProfileContentResponse;
+    assert.equal(stored.content, content);
+    assert.equal(stored.revision, read.revision);
+    const renamed = await h.apiRequest(`/sash/profiles/${profile.id}`, {
+      method: "PATCH",
+      body: { name: "renamed" },
+    });
+    assert.equal(renamed.statusCode, 200);
+  });
   it("does not let a partial request body block stop or health", async () => {
     await h.startServer();
     const socket = net.createConnection({ host: "127.0.0.1", port: h.boundPort });

@@ -57,6 +57,9 @@ describe("explicit Core delay probes", () => {
       {},
       { name: " " },
       { name: ".." },
+      { name: 42 },
+      { name: true },
+      { name: null },
       { name: "DIRECT", url: "http://example.test" },
     ]) {
       assert.equal(
