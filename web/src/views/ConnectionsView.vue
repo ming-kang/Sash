@@ -245,7 +245,6 @@ async function closeAll(): Promise<void> {
 </script>
 
 <style scoped>
-/* Skeleton rows stand in for the connection list while it streams in. */
 .skeleton-rows {
   display: flex;
   min-height: 240px;

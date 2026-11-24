@@ -8,11 +8,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-/**
- * Truncates in the middle (`very-lo…ample.com`) so the distinguishing tail —
- * TLD, port-adjacent segment, rule suffix — stays visible. Used for hosts,
- * URLs and rule payloads where end-ellipsis hides the useful part.
- */
+/** Mid-truncates (`very-lo…ample.com`) so the distinguishing tail stays visible where end-ellipsis would hide it. */
 const props = withDefaults(defineProps<{ text: string; tail?: number }>(), { tail: 12 });
 
 const head = computed(() => {

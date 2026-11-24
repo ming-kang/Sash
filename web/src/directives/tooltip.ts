@@ -2,12 +2,8 @@ import type { Directive } from "vue";
 
 /**
  * v-tooltip — styled replacement for the native `title` attribute.
- *
- * One singleton `.sash-tooltip` node serves every trigger. Hovered/focused
- * elements reveal it after a short delay; consecutive triggers within
- * a cooldown window reveal instantly (Devin/base-ui tooltip-group behaviour).
- * Elements with neither an accessible name nor text of their own get the text
- * as `aria-label`, matching what the removed `title` used to provide.
+ * One singleton node serves every trigger; consecutive triggers inside the
+ * GROUP_WINDOW cooldown skip the show delay.
  */
 
 interface TooltipState {
@@ -19,7 +15,6 @@ interface TooltipState {
 
 interface Trigger {
   text: string;
-  /** Whether the element's aria-label was written by this directive. */
   ownsLabel: boolean;
 }
 

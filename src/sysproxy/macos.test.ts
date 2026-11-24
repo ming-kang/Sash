@@ -138,9 +138,8 @@ describe("macOS system proxy disabled-state preservation", () => {
     const empty = macosSystemProxySnapshotCodec.parse(pacService);
     const stored = macosSystemProxySnapshotCodec.parse(pacService);
     service(stored as PosixSystemProxySnapshot, "Wi-Fi").webProxy.server = "old.example";
-    // Disabled-but-stored values are real state that must be restored; they
-    // participate in equivalence, so nothing Sash wrote can hide behind a
-    // disabled flag.
+    // Disabled-but-stored values are real state and participate in
+    // equivalence — nothing Sash wrote can hide behind a disabled flag.
     assert.equal(macosSystemProxySnapshotCodec.equivalent(empty, stored), false);
   });
 
@@ -291,9 +290,9 @@ const manualText = (value: FixtureManual) =>
   `Enabled: ${value.enabled ? "Yes" : "No"}\nServer: ${value.server}\nPort: ${value.port}\nAuthenticated Proxy Enabled: ${value.authenticated ? 1 : 0}\n`;
 
 /**
- * Stateful networksetup/plutil fixture: services keyed by display name,
- * uuid->name resolution through the preferences store, and real read/write
- * of every proxy field so the production manager + backend run end to end.
+ * Stateful networksetup/plutil fixture: display-name keyed services,
+ * uuid->name resolution through the preferences store, real read/write of
+ * every proxy field — the production manager + backend run end to end.
  */
 describe("macOS system proxy restore through SystemProxyManager", () => {
   let services: Record<string, FixtureService>;
@@ -488,14 +487,13 @@ describe("macOS system proxy restore through SystemProxyManager", () => {
     };
     const { manager: mgr, journalFile } = await manager();
     await assert.rejects(mgr.apply({ port: 7897 }));
-    // The per-field check treats the mid-write values as Sash's own, so the
+    // The per-field check treats mid-write values as Sash's own, so the
     // rollback writes webProxy back to the original — then hits the same
     // fault on -setsecurewebproxy and keeps the journal as evidence.
     assert.equal((services["Wi-Fi"] as FixtureService).webProxy.enabled, false);
     assert.equal((services["Wi-Fi"] as FixtureService).webProxy.server, "");
     assert.equal(fs.existsSync(journalFile), true);
     failSecure = false;
-    // Once the fault clears, retrying the restore finishes cleanly.
     await mgr.release();
     const wifi = services["Wi-Fi"] as FixtureService;
     assert.equal(wifi.webProxy.enabled, false);

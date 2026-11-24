@@ -3,13 +3,9 @@ import type { SashLayout } from "./paths.js";
 import type { TunSettings } from "./tun-settings.js";
 
 /**
- * How a platform lends the managed Core the privilege TUN needs. None of
- * them pins a Core version: they act on `layout.coreExe`, the same Core that
- * ordinary mode runs and `sash update` replaces.
- *
- * - `service`: a LocalSystem service starts and stops the Core (Windows).
- * - `setuid`: the Core file is owned by root with the setuid bit (macOS).
- * - `capabilities`: the Core file carries CAP_NET_ADMIN (Linux).
+ * How a platform lends the managed Core the privilege TUN needs. None pins a
+ * Core version: all act on `layout.coreExe`, the same Core `sash update`
+ * replaces.
  */
 export type TunPrivilegeMechanism = "service" | "setuid" | "capabilities";
 
@@ -23,7 +19,6 @@ export type TunPrivilegeState = "ready" | "missing" | "stale" | "unknown";
 
 export interface TunPrivilege {
   state: TunPrivilegeState;
-  /** Why the privilege is not ready, when the platform can tell. */
   detail?: string;
 }
 
@@ -43,7 +38,6 @@ export interface TunInstallOptions {
 }
 
 export interface TunPlatform {
-  /** null when this platform has no TUN integration. */
   readonly mechanism: TunPrivilegeMechanism | null;
   inspect(layout: SashLayout): Promise<TunPrivilege>;
   install(layout: SashLayout, options?: TunInstallOptions): Promise<void>;

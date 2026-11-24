@@ -13,18 +13,14 @@ import type { SashLayout } from "../paths.js";
  */
 export interface CoreEngine {
   readonly id: string;
-  /** Arguments the supervisor passes to the Core executable. */
   spawnArguments(layout: SashLayout): string[];
-  /** Render the merged generated configuration for a state snapshot. */
   renderActiveConfig(state: SashState, layout: SashLayout): Promise<GeneratedConfig>;
-  /** Validate a generated config with the installed Core binary. */
   validateConfig(
     executable: string,
     yaml: string,
     layout: SashLayout,
     options: { signal?: AbortSignal; timeoutMs?: number },
   ): Promise<void>;
-  /** External-controller client for probes, reloads, modes and delay tests. */
   api(controller: string, secret: string, dispatcher?: Dispatcher): CoreControllerApi;
   readonly geodata: CoreGeodata;
 }

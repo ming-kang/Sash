@@ -10,11 +10,7 @@ import {
 } from "./context.js";
 import type { RegisteredAutostartState } from "./contract.js";
 
-/**
- * XDG autostart entry. Any freedesktop-compliant desktop (GNOME, KDE Plasma,
- * XFCE, MATE, Cinnamon, …) starts Sash at login; on a headless or container
- * session the file is still managed faithfully, the entry simply never fires.
- */
+// XDG autostart entry; on a headless session the file is still managed — it simply never fires.
 export function linuxAutostartFile(ctx: AutostartContext): string {
   const configHome =
     ctx.env.XDG_CONFIG_HOME && path.isAbsolute(ctx.env.XDG_CONFIG_HOME)

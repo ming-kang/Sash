@@ -33,7 +33,6 @@ export type CoreResource = "configs" | "proxies" | "rules" | "connections";
 export type DaemonConnection = "connecting" | "connected" | "offline" | "refused";
 export interface StoreState {
   status: SashStatus | null;
-  /** Latest TUN snapshot from the daemon event feed. */
   tun: TunStatusResponse | undefined;
   connection: DaemonConnection;
   lastStateRevision: number | null;
@@ -112,9 +111,7 @@ export const useAppStore = defineStore("app", { state: initialState });
 export const pinia = createPinia();
 setActivePinia(pinia);
 
-// The store's plain-object view: `store.field` reads and writes reach the
-// reactive state directly — no wrapper semantics. New code may prefer the
-// idiomatic useAppStore() API; both point at the same state.
+// Plain-object alias for the same reactive state; prefer useAppStore() in new code.
 export const store: StoreState = useAppStore().$state;
 
 export function isCoreHealthy(status: SashStatus | null): boolean {

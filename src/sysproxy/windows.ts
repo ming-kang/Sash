@@ -155,9 +155,8 @@ type CommandRunner = typeof runCmd;
 
 /**
  * Every value under `...\Internet Settings\Connections`: name → REG_BINARY
- * hex string. DefaultConnectionSettings/SavedLegacySettings are the default
- * connection's blobs; named entries are RAS/VPN connections. Each is kept
- * verbatim so restore is byte-exact.
+ * hex string — LAN blobs plus named RAS/VPN entries, kept verbatim so
+ * restore is byte-exact.
  */
 async function captureWindowsConnections(run: CommandRunner): Promise<Record<string, string>> {
   const connections: Record<string, string> = {};
@@ -243,8 +242,8 @@ async function deleteWindowsValue(name: WindowsValueName, run: CommandRunner): P
   try {
     await run("reg.exe", ["delete", WIN_REG_PATH, "/v", name, "/f"]);
   } catch (err) {
-    // A failed delete is harmless only when a fresh snapshot proves the value is
-    // already absent; never infer absence from stderr.
+    // A failed delete is harmless only when a fresh snapshot proves the
+    // value absent — never infer absence from stderr.
     const current = await captureWindowsSnapshot(run);
     if (windowsSnapshotValue(current, name) !== null) throw err;
   }
@@ -336,8 +335,8 @@ export async function restoreWindowsSnapshot(
     if (cur !== undefined && blobTargetMatches(name, cur, targetHex)) {
       blobWrites.push({ name, hex, recheckAbsent: false });
     } else if (cur === undefined && WIN_LAN_CONNECTIONS.has(name)) {
-      // A LAN blob WinINet has not (re)generated yet — restoring the
-      // recorded original is the correct prior state, write it back.
+      // A LAN blob WinINet has not regenerated yet — the recorded
+      // original is the correct prior state; write it back.
       blobWrites.push({ name, hex, recheckAbsent: true });
     } else {
       skipped.push({
@@ -351,9 +350,8 @@ export async function restoreWindowsSnapshot(
     for (const [name, type, , value] of writes) await applyWindowsValue(name, type, value, run);
     for (const { name, hex, recheckAbsent } of blobWrites) {
       if (recheckAbsent) {
-        // The value was absent at capture time — re-read it immediately
-        // before writing so a blob that materialized since is never
-        // overwritten with the recorded original.
+        // Absent at capture — re-read just before writing so a blob that
+        // materialized since is never overwritten with the recorded original.
         const latest = (await captureWindowsConnections(run))[name];
         if (latest !== undefined) {
           if (blobsSemanticallyEqual(latest, hex)) continue;
@@ -384,10 +382,9 @@ export async function restoreWindowsSnapshot(
     if (writes.length > 0 || writtenBlobs.length > 0) await refreshWindowsWinINet(run);
   }
   if (writes.length > 0 || writtenBlobs.length > 0) {
-    // The notification itself may rewrite the connection blobs and flat
-    // keys — re-verify against the restored values, polling while WinINet
-    // is still settling. Anything that no longer matches the original once
-    // the writes have landed keeps the journal as evidence.
+    // The refresh itself may rewrite blobs and flat keys — re-verify
+    // against the restored values, polling while WinINet settles. What no
+    // longer matches the original keeps the journal as evidence.
     const matches = (snap: WindowsSystemProxySnapshot) =>
       writes.every(([, , key]) => snap[key] === original[key]) &&
       writtenBlobs.every(({ name, hex }) => {
@@ -415,14 +412,12 @@ export async function restoreWindowsSnapshot(
 }
 
 /**
- * The semantic target a LAN connection blob must reach after `apply`: PROXY
- * set, AUTO_PROXY_URL cleared, ProxyServer/ProxyBypass verbatim from the
- * flat values. A parseable original contributes its DIRECT/AUTO_DETECT bits;
- * a missing or unparseable original falls back to a standard construction
- * (AUTO_DETECT from the flat setting, DIRECT left to WinINet — a fresh blob
- * may add it). The header is always a standard one: version/counter bytes
- * are WinINet-owned and never enter comparisons. This is a semantic
- * expectation for verification and journal records — never bytes to write.
+ * The semantic target a LAN blob must reach after `apply`: PROXY set,
+ * AUTO_PROXY_URL cleared, ProxyServer/ProxyBypass verbatim from the flat
+ * values. DIRECT/AUTO_DETECT come from a parseable original, else a
+ * standard fallback (AUTO_DETECT from the flat setting; a fresh blob may
+ * add DIRECT). A comparison/journal value — version/counter stay
+ * WinINet-owned — never bytes to write.
  */
 function buildExpectedLanBlob(
   originalHex: string | undefined,
@@ -442,12 +437,11 @@ function buildExpectedLanBlob(
 }
 
 /**
- * A readback blob (or InternetQueryOption result) proves the applied LAN
- * settings when PROXY is on, AUTO_PROXY_URL is off, the three strings equal
- * the flat intent, and AUTO_DETECT is on when the expectation asserts it.
- * DIRECT is environment-owned and never checked. When the original blob was
- * missing or unreadable the expected carries no AUTO_DETECT claim — that bit
- * is WinINet-owned, so an expected-off never fails the readback.
+ * A readback (registry blob or InternetQueryOption result) proves the
+ * applied LAN settings when PROXY is on, AUTO_PROXY_URL is off, the strings
+ * match the flat intent, and AUTO_DETECT is on when the expected asserts
+ * it. DIRECT is environment-owned and never checked; an expected
+ * AUTO_DETECT-off is WinINet's claim-free bit and never fails the readback.
  */
 function lanEffectiveMatch(
   actual: ConnectionBlobSemantics,
@@ -465,8 +459,8 @@ function lanEffectiveMatch(
 }
 
 /**
- * Read the effective per-connection options of the default (LAN) connection
- * via InternetQueryOption(INTERNET_OPTION_PER_CONNECTION_OPTION) — the
+ * Effective LAN connection options via
+ * InternetQueryOption(INTERNET_OPTION_PER_CONNECTION_OPTION) — the
  * supported source when the registry blob is absent or unreadable.
  */
 async function queryLanEffectiveOptions(
@@ -552,13 +546,11 @@ async function queryLanEffectiveOptions(
 }
 
 /**
- * Prove every expected LAN connection blob after the WinINet refresh. For
- * each LAN name a strict semantic match on the readback passes; a parseable
- * readback that only differs in environment-owned bits still passes the
- * loose check and its verified semantics are recorded as the target. A
- * missing or unparseable DefaultConnectionSettings falls back to
- * InternetQueryOption on the effective settings; anything unproven fails
- * the apply — the caller then rolls back through the journal.
+ * Prove every expected LAN blob after the WinINet refresh: a strict
+ * semantic match passes; a parseable readback differing only in
+ * environment-owned bits passes loosely and its proven semantics become
+ * the target. A missing or unparseable DefaultConnectionSettings falls
+ * back to InternetQueryOption; anything unproven fails the apply.
  */
 async function verifyWindowsLanConnections(
   target: WindowsSystemProxySnapshot,
@@ -589,8 +581,8 @@ async function verifyWindowsLanConnections(
     const sem = cur === undefined ? null : parseConnectionBlobSemantics(cur);
     const expectedSem = expected === undefined ? null : parseConnectionBlobSemantics(expected);
     if (sem !== null && lanEffectiveMatch(sem, expectedSem, target)) {
-      // The loose check passed: record the proven effective semantics (the
-      // registry blob stays WinINet's own serialization, never adopted).
+      // Loose check passed: record the proven effective semantics — the
+      // registry blob stays WinINet's own serialization, never adopted.
       target.connections[name] = serializeConnectionSemantics(sem);
       continue;
     }
@@ -598,9 +590,9 @@ async function verifyWindowsLanConnections(
   }
   for (const name of unresolved) {
     if (name !== LAN_CONNECTION_DEFAULT) {
-      // A legacy LAN blob that never materialized cannot be proven by the
-      // per-connection API — record the absence so equivalence sees it.
-      // A present-but-unverifiable blob still fails the apply.
+      // A LAN blob that never materialized cannot be proven by the
+      // per-connection API — record the absence; a present-but-unverifiable
+      // blob still fails the apply.
       if (current.connections[name] === undefined) {
         delete target.connections[name];
         continue;
@@ -609,10 +601,9 @@ async function verifyWindowsLanConnections(
     }
     const curHex = current.connections[name];
     if (curHex !== undefined && parseConnectionBlobSemantics(curHex) !== null) {
-      // A parseable blob that matched neither the strict nor the loose
-      // check is a semantic conflict — the effective-settings API may
-      // only stand in for a blob that is missing or unparseable, never
-      // override a registry value that provably differs from the intent.
+      // A parseable blob matching neither check is a semantic conflict —
+      // the effective-settings API stands in only for a missing or
+      // unparseable blob, never overrides a proven registry difference.
       throw new Error(`System proxy apply could not verify the "${name}" connection settings`);
     }
     const effective = await queryLanEffectiveOptions(run);
@@ -644,9 +635,9 @@ export function createWindowsTarget(
         ? buildExpectedLanBlob(hex, proxyServer, proxyOverride, original.autoDetect)
         : hex;
     }
-    // An apply is not proven until the default LAN blob exists and matches —
-    // expect one even when the original had none (apply drops the
-    // expectation again if only InternetQueryOption can prove the settings).
+    // An apply is unproven until the default LAN blob exists and matches —
+    // expect one even when the original had none (apply drops it again if
+    // only InternetQueryOption can prove the settings).
     if (original.connections[LAN_CONNECTION_DEFAULT] === undefined) {
       connections[LAN_CONNECTION_DEFAULT] = buildExpectedLanBlob(
         undefined,
@@ -666,9 +657,9 @@ export function createWindowsTarget(
     // A manual proxy takes precedence over WPAD, and the flat AutoDetect value is
     // not durable across WinINet refreshes.
     autoDetect: null,
-    // Semantic per-connection intent: prepared/crash recovery and the
-    // post-apply verification compare these blobs by flags+strings, so a
-    // foreign change can never be absorbed as Sash-owned.
+    // Semantic per-connection intent: prepared/crash recovery and
+    // post-apply verification compare these by flags+strings, so a foreign
+    // change is never absorbed as Sash-owned.
     connections,
   };
 }

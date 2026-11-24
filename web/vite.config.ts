@@ -62,12 +62,10 @@ function fontSplitPlugin(): Plugin {
   };
 }
 
-// The WebUI counterpart of the backend `sashDist` license emission: upstream
-// legal comments are preserved at the end of each minified chunk, and complete
-// license texts for every bundled npm package land in `licenses/`.
-// Some packages carry no legal comments (CodeMirror, @lezer) and
-// @remixicon/vue ships no license file at all, so texts come from
-// node_modules/LICENSE* with explicit overrides.
+// The WebUI counterpart of the backend `sashDist` license emission. Some
+// packages carry no legal comments (CodeMirror, @lezer) and @remixicon/vue
+// ships no license file at all, so texts come from node_modules/LICENSE*
+// with explicit overrides.
 function uiLicensesPlugin(): Plugin {
   const licenseSources: Record<string, string> = {
     "@remixicon/vue": path.join(webRoot, "..", "docs", "remix-icon-license.txt"),

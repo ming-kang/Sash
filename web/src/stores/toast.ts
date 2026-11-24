@@ -1,8 +1,7 @@
 import { store, type ToastItem } from "./state.js";
 
-// Toasts report failures and outcomes the page cannot show by itself; a change that is
+// Toasts report failures and outcomes the page cannot show itself; a change
 // already visible in place (a switch, a selected card, a reordered list) gets none.
-// Confirmations fade quickly; errors stay until dismissed.
 const TOAST_DURATION: Record<ToastItem["kind"], number> = {
   success: 2800,
   info: 4000,

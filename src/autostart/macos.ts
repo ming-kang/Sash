@@ -66,12 +66,8 @@ async function launchctlUid(ctx: AutostartContext): Promise<number> {
   return Number.parseInt(result.stdout.trim(), 10);
 }
 
-/**
- * Tri-state registration probe. `launchctl print` exits non-zero both when
- * the service was never loaded AND on GUI-domain/permission errors — only
- * the "service not found" family means absent; anything else is an error
- * the caller must see, never silently "not registered".
- */
+// `launchctl print` exits non-zero both when the service was never loaded
+// and on GUI-domain errors — only the "service not found" family means absent.
 async function launchctlPrint(ctx: AutostartContext, uid: number): Promise<"loaded" | "absent"> {
   const result = await ctx.run(LAUNCHCTL, ["print", `gui/${uid}/${MACOS_AUTOSTART_LABEL}`]);
   if (result.code === 0) return "loaded";
@@ -82,10 +78,7 @@ async function launchctlPrint(ctx: AutostartContext, uid: number): Promise<"load
   throw new Error(`launchctl print failed (exit ${result.code}): ${detail.trim().slice(0, 300)}`);
 }
 
-/**
- * null when print-disabled itself failed — the caller must NOT treat an
- * undeterminable state as "not disabled".
- */
+// null when print-disabled itself failed — never read that as "not disabled".
 async function launchctlDisabled(ctx: AutostartContext, uid: number): Promise<boolean | null> {
   const result = await ctx.run(LAUNCHCTL, ["print-disabled", `gui/${uid}`]);
   if (result.code !== 0) return null;

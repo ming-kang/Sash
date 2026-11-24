@@ -365,8 +365,8 @@ export class SystemProxyManager implements SystemProxyController {
       if (!this.snapshot.equivalent(current, target)) {
         throw new Error("System proxy target verification failed after apply");
       }
-      // The target persists as the semantic value Sash constructed, never
-      // the readback: `current` only verifies the write produced the
+      // The target persists as Sash's constructed semantic value, never
+      // the readback — `current` only proves the write produced the
       // intended state (a foreign change caught mid-apply fails above).
       const applied: SystemProxyJournal = { ...prepared, phase: "applied" };
       this.writeJournal(applied);
@@ -390,7 +390,7 @@ export class SystemProxyManager implements SystemProxyController {
   private async restoreJournal(journal: SystemProxyJournal): Promise<void> {
     if (this.backend.restore) {
       // Journal-scoped restore: the backend decides per recorded service
-      // (offline included) whether writing is safe. Services left untouched
+      // (offline included) whether writing is safe; services left untouched
       // keep their journal entry as evidence and are reported.
       const result = await this.backend.restore(journal.original, journal.target);
       if (result.skipped.length === 0) {

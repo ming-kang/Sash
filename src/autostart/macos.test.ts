@@ -160,7 +160,6 @@ describe("macOS LaunchAgent registration edge cases", () => {
       "print gui/": { code: 0, stdout: "state = running", stderr: "" },
     });
     const backend = macosAutostart(ctx);
-    // The undeterminable state must abort before any change.
     await assert.rejects(backend.set(true), /disabled state/);
     assert.equal(await backend.inspect(), "off");
   });
@@ -204,8 +203,6 @@ describe("macOS LaunchAgent registration edge cases", () => {
       "print-disabled": { code: 0, stdout: "", stderr: "" },
     });
     const backend = macosAutostart(ctx);
-    // set(false) must surface the domain error instead of treating the
-    // service as absent and deleting the plist.
     await assert.rejects(backend.set(false), /launchctl print failed/);
   });
 
@@ -225,7 +222,6 @@ describe("macOS LaunchAgent registration edge cases", () => {
         const key = args.join(" ");
         calls.push(key);
         if (key.includes("print-disabled")) {
-          // The agent was registered AND disabled before the failed refresh.
           return { code: 0, stdout: `"${MACOS_AUTOSTART_LABEL}" = disabled`, stderr: "" };
         }
         if (key.startsWith("bootstrap ")) {
@@ -239,11 +235,9 @@ describe("macOS LaunchAgent registration edge cases", () => {
     fs.writeFileSync(path.join(home, "node"), "// node\n");
     fs.chmodSync(path.join(home, "node"), 0o755);
     await assert.rejects(macosAutostart(ctx).set(true));
-    // Old plist bytes restored and re-registered...
     assert.equal(fs.readFileSync(plist, "utf8"), OLD_PLIST);
     const bootstraps = calls.filter((key) => key.startsWith("bootstrap "));
     assert.ok(bootstraps.length >= 2, "previous plist was not re-bootstrapped");
-    // ...and the disabled override re-applied.
     assert.ok(calls.some((key) => key.startsWith("disable gui/")));
   });
 });
@@ -279,14 +273,11 @@ describe("macOS LaunchAgent rollback coverage", () => {
     const OLD_PLIST = "<plist><dict><key>Label</key><string>old</string></dict></plist>\n";
     fs.writeFileSync(plist, OLD_PLIST);
     const { ctx, calls } = fixture(home, {
-      // Old plist exists but the service was never loaded in this gui session.
       "print gui": { code: 113, stdout: "", stderr: "Could not find service" },
       "print-disabled": { code: 0, stdout: "", stderr: "" },
       "bootstrap ": { code: 1, stdout: "", stderr: "Bootstrap failed" },
     });
     await assert.rejects(macosAutostart(ctx).set(true));
-    // Old file restored, but no second bootstrap ran: the agent must stay
-    // unloaded exactly as before, not get loaded by the rollback.
     assert.equal(fs.readFileSync(plist, "utf8"), OLD_PLIST);
     assert.equal(calls.filter((key) => key.startsWith("bootstrap ")).length, 1);
     assert.equal(calls.filter((key) => key.startsWith("disable gui/")).length, 0);
@@ -303,7 +294,6 @@ describe("macOS LaunchAgent rollback coverage", () => {
       "print-disabled": { code: 1, stdout: "", stderr: "disabled query failed" },
     });
     await assert.rejects(macosAutostart(ctx).set(true), /disabled state/);
-    // No state was touched: file intact, no enable/bootstrap/disable calls.
     assert.equal(fs.readFileSync(plist, "utf8"), OLD_PLIST);
     assert.equal(calls.filter((key) => key.startsWith("bootstrap ")).length, 0);
     assert.equal(calls.filter((key) => key.startsWith("enable gui/")).length, 0);
@@ -322,7 +312,6 @@ describe("macOS LaunchAgent rollback coverage", () => {
       "bootout ": { code: 1, stdout: "", stderr: "bootout broken" },
       "disable ": { code: 0, stdout: "", stderr: "" },
     });
-    // Both the original failure and the failed rollback commands surface.
     await assert.rejects(macosAutostart(ctx).set(true), /rollback errors:.*bootout/);
     assert.equal(fs.readFileSync(plist, "utf8"), OLD_PLIST);
   });
@@ -341,8 +330,6 @@ describe("macOS LaunchAgent rollback coverage", () => {
       "bootstrap ": { code: 1, stdout: "", stderr: "Bootstrap failed" },
     });
     await assert.rejects(macosAutostart(ctx).set(true));
-    // The override the enable call removed is put back by the rollback even
-    // though there was no previous plist.
     assert.equal(calls.filter((key) => key.startsWith("disable gui/")).length, 1);
     assert.equal(
       fs.existsSync(path.join(home, "Library", "LaunchAgents", `${MACOS_AUTOSTART_LABEL}.plist`)),

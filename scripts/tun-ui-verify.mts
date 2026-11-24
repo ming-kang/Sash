@@ -1,6 +1,4 @@
-// Browser check of the TUN switch and dialog against a real daemon with a
-// scripted TUN platform: missing → install → ready, and a stale helper whose
-// reason appears on hover. Run after `npm run build:ui`.
+// Run after `npm run build:ui`.
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

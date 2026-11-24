@@ -41,10 +41,8 @@ function recordOutcome(
   }
 }
 
-/**
- * Backoff between login-start attempts: wireless and 802.1X networks often
- * come up seconds after sign-in, so the first attempt can be too early.
- */
+// Backoff between attempts: wireless and 802.1X networks often come up
+// seconds after sign-in, so the first attempt can be too early.
 export const LOGIN_START_RETRY_DELAYS_MS = [10_000, 20_000, 30_000] as const;
 
 export async function startAtLogin(

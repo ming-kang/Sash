@@ -1,4 +1,3 @@
-// Builds the Windows TUN helper (helper/) for every Windows architecture.
 // The binaries never enter the npm package: CI attaches them to the GitHub
 // Release, and a source checkout uses the default output directory directly.
 import { spawnSync } from "node:child_process";

@@ -54,7 +54,6 @@ export interface CoreSupervisorOptions {
 
 export const CORE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
 
-/** A hosted Core is presumed gone after this many failed status polls in a row. */
 const HOSTED_STATUS_FAILURES = 3;
 
 export function rotateCoreLogs(layout: SashLayout): void {

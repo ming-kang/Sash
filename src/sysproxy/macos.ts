@@ -91,10 +91,9 @@ async function serviceIdMap(): Promise<{
 }
 
 /**
- * Only services that actually carry traffic right now (enabled AND holding
- * an IP address) are in scope. Disabled or unplugged services keep whatever
- * proxy values they had; we never touch them, so nothing has to be compared
- * or restored there.
+ * Only services actually carrying traffic now (enabled AND holding an IP)
+ * are in scope — disabled or unplugged services keep their proxy values;
+ * we never touch them, so nothing is compared or restored there.
  */
 async function serviceIsActive(service: string): Promise<boolean> {
   const info = await networksetup("-getinfo", service).catch(() => "");
@@ -151,9 +150,9 @@ function parseBypass(output: string): string[] {
 
 /**
  * null means the service is NOT representable (an authenticated proxy whose
- * credentials we cannot losslessly capture) — it is left completely
- * untouched: no writes, and excluded from the snapshot so equivalence
- * checks never compare values we did not set.
+ * credentials we cannot losslessly capture) — left completely untouched and
+ * excluded from the snapshot so equivalence never compares values we did
+ * not set.
  */
 async function captureService(
   service: string,
@@ -190,8 +189,8 @@ async function captureMacosSnapshot(): Promise<SystemProxySnapshot> {
 
 /**
  * Write the FULL record, not just the state bit: server/port are restored
- * even when the proxy stays disabled, so the machine keeps its stored
- * values and equivalence checks see the true pre-Sash configuration.
+ * even when the proxy stays disabled, so stored values survive and
+ * equivalence sees the true pre-Sash configuration.
  */
 async function setManualProxy(
   service: string,
@@ -199,8 +198,8 @@ async function setManualProxy(
   stateArgs: string,
   value: ManualProxyValues,
 ): Promise<void> {
-  // Always write the values ("" clears a stored server/port) so nothing
-  // Sash wrote can linger inside a proxy that ends up disabled.
+  // "" clears a stored server/port — nothing Sash wrote may linger in a
+  // disabled proxy.
   await networksetup(setArgs, service, value.server, String(value.port));
   await networksetup(stateArgs, service, value.enabled ? "on" : "off");
 }
@@ -219,9 +218,8 @@ async function writeServiceProxy(service: string, values: ServiceProxyValues): P
     "-setsocksfirewallproxystate",
     values.socksProxy,
   );
-  // PAC: write the URL back when one is recorded (a disabled PAC keeps
-  // its stored URL on real systems), then set the state. Never rewrite a
-  // stored URL when none was recorded.
+  // PAC: write a recorded URL back (a disabled PAC keeps its stored URL),
+  // then set the state; never rewrite a URL when none was recorded.
   if (values.autoProxyUrl.url) {
     await networksetup("-setautoproxyurl", service, values.autoProxyUrl.url);
   }
@@ -243,22 +241,19 @@ async function applyMacosSnapshot(snapshot: PosixSystemProxySnapshot): Promise<v
   const { byUuid } = await serviceIdMap();
   const liveNames = new Set(byUuid.values());
   for (const [key, values] of Object.entries(services)) {
-    // The journal's service list is authoritative — apply runs even if the
-    // service is offline now. A uuid key resolves to its current name (the
-    // service may have been renamed); a vanished uuid never falls back to
-    // the recorded name — a same-named replacement is a different service.
-    // Legacy name-keyed records resolve through the name itself.
+    // Journal service keys are authoritative — apply runs even if the
+    // service is offline now. A uuid resolves to its current name; a
+    // vanished uuid never falls back to the recorded name — a same-named
+    // replacement is a different service. Legacy name-keyed records
+    // resolve through the name itself.
     const service = byUuid.get(key) ?? (liveNames.has(key) ? key : undefined);
     if (!service) continue;
     await writeServiceProxy(service, values);
   }
 }
 
-/**
- * Comparable proxy state with identity metadata (serviceName) and key order
- * removed — two captures of the same state compare equal even when the
- * service was renamed.
- */
+/** Comparable proxy state minus identity metadata and ordering — two
+ * captures compare equal across a rename. */
 function proxyStateKey(values: Omit<ServiceProxyValues, "serviceName">): string {
   return JSON.stringify({
     webProxy: values.webProxy,
@@ -271,11 +266,10 @@ function proxyStateKey(values: Omit<ServiceProxyValues, "serviceName">): string 
 }
 
 /**
- * Journal-scoped restore: for every service the journal recorded (resolved
- * by UUID, offline included) write the original values back only while the
- * current values are still what Sash set (or already restored). A service
- * modified outside Sash or removed is skipped and reported — never
- * overwritten. The display name never participates in comparisons.
+ * Journal-scoped restore: for every recorded service (resolved by UUID,
+ * offline included) write originals back only while current values are
+ * still what Sash set (or already restored). Modified or removed services
+ * are skipped and reported — never overwritten.
  */
 async function restoreMacosSnapshot(
   original: PosixSystemProxySnapshot,
@@ -300,10 +294,10 @@ async function restoreMacosSnapshot(
       continue;
     }
     // Leaf-granularity check: `-setwebproxy` writes host/port AND implicitly
-    // enables, so a service left mid-write legitimately holds a mix of
-    // original and target values. Every leaf must be either the recorded
-    // original or the recorded target; anything else is an outside change
-    // and the whole service is skipped, never overwritten.
+    // enables, so a mid-write service legitimately holds a mix of original
+    // and target values. Every leaf must be the recorded original or the
+    // recorded target; anything else is an outside change and the whole
+    // service is skipped, never overwritten.
     const currentRecord = current as unknown as Record<string, unknown>;
     const originalRecord = originalValues as unknown as Record<string, unknown>;
     const targetRecord = (targetValues ?? {}) as unknown as Record<string, unknown>;

@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import type { SashLayout } from "../paths.js";
 
-/** Granting privilege needs the Core file it applies to. */
 export async function requireCoreFile(layout: SashLayout): Promise<void> {
   const stat = await fs.lstat(layout.coreExe).catch(() => undefined);
   if (!stat?.isFile())

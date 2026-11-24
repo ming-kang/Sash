@@ -58,13 +58,11 @@ export interface ConnectionBlobSemantics {
 }
 
 /**
- * INTERNET_PER_CONN_OPTION_LIST serialization: u32 version, u32 write
- * counter, u32 flags, then three length-prefixed strings — u32 byte length
- * followed by ASCII bytes — for ProxyServer, ProxyBypass, AutoConfigURL.
- * Version/counter are maintained by WinINet itself and excluded — comparing
- * raw bytes false-positives on the counter bump every refresh performs.
- * Unreadable blobs return null (unknown): callers must NOT treat them as
- * empty configuration.
+ * INTERNET_PER_CONN_OPTION_LIST layout: u32 version, u32 write counter,
+ * u32 flags, then three u32-length-prefixed ASCII strings — ProxyServer,
+ * ProxyBypass, AutoConfigURL. Version/counter are WinINet-owned and
+ * excluded — raw-byte compares false-positive on the per-refresh counter
+ * bump. Unreadable blobs return null (unknown), never empty configuration.
  */
 export function parseConnectionBlobSemantics(hex: string): ConnectionBlobSemantics | null {
   const bytes = Buffer.from(hex, "hex");
@@ -91,17 +89,16 @@ export function parseConnectionBlobSemantics(hex: string): ConnectionBlobSemanti
 /** WinINet blob version observed on supported Windows releases. */
 export const CONNECTION_BLOB_VERSION = 0x46;
 
-/** Registry value name of the machine-wide LAN connection blob. */
 export const LAN_CONNECTION_DEFAULT = "DefaultConnectionSettings";
 
 /** Connection entries Sash owns: the LAN blobs, never named RAS/VPN entries. */
 export const WIN_LAN_CONNECTIONS = new Set([LAN_CONNECTION_DEFAULT, "SavedLegacySettings"]);
 
 /**
- * Serialize blob semantics into the INTERNET_PER_CONN_OPTION_LIST layout
- * with a standard header (version + zero counter — WinINet owns both). The
- * result is a comparison/record value, never bytes to write to the
- * registry: a real WinINet blob carries tail bytes we cannot reproduce.
+ * Serialize semantics in the INTERNET_PER_CONN_OPTION_LIST layout with a
+ * standard header (version + zero counter — WinINet owns both). A
+ * comparison/record value, never bytes to write: real WinINet blobs carry
+ * tail bytes we cannot reproduce.
  */
 export function serializeConnectionSemantics(sem: ConnectionBlobSemantics): string {
   const head = Buffer.alloc(8);
@@ -135,9 +132,9 @@ export function blobsSemanticallyEqual(a: string, b: string): boolean {
 }
 
 /**
- * Per-connection maps match by name and user-visible semantics. An entry
- * present on only one side, or semantically different, fails the comparison
- * — a readback must never be adopted where it picked up foreign changes.
+ * Connection maps match by name and user-visible semantics — an entry on
+ * only one side, or semantically different, fails: a readback must never
+ * adopt foreign changes.
  */
 function connectionMapsEquivalent(
   left: Record<string, string> | undefined,

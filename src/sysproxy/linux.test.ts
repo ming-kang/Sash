@@ -143,8 +143,7 @@ describe("linux backend", () => {
       env: { XDG_CURRENT_DESKTOP: "GNOME", PATH: "/usr/bin" },
       run,
     });
-    // gsettings must exist on PATH; if the test environment lacks it the
-    // backend is legitimately unsupported.
+    // gsettings may be missing on PATH — then unsupported is legitimate.
     if (!backend.supported) return;
     const snap = await backend.capture();
     assert.equal(snap.platform, "linux");
@@ -191,7 +190,6 @@ describe("linux precise restore", () => {
     assert.ok(calls.includes("set org.gnome.system.proxy ignore-hosts ['x']"));
     calls.length = 0;
     await backend.apply(original);
-    // The typed-empty array round-trips byte-for-byte.
     assert.ok(calls.includes("set org.gnome.system.proxy ignore-hosts @as []"));
   });
 
@@ -241,8 +239,8 @@ describe("linux precise restore", () => {
     assert.equal(values["Proxy Settings/httpProxy"], "");
     assert.equal(values["Proxy Settings/socksProxy"], null);
     assert.equal(values["Proxy Settings/ProxyType"], 0);
-    // First apply the target so socksProxy exists, then restore the
-    // original — the restored-absent key must be deleted, never emptied.
+    // Apply the target so socksProxy exists, then restore — the
+    // restored-absent key must be deleted, never emptied.
     await backend.apply(codec.target({ host: "127.0.0.1", port: 7890, bypass: [] }, original));
     assert.ok("socksProxy" in store);
     calls.length = 0;
@@ -252,8 +250,8 @@ describe("linux precise restore", () => {
       calls.join("\n"),
     );
     assert.ok(!("socksProxy" in store));
-    // The notify targets the running generation — kded6 here (kded5 stubbed
-    // to fail but is tried only when kded6 is unreachable).
+    // The notify targets the running generation — kded6 (kded5 is tried
+    // only when kded6 is unreachable).
     assert.ok(calls.some((c) => c.includes("org.kde.kded6")));
   });
 });
@@ -292,8 +290,8 @@ describe("linux SystemProxyManager — GNOME on/off", () => {
       };
       const manager = new SystemProxyManager({ layout, backend });
 
-      // apply: target verification must pass — capture and target use
-      // the same (absent) presence metadata now.
+      // apply: capture and target share the same presence metadata, so
+      // target verification must pass.
       await manager.apply({ port: 17890, bypass: ["localhost"] });
       assert.equal(gsettings["org.gnome.system.proxy mode"], "'manual'");
       assert.equal(gsettings["org.gnome.system.proxy.http port"], "17890");
@@ -330,7 +328,6 @@ describe("linux precise restore — GNOME conservative model", () => {
     if (!backend.supported) return;
     const original = await backend.capture();
     await backend.apply(codec.target({ host: "127.0.0.1", port: 7890, bypass: ["x"] }, original));
-    // The apply wrote only the keys that changed — mode manual + bypass.
     assert.ok(gsettings["org.gnome.system.proxy mode"] === "'manual'");
     calls.length = 0;
     await backend.apply(original);
@@ -370,7 +367,6 @@ describe("KDE real client", () => {
     if (!backend.supported) return; // no real kreadconfig on this host
     const original = await backend.capture();
     const values = (original as PosixSystemProxySnapshot).values;
-    // Verbatim capture of what kreadconfig reports; absent keys marked.
     const reported = values["Proxy Settings/httpProxy"];
     assert.equal((values.$absent as Record<string, boolean>)["Proxy Settings/socksProxy"], true);
     await backend.apply(codec.target({ host: "127.0.0.1", port: 7890, bypass: [] }, original));

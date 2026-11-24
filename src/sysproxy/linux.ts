@@ -102,12 +102,10 @@ const KDE_MANAGED_KEYS = [
 type SnapshotValues = PosixSystemProxySnapshot["values"];
 
 /**
- * Exact-restore metadata carried inside the snapshot's values under
- * reserved `$` keys (ignored by every managed-key comparison):
- * `$raw` holds each key's verbatim raw text as captured — restoring it
- * byte-for-byte instead of re-serializing a parsed value; `$absent`
- * marks keys that did not exist at capture time (KDE), restored by
- * deleting the key rather than writing an empty one.
+ * Exact-restore metadata under reserved `$` keys inside values (ignored by
+ * managed-key comparisons): `$raw` is each key's verbatim captured text,
+ * restored byte-for-byte; `$absent` marks keys missing at capture (KDE),
+ * restored by deletion rather than an empty write.
  */
 const RAW_VALUES = "$raw";
 const ABSENT_KEYS = "$absent";
@@ -137,11 +135,10 @@ function linuxSnapshot(values: SnapshotValues): PosixSystemProxySnapshot {
 }
 
 async function captureGnome(runner: Runner): Promise<SnapshotValues> {
-  // Conservative model: the dconf CLI cannot reliably report the user
-  // layer alone (`dconf dump`/`read` merge system sources), so presence
-  // is not recorded. Apply writes only keys that actually change and
-  // restore writes the captured raw back for exactly those keys — a
-  // restore that cannot be verified fails loudly instead of guessing.
+  // Conservative model: dconf cannot reliably report the user layer alone
+  // (`dconf dump`/`read` merge system sources), so presence is not recorded.
+  // Apply writes only changed keys; restore writes the captured raw back
+  // for exactly those — an unverifiable restore fails loudly, never guesses.
   const values: SnapshotValues = { [RAW_VALUES]: {} };
   for (const key of GNOME_MANAGED_KEYS) {
     const dot = key.indexOf(".");
@@ -238,10 +235,9 @@ const KDE_FIELD = {
 } as const;
 
 /**
- * Read kioslaverc directly to distinguish an absent key (restored by
- * deletion) from a present-but-empty one (restored as an empty value)
- * and a present one holding the schema default — kreadconfig prints the
- * same empty text for all three.
+ * Read kioslaverc directly to tell an absent key (restored by deletion)
+ * from present-empty (restored as empty) and present-default —
+ * kreadconfig prints the same empty text for all three.
  */
 async function kdePresentKeys(env: NodeJS.ProcessEnv): Promise<Set<string>> {
   const configHome = env.XDG_CONFIG_HOME?.trim() || path.join(os.homedir(), ".config");
@@ -353,7 +349,7 @@ async function applyKde(
         current = null;
       }
     }
-    if (current === text) continue; // only write keys that actually change
+    if (current === text) continue;
     await runner(tools.write, [
       "--file",
       "kioslaverc",
@@ -412,9 +408,9 @@ function snapshotValueEqual(a: SnapshotValue | undefined, b: SnapshotValue | und
 }
 
 function sameAbsence(left: SnapshotValues, right: SnapshotValues): boolean {
-  // GNOME snapshots carry no presence metadata at all while KDE ones
-  // always emit a (possibly empty) ABSENT_KEYS map — normalize absent
-  // or non-object values to an empty set so the two compare equal.
+  // GNOME snapshots carry no presence metadata while KDE ones always emit
+  // an ABSENT_KEYS map — normalize absent or non-object values to an empty
+  // set so the two compare equal.
   const a = isPlainObject(left[ABSENT_KEYS]) ? left[ABSENT_KEYS] : {};
   const b = isPlainObject(right[ABSENT_KEYS]) ? right[ABSENT_KEYS] : {};
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
@@ -439,7 +435,6 @@ function enabledState(values: SnapshotValues): {
   server?: string;
   pac?: boolean;
 } {
-  // GNOME manual mode.
   const mode = values.mode;
   if (typeof mode === "string") {
     if (mode === "manual") {
@@ -506,8 +501,7 @@ export function linuxSystemProxySnapshotCodec(): SystemProxySnapshotCodec {
       const oAbsent = absentSet(o);
       const tAbsent = absentSet(t);
       // Per key, the current state (value AND presence) must equal the
-      // captured original or the Sash target — a key Sash changed is
-      // expected to match the target; an externally modified key
+      // captured original or the Sash target — an externally modified key
       // matches neither and blocks the restore.
       return MANAGED_KEYS.every(
         (key) =>
@@ -528,8 +522,8 @@ export function linuxSystemProxySnapshotCodec(): SystemProxySnapshotCodec {
       const set = (entries: Record<string, SnapshotValue>) => {
         for (const [key, value] of Object.entries(entries)) {
           target[key] = value;
-          // A changed value drops the captured raw text so it is written
-          // serialized, never an unrelated byte string; and it is by
+          // A changed value drops the captured raw text — it is written
+          // serialized, never an unrelated byte string — and is by
           // definition no longer absent.
           if (!snapshotValueEqual(previous[key], value)) {
             delete (target[RAW_VALUES] as Record<string, string>)[key];

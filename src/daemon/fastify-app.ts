@@ -22,8 +22,6 @@ const NO_FASTIFY_PRECHECK = Number.MAX_SAFE_INTEGER;
 // event, never to "request".
 const GATEWAY_METHODS = METHODS.filter((method) => method !== "CONNECT");
 
-// Methods Fastify routes out of the box; the remaining llhttp methods are
-// registered via addHttpMethod so gateway routes can claim them.
 const FASTIFY_BUILTIN_METHODS = new Set([
   "GET",
   "HEAD",
