@@ -12,8 +12,7 @@
     "dist",
     "docs",
     "CHANGELOG.md",
-    "README.md",
-    "THIRD_PARTY_NOTICES.md"
+    "README.md"
   ],
   "scripts": {
     "clean:build": "node scripts/clean-build.mjs",

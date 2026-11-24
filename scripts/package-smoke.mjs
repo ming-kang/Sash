@@ -114,7 +114,6 @@ function assertPackedFiles(files) {
     "LICENSE",
     "README.md",
     "CHANGELOG.md",
-    "THIRD_PARTY_NOTICES.md",
     "docs/usage.md",
     "docs/backend.md",
     "docs/frontend.md",
@@ -141,6 +140,15 @@ function assertPackedFiles(files) {
   assert.ok(uiAssets.some((entry) => entry.path.endsWith(".js") && entry.size > 0));
   assert.ok(uiAssets.some((entry) => entry.path.endsWith(".css") && entry.size > 0));
 
+  for (const file of [
+    "dist/ui/licenses/index.txt",
+    "dist/ui/licenses/vue.LICENSE.txt",
+    "dist/ui/licenses/LXGWWenKaiLite-OFL-1.1.txt",
+  ]) {
+    const entry = byPath.get(file);
+    assert.ok(entry && entry.size > 0, `tarball is missing ${file}`);
+  }
+
   const manifestEntry = byPath.get("dist/bootstrap-manifest.json");
   if (process.env.SASH_PACKAGE_SMOKE_REQUIRE_BOOTSTRAP === "1") {
     assert.ok(
@@ -157,7 +165,6 @@ function assertPackedFiles(files) {
     "LICENSE",
     "README.md",
     "CHANGELOG.md",
-    "THIRD_PARTY_NOTICES.md",
     "dist",
     "docs",
   ]);
@@ -259,9 +266,20 @@ try {
     pathToFileURL(path.join(installedRoot, "dist", "sash-installation.js")).href
   );
   assert.equal(inspectInstallation().kind, "npm-global");
-  assert.match(
-    fs.readFileSync(path.join(installedRoot, "THIRD_PARTY_NOTICES.md"), "utf8"),
-    /Vue\.js[\s\S]*Remix Icon/,
+  const licensesIndex = fs.readFileSync(
+    path.join(installedRoot, "dist", "ui", "licenses", "index.txt"),
+    "utf8",
+  );
+  assert.match(licensesIndex, /vue .+\(MIT\)/);
+  assert.match(licensesIndex, /sortablejs .+\(MIT\)/);
+  assert.match(licensesIndex, /@remixicon\/vue .+\(Remix Icon License 1\.0\)/);
+  const uiAssetDir = path.join(installedRoot, "dist", "ui", "assets");
+  assert.ok(
+    fs
+      .readdirSync(uiAssetDir)
+      .filter((file) => file.endsWith(".js"))
+      .some((file) => fs.readFileSync(path.join(uiAssetDir, file), "utf8").includes("@license")),
+    "dashboard assets are missing preserved legal comments",
   );
 
   const previousHome = process.env.SASH_HOME;

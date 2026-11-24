@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Generate third-party license notices at build time instead of shipping a hand-maintained `THIRD_PARTY_NOTICES.md`: backend entries embed `dist/*.LICENSE.md`, and the dashboard ships per-package license texts under `dist/ui/licenses/` (including the LXGW WenKai Lite OFL) with upstream license comments preserved inside the bundled assets.
 - Redesign the TUN helper so it only lends privilege to the Core Sash already manages: it works with any Core version, and `sash update` no longer needs a reinstall on Windows. Windows installs a small `SashTun` service that starts and stops Core as LocalSystem; macOS makes the Core setuid root; Linux grants it `cap_net_admin,cap_net_bind_service` through pkexec. Run `sash tun helper install` once after upgrading — it replaces the 0.7.0 helper service, LaunchDaemon or systemd unit.
 - Stop shipping executables in the npm package. The Windows TUN helper is downloaded from the GitHub Release matching the installed Sash and verified against GitHub's SHA-256 digest; macOS and Linux need no download.
 - Reach a TUN Core through its ordinary controller, so routing-mode switches, profile reloads and the dashboard behave exactly as without TUN.

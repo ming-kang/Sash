@@ -57,4 +57,4 @@ The launcher uses a separate `-dev` data folder and initial ports `18890`, `1899
 
 After code changes, run `npm run typecheck`, `npm run lint` and affected tests; after building, run `npm run smoke:ui` plus the relevant browser check (`verify:ui`, `verify:ui:profiles`, `verify:ui:auth` or `verify:ui:autostart`). Browser checks share [ui-harness.mts](../scripts/ui-harness.mts) with temporary data, non-default ports and Core/OS fixtures; check both Chromium and Firefox. [ui-shot.mjs](../scripts/ui-shot.mjs) captures routes for visual inspection.
 
-Font build setup lives in [build-ui.mjs](../scripts/build-ui.mjs). Bundled licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) and [remix-icon-license.txt](./remix-icon-license.txt).
+Font build setup lives in [build-ui.mjs](../scripts/build-ui.mjs). Bundled licenses are generated into `dist/ui/licenses/` and preserved as comments inside the bundled assets at build time; the Remix Icon license ships as [remix-icon-license.txt](./remix-icon-license.txt).

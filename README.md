@@ -57,7 +57,7 @@ The dashboard also works while Core is stopped: edits are saved first, then **Ap
 - [**Automatic Startup**](./docs/autostart.md) — login startup, registration state and diagnostics.
 - [**Backend Architecture**](./docs/backend.md) — background process, local API, lifecycle and safety invariants.
 - [**Frontend Architecture**](./docs/frontend.md) — Vue 3 dashboard, shared state, API contracts and streaming.
-- [**Third-Party Notices**](./THIRD_PARTY_NOTICES.md) — licenses for bundled dashboard assets and the runtime-downloaded Core.
+- **Bundled third-party licenses** — generated into the npm package at build time: `dist/*.LICENSE.md` for the runtime entries and `dist/ui/licenses/` plus in-bundle license comments for the dashboard; Core licensing is release-specific.
 
 ## Disclaimer
 
@@ -67,4 +67,4 @@ Sash is a network tool created for **learning, research, and development debuggi
 
 Sash is MIT-licensed open source and an independent project. It does not bundle the upstream Core in this repository or npm package; at runtime it downloads an unmodified release artifact from [`MetaCubeX/mihomo`](https://github.com/MetaCubeX/mihomo). The upstream working source branch is [`Meta`](https://github.com/MetaCubeX/mihomo/tree/Meta); licensing is determined by the selected release and its accompanying notices. Sash's currently tested Core contract is `v1.19.30`, whose source tag carries the [GNU General Public License v3.0](https://github.com/MetaCubeX/mihomo/blob/v1.19.30/LICENSE).
 
-The downloaded component remains the work of its respective authors; all credit belongs upstream. See [Third-Party Notices](./THIRD_PARTY_NOTICES.md) for bundled dashboard notices and release-specific Core attribution.
+The downloaded component remains the work of its respective authors; all credit belongs upstream. Bundled dashboard license texts are generated into `dist/ui/licenses/` at build time — see [`docs/remix-icon-license.txt`](./docs/remix-icon-license.txt) for the icon license — and Core attribution follows the license accompanying the selected release.
