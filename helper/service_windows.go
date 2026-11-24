@@ -478,8 +478,9 @@ func doUninstall(p *windowsPlatform) error {
 			if err := os.Rename(p.protectedDir, parked); err != nil {
 				return fmt.Errorf("could not remove protected dir: %w", err)
 			}
-			defer removeDirIfEmpty(filepath.Dir(p.protectedDir))
-			return scheduleDirRemoval(parked)
+			// The parked tree outlives this process, so the parent reap must
+			// run inside the detached removal, not here.
+			return scheduleDirRemoval(parked, filepath.Dir(p.protectedDir))
 		}
 	}
 	var lastErr error
@@ -502,13 +503,14 @@ func removeDirIfEmpty(dir string) {
 }
 
 // scheduleDirRemoval spawns a detached cmd that waits for this process to
-// exit, then removes the directory tree. Exit code reporting is best-effort:
-// the daemon sees uninstall succeed once the tree is handed off.
-func scheduleDirRemoval(dir string) error {
+// exit, then removes the directory tree and reaps the parent dir when it
+// ends up empty. Exit code reporting is best-effort: the daemon sees
+// uninstall succeed once the tree is handed off.
+func scheduleDirRemoval(dir, parent string) error {
 	pid := os.Getpid()
 	script := fmt.Sprintf(
-		`:w tasklist /FI "PID eq %d" | find "%d" >nul && (ping -n 2 127.0.0.1 >nul & goto w) || rmdir /s /q "%s"`,
-		pid, pid, dir,
+		`:w tasklist /FI "PID eq %d" | find "%d" >nul && (ping -n 2 127.0.0.1 >nul & goto w) || (rmdir /s /q "%s" & rmdir "%s" 2>nul)`,
+		pid, pid, dir, parent,
 	)
 	cmd := exec.Command("cmd.exe", "/C", script)
 	cmd.SysProcAttr = &windows.SysProcAttr{
