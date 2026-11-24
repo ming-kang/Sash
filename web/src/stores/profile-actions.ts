@@ -1,18 +1,7 @@
 import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
 import { refreshStatus } from "./runtime-actions.js";
-import { setProfiles, store } from "./state.js";
-
-export async function refreshProfiles(): Promise<void> {
-  const bootId = store.status?.daemon.bootId;
-  const revision = store.status?.revisions.state;
-  const profiles = await api.getProfiles();
-  if (store.status?.daemon.bootId === bootId) {
-    setProfiles(profiles);
-    store.lastStateRevision = revision ?? null;
-    store.profilesLoaded = true;
-  }
-}
+import { store } from "./state.js";
 
 async function saveProfile<T>(operation: () => Promise<T>): Promise<T> {
   if (store.operations.profileMutation) throw new Error(t("errors.profileBusy"));

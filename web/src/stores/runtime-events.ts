@@ -3,7 +3,7 @@ import { SashApiError } from "../../../src/sash-client.js";
 import { api } from "../api/index.js";
 import { currentRoute } from "../router.js";
 import { refreshVisibleCoreResources } from "./core-actions.js";
-import { refreshProfiles } from "./profile-actions.js";
+import { profilesSyncNeeded, syncProfiles } from "./profile-sync.js";
 import { adoptRuntimeSnapshot, markDaemonOffline } from "./runtime-actions.js";
 import { isConnected, isCoreHealthy, resetCoreState, store } from "./state.js";
 
@@ -38,6 +38,9 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
 
   const refreshResources = async (force = false): Promise<void> => {
     if (stopped || !isConnected.value) return;
+    // Profile sync runs before the gate so a revision change during an
+    // in-flight resource refresh still refetches.
+    if (profilesSyncNeeded()) await syncProfiles().catch(() => undefined);
     if (runningResources) {
       pendingForce ||= force;
       return;
@@ -46,8 +49,6 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
     const forced = force || pendingForce;
     pendingForce = false;
     try {
-      if (store.status && store.lastStateRevision !== store.status.revisions.state)
-        await refreshProfiles().catch(() => undefined);
       if (!stopped && isCoreHealthy(store.status))
         await refreshVisibleCoreResources(++cycle, forced);
     } finally {
@@ -90,7 +91,7 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
     try {
       for await (const event of api.events(controller.signal)) {
         if (!active()) return;
-        await adoptRuntimeSnapshot(event.status);
+        adoptRuntimeSnapshot(event.status);
         if (!active()) return;
         store.tun = event.tun;
         store.connection = "connected";

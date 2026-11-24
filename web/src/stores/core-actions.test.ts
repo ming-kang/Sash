@@ -3,12 +3,14 @@ import { describe, it, onTestFinished, vi } from "vitest";
 import { toRaw } from "vue";
 import { deferredValue, testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
-import type { ConnectionItem } from "../types/index.js";
+import type { ConnectionItem, ProxyItem } from "../types/index.js";
 import {
   closeAllConnections,
   closeConnection,
+  isProxyGroup,
   normalizeConnections,
   proxyChain,
+  proxyDisplayGroups,
   refreshProxies,
   refreshRules,
   resolvedProxyDelay,
@@ -92,6 +94,70 @@ describe("web Core actions", () => {
     await refreshProxies();
     assert.equal(store.proxies, current);
     assert.equal(store.resourceErrors.proxies, undefined, "unchanged success clears the error");
+  });
+
+  it("treats any entry with a member list as a group, regardless of type", () => {
+    const original = { ...store };
+    onTestFinished(() => {
+      Object.assign(store, original);
+    });
+    const proxies = {
+      GroupByType: { name: "GroupByType", type: "Fallback", udp: true, history: [] },
+      GroupByMembers: {
+        name: "GroupByMembers",
+        type: "Wireguard",
+        udp: true,
+        history: [],
+        all: ["a"],
+      },
+      Leaf: { name: "Leaf", type: "Trojan", udp: true, history: [] },
+    };
+    setProxies(proxies);
+    assert.deepEqual(store.proxyGroups, ["GroupByType", "GroupByMembers"]);
+    assert.equal(isProxyGroup(proxies.GroupByMembers), true);
+    assert.equal(isProxyGroup(proxies.Leaf), false);
+    assert.equal(isProxyGroup(undefined), false);
+  });
+
+  it("builds the pane's display groups per mode", () => {
+    const group = (name: string, type: string): ProxyItem => ({
+      name,
+      type,
+      udp: true,
+      history: [],
+      all: ["a", "b"],
+    });
+    const proxies: Record<string, ProxyItem> = {
+      Auto: group("Auto", "URLTest"),
+      Sel: group("Sel", "Selector"),
+      Odd: group("Odd", "Relay"),
+      GLOBAL: group("GLOBAL", "Selector"),
+      Leaf: { name: "Leaf", type: "Trojan", udp: true, history: [] },
+    };
+    const groups = ["Auto", "Sel", "Odd", "GLOBAL"];
+    const membersOf = (name: string) => [`m-${name}`];
+
+    const rule = proxyDisplayGroups("rule", proxies, groups, membersOf);
+    assert.deepEqual(
+      rule.map((entry) => entry.name),
+      ["Sel", "Auto", "Odd"],
+      "selector groups render first; GLOBAL stays hidden in rule mode",
+    );
+    assert.deepEqual(
+      rule.map((entry) => entry.selectable),
+      [true, false, false],
+    );
+    assert.deepEqual(rule[0]?.members, ["m-Sel"]);
+
+    assert.deepEqual(proxyDisplayGroups("global", proxies, groups, membersOf), [
+      { name: "GLOBAL", members: ["m-GLOBAL"], selectable: true },
+    ]);
+    assert.deepEqual(
+      proxyDisplayGroups("global", proxies, groups, () => []),
+      [],
+      "an empty GLOBAL member list collapses to the empty state",
+    );
+    assert.deepEqual(proxyDisplayGroups("direct", proxies, groups, membersOf), []);
   });
 
   it("normalizes an empty Core connection snapshot", () => {

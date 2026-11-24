@@ -21,6 +21,48 @@ import {
 
 let adoptedProxies: { value: Record<string, ProxyItem>; text: string } | null = null;
 
+const GROUP_TYPES = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
+
+export function isProxyGroup(proxy: ProxyItem | undefined): boolean {
+  return Boolean(proxy && (GROUP_TYPES.has(proxy.type) || Array.isArray(proxy.all)));
+}
+
+export function isSelectableGroup(proxy: ProxyItem | undefined): boolean {
+  return proxy?.type === "Selector";
+}
+
+export interface ProxyDisplayGroup {
+  name: string;
+  members: string[];
+  selectable: boolean;
+}
+
+/**
+ * Rule mode lists selector groups before automatic ones and hides GLOBAL,
+ * which only appears (and is always selectable) while global mode is active.
+ */
+export function proxyDisplayGroups(
+  mode: RoutingMode,
+  proxies: Record<string, ProxyItem>,
+  proxyGroups: readonly string[],
+  membersOf: (name: string) => string[],
+): ProxyDisplayGroup[] {
+  if (mode === "global") {
+    const members = membersOf("GLOBAL");
+    return members.length ? [{ name: "GLOBAL", members, selectable: true }] : [];
+  }
+  if (mode !== "rule") return [];
+  const names = proxyGroups.filter((name) => name !== "GLOBAL");
+  return [
+    ...names
+      .filter((name) => isSelectableGroup(proxies[name]))
+      .map((name) => ({ name, members: membersOf(name), selectable: true })),
+    ...names
+      .filter((name) => !isSelectableGroup(proxies[name]))
+      .map((name) => ({ name, members: membersOf(name), selectable: false })),
+  ];
+}
+
 export function normalizeConnections(value: ConnectionsResponse["connections"]): ConnectionItem[] {
   if (value === null) return [];
   if (
@@ -47,10 +89,7 @@ export function setProxies(proxies: Record<string, ProxyItem>): void {
   // $state reads hand back reactive proxies; compare against the stored raw
   // object so an identical resubmission still short-circuits.
   if (adoptedProxies?.value === toRaw(store.proxies) && adoptedProxies.text === text) return;
-  const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
-  const groups = Object.keys(proxies).filter(
-    (name) => groupTypes.has(proxies[name]?.type ?? "") || Array.isArray(proxies[name]?.all),
-  );
+  const groups = Object.keys(proxies).filter((name) => isProxyGroup(proxies[name]));
   store.proxies = proxies;
   adoptedProxies = { value: proxies, text };
   store.proxyGroups = groups;

@@ -156,8 +156,8 @@ import {
   deleteProfile,
   errorText,
   importProfile,
-  refreshProfiles,
   store,
+  syncProfiles,
   toast,
   updateAllProfiles,
   updateProfile,
@@ -191,7 +191,7 @@ const profileBusy = computed(() => store.operations.profileMutation || orderBusy
 async function loadProfiles(): Promise<void> {
   loadFailed.value = "";
   try {
-    await refreshProfiles();
+    await syncProfiles();
   } catch (error) {
     loadFailed.value = errorText(error);
   }

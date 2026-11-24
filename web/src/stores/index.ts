@@ -1,9 +1,12 @@
+export type { ProxyDisplayGroup } from "./core-actions.js";
 export {
   closeAllConnections,
   closeConnection,
+  isProxyGroup,
   normalizeConnections,
   proxyChain,
   proxyDelay,
+  proxyDisplayGroups,
   refreshConnections,
   refreshProxies,
   refreshRules,
@@ -20,13 +23,13 @@ export {
   addProfile,
   deleteProfile,
   importProfile,
-  refreshProfiles,
   renameProfile,
   reorderProfiles,
   updateAllProfiles,
   updateProfile,
   writeProfileContent,
 } from "./profile-actions.js";
+export { profilesSyncNeeded, syncProfiles } from "./profile-sync.js";
 export {
   markDaemonOffline,
   refreshRuntimeState,

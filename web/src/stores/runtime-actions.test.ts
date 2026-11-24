@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, it } from "vitest";
 import { testStatus } from "../../../src/testing/state.js";
 import { api } from "../api/index.js";
 import {
+  adoptRuntimeSnapshot,
   markDaemonOffline,
+  refreshStatus,
   saveNetworkSettings,
   setSystemProxyEnabled,
 } from "./runtime-actions.js";
@@ -19,6 +21,29 @@ beforeEach(() => {
 afterEach(() => {
   markDaemonOffline();
   Object.assign(api, originalApi);
+});
+
+describe("profile sync orchestration", () => {
+  it("adopts status alone, while refreshStatus drives the profile sync", async () => {
+    let fetches = 0;
+    api.getProfiles = async () => {
+      fetches += 1;
+      return { activeId: null, profiles: [] };
+    };
+    api.getStatus = async () => {
+      const status = testStatus();
+      status.revisions.state = 9;
+      return status;
+    };
+
+    assert.equal(adoptRuntimeSnapshot(testStatus()), "status");
+    assert.equal(fetches, 0, "snapshot adoption does not fetch profiles");
+
+    assert.equal(await refreshStatus(), "status");
+    assert.equal(fetches, 1, "the status refresh syncs profiles to the new revision");
+    assert.equal(store.lastStateRevision, 9);
+    assert.equal(store.profilesLoaded, true);
+  });
 });
 
 describe("network mutation outcomes", () => {

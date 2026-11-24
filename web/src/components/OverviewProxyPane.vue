@@ -24,93 +24,41 @@
       <EmptyState icon="loader" :title="t('proxies.loading')" />
     </div>
 
-    <template v-else-if="store.mode === 'rule'">
-      <template v-if="selectorGroups.length > 0 && (!normalizedFilter || anyVisibleMembers)">
-        <ProxyGroupSection
-          v-for="group in selectorGroups"
-          :key="group"
-          :group="group"
-          :members="membersOf(group)"
-          selectable
-          :testing="testingGroups.has(group)"
-          :testing-nodes="testingNodes"
-          :busy="Boolean(store.operations.proxySelections[group])"
-          :pending="pendingSelection?.group === group ? pendingSelection.name : ''"
-          :collapsed="collapsedGroups.has(group)"
-          :hide-timeout="hideTimeoutGroups.has(group)"
-          @select="(name) => selectNode(group, name)"
-          @test-group="testGroup(group)"
-          @test-node="testSingle"
-          @toggle-collapse="toggleCollapse(group)"
-          @toggle-hide-timeout="toggleHideTimeout(group)"
-        />
-      </template>
-
-      <template v-if="autoGroups.length > 0 && (!normalizedFilter || anyVisibleMembers)">
-        <ProxyGroupSection
-          v-for="group in autoGroups"
-          :key="group"
-          :group="group"
-          :members="membersOf(group)"
-          :selectable="false"
-          :testing="testingGroups.has(group)"
-          :testing-nodes="testingNodes"
-          :busy="Boolean(store.operations.proxySelections[group])"
-          :pending="pendingSelection?.group === group ? pendingSelection.name : ''"
-          :collapsed="collapsedGroups.has(group)"
-          :hide-timeout="hideTimeoutGroups.has(group)"
-          @test-group="testGroup(group)"
-          @test-node="testSingle"
-          @toggle-collapse="toggleCollapse(group)"
-          @toggle-hide-timeout="toggleHideTimeout(group)"
-        />
-      </template>
-
-      <div v-if="normalizedFilter && !anyVisibleMembers" class="empty-panel">
-        <EmptyState icon="search" :title="t('proxies.noMatch')" />
+    <article v-else-if="store.mode === 'direct'" class="direct-node" aria-current="true">
+      <span class="direct-indicator" />
+      <div class="direct-copy">
+        <strong>DIRECT</strong>
       </div>
-
-      <div v-else-if="selectorGroups.length === 0 && autoGroups.length === 0" class="empty-panel">
-        <EmptyState
-          icon="globe"
-          :title="normalizedFilter ? t('proxies.noMatch') : t('proxies.noGroups')"
-        />
-      </div>
-    </template>
-
-    <template v-else-if="store.mode === 'global'">
-      <ProxyGroupSection
-        v-if="globalMembers.length > 0"
-        group="GLOBAL"
-        :members="globalMembers"
-        selectable
-        :testing="testingGroups.has('GLOBAL')"
-        :testing-nodes="testingNodes"
-        :busy="Boolean(store.operations.proxySelections.GLOBAL)"
-        :pending="pendingSelection?.group === 'GLOBAL' ? pendingSelection.name : ''"
-        :collapsed="collapsedGroups.has('GLOBAL')"
-        :hide-timeout="hideTimeoutGroups.has('GLOBAL')"
-        @select="(name) => selectNode('GLOBAL', name)"
-        @test-group="testGroup('GLOBAL')"
-        @test-node="testSingle"
-        @toggle-collapse="toggleCollapse('GLOBAL')"
-        @toggle-hide-timeout="toggleHideTimeout('GLOBAL')"
-      />
-      <div v-else class="empty-panel">
-        <EmptyState
-          icon="globe"
-          :title="normalizedFilter ? t('proxies.noMatch') : t('proxies.noGroups')"
-        />
-      </div>
-    </template>
+    </article>
 
     <template v-else>
-      <article class="direct-node" aria-current="true">
-        <span class="direct-indicator" />
-        <div class="direct-copy">
-          <strong>DIRECT</strong>
-        </div>
-      </article>
+      <template v-if="showGroups">
+        <ProxyGroupSection
+          v-for="group in displayGroups"
+          :key="group.name"
+          :group="group.name"
+          :members="group.members"
+          :selectable="group.selectable"
+          :testing="testingGroups.has(group.name)"
+          :testing-nodes="testingNodes"
+          :busy="Boolean(store.operations.proxySelections[group.name])"
+          :pending="pendingSelection?.group === group.name ? pendingSelection.name : ''"
+          :collapsed="collapsedGroups.has(group.name)"
+          :hide-timeout="hideTimeoutGroups.has(group.name)"
+          @select="(name) => selectNode(group.name, name)"
+          @test-group="testGroup(group.name)"
+          @test-node="testSingle"
+          @toggle-collapse="toggleCollapse(group.name)"
+          @toggle-hide-timeout="toggleHideTimeout(group.name)"
+        />
+      </template>
+
+      <div v-else class="empty-panel">
+        <EmptyState
+          :icon="normalizedFilter && store.mode === 'rule' ? 'search' : 'globe'"
+          :title="normalizedFilter ? t('proxies.noMatch') : t('proxies.noGroups')"
+        />
+      </div>
     </template>
   </section>
 </template>
@@ -123,6 +71,7 @@ import { t } from "../i18n/index.js";
 import {
   errorText,
   isCoreRunning,
+  proxyDisplayGroups,
   selectGroupProxy,
   store,
   toast,
@@ -134,9 +83,6 @@ import ProxyGroupSection from "./ProxyGroupSection.vue";
 const { testingGroups, testingNodes, testGroup, testSingle } = useProxyLatency();
 const filterQuery = ref("");
 const normalizedFilter = computed(() => filterQuery.value.trim().toLowerCase());
-const { collapsedGroups, toggleCollapse } = useProxyGroupCollapse(
-  computed(() => [...selectorGroups.value, ...autoGroups.value, "GLOBAL"]),
-);
 const hideTimeoutGroups = shallowRef(new Set<string>());
 const pendingSelection = ref<{ group: string; name: string } | null>(null);
 
@@ -146,31 +92,11 @@ function toggleHideTimeout(group: string): void {
   else next.add(group);
   hideTimeoutGroups.value = next;
 }
-const selectorGroups = computed(() =>
-  store.proxyGroups.filter(
-    (group) => store.proxies[group]?.type === "Selector" && group !== "GLOBAL",
-  ),
-);
-const autoGroups = computed(() =>
-  store.proxyGroups.filter(
-    (group) => store.proxies[group]?.type !== "Selector" && group !== "GLOBAL",
-  ),
-);
-const globalMembers = computed(() => filterMembers(store.proxies.GLOBAL?.all ?? []));
-const anyVisibleMembers = computed(() =>
-  [...selectorGroups.value, ...autoGroups.value].some((group) => membersOf(group).length > 0),
-);
-
-function filterMembers(members: string[]): string[] {
-  if (!normalizedFilter.value) return members;
-  return members.filter((name) => name.toLowerCase().includes(normalizedFilter.value));
-}
-
 // One pass over all groups so every ProxyGroupSection gets a stable array
 // reference; per-render membersOf() calls would defeat prop memoization.
 const membersByGroup = computed(() => {
   const map = new Map<string, string[]>();
-  for (const group of store.proxyGroups) {
+  for (const group of new Set([...store.proxyGroups, "GLOBAL"])) {
     map.set(group, filterMembers(store.proxies[group]?.all ?? []));
   }
   return map;
@@ -178,6 +104,28 @@ const membersByGroup = computed(() => {
 
 function membersOf(group: string): string[] {
   return membersByGroup.value.get(group) ?? [];
+}
+
+const displayGroups = computed(() =>
+  proxyDisplayGroups(store.mode, store.proxies, store.proxyGroups, membersOf),
+);
+const { collapsedGroups, toggleCollapse } = useProxyGroupCollapse(
+  computed(() => {
+    const names = displayGroups.value.map((group) => group.name);
+    if (!names.includes("GLOBAL")) names.push("GLOBAL");
+    return names;
+  }),
+);
+const anyVisibleMembers = computed(() =>
+  displayGroups.value.some((group) => group.members.length > 0),
+);
+const showGroups = computed(
+  () => displayGroups.value.length > 0 && (!normalizedFilter.value || anyVisibleMembers.value),
+);
+
+function filterMembers(members: string[]): string[] {
+  if (!normalizedFilter.value) return members;
+  return members.filter((name) => name.toLowerCase().includes(normalizedFilter.value));
 }
 
 function nowOf(name: string): string {

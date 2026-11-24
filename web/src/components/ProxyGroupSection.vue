@@ -116,7 +116,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { locale, t } from "../i18n/index.js";
-import { proxyChain, resolvedProxyDelay, store } from "../stores/index.js";
+import { isProxyGroup, proxyChain, resolvedProxyDelay, store } from "../stores/index.js";
 import { delayLevel, splitRegionFlag } from "../utils/format.js";
 import Icon from "./Icon.vue";
 
@@ -140,7 +140,6 @@ const emit = defineEmits<{
   "toggle-hide-timeout": [];
 }>();
 
-const groupTypes = new Set(["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]);
 const current = computed(() => store.proxies[props.group]?.now ?? "");
 const typeBadge = computed(() => store.proxies[props.group]?.type ?? "Selector");
 const sortByLatency = ref(false);
@@ -151,7 +150,7 @@ const hasDelays = computed(() =>
 const visibleMembers = computed(() => {
   const members = props.members.map((name) => {
     const proxy = store.proxies[name];
-    const isGroup = groupTypes.has(proxy?.type ?? "") || Array.isArray(proxy?.all);
+    const isGroup = isProxyGroup(proxy);
     const chain = isGroup ? proxyChain(name) : [name];
     const routed = chain.length > 1 ? (chain.at(-1) ?? "") : "";
     const delay = resolvedProxyDelay(name);

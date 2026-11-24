@@ -3,12 +3,12 @@ import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
 import type { SashStatus } from "../types/index.js";
 import { refreshVisibleCoreResources } from "./core-actions.js";
+import { syncProfiles } from "./profile-sync.js";
 import {
   adoptDaemonStatus,
   canSetSystemProxyTarget,
   isCoreHealthy,
   resetCoreState,
-  setProfiles,
   store,
 } from "./state.js";
 
@@ -21,17 +21,13 @@ export function markDaemonOffline(): void {
 type RuntimeRefreshResult = "status" | "stopped" | "degraded";
 
 export async function refreshStatus(): Promise<RuntimeRefreshResult> {
-  return adoptRuntimeSnapshot(await api.getStatus());
+  const result = adoptRuntimeSnapshot(await api.getStatus());
+  await syncProfiles().catch(() => undefined);
+  return result;
 }
 
-export async function adoptRuntimeSnapshot(status: SashStatus): Promise<RuntimeRefreshResult> {
+export function adoptRuntimeSnapshot(status: SashStatus): RuntimeRefreshResult {
   adoptDaemonStatus(status);
-  if (store.lastStateRevision !== status.revisions.state) {
-    try {
-      setProfiles(await api.getProfiles());
-      store.lastStateRevision = status.revisions.state;
-    } catch {}
-  }
   return isCoreHealthy(status) ? "status" : status.core.running ? "degraded" : "stopped";
 }
 

@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Deduplicate dashboard profile refreshes, catch up when state changes during a fetch, and discard profile responses from a previous daemon process.
 - Reject malformed profile field types and invalid settings revision or port values with HTTP 400 at the local API boundary instead of passing them through handler fallbacks.
 - Restore Linux system proxy settings key-by-key, preserving externally modified keys while recovering Sash-owned settings after partial applies or interrupted restores; legacy interrupted-restore journals remain supported.
 - Apply the standard localhost bypass list when enabling the system proxy on Linux, matching Windows and macOS; previously an unset bypass proxied local traffic through Sash.
