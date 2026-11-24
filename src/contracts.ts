@@ -5,6 +5,7 @@ import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy/types.js";
+import type { TunPrivilegeMechanism, TunPrivilegeState } from "./tun-service.js";
 import type { TunSettingsPatch } from "./tun-settings.js";
 
 export type { ProfileMeta, ProfilesIndex };
@@ -95,13 +96,11 @@ export interface TunStatusResponse {
   desired: boolean;
   applied: boolean;
   privilege: {
-    mode: "helper";
-    installed: boolean | null;
-    needsReconsent: boolean;
-    /** Installed helper's reported version; null when unknown/not installed. */
-    version: string | null;
-    /** Whether the protected paired Core matches the packaged one; null when unknown. */
-    coreSynced: boolean | null;
+    /** How the Core is given TUN privilege here; null when TUN is unsupported. */
+    mechanism: TunPrivilegeMechanism | null;
+    state: TunPrivilegeState;
+    /** Why the privilege is not ready, when Sash can tell. */
+    detail: string | null;
   };
   supported: boolean;
 }

@@ -1,25 +1,25 @@
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
-import type { Socket } from "node:net";
 import path from "node:path";
-import { Agent } from "undici";
 import { assertCoreBinaryFile } from "./core.js";
 import { type CoreEngine, mihomoEngine } from "./engine/index.js";
 import { errnoCode, errorMessage } from "./error-utils.js";
 import { durableRenameSync } from "./fs-atomic.js";
-import { type CoreLauncher, directCoreLauncher, type PrivilegedCore } from "./launcher/index.js";
-import { boundedLogTailSince, logTailCursor } from "./log-follow.js";
+import { boundedLogTailSince, type LogFileCursor, logTailCursor } from "./log-follow.js";
 import type { SashLayout } from "./paths.js";
 import type { ProcessIdentity, ProcessIdentityVerifier } from "./process.js";
 import {
+  buildSanitizedEnv,
   classifyProcessIdentityAsync,
   clearPidRecord,
   isProcessAlive,
   killProcessGracefully,
   readPidRecord,
+  withPrivateAppendLogFds,
   writePidRecord,
 } from "./process.js";
 import type { SashSettings } from "./settings.js";
+import type { HostedCore } from "./tun-service.js";
 
 export interface CoreState {
   running: boolean;
@@ -39,7 +39,12 @@ export interface CoreSupervisorOptions {
   settings: () => SashSettings;
   engine?: CoreEngine;
   spawnFn?: (layout: SashLayout, settings: SashSettings) => ChildProcess;
-  privilegedLauncher?: CoreLauncher;
+  /**
+   * Starts TUN Cores when the platform runs them outside Sash's process tree
+   * (the Windows TUN service). Without it a TUN Core is spawned like any
+   * other Core; its privilege comes from the Core file itself.
+   */
+  tunHost?: HostedCore;
   waitHealthyMs?: number;
   isAliveFn?: typeof isProcessAlive;
   killFn?: typeof killProcessGracefully;
@@ -48,6 +53,9 @@ export interface CoreSupervisorOptions {
 }
 
 export const CORE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
+
+/** A hosted Core is presumed gone after this many failed status polls in a row. */
+const HOSTED_STATUS_FAILURES = 3;
 
 export function rotateCoreLogs(layout: SashLayout): void {
   const targets = [layout.coreLogFile, layout.coreErrLogFile];
@@ -80,9 +88,27 @@ function managedPathsMatch(leftPath: string, rightPath: string): boolean {
   return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
-type CoreSession =
-  | { mode: "direct"; child: ChildProcess }
-  | { mode: "privileged"; child: PrivilegedCore; agent: Agent };
+function spawnCore(engine: CoreEngine, layout: SashLayout): ChildProcess {
+  return withPrivateAppendLogFds(
+    layout.coreLogFile,
+    layout.coreErrLogFile,
+    ({ stdoutFd, stderrFd }) =>
+      spawn(layout.coreExe, engine.spawnArguments(layout), {
+        cwd: layout.root,
+        stdio: ["ignore", stdoutFd, stderrFd],
+        windowsHide: true,
+        env: buildSanitizedEnv(),
+      }),
+  );
+}
+
+interface HostedSession {
+  mode: "hosted";
+  host: HostedCore;
+  pid: number;
+}
+
+type CoreSession = { mode: "direct"; child: ChildProcess } | HostedSession;
 
 export class CoreSupervisor {
   private session: CoreSession | undefined;
@@ -92,8 +118,8 @@ export class CoreSupervisor {
   private readonly layout: SashLayout;
   private readonly engine: CoreEngine;
   private readonly getSettings: () => SashSettings;
-  private readonly direct: CoreLauncher;
-  private readonly privilegedLauncher: CoreLauncher | undefined;
+  private readonly spawnChild: (layout: SashLayout, settings: SashSettings) => ChildProcess;
+  private readonly tunHost: HostedCore | undefined;
   private heartbeat: NodeJS.Timeout | undefined;
   private readonly waitHealthyMs: number;
   private readonly isAlive: typeof isProcessAlive;
@@ -113,22 +139,16 @@ export class CoreSupervisor {
     this.kill = opts.killFn ?? killProcessGracefully;
     this.classifyIdentity = opts.classifyIdentityFn ?? classifyProcessIdentityAsync;
     this.onExitCallback = opts.onExit;
-    const spawnFn = opts.spawnFn;
-    this.direct = spawnFn
-      ? { launch: (layout, settings) => ({ mode: "direct", child: spawnFn(layout, settings) }) }
-      : directCoreLauncher(this.engine);
-    this.privilegedLauncher = opts.privilegedLauncher;
+    this.spawnChild = opts.spawnFn ?? ((layout) => spawnCore(this.engine, layout));
+    this.tunHost = opts.tunHost;
   }
 
   private ownsDirectChild(child: ChildProcess): boolean {
     return this.session?.mode === "direct" && this.session.child === child;
   }
 
-  private privilegedSession(child?: PrivilegedCore) {
-    const session = this.session;
-    return session?.mode === "privileged" && (!child || session.child === child)
-      ? session
-      : undefined;
+  private ownsHostedSession(session: HostedSession): boolean {
+    return this.session === session;
   }
 
   private async ownedChildIdentity(child: ChildProcess): Promise<ProcessIdentity> {
@@ -158,6 +178,11 @@ export class CoreSupervisor {
     return terminated;
   }
 
+  private recentErrors(cursor: LogFileCursor): string {
+    const details = boundedLogTailSince(this.layout.coreErrLogFile, cursor, { maxLines: 20 });
+    return details ? `\nRecent errors:\n${details}` : "";
+  }
+
   async start(): Promise<{ pid: number; version?: string }> {
     const active = this.ownedCoreSnapshot();
     if (active) {
@@ -173,16 +198,14 @@ export class CoreSupervisor {
 
     this.stopping = false;
     const settings = this.getSettings();
-    if (settings.tun.enable) return this.startPrivileged(settings);
     assertCoreBinaryFile(this.layout.coreExe);
     fs.mkdirSync(this.layout.logsDir, { recursive: true });
     fs.mkdirSync(this.layout.stateDir, { recursive: true });
     rotateCoreLogs(this.layout);
     const errLogCursor = logTailCursor(this.layout.coreErrLogFile);
-    const launch = this.direct.launch(this.layout, settings);
-    const launched = launch instanceof Promise ? await launch : launch;
-    if (launched.mode !== "direct") throw new Error("Invalid launcher for non-TUN Core");
-    const child = launched.child;
+    if (settings.tun.enable && this.tunHost)
+      return this.startHosted(this.tunHost, settings, errLogCursor);
+    const child = this.spawnChild(this.layout, settings);
     // Attach the error listener before any early return: an asynchronous
     // spawn failure must never surface as an unhandled "error" event.
     let spawnError: Error | undefined;
@@ -221,7 +244,7 @@ export class CoreSupervisor {
       throw new Error(`Failed to persist Core PID ownership: ${(err as Error).message}${cleanup}`);
     }
 
-    const api = this.engine.api(settings.controller, settings.secret);
+    const api = this.controllerApi(settings);
     const deadline = Date.now() + this.waitHealthyMs;
     let version: string | undefined;
 
@@ -243,12 +266,7 @@ export class CoreSupervisor {
           this.childStartedAt = undefined;
         }
         this.clearOwnedPidRecord(child);
-        const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
-          maxLines: 20,
-        });
-        throw new Error(
-          `Core exited during startup.${details ? `\nRecent errors:\n${details}` : ""}`,
-        );
+        throw new Error(`Core exited during startup.${this.recentErrors(errLogCursor)}`);
       }
 
       try {
@@ -259,117 +277,110 @@ export class CoreSupervisor {
     }
 
     const terminated = await this.abortStart(child, pid);
-    const details = boundedLogTailSince(this.layout.coreErrLogFile, errLogCursor, {
-      maxLines: 20,
-    });
     const cleanup = terminated
       ? ""
       : " The process could not be confirmed stopped; PID state was preserved.";
     throw new Error(
-      `Core started but external-controller did not become healthy within ${this.waitHealthyMs}ms.${cleanup}${
-        details ? `\nRecent errors:\n${details}` : ""
-      }`,
+      `Core started but external-controller did not become healthy within ${this.waitHealthyMs}ms.${cleanup}${this.recentErrors(errLogCursor)}`,
     );
   }
 
-  private forgetPrivileged(child: PrivilegedCore): void {
-    const session = this.privilegedSession(child);
-    if (!session) return;
+  /**
+   * A hosted Core is not Sash's child, so liveness comes from its host; the
+   * controller, logs and health check are the same as for a spawned Core.
+   */
+  private async startHosted(
+    host: HostedCore,
+    settings: SashSettings,
+    errLogCursor: LogFileCursor,
+  ): Promise<{ pid: number; version?: string }> {
+    const { pid } = await host.start();
+    const session: HostedSession = { mode: "hosted", host, pid };
+    this.session = session;
+    this.childStartedAt = new Date().toISOString();
+    const api = this.controllerApi(settings);
+    const deadline = Date.now() + this.waitHealthyMs;
+    let failure: Error;
+    try {
+      while (true) {
+        const state = await host.status();
+        if (!state.running || state.pid !== pid) {
+          this.forgetHosted(session);
+          throw new Error(`Core exited during startup.${this.recentErrors(errLogCursor)}`);
+        }
+        try {
+          const version = await api.version();
+          this.watchHosted(session);
+          return { pid, version };
+        } catch {}
+        if (Date.now() >= deadline) break;
+        await sleep(250);
+      }
+      failure = new Error(
+        `Core started but external-controller did not become healthy within ${this.waitHealthyMs}ms.${this.recentErrors(errLogCursor)}`,
+      );
+    } catch (error) {
+      if (!this.ownsHostedSession(session)) throw error;
+      failure = error instanceof Error ? error : new Error(String(error));
+    }
+    try {
+      await host.stop();
+      this.forgetHosted(session);
+    } catch (stopError) {
+      // Keep the session so a later stop can retry; the heartbeat still
+      // notices if the Core goes away on its own.
+      if (this.ownsHostedSession(session)) this.watchHosted(session);
+      throw new Error(
+        `${failure.message}\nThe TUN service could not stop the Core: ${errorMessage(stopError)}`,
+      );
+    }
+    throw failure;
+  }
+
+  private forgetHosted(session: HostedSession): void {
+    if (!this.ownsHostedSession(session)) return;
     clearTimeout(this.heartbeat);
     this.heartbeat = undefined;
     this.session = undefined;
-    void session.agent.destroy().catch(() => {});
     this.childStartedAt = undefined;
   }
 
-  private watchPrivileged(child: PrivilegedCore): void {
+  private watchHosted(session: HostedSession, failures = 0): void {
+    clearTimeout(this.heartbeat);
     this.heartbeat = setTimeout(async () => {
-      if (!this.privilegedSession(child) || this.stopping) return;
-      let alive = false;
+      if (!this.ownsHostedSession(session) || this.stopping) return;
+      let alive: boolean | undefined;
       try {
-        alive = await child.alive();
+        const state = await session.host.status();
+        alive = state.running && state.pid === session.pid;
       } catch {
-        // The helper owns cleanup when IPC is disconnected.
+        // The host can be briefly busy; a vanished host takes its Core with it.
+        if (failures + 1 < HOSTED_STATUS_FAILURES) alive = undefined;
+        else alive = false;
       }
-      if (!this.privilegedSession(child) || this.stopping) return;
-      if (alive) {
-        this.watchPrivileged(child);
-      } else {
-        this.forgetPrivileged(child);
+      if (!this.ownsHostedSession(session) || this.stopping) return;
+      if (alive === false) {
+        this.forgetHosted(session);
         Promise.resolve(this.onExitCallback?.(null, null)).catch(() => {});
+      } else {
+        this.watchHosted(session, alive === undefined ? failures + 1 : 0);
       }
     }, 1000);
     this.heartbeat.unref();
   }
 
-  private async startPrivileged(
-    settings: SashSettings,
-  ): Promise<{ pid: number; version?: string }> {
-    if (!this.privilegedLauncher) throw new Error("Privileged TUN helper is unavailable");
-    const launch = await this.privilegedLauncher.launch(this.layout, settings);
-    if (launch.mode !== "privileged") throw new Error("TUN requires a privileged Core launcher");
-    const child = launch.child;
-    const agent = new Agent({
-      connect: (_options, callback) => {
-        let socket: ReturnType<PrivilegedCore["controller"]["connect"]>;
-        try {
-          socket = child.controller.connect();
-        } catch (error) {
-          callback(error instanceof Error ? error : new Error(String(error)), null);
-          return;
-        }
-        const failed = (error: Error) => callback(error, null);
-        socket.once("error", failed);
-        socket.once("connect", () => {
-          socket.removeListener("error", failed);
-          // undici accepts Duplex transports at runtime but currently declares
-          // only net.Socket in its connector callback type.
-          callback(null, socket as Socket);
-        });
-      },
-    });
-    this.session = { mode: "privileged", child, agent };
-    this.childStartedAt = new Date().toISOString();
-    const deadline = Date.now() + this.waitHealthyMs;
-    const api = this.controllerApi(settings);
-    try {
-      while (Date.now() < deadline) {
-        if (!(await child.alive())) throw new Error("Privileged Core exited during startup");
-        let version: string | undefined;
-        try {
-          // 5s per attempt: the privileged controller transport may need to
-          // spawn its IPC shim before the first request completes (Windows
-          // pipe-client exe boot + pipe attach exceeds a 1s budget); the
-          // connection is then reused by later requests.
-          version = await api.version({ deadlineMs: 5_000, attempts: 1 });
-        } catch {
-          await sleep(250);
-          continue;
-        }
-        this.watchPrivileged(child);
-        return { pid: child.pid, version };
-      }
-      throw new Error("Privileged Core controller did not become healthy");
-    } catch (error) {
-      await this.stop();
-      throw error;
-    }
-  }
-
   async stop(): Promise<void> {
     const session = this.session;
-    if (session?.mode === "privileged") {
-      const child = session.child;
+    if (session?.mode === "hosted") {
       this.stopping = true;
       try {
-        await child.stop();
-        this.forgetPrivileged(child);
+        await session.host.stop();
       } catch (error) {
         this.stopping = false;
-        clearTimeout(this.heartbeat);
-        this.watchPrivileged(child);
+        if (this.ownsHostedSession(session)) this.watchHosted(session);
         throw error;
       }
+      this.forgetHosted(session);
       return;
     }
     const child = session?.child;
@@ -398,37 +409,22 @@ export class CoreSupervisor {
 
   ownedCoreSnapshot(): CoreOwnershipSnapshot | undefined {
     const session = this.session;
-    const pid = session?.child.pid;
-    if (!session || !pid) return undefined;
-    if (session.mode === "direct" && !this.isAlive(pid)) return undefined;
+    if (!session) return undefined;
+    if (session.mode === "hosted") return { child: session, pid: session.pid };
+    const pid = session.child.pid;
+    if (!pid || !this.isAlive(pid)) return undefined;
     return { child: session.child, pid };
   }
 
-  isPrivileged(): boolean {
-    return this.session?.mode === "privileged";
-  }
-
-  controllerConnect(): PrivilegedCore["controller"]["connect"] | undefined {
-    return this.privilegedSession()?.child.controller.connect;
-  }
-
-  async reload(configText: string): Promise<void> {
-    const session = this.privilegedSession();
-    if (!session || this.stopping) throw new Error("Privileged Core is unavailable");
-    await session.child.reload(configText);
-  }
-
   controllerApi(settings: SashSettings) {
-    const session = this.privilegedSession();
-    if (session) return this.engine.api("127.0.0.1:80", "", session.agent);
-    if (settings.tun.enable) throw new Error("Privileged Core controller unavailable");
     return this.engine.api(settings.controller, settings.secret);
   }
 
   ownsCore(snapshot: CoreOwnershipSnapshot): boolean {
     const session = this.session;
-    if (!session || session.child !== snapshot.child) return false;
-    return session.mode === "privileged" || this.isAlive(snapshot.pid);
+    if (!session) return false;
+    if (session.mode === "hosted") return session === snapshot.child;
+    return session.child === snapshot.child && this.isAlive(snapshot.pid);
   }
 
   async status(): Promise<CoreState> {
@@ -443,13 +439,7 @@ export class CoreSupervisor {
     let healthy = false;
     let version: string | undefined;
     try {
-      // A privileged status probe may have to spawn the IPC shim (Windows
-      // pipe-client exe boot + pipe attach exceeds 1s), so give it the same
-      // budget as the startup health check.
-      version = await this.controllerApi(settings).version({
-        deadlineMs: this.session?.mode === "privileged" ? 5_000 : 1000,
-        attempts: 1,
-      });
+      version = await this.controllerApi(settings).version({ deadlineMs: 1000, attempts: 1 });
       healthy = true;
       if (!this.ownsCore(ownership)) return { running: false };
     } catch {
@@ -472,6 +462,7 @@ export class CoreSupervisor {
   }
 
   async cleanStaleCore(): Promise<void> {
+    await this.cleanStaleHostedCore();
     const record = readPidRecord(this.layout.pidFile);
     if (!record) {
       if (fs.existsSync(this.layout.pidFile)) {
@@ -509,5 +500,20 @@ export class CoreSupervisor {
       );
     }
     clearPidRecord(this.layout.pidFile);
+  }
+
+  /**
+   * A hosted Core outlives a Sash crash. The host serves only this data
+   * folder, so a Core it still runs belongs to a previous Sash instance.
+   */
+  private async cleanStaleHostedCore(): Promise<void> {
+    if (!this.tunHost || this.session) return;
+    let running: boolean;
+    try {
+      running = (await this.tunHost.status()).running;
+    } catch {
+      return; // no reachable host, no hosted Core
+    }
+    if (running) await this.tunHost.stop();
   }
 }

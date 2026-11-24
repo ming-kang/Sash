@@ -2,26 +2,18 @@ import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { errorMessage } from "../error-utils.js";
-import { allowedControllerTarget } from "../launcher/controller-policy.js";
 import { parseControllerAddress } from "../settings.js";
 import { isControlMutation } from "./auth.js";
 import type { DaemonContext } from "./context.js";
 import { defaultCodeForStatus, errorToHttp, ShuttingDownError } from "./errors.js";
-import { HttpError, type ParsedDaemonRequestTarget, sendError, sendSocketError } from "./http.js";
+import { type ParsedDaemonRequestTarget, sendError, sendSocketError } from "./http.js";
 
-export type ControllerTarget = Pick<
-  http.RequestOptions,
-  "hostname" | "port" | "socketPath" | "createConnection"
-> & {
-  secret?: string;
-};
-
-export function directControllerTarget(address: string, secret: string): ControllerTarget {
+function parseHostPort(address: string): { host: string; port: number } {
   const parsed = parseControllerAddress(address);
   if (!parsed) {
     throw new Error(`Invalid controller address: ${address} (expected loopback host:port)`);
   }
-  return { hostname: parsed.host, port: parsed.port, secret };
+  return { host: parsed.host, port: parsed.port };
 }
 
 /** Hop-by-hop fields (RFC 9110, section 7.6.1). */
@@ -63,16 +55,6 @@ function segmentsSurviveDecoding(pathname: string): boolean {
   });
 }
 
-export function coreControllerTarget(ctx: DaemonContext): ControllerTarget | undefined {
-  const runtime = ctx.settings.runtime();
-  const connect = ctx.supervisor.controllerConnect();
-  return connect
-    ? { createConnection: connect }
-    : runtime.tun.enable
-      ? undefined
-      : directControllerTarget(runtime.controller, runtime.secret);
-}
-
 export async function forwardToCore(
   ctx: DaemonContext,
   req: IncomingMessage,
@@ -80,34 +62,18 @@ export async function forwardToCore(
   target: ParsedDaemonRequestTarget,
 ): Promise<void> {
   const method = req.method?.toUpperCase() ?? "GET";
-  const upstream = coreApiTarget(target);
-  const privileged = ctx.settings.runtime().tun.enable || ctx.supervisor.isPrivileged();
-  const pathname = upstream.split("?")[0] ?? "/";
+  const pathname = coreApiTarget(target).split("?")[0] ?? "/";
   const allowedMutation =
     segmentsSurviveDecoding(pathname) &&
     ((method === "PUT" && /^\/proxies\/[^/]+$/.test(pathname)) ||
       (method === "DELETE" && /^\/connections(?:\/[^/]+)?$/.test(pathname)));
-  if (!privileged && isControlMutation(method) && !allowedMutation) {
+  if (isControlMutation(method) && !allowedMutation) {
     sendError(res, 403, "conflict", "Use Sash controls to change managed Core configuration");
     return;
   }
-  const forward = async () => {
-    if (privileged && allowedControllerTarget(method, upstream)?.action === "restart") {
-      for await (const chunk of req.iterator({ destroyOnReturn: false })) {
-        if (Buffer.byteLength(chunk))
-          throw new HttpError(400, "Controller restart does not accept a body");
-      }
-      await ctx.mutate(() => ctx.lifecycle.restartPrivileged());
-      res.writeHead(200, { "content-type": "application/json" }).end('{"status":"ok"}');
-      return;
-    }
-    const controller = coreControllerTarget(ctx);
-    if (!controller) {
-      sendError(res, 503, "internal", "Privileged Core controller unavailable");
-      return;
-    }
-    await forwardHttpToCore(req, res, upstream, controller);
-  };
+  const runtime = ctx.settings.runtime();
+  const forward = () =>
+    forwardHttpToCore(req, res, coreApiTarget(target), runtime.controller, runtime.secret);
   // The reply is already hijacked, so a proxy failure cannot fall back to the
   // Fastify error handler; report it on the raw response instead.
   try {
@@ -116,7 +82,7 @@ export async function forwardToCore(
   } catch (error) {
     if (!res.destroyed && !res.headersSent) {
       const mapping =
-        error instanceof ShuttingDownError || error instanceof HttpError
+        error instanceof ShuttingDownError
           ? errorToHttp(error)
           : {
               status: 502,
@@ -132,15 +98,11 @@ export function forwardHttpToCore(
   req: IncomingMessage,
   res: ServerResponse,
   targetPath: string,
-  { secret, ...target }: ControllerTarget,
-  validated?: { body: string },
+  controller: string,
+  secret: string,
 ): Promise<void> {
-  const upstreamHeaders: IncomingHttpHeaders = validated
-    ? {
-        "content-length": String(Buffer.byteLength(validated.body)),
-        ...(validated.body && { "content-type": "application/json" }),
-      }
-    : endToEndHeaders(req.headers);
+  const { host, port } = parseHostPort(controller);
+  const upstreamHeaders = endToEndHeaders(req.headers);
   delete upstreamHeaders.host;
   delete upstreamHeaders.authorization;
   if (secret) {
@@ -152,7 +114,8 @@ export function forwardHttpToCore(
 
     const proxyReq = http.request(
       {
-        ...target,
+        hostname: host,
+        port,
         path: targetPath,
         method: req.method,
         headers: upstreamHeaders,
@@ -191,8 +154,7 @@ export function forwardHttpToCore(
       }
     });
 
-    if (validated) proxyReq.end(validated.body);
-    else req.pipe(proxyReq);
+    req.pipe(proxyReq);
   });
 }
 
@@ -201,17 +163,11 @@ export function forwardWsToCore(
   socket: Duplex,
   head: Buffer,
   targetPath: string,
-  { secret, ...target }: ControllerTarget,
-  filterHeaders = false,
+  controller: string,
+  secret: string,
 ): void {
-  const upstreamHeaders: IncomingHttpHeaders = filterHeaders
-    ? {
-        connection: "Upgrade",
-        upgrade: "websocket",
-        "sec-websocket-key": req.headers["sec-websocket-key"],
-        "sec-websocket-version": req.headers["sec-websocket-version"],
-      }
-    : { ...req.headers };
+  const { host, port } = parseHostPort(controller);
+  const upstreamHeaders: Record<string, string | string[] | undefined> = { ...req.headers };
   delete upstreamHeaders.host;
   delete upstreamHeaders.authorization;
   if (secret) {
@@ -219,7 +175,8 @@ export function forwardWsToCore(
   }
 
   const proxyReq = http.request({
-    ...target,
+    hostname: host,
+    port,
     path: targetPath,
     method: "GET",
     headers: upstreamHeaders,

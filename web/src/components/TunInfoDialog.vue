@@ -13,6 +13,7 @@
             <h3 :id="titleId" class="tun-info-title">{{ t("tun.title") }}</h3>
             <button
               v-if="installable"
+              v-tooltip="detail"
               type="button"
               class="tun-status-link"
               :disabled="installing"
@@ -21,7 +22,9 @@
               <Icon v-if="installing" name="loader" :size="12" class="spin" />
               {{ summary }}
             </button>
-            <p v-else class="tun-info-status" :class="{ warn: pending }">{{ summary }}</p>
+            <p v-else v-tooltip="detail" class="tun-info-status" :class="{ warn: pending }">
+              {{ summary }}
+            </p>
           </div>
 
           <div class="tun-form">
@@ -201,21 +204,27 @@ async function save(): Promise<void> {
 }
 
 const pending = computed(() => !!props.tun && props.tun.desired !== props.tun.applied);
+const privilege = computed(() => (props.tun?.supported ? props.tun.privilege : undefined));
 const installable = computed(
-  () =>
-    !!props.tun &&
-    props.tun.supported &&
-    (props.tun.privilege.installed === false || props.tun.privilege.needsReconsent),
+  () => privilege.value?.state === "missing" || privilege.value?.state === "stale",
 );
+// Platform-specific reason (another data folder, old protocol, ...), shown on hover.
+const detail = computed(() => privilege.value?.detail ?? "");
 
 const summary = computed(() => {
   const s = props.tun;
   if (!s) return t("tun.stateUnknown");
   if (!s.supported) return t("tun.unsupported");
-  if (s.privilege.needsReconsent) return t("tun.clickReconsent");
-  if (s.privilege.installed === false) return t("tun.clickInstall");
+  switch (s.privilege.state) {
+    case "stale":
+      return t("tun.clickReinstall");
+    case "missing":
+      return t("tun.clickInstall");
+    case "unknown":
+      return t("tun.stateUnknown");
+  }
   if (s.desired !== s.applied) return t("tun.statePending");
-  return t("tun.installed");
+  return t("tun.ready");
 });
 </script>
 

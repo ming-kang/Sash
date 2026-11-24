@@ -22,7 +22,7 @@ Profile reads return raw text, so damaged YAML can be opened for repair. A worke
 
 Remote updates share one in-flight download per profile. Scheduled failures back off from 15 minutes to one day; manual updates bypass that delay. Maintenance removes recognized, unreferenced generated files after a 24-hour grace period.
 
-`runtime/config.yaml` is generated from the saved profile, or a DIRECT-only default when none is selected; source text stays unchanged. Sash supplies the proxy port, controller credentials and LAN setting, removes competing controller endpoints and tunnels, and sets `tun.enable` to `false`. See [State format and data](./usage.md#state-format-and-data) for settings and paths.
+`runtime/config.yaml` is generated from the saved profile, or a DIRECT-only default when none is selected; source text stays unchanged. Sash supplies the proxy port, controller credentials and LAN setting, removes competing controller endpoints and tunnels, and owns the `tun` section: it is disabled unless TUN Mode is on, and then Sash's TUN settings override the profile's managed keys and Core DNS is enabled. See [State format and data](./usage.md#state-format-and-data) for settings and paths.
 
 ## Save, Apply and stop
 
@@ -39,6 +39,19 @@ Validation or proxy-restoration failure leaves the current Core running; a later
 Core downloads its own geodata during the configuration check and ignores `HTTP_PROXY`. A geodata-only failure rewrites `geox-url` in the already-generated YAML inside that worker, preserving key order and metadata without applying profile-input limits or managed settings again. If every mirror fails, Sash seeds the missing databases through the existing release pipeline and rechecks the original configuration. The configuration that passes is the one applied. See [troubleshooting](./usage.md#status-and-troubleshooting) if this fails.
 
 Stopping Core cancels its preparation work and any pending reload request. A cancelled reload has an unknown outcome, so its candidate stays on disk until the queued stop finishes. Full shutdown also cancels profile downloads, rejects new changes and drains active work before restoring the proxy and stopping Core. Cleanup failure leaves Sash available for retry. Unexpected Core exits trigger bounded proxy-restoration retries.
+
+## TUN Mode
+
+TUN changes only how Core gets privilege; the controller, configuration reloads, logs and Apply are the same as without it. [TunService](../src/tun-service.ts) inspects a platform's privilege state (`ready`, `missing`, `stale` or `unknown`) and Apply refuses TUN before stopping the running Core unless it is `ready`. A TUN Core that fails to start rolls back to the previous configuration.
+
+Each [platform](../src/tun-platform/) acts on the managed Core (`bin/mihomo`) rather than a copy, so no Core version is pinned:
+
+- **Windows:** a LocalSystem service built from `helper/` starts and stops Core. Its Core path, data folder, configuration and log files are fixed as service arguments at installation; its pipe admits only the installing account and accepts `status`, `start` and `stop`. The supervisor treats this Core as *hosted*: the service reports liveness, and a Core left running by a crashed Sash is stopped on the next startup. The service puts Core in a kill-on-close job, so Core cannot outlive it.
+- **macOS:** the Core file is setuid root; **Linux:** it carries `cap_net_admin,cap_net_bind_service`. Core is then spawned like any other Core. Replacing the file in a Core update drops the grant.
+
+The Windows helper stays this small. Its pipe never takes a path, arguments or configuration. It does not verify or configure Core, so `sash update` needs no reinstall. `--version` prints the build version without elevation or side effects. `protocolVersion` in [helper/server.go](../helper/server.go) and `HELPER_PROTOCOL` in [tun-platform/windows.ts](../src/tun-platform/windows.ts) must stay equal; change both together, and only when the request or reply shape changes. Sash reports an installed helper with another protocol as needing reinstall, so a protocol change belongs in the changelog. Other helper changes leave installed services working.
+
+`sash tun helper install` downloads `sash-tun-helper-win32-<arch>.exe` from the GitHub Release `v<installed Sash version>` and checks it against the release API's SHA-256. A source checkout of an unreleased version has no such Release: `npm run build:helper` writes both executables to `helper/bin/` (ignored by Git and absent from the npm package), and installation prefers that build when it exists. [RELEASING.md](../RELEASING.md) covers how the Release assets are built and published.
 
 ## Updates
 

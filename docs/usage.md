@@ -29,6 +29,8 @@ Run `sash <command> --help` for all options. Bare `sash` reads status once.
 | `sash upgrade [version] [--check] [--no-restart] [--json]` | Update the Sash package through npm |
 | `sash proxy [on\|off\|status] [--json]` | Set or inspect the Windows system proxy |
 | `sash mode rule\|global\|direct [--json]` | Change the running Core's routing mode |
+| `sash tun [on\|off\|status] [--json]` | Save or inspect the TUN Mode setting; Apply it with `sash restart` |
+| `sash tun helper [install\|uninstall\|status] [--json]` | Grant or remove the privilege TUN Mode needs (administrator approval) |
 | `sash auto [on\|off\|status] [--json]` | Set or inspect Windows start at login |
 | `sash logs [-n N] [-f] [--errors] [--daemon]` | Read Core logs, or Sash logs with `--daemon` |
 | `sash logs --startup [-n N] [-f]` | Read login-startup attempts |
@@ -64,6 +66,30 @@ Overview keeps preferences, the proxy port and runtime details in its left colum
 Profiles must be YAML objects in Core format. The editor can open damaged YAML for repair and checks it on save. If another tab has edited the same content, reopen the current version before saving again.
 
 Remote profiles use the provider's update interval, defaulting to 24 hours. Sash checks for due updates every 15 minutes and backs off after failures. Updating the selected profile applies the new content to the running Core; other downloads wait for the next selection. Unchanged content keeps its revision. Empty quota/expiry fields display as unknown, while zero remains zero.
+
+## TUN Mode
+
+TUN Mode lets Core capture traffic through a virtual network interface instead of the proxy port. It is off by default, and creating the interface needs administrator privilege, which Sash obtains once through the TUN helper:
+
+```sh
+sash tun helper install    # one administrator prompt
+sash tun on                # save the setting
+sash restart               # Apply it
+```
+
+The helper only lends privilege to the Core Sash already manages; it works with whatever Core version `sash update` installs.
+
+| Platform | `sash tun helper install` | After `sash update` |
+| --- | --- | --- |
+| Windows | Installs the `SashTun` service, which starts and stops Core as LocalSystem. The service binary comes from the GitHub Release matching the installed Sash and lives under `ProgramData\Sash\TUN`. | Nothing to do |
+| macOS | Makes the Core executable setuid root (`chown root`, `chmod 4750`) | Run `sash tun helper install` again: the new Core file has no setuid bit |
+| Linux | Grants `cap_net_admin,cap_net_bind_service` to the Core executable with `setcap`, through pkexec (or `sudo -n` with `SASH_TUN_HELPER_AUTH=sudo`) | Run `sash tun helper install` again |
+
+The Windows service is bound to the account and data folder that installed it; `sash tun helper status` reports when it serves another data folder or speaks an older protocol, and `install` replaces it. `uninstall` removes the service or the grant (on macOS it also returns Core-created files in the data folder to your account); disable TUN and Apply first.
+
+Granting privilege to a Core in your data folder means any program running as your account can use that Core with the same privilege. This is the usual trade-off for proxy clients with TUN support; uninstall the helper when you do not need TUN.
+
+Apply checks the helper before stopping the running Core, and a TUN Core that fails to start rolls back to the previous configuration. Sash does not check OS routes or DNS interception.
 
 ## Browser access
 
@@ -181,6 +207,6 @@ JSON formats: `status --json` is `schemaVersion: 2` with runtime, endpoints, pro
 
 Core fetches geodata itself, ignoring `HTTP_PROXY`; Sash tries the mirror list after a geodata failure, then fetches missing databases through its existing verified release pipeline if the mirrors also fail. If that also fails, provide a reachable `geox-url` in the profile or pre-seed the databases named by the error (`geoip.metadb`, `geosite.dat`, `country.mmdb` or `GeoLite2-ASN.mmdb`). A system-wide tunnel can also supply connectivity.
 
-Sash manages Windows desktop proxy/PAC settings; doctor may report separate VPN/dial-up proxy records to inspect in Windows even if the connection is inactive. Core/CLI operation is portable to macOS and Linux; desktop proxy and startup integration are Windows-only. The generated core config disables TUN.
+Sash manages Windows desktop proxy/PAC settings; doctor may report separate VPN/dial-up proxy records to inspect in Windows even if the connection is inactive. Core/CLI operation is portable to macOS and Linux; desktop proxy and startup integration are Windows-only. The generated core config enables TUN only when [TUN Mode](#tun-mode) is on and applied.
 
 Logs can be followed with `-f`, including across file creation and rotation. `--startup` cannot be combined with `--daemon` or `--errors`. Set `SASH_DEBUG=1` or `true` to include CLI error stacks on stderr.

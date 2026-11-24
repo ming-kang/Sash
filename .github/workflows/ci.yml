@@ -30,10 +30,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        with:
-          go-version: "1.27.4"
-          cache-dependency-path: helper/go.sum
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run lint
@@ -84,27 +80,36 @@ jobs:
         run: |
           version="$(node -p "require('./package.json').version")"
           node scripts/package-smoke.mjs "$RUNNER_TEMP/sash-package/astralyn-sash-$version.tgz"
+
+  tun-helper:
+    name: Windows TUN helper
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: "1.27.4"
           cache-dependency-path: helper/go.sum
-      - name: Check Go helper
+      - name: Test the helper
         working-directory: helper
         run: |
-          go test ./...
           go vet ./...
-      - name: Build and smoke-test the Go helper
+          go test ./...
+      - name: Build the release binaries
         run: |
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            npm run build:helper -- --all
-          else
-            npm run build:helper
-          fi
-          helper="$(node --input-type=module -e "import { helperFilename } from './scripts/helper-artifacts.mjs'; console.log(helperFilename(process.platform, process.arch))")"
+          node scripts/build-helper.mjs --out "$RUNNER_TEMP/tun-helper"
           version="$(node -p "require('./package.json').version")"
-          test "$("./dist/$helper" --version)" = "$version"
-      - name: Verify the unchanged TS IPC client against Go
-        run: |
-          binary="$(node -p "require('node:path').resolve('dist', 'go-helper-contract' + (process.platform === 'win32' ? '.exe' : ''))")"
-          CGO_ENABLED=0 go -C helper build -tags helpercontract -o "$binary" .
-          SASH_GO_CONTRACT_BINARY="$binary" npx vitest run src/launcher/ipc-go.test.ts
+          test "$("$RUNNER_TEMP/tun-helper/sash-tun-helper-win32-x64.exe" --version)" = "$version"
+      - name: Save the helper for the GitHub Release
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tun-helper
+          path: ${{ runner.temp }}/tun-helper/*.exe
+          if-no-files-found: error
+          retention-days: 14

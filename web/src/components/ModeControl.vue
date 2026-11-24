@@ -37,7 +37,7 @@
           :disabled="
             store.operations.networkSetting ||
             !store.status ||
-            (!tun?.privilege.installed && !tunEnabled)
+            (tun?.privilege.state !== 'ready' && !tunEnabled)
           "
           @update:model-value="toggleTun"
         />

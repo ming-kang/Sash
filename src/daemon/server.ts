@@ -8,7 +8,7 @@ import { buildDaemonContext, type DaemonApp, type DaemonDeps } from "./app.js";
 import { isControlRequestAuthorized } from "./auth.js";
 import { buildDaemonApp } from "./fastify-app.js";
 import { parseRequestTarget, sendError, sendSocketError } from "./http.js";
-import { coreControllerTarget, forwardWsToCore } from "./proxy.js";
+import { forwardWsToCore } from "./proxy.js";
 import { checkLoopbackBoundary, matchWebSocketUpgrade } from "./router.js";
 import { buildRoutes } from "./routes.js";
 import { type ProfileUpdateScheduler, startProfileUpdateScheduler } from "./scheduler.js";
@@ -92,12 +92,8 @@ export function createDaemonServer(deps: DaemonDeps): DaemonInstance {
       return;
     }
 
-    const controller = coreControllerTarget(context);
-    if (!controller) {
-      sendSocketError(socket, 503, "internal", "Privileged Core controller unavailable");
-      return;
-    }
-    forwardWsToCore(req, socket, head, route.target, controller);
+    const runtime = context.settings.runtime();
+    forwardWsToCore(req, socket, head, route.target, runtime.controller, runtime.secret);
   };
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {

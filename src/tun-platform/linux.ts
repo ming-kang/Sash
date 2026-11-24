@@ -1,205 +1,57 @@
 import { execFile } from "node:child_process";
-import fs from "node:fs";
-import fsp from "node:fs/promises";
-import path from "node:path";
-import { promisify } from "node:util";
+import { existsSync } from "node:fs";
+import fs from "node:fs/promises";
 import { errorMessage } from "../error-utils.js";
-import { protectedCorePath } from "../launcher/core-trust.js";
-import {
-  LINUX_HELPER_BIN_DIR,
-  LINUX_HELPER_BINARY,
-  LINUX_HELPER_MANIFEST,
-  LINUX_HELPER_SOCKET,
-  LINUX_HELPER_UNIT_FILE,
-  LINUX_HELPER_WORK_DIR,
-} from "../launcher/helper-linux.js";
-import { coreSha256 } from "../launcher/index.js";
-import { createIpcHelperClient } from "../launcher/ipc.js";
-import type { HelperClient } from "../launcher/protocol.js";
-import { currentPackageRoot } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
 import { buildSanitizedEnv, findExecutableOnPath } from "../process.js";
-import type { TunPlatform } from "../tun-service.js";
+import type { TunPlatform, TunPrivilege } from "../tun-service.js";
+import { refuseElevationInTests, requireCoreFile } from "./shared.js";
+
+/** What mihomo documents for running TUN without root. */
+export const CORE_CAPABILITIES = "cap_net_admin,cap_net_bind_service=+ep";
+
+/** Sash 0.7.0 installed a systemd helper; installing or removing the grant retires it. */
+const LEGACY_CLEANUP = `
+if [ -e /etc/systemd/system/sash-helper.service ]; then
+  systemctl disable --now sash-helper.service >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/sash-helper.service
+  systemctl daemon-reload || true
+fi
+rm -rf /usr/local/lib/sash /var/lib/sash-helper
+`;
 
 /**
- * The privileged install script, delivered on stdin to the elevated shell so
- * no user-writable file ever feeds a root process. Idempotent: re-running it
- * resynchronizes the protected helper binary and the protected Core after a
- * Sash upgrade or Core update.
- *
- * Arguments: <helper binary> <helper sha256> <core binary> <uid>
+ * Both scripts arrive on the elevated shell's stdin and take the Core path
+ * as $1, so no user-writable file ever feeds the root shell. Replacing the
+ * Core file (a Core update) drops its capabilities with it.
  */
-export const LINUX_HELPER_INSTALL_SCRIPT = `set -euo pipefail
-
-HELPER_SRC="$1"
-HELPER_SHA="$2"
-CORE_SRC="$3"
-OWNER_UID="$4"
-
-BIN="${LINUX_HELPER_BIN_DIR}"
-WORK="${LINUX_HELPER_WORK_DIR}"
-UNIT="${LINUX_HELPER_UNIT_FILE}"
-SOCKET="${LINUX_HELPER_SOCKET}"
-MANIFEST="${LINUX_HELPER_MANIFEST}"
-
-if [ ! -f "$HELPER_SRC" ]; then echo "helper binary missing: $HELPER_SRC" >&2; exit 2; fi
-if [ ! -f "$CORE_SRC" ]; then echo "core binary missing: $CORE_SRC" >&2; exit 2; fi
-# The control socket is root-owned; the installing user is granted access
-# with a file ACL so they cannot widen it themselves.
-if ! command -v setfacl >/dev/null 2>&1; then
-  echo "the acl package (setfacl) is required for the TUN helper socket" >&2
+export const GRANT_SCRIPT = `set -eu
+core="$1"
+if [ ! -f "$core" ] || [ -L "$core" ]; then
+  echo "Core not found at $core" >&2
+  exit 1
+fi
+if ! command -v setcap >/dev/null 2>&1; then
+  echo "setcap is required (install libcap2-bin or libcap)" >&2
   exit 2
 fi
+setcap ${CORE_CAPABILITIES} "$core"
+${LEGACY_CLEANUP}`;
 
-install -d -m 0700 -o root -g root "$WORK"
-
-helper_changed=0
-if [ "$(sha256sum "$BIN/sash-helper" 2>/dev/null | cut -d' ' -f1)" != "$HELPER_SHA" ]; then
-  helper_changed=1
+export const REVOKE_SCRIPT = `set -eu
+core="$1"
+if [ -f "$core" ] && [ ! -L "$core" ] && command -v setcap >/dev/null 2>&1; then
+  setcap -r "$core" 2>/dev/null || true
 fi
+${LEGACY_CLEANUP}`;
 
-# Never execute a previous install's bytes: remove the unit first so no
-# ExecStopPost can run them, then kill the leftover process directly and
-# let the verified staged binary (below) recover the journal.
-{ [ -e "$UNIT" ] || [ -L "$UNIT" ]; } && rm -f "$UNIT"
-# The unit's loaded config is only gone once reload SUCCEEDS — while it
-# may still hold ExecStopPost, no stop/start may be issued. A failed
-# reload aborts the install entirely.
-if ! systemctl daemon-reload; then
-  echo "systemctl daemon-reload failed; aborting install" >&2
-  exit 5
-fi
-systemctl stop sash-helper.service 2>/dev/null || true
-systemctl reset-failed sash-helper.service 2>/dev/null || true
-# Kill only the processes in THIS service's cgroup/MainPID — never a
-# name-matched global pkill.
-main_pid="$(systemctl show -p MainPID --value sash-helper.service 2>/dev/null)"
-if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
-  kill -9 "$main_pid" 2>/dev/null || true
-fi
-for p in $(cat /sys/fs/cgroup/system.slice/sash-helper.service/cgroup.procs 2>/dev/null); do
-  kill -9 "$p" 2>/dev/null || true
-done
+export type Runner = (
+  cmd: string,
+  args: string[],
+  options: { timeoutMs: number; input?: string },
+) => Promise<string>;
 
-install -d -m 0755 -o root -g root "$BIN"
-
-# Stage the packaged helper inside the protected directory and re-verify
-# the staged bytes before they are ever executed as root — the user-writable
-# package path is never executed privileged.
-install -m 0755 -o root -g root "$HELPER_SRC" "$BIN/.sash-helper.new"
-staged_sha="$(sha256sum "$BIN/.sash-helper.new" | cut -d' ' -f1)"
-if [ "$staged_sha" != "$HELPER_SHA" ]; then
-  rm -f "$BIN/.sash-helper.new"
-  echo "helper binary digest mismatch ($staged_sha != $HELPER_SHA)" >&2
-  exit 4
-fi
-
-# Recovery entry for leftovers the killed helper left behind.
-"$BIN/.sash-helper.new" --work-dir "$WORK" --cleanup
-
-# The verified staged binary performs the consented install of the pair:
-# it re-verifies its own digest plus the embedded paired-Core digest and
-# publishes both into the protected directory atomically.
-"$BIN/.sash-helper.new" --bin-dir "$BIN" --install-consent \
-  "$BIN/.sash-helper.new" "$HELPER_SHA" "$CORE_SRC"
-rm -f "$BIN/.sash-helper.new"
-
-cat > "$UNIT" <<EOF
-[Unit]
-Description=Sash TUN privileged helper
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=$BIN/sash-helper --socket $SOCKET --bin-dir $BIN --work-dir $WORK --uid $OWNER_UID
-ExecStopPost=$BIN/sash-helper --work-dir $WORK --cleanup
-Restart=always
-RestartSec=1
-RuntimeDirectory=sash-helper
-KillMode=control-group
-TimeoutStopSec=15
-
-[Install]
-WantedBy=multi-user.target
-EOF
-chmod 0644 "$UNIT"
-
-systemctl daemon-reload
-systemctl enable sash-helper.service >/dev/null 2>&1 || true
-if [ "$helper_changed" = "1" ] || ! systemctl is-active --quiet sash-helper.service; then
-  systemctl restart sash-helper.service
-fi
-
-{
-  echo "$UNIT"
-  for file in "$BIN"/*; do [ -f "$file" ] && echo "$file"; done
-  [ -f "$WORK/config.yaml" ] && echo "$WORK/config.yaml" || true
-  [ -f "$WORK/network-journal.json" ] && echo "$WORK/network-journal.json" || true
-} > "$MANIFEST"
-chmod 0644 "$MANIFEST"
-
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  [ -S "$SOCKET" ] && exit 0
-  sleep 0.3
-done
-if ! systemctl is-active --quiet sash-helper.service; then
-  journalctl -u sash-helper.service -n 20 --no-pager >&2 || true
-fi
-echo "sash-helper did not create $SOCKET" >&2
-exit 3
-`;
-
-/**
- * Uninstall stops the service first (a failed stop is an error, not a
- * warning), runs the journal cleanup, then removes the manifest-recorded
- * files and the dedicated work dir wholesale — it only ever holds helper
- * runtime state (journal, caches, controller temp dirs), like macOS.
- */
-export const LINUX_HELPER_UNINSTALL_SCRIPT = `set -euo pipefail
-
-BIN="${LINUX_HELPER_BIN_DIR}"
-WORK="${LINUX_HELPER_WORK_DIR}"
-UNIT="${LINUX_HELPER_UNIT_FILE}"
-RUNTIME="$(dirname "${LINUX_HELPER_SOCKET}")"
-MANIFEST="${LINUX_HELPER_MANIFEST}"
-
-if systemctl cat sash-helper.service >/dev/null 2>&1; then
-  systemctl disable --now sash-helper.service
-fi
-if systemctl is-active --quiet sash-helper.service 2>/dev/null; then
-  echo "sash-helper.service is still active after stop" >&2
-  exit 5
-fi
-if [ -x "$BIN/sash-helper" ]; then
-  # A failed cleanup must abort the uninstall: deleting the helper would
-  # leave recorded policy rules, routes or the device stranded.
-  "$BIN/sash-helper" --work-dir "$WORK" --cleanup
-fi
-rm -f "$UNIT"
-systemctl daemon-reload || true
-
-if [ -f "$MANIFEST" ]; then
-  while IFS= read -r file; do
-    case "$file" in
-      "$BIN"/*|"$WORK"/*|"$UNIT") rm -f -- "$file" ;;
-    esac
-  done < "$MANIFEST"
-else
-  # Fallback whitelist for installs made before the manifest existed.
-  rm -f -- "$BIN/sash-helper" "$BIN/sash-helper.sha256" "$BIN"/mihomo.sha256 \
-    "$BIN"/mihomo-* "$BIN"/bootstrap-manifest.json "$WORK/config.yaml" \
-    "$WORK/network-journal.json"
-fi
-# The work dir is dedicated helper state — wipe it whole so runtime caches
-# (cache.db, geo data, providers) never survive the uninstall either.
-rm -rf -- "$WORK"
-rmdir --ignore-fail-on-non-empty "$BIN" "$RUNTIME" 2>/dev/null || true
-exit 0
-`;
-
-type Runner = (cmd: string, args: string[], timeoutMs?: number, input?: string) => Promise<string>;
-
-const defaultRunner: Runner = (cmd, args, timeoutMs = 30_000, input) =>
+const defaultRunner: Runner = (cmd, args, { timeoutMs, input }) =>
   new Promise((resolve, reject) => {
     const child = execFile(
       cmd,
@@ -209,245 +61,95 @@ const defaultRunner: Runner = (cmd, args, timeoutMs = 30_000, input) =>
         env: buildSanitizedEnv(),
         timeout: timeoutMs,
         maxBuffer: 256 * 1024,
-        windowsHide: true,
       },
       (error, stdout, stderr) => {
-        if (error) {
-          const detail = `${stderr ?? ""}`.trim();
-          reject(
-            Object.assign(error, {
-              message: detail ? `${error.message}: ${detail.slice(0, 400)}` : error.message,
-            }),
-          );
-        } else {
-          resolve(stdout ?? "");
-        }
+        if (!error) return resolve(stdout ?? "");
+        const detail = `${stderr ?? ""}`.trim();
+        reject(new Error(detail ? `${error.message}: ${detail.slice(0, 400)}` : error.message));
       },
     );
-    if (input !== undefined) child.stdin?.end(input);
-    else child.stdin?.end();
+    child.stdin?.end(input);
   });
 
-export function packagedHelperBinary(packageRoot = currentPackageRoot()): string {
-  const suffix = `${process.platform}-${process.arch}${process.platform === "win32" ? ".exe" : ""}`;
-  return path.join(packageRoot, "dist", `sash-helper-${suffix}`);
-}
-
-/** The paired Core binary shipped in the same release artifact. */
-export function packagedCoreBinary(packageRoot = currentPackageRoot()): string {
-  const suffix = `${process.platform}-${process.arch}${process.platform === "win32" ? ".exe" : ""}`;
-  return path.join(packageRoot, "dist", `sash-tun-core-${suffix}`);
-}
-
-function installerUid(): number {
-  return typeof process.getuid === "function" ? process.getuid() : 0;
-}
-
 /**
- * The elevated shell that receives the install script on stdin. pkexec is the
- * interactive path on a desktop; sudo -n is used only when the user opted in
- * with SASH_TUN_HELPER_AUTH=sudo — a refused pkexec prompt is never silently
- * retried through a second mechanism.
+ * pkexec is the interactive path on a desktop; sudo -n is used only when the
+ * user opted in with SASH_TUN_HELPER_AUTH=sudo. A refused pkexec prompt is
+ * never retried through another mechanism.
  */
-function privilegeCommands(env: NodeJS.ProcessEnv): { cmd: string; args: string[] }[] {
-  if (typeof process.geteuid === "function" && process.geteuid() === 0) {
-    return [{ cmd: "/bin/bash", args: ["-s"] }];
-  }
+export function elevationCommand(env: NodeJS.ProcessEnv): { cmd: string; args: string[] } {
+  if (process.geteuid?.() === 0) return { cmd: "/bin/sh", args: ["-s"] };
   const sudo = findExecutableOnPath("sudo", env);
-  if (env.SASH_TUN_HELPER_AUTH === "sudo" && sudo) {
-    return [{ cmd: sudo, args: ["-n", "/bin/bash", "-s"] }];
-  }
+  if (env.SASH_TUN_HELPER_AUTH === "sudo" && sudo)
+    return { cmd: sudo, args: ["-n", "/bin/sh", "-s"] };
   const pkexec = findExecutableOnPath("pkexec", env);
-  return pkexec ? [{ cmd: pkexec, args: ["/bin/bash", "-s"] }] : [];
-}
-
-async function elevate(run: Runner, script: string, args: string[]): Promise<void> {
-  const commands = privilegeCommands(buildSanitizedEnv());
-  if (commands.length === 0) {
-    throw new Error(
-      "Installing the TUN helper requires pkexec (or sudo with SASH_TUN_HELPER_AUTH=sudo); neither was found",
-    );
-  }
-  let lastError: unknown;
-  for (const command of commands) {
-    try {
-      await run(command.cmd, [...command.args, "--", ...args], 120_000, script);
-      return;
-    } catch (error) {
-      lastError = error;
-      // A refused pkexec authentication must not fall back to sudo.
-      break;
-    }
-  }
+  if (pkexec) return { cmd: pkexec, args: ["/bin/sh", "-s"] };
   throw new Error(
-    `Privileged TUN helper setup failed: ${errorMessage(lastError)}. ` +
-      "Approve the pkexec prompt, or rerun with SASH_TUN_HELPER_AUTH=sudo when your sudoers allows it.",
+    "TUN authorization needs pkexec, or sudo with SASH_TUN_HELPER_AUTH=sudo; neither was found",
   );
 }
 
-async function statProtectedFile(file: string): Promise<boolean> {
-  try {
-    const stat = await fsp.stat(file);
-    return stat.isFile() && stat.uid === 0 && (stat.mode & 0o022) === 0;
-  } catch {
-    return false;
-  }
-}
-
-export interface ProtectedPairPaths {
-  unit: string;
-  helper: string;
-  manifest: string;
-  core: string;
-}
-
-export interface InspectPairDeps {
-  packageRoot?: string;
-  statFile?: (file: string) => Promise<boolean>;
-  versionOf?: (file: string) => Promise<string | null>;
+function getcapPath(env: NodeJS.ProcessEnv): string | undefined {
+  // sbin is often missing from a desktop user's PATH.
+  return (
+    findExecutableOnPath("getcap", env) ??
+    ["/usr/sbin/getcap", "/sbin/getcap"].find((candidate) => existsSync(candidate))
+  );
 }
 
 /**
- * Inspect the protected install: missing service files mean "not
- * installed"; a present install whose helper doesn't run, whose helper
- * isn't the packaged one, or whose paired Core is missing/drifted means
- * consent again — a drifted install, distinct from an absent one.
+ * True when `getcap` shows both capabilities effective and permitted. libcap
+ * prints `<file> cap_net_admin,cap_net_bind_service=ep`; older releases print
+ * `<file> = cap_net_admin,cap_net_bind_service+ep`.
  */
-export async function inspectProtectedPair(paths: ProtectedPairPaths, deps: InspectPairDeps = {}) {
-  const statFile = deps.statFile ?? statProtectedFile;
-  const versionOf =
-    deps.versionOf ??
-    ((file: string) =>
-      promisify(execFile)(file, ["--version"], { timeout: 5000 })
-        .then(({ stdout }) => stdout.trim() || null)
-        .catch(() => null));
-  const [unit, helper, manifest, core] = await Promise.all([
-    statFile(paths.unit),
-    statFile(paths.helper),
-    statFile(paths.manifest),
-    statFile(paths.core),
-  ]);
-  const installed = unit && helper && manifest;
-  if (!installed) return { installed: false, coreSynced: null };
-  const helperVersion = await versionOf(paths.helper);
-  const [expectedHelper, expectedCore, installedHelper, installedCore] = await Promise.all([
-    coreSha256(packagedHelperBinary(deps.packageRoot)).catch(() => null),
-    coreSha256(packagedCoreBinary(deps.packageRoot)).catch(() => null),
-    coreSha256(paths.helper).catch(() => null),
-    core ? coreSha256(paths.core).catch(() => null) : Promise.resolve(null),
-  ]);
-  const coreSynced =
-    expectedCore !== null && installedCore !== null && installedCore === expectedCore;
-  const paired = installedHelper !== null && installedHelper === expectedHelper;
-  return {
-    installed: true,
-    coreSynced,
-    helperVersion,
-    needsReconsent: helperVersion === null || !paired || !coreSynced,
-  };
+export function parseGetcap(output: string, core: string): boolean {
+  const text = output.trim();
+  const clauses = text.startsWith(core) ? text.slice(core.length) : text;
+  const granted = new Set<string>();
+  for (const [, list = "", flags = ""] of clauses.matchAll(/((?:cap_[a-z_]+,?)+)[=+]([eip]+)/g)) {
+    if (flags.includes("e") && flags.includes("p"))
+      for (const capability of list.split(",")) granted.add(capability);
+  }
+  return granted.has("cap_net_admin") && granted.has("cap_net_bind_service");
 }
 
-export interface LinuxTunPlatformDeps {
-  run?: Runner;
-  env?: NodeJS.ProcessEnv;
-  packageRoot?: string;
-  statFile?: (file: string) => Promise<boolean>;
-  versionOf?: (file: string) => Promise<string | null>;
-}
-
-/** The release manifest's recorded digest for this platform's packaged
- * helper — the integrity anchor the consented install re-verifies
- * against, so a pre-damaged or mismatched file is never mistaken for
- * the release artifact. */
-async function packagedHelperDigest(packageRoot?: string): Promise<string> {
-  const root = packageRoot ?? currentPackageRoot();
-  const name = `sash-helper-${process.platform}-${process.arch}`;
-  let manifest: {
-    helpers?: { assets?: { name?: string; sha256?: string }[] };
-  };
-  try {
-    manifest = JSON.parse(
-      await fsp.readFile(path.join(root, "dist", "bootstrap-manifest.json"), "utf8"),
-    );
-  } catch (error) {
-    throw new Error(`Could not read the release manifest: ${(error as Error).message}`);
-  }
-  const entry = manifest.helpers?.assets?.find((asset) => asset.name === name);
-  if (!entry?.sha256) {
-    throw new Error(`Release manifest has no digest for ${name}. Run npm run build first.`);
-  }
-  return entry.sha256;
-}
-
-async function installScriptArgs(_layout: SashLayout, packageRoot?: string): Promise<string[]> {
-  const helper = packagedHelperBinary(packageRoot);
-  const core = packagedCoreBinary(packageRoot);
-  try {
-    await fsp.access(helper, fs.constants.X_OK);
-    await fsp.access(core, fs.constants.X_OK);
-  } catch {
-    throw new Error(
-      `Packaged TUN binaries not found (${helper}, ${core}). Run npm run build first.`,
-    );
-  }
-  // Anchor the expected digest on the release manifest, then prove the
-  // packaged bytes match it before elevating — a pre-damaged or foreign
-  // file at the package path fails here, not after privileged execution.
-  const manifestSha = await packagedHelperDigest(packageRoot);
-  const fileSha = await coreSha256(helper);
-  if (fileSha !== manifestSha) {
-    throw new Error(
-      `Packaged helper does not match the release manifest (${fileSha} != ${manifestSha})`,
-    );
-  }
-  return [helper, manifestSha, core, String(installerUid())];
-}
-
-const LINUX_PROTECTED_CORE = protectedCorePath(LINUX_HELPER_BIN_DIR);
-
-export function linuxTunPlatform(deps: LinuxTunPlatformDeps = {}): TunPlatform {
+export function linuxTunPlatform(
+  deps: { run?: Runner; env?: NodeJS.ProcessEnv } = {},
+): TunPlatform {
   const run = deps.run ?? defaultRunner;
-  return {
-    supported: true,
+  const env = () => deps.env ?? buildSanitizedEnv();
 
-    async inspect(_layout: SashLayout) {
-      return inspectProtectedPair(
-        {
-          unit: LINUX_HELPER_UNIT_FILE,
-          helper: LINUX_HELPER_BINARY,
-          manifest: LINUX_HELPER_MANIFEST,
-          core: LINUX_PROTECTED_CORE,
-        },
-        {
-          packageRoot: deps.packageRoot,
-          statFile: deps.statFile,
-          versionOf: deps.versionOf,
-        },
+  async function elevate(script: string, layout: SashLayout, action: string): Promise<void> {
+    refuseElevationInTests(action);
+    const { cmd, args } = elevationCommand(env());
+    try {
+      await run(cmd, [...args, "--", layout.coreExe], { timeoutMs: 120_000, input: script });
+    } catch (error) {
+      throw new Error(
+        `Could not ${action}: ${errorMessage(error)}. Approve the pkexec prompt, or rerun with SASH_TUN_HELPER_AUTH=sudo when sudoers allows it.`,
       );
-    },
+    }
+  }
 
-    async install(layout) {
-      const args = await installScriptArgs(layout, deps.packageRoot);
-      await elevate(run, LINUX_HELPER_INSTALL_SCRIPT, args);
-      const state = await this.inspect(layout);
-      if (!state.installed || state.needsReconsent) {
-        throw new Error("TUN helper installation could not be verified");
-      }
-    },
-
-    async uninstall(_layout) {
-      await elevate(run, LINUX_HELPER_UNINSTALL_SCRIPT, []);
-    },
-
-    connect(_layout): HelperClient {
+  return {
+    mechanism: "capabilities",
+    async inspect(layout): Promise<TunPrivilege> {
+      const stat = await fs.stat(layout.coreExe).catch(() => undefined);
+      if (!stat?.isFile()) return { state: "missing", detail: "Core is not installed" };
+      const getcap = getcapPath(env());
+      if (!getcap) return { state: "unknown", detail: "getcap is not installed" };
       try {
-        fs.accessSync(LINUX_HELPER_SOCKET, fs.constants.R_OK | fs.constants.W_OK);
-      } catch {
-        throw new Error(
-          `TUN helper service is not reachable at ${LINUX_HELPER_SOCKET}; check "systemctl status sash-helper"`,
-        );
+        const output = await run(getcap, [layout.coreExe], { timeoutMs: 5_000 });
+        return parseGetcap(output, layout.coreExe) ? { state: "ready" } : { state: "missing" };
+      } catch (error) {
+        return { state: "unknown", detail: errorMessage(error) };
       }
-      return createIpcHelperClient(LINUX_HELPER_SOCKET);
+    },
+    async install(layout) {
+      await requireCoreFile(layout);
+      await elevate(GRANT_SCRIPT, layout, "authorize the Core for TUN Mode");
+    },
+    async uninstall(layout) {
+      await elevate(REVOKE_SCRIPT, layout, "remove the TUN Mode authorization from the Core");
     },
   };
 }

@@ -489,12 +489,12 @@ async function setTunHelper(
   const peer = req.raw.socket.remoteAddress;
   if (peer !== "127.0.0.1" && peer !== "::1" && peer !== "::ffff:127.0.0.1")
     throw new HttpError(403, "TUN helper administration is local only", "unauthorized");
-  if (!ctx.tun.platform.supported)
-    throw new HttpError(501, "TUN helper integration is not available on this platform yet");
+  if (!ctx.tun.supported) throw new HttpError(501, "TUN Mode is not available on this platform");
   await ctx.mutate(async () => {
     if (ctx.supervisor.isRunning() && ctx.lifecycle.configuration()?.settings.tun.enable)
       throw new HttpError(409, "Disable TUN and Apply before changing the helper", "conflict");
-    await ctx.tun.setInstalled(install);
+    const proxyUri = ctx.core.downloadTransport()?.uri;
+    await ctx.tun.setInstalled(install, proxyUri !== undefined ? { proxyUri } : {});
   });
   return readTun(ctx);
 }

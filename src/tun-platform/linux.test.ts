@@ -1,175 +1,117 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-
+import { describe, it, onTestFinished } from "vitest";
+import { sashLayout } from "../paths.js";
 import {
-  inspectProtectedPair,
-  LINUX_HELPER_INSTALL_SCRIPT,
-  LINUX_HELPER_UNINSTALL_SCRIPT,
+  CORE_CAPABILITIES,
+  elevationCommand,
+  GRANT_SCRIPT,
   linuxTunPlatform,
-  packagedCoreBinary,
-  packagedHelperBinary,
+  parseGetcap,
+  REVOKE_SCRIPT,
+  type Runner,
 } from "./linux.js";
 
-const tempDirs: string[] = [];
-function tempRoot(t: { onTestFinished: (fn: () => void) => void }): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-linux-test-"));
-  tempDirs.push(dir);
-  t.onTestFinished(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
-  });
-  return dir;
+function layoutWithCore(core = true) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-linux-tun-"));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
+  const layout = sashLayout(root);
+  if (core) {
+    fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+    fs.writeFileSync(layout.coreExe, "core");
+  }
+  return layout;
 }
-afterEach(() => {
-  while (tempDirs.length > 0) fs.rmSync(tempDirs.pop() as string, { recursive: true, force: true });
+
+describe("parseGetcap", () => {
+  const core = "/home/a/.local/share/sash/bin/mihomo";
+  it("accepts current and older libcap output", () => {
+    assert.equal(parseGetcap(`${core} cap_net_bind_service,cap_net_admin=ep\n`, core), true);
+    assert.equal(parseGetcap(`${core} = cap_net_admin,cap_net_bind_service+ep\n`, core), true);
+    assert.equal(parseGetcap(`${core} cap_net_admin+ep cap_net_bind_service+eip\n`, core), true);
+  });
+
+  it("rejects missing, partial or inheritable-only capabilities", () => {
+    assert.equal(parseGetcap("", core), false);
+    assert.equal(parseGetcap(`${core} cap_net_admin=ep\n`, core), false);
+    assert.equal(parseGetcap(`${core} cap_net_admin,cap_net_bind_service=i\n`, core), false);
+  });
+
+  it("does not read capability names out of the file path", () => {
+    const odd = "/tmp/cap_net_admin,cap_net_bind_service=ep/mihomo";
+    assert.equal(parseGetcap(`${odd}\n`, odd), false);
+  });
 });
 
-describe("packaged binaries", () => {
-  // Linux binaries carry no .exe suffix; this assertion is only meaningful on unix hosts.
-  it.skipIf(process.platform === "win32")(
-    "pairs the helper and Core names by platform and arch",
+describe("Linux scripts", () => {
+  it("grant the documented capabilities to the Core passed as $1", () => {
+    assert.equal(CORE_CAPABILITIES, "cap_net_admin,cap_net_bind_service=+ep");
+    assert.match(GRANT_SCRIPT, /setcap cap_net_admin,cap_net_bind_service=\+ep "\$core"/);
+    assert.match(GRANT_SCRIPT, /core="\$1"/);
+    assert.match(GRANT_SCRIPT, /\[ -L "\$core" \]/);
+    assert.match(REVOKE_SCRIPT, /setcap -r "\$core"/);
+  });
+
+  it("retire the 0.7.0 systemd helper", () => {
+    for (const script of [GRANT_SCRIPT, REVOKE_SCRIPT]) {
+      assert.match(script, /systemctl disable --now sash-helper\.service/);
+      assert.match(script, /rm -rf \/usr\/local\/lib\/sash \/var\/lib\/sash-helper/);
+    }
+  });
+});
+
+describe("elevationCommand", () => {
+  it.skipIf(process.platform === "win32" || process.geteuid?.() === 0)(
+    "prefers pkexec and uses sudo only when asked",
     () => {
-      const root = "/opt/sash";
-      expect(packagedHelperBinary(root)).toBe(
-        path.join(root, "dist", `sash-helper-${process.platform}-${process.arch}`),
-      );
-      expect(packagedCoreBinary(root)).toBe(
-        path.join(root, "dist", `sash-tun-core-${process.platform}-${process.arch}`),
-      );
+      const bin = fs.mkdtempSync(path.join(os.tmpdir(), "sash-linux-bin-"));
+      onTestFinished(() => fs.rmSync(bin, { recursive: true, force: true }));
+      for (const name of ["pkexec", "sudo"])
+        fs.writeFileSync(path.join(bin, name), "", { mode: 0o755 });
+      assert.deepEqual(elevationCommand({ PATH: bin }), {
+        cmd: path.join(bin, "pkexec"),
+        args: ["/bin/sh", "-s"],
+      });
+      assert.deepEqual(elevationCommand({ PATH: bin, SASH_TUN_HELPER_AUTH: "sudo" }), {
+        cmd: path.join(bin, "sudo"),
+        args: ["-n", "/bin/sh", "-s"],
+      });
+      assert.throws(() => elevationCommand({ PATH: "" }), /needs pkexec/);
     },
   );
 });
 
-describe("install script", () => {
-  it("runs the consented install instead of copying the Core itself", () => {
-    expect(LINUX_HELPER_INSTALL_SCRIPT).toContain("--install-consent");
-    // The packaged helper is staged root-owned and re-hashed before any
-    // privileged execution; the staged copy, not the user-writable path, runs.
-    expect(LINUX_HELPER_INSTALL_SCRIPT).toContain("$BIN/.sash-helper.new");
-    expect(LINUX_HELPER_INSTALL_SCRIPT).toContain('install -m 0755 -o root -g root "$HELPER_SRC"');
-    expect(LINUX_HELPER_INSTALL_SCRIPT).toContain('"$BIN/.sash-helper.new" --bin-dir');
-    // An upgrade stops the old service and runs the old helper's cleanup
-    // before the new pair is published.
-    const stopIndex = LINUX_HELPER_INSTALL_SCRIPT.indexOf("systemctl stop sash-helper.service");
-    const cleanupIndex = LINUX_HELPER_INSTALL_SCRIPT.indexOf("--cleanup");
-    const consentIndex = LINUX_HELPER_INSTALL_SCRIPT.indexOf("--install-consent");
-    expect(stopIndex).toBeGreaterThan(-1);
-    expect(cleanupIndex).toBeGreaterThan(stopIndex);
-    expect(consentIndex).toBeGreaterThan(cleanupIndex);
-    expect(LINUX_HELPER_INSTALL_SCRIPT).not.toContain("--publish-core");
-    expect(LINUX_HELPER_INSTALL_SCRIPT).not.toContain("mv -f");
-    expect(LINUX_HELPER_INSTALL_SCRIPT).not.toContain('"$HELPER_SRC" --bin-dir');
-  });
-});
-
-describe("uninstall script", () => {
-  it("aborts when the service or cleanup fails", () => {
-    expect(LINUX_HELPER_UNINSTALL_SCRIPT).toContain("--cleanup");
-    expect(LINUX_HELPER_UNINSTALL_SCRIPT).toContain("exit 5");
-  });
-});
-
-describe("linuxTunPlatform.install", () => {
-  it("fails fast when packaged binaries are missing", async (t) => {
-    tempRoot(t);
-    const platform = linuxTunPlatform({ packageRoot: tempRoot(t) });
-    await expect(platform.install({} as never)).rejects.toThrow(/Packaged TUN binaries/);
-  });
-
-  it("inspect reports not installed when the protected pair is absent", async () => {
-    const platform = linuxTunPlatform({ statFile: async () => false });
-    const state = await platform.inspect({} as never);
-    expect(state).toEqual({ installed: false, coreSynced: null });
-  });
-});
-
-describe("inspectProtectedPair", () => {
-  async function setup(t: { onTestFinished: (fn: () => void) => void }) {
-    const root = tempRoot(t);
-    const dist = path.join(root, "dist");
-    fs.mkdirSync(dist, { recursive: true });
-    fs.writeFileSync(packagedHelperBinary(root), "helper-v1");
-    fs.writeFileSync(packagedCoreBinary(root), "core-v1");
-    const install = path.join(root, "protected");
-    fs.mkdirSync(install, { recursive: true });
-    const paths = {
-      unit: path.join(install, "unit"),
-      helper: path.join(install, "sash-helper"),
-      manifest: path.join(install, "manifest"),
-      core: path.join(install, "mihomo"),
+describe("linuxTunPlatform.inspect", () => {
+  it("reads the Core's capabilities with getcap", async () => {
+    const layout = layoutWithCore();
+    const calls: string[][] = [];
+    const run: Runner = async (cmd, args) => {
+      calls.push([cmd, ...args]);
+      return `${layout.coreExe} cap_net_admin,cap_net_bind_service=ep\n`;
     };
-    const writePair = (helper: string, core: string | null) => {
-      fs.writeFileSync(paths.unit, "u");
-      fs.writeFileSync(paths.helper, helper);
-      fs.writeFileSync(paths.manifest, "m");
-      if (core === null) {
-        if (fs.existsSync(paths.core)) fs.rmSync(paths.core);
-      } else {
-        fs.writeFileSync(paths.core, core);
-      }
-    };
-    const statFile = async (file: string) => fs.existsSync(file);
-    const versionOf = async () => "0.6.1";
-    return { root, paths, writePair, statFile, versionOf };
-  }
-
-  it("reports a verified pair without reconsent", async (t) => {
-    const { root, paths, writePair, statFile, versionOf } = await setup(t);
-    writePair("helper-v1", "core-v1");
-    const state = await inspectProtectedPair(paths, {
-      packageRoot: root,
-      statFile,
-      versionOf,
-    });
-    expect(state).toMatchObject({ installed: true, coreSynced: true });
-    expect(state.needsReconsent).toBe(false);
+    const getcapDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-getcap-"));
+    onTestFinished(() => fs.rmSync(getcapDir, { recursive: true, force: true }));
+    const getcap = path.join(getcapDir, "getcap");
+    fs.writeFileSync(getcap, "", { mode: 0o755 });
+    const platform = linuxTunPlatform({ run, env: { PATH: getcapDir } });
+    assert.deepEqual(await platform.inspect(layout), { state: "ready" });
+    assert.equal(calls[0]?.[1], layout.coreExe);
   });
 
-  it("flags reconsent when the paired Core drifted at the same version", async (t) => {
-    const { root, paths, writePair, statFile, versionOf } = await setup(t);
-    writePair("helper-v1", "core-tampered");
-    const state = await inspectProtectedPair(paths, {
-      packageRoot: root,
-      statFile,
-      versionOf,
+  it("reports a missing Core without running getcap", async () => {
+    const platform = linuxTunPlatform({
+      run: async () => {
+        throw new Error("getcap must not run");
+      },
+      env: { PATH: "" },
     });
-    expect(state.installed).toBe(true);
-    expect(state.coreSynced).toBe(false);
-    expect(state.needsReconsent).toBe(true);
+    assert.equal((await platform.inspect(layoutWithCore(false))).state, "missing");
   });
 
-  it("flags reconsent when the paired Core is missing entirely", async (t) => {
-    const { root, paths, writePair, statFile, versionOf } = await setup(t);
-    writePair("helper-v1", null);
-    const state = await inspectProtectedPair(paths, {
-      packageRoot: root,
-      statFile,
-      versionOf,
-    });
-    expect(state.installed).toBe(true);
-    expect(state.coreSynced).toBe(false);
-    expect(state.needsReconsent).toBe(true);
-  });
-
-  it("flags reconsent when the helper cannot report its version", async (t) => {
-    const { root, paths, writePair, statFile } = await setup(t);
-    writePair("helper-v1", "core-v1");
-    const state = await inspectProtectedPair(paths, {
-      packageRoot: root,
-      statFile,
-      versionOf: async () => null,
-    });
-    expect(state.needsReconsent).toBe(true);
-  });
-
-  it("reports an absent install without drift signals", async (t) => {
-    const { root, paths, statFile, versionOf } = await setup(t);
-    const state = await inspectProtectedPair(paths, {
-      packageRoot: root,
-      statFile,
-      versionOf,
-    });
-    expect(state).toEqual({ installed: false, coreSynced: null });
+  it("refuses to authorize before the Core is installed", async () => {
+    const platform = linuxTunPlatform({ run: async () => "", env: { PATH: "" } });
+    await assert.rejects(platform.install(layoutWithCore(false)), /Core is not installed/);
   });
 });

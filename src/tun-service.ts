@@ -1,74 +1,129 @@
 import type { TunStatusResponse } from "./contracts.js";
-import type { HelperClient } from "./launcher/protocol.js";
-import { readSashPackageInfo } from "./package-info.js";
 import type { SashLayout } from "./paths.js";
 import type { TunSettings } from "./tun-settings.js";
 
-interface TunHelperInspection {
-  installed: boolean | null;
-  helperVersion?: string | null;
-  needsReconsent?: boolean;
-  coreSynced?: boolean | null;
-}
+/**
+ * How a platform lends the managed Core the privilege TUN needs. None of
+ * them pins a Core version: they act on `layout.coreExe`, the same Core that
+ * ordinary mode runs and `sash update` replaces.
+ *
+ * - `service`: a LocalSystem service starts and stops the Core (Windows).
+ * - `setuid`: the Core file is owned by root with the setuid bit (macOS).
+ * - `capabilities`: the Core file carries CAP_NET_ADMIN (Linux).
+ */
+export type TunPrivilegeMechanism = "service" | "setuid" | "capabilities";
 
-function helperNeedsReconsent(status: TunHelperInspection): boolean {
-  return (
-    status.installed === true &&
-    (status.needsReconsent === true ||
-      (status.helperVersion !== undefined &&
-        status.helperVersion !== readSashPackageInfo().version))
-  );
-}
+/**
+ * - `ready`: TUN can start.
+ * - `missing`: nothing is installed or granted.
+ * - `stale`: something is installed but cannot serve this data folder — install again.
+ * - `unknown`: the platform could not tell.
+ */
+export type TunPrivilegeState = "ready" | "missing" | "stale" | "unknown";
 
-export interface TunPlatform {
-  readonly supported: boolean;
-  inspect(layout: SashLayout): Promise<TunHelperInspection & { installed: boolean }>;
-  install(layout: SashLayout): Promise<void>;
-  uninstall(layout: SashLayout): Promise<void>;
-  connect(layout: SashLayout): HelperClient;
-}
-
-export function unsupportedTunPlatform(): TunPlatform {
-  function unavailable(): never {
-    throw new Error("TUN helper integration is not available on this platform yet");
-  }
-  return {
-    supported: false,
-    inspect: async () => ({ installed: false }),
-    install: async () => unavailable(),
-    uninstall: async () => unavailable(),
-    connect: unavailable,
-  };
+export interface TunPrivilege {
+  state: TunPrivilegeState;
+  /** Why the privilege is not ready, when the platform can tell. */
+  detail?: string;
 }
 
 /**
- * Inspection shells out (service queries, digests, --version), so status
- * callers that poll — the daemon event feed — share one result for
- * INSPECT_TTL_MS. Install/uninstall invalidates the cache immediately, and
- * interactive readers (CLI `tun status`) always inspect fresh.
+ * A Core that runs outside Sash's process tree: a privileged host starts and
+ * stops it, while Sash still reaches it through its ordinary controller.
+ */
+export interface HostedCore {
+  start(): Promise<{ pid: number }>;
+  stop(): Promise<void>;
+  status(): Promise<{ running: boolean; pid: number | null }>;
+}
+
+export interface TunInstallOptions {
+  /** Transport for any download the installation needs. */
+  proxyUri?: string;
+}
+
+export interface TunPlatform {
+  /** null when this platform has no TUN integration. */
+  readonly mechanism: TunPrivilegeMechanism | null;
+  inspect(layout: SashLayout): Promise<TunPrivilege>;
+  install(layout: SashLayout, options?: TunInstallOptions): Promise<void>;
+  uninstall(layout: SashLayout): Promise<void>;
+  /**
+   * Present when TUN Cores run under a privileged host. Without it the
+   * privileged Core is launched like any other Core, as Sash's child.
+   */
+  host?(layout: SashLayout): HostedCore;
+}
+
+export function unsupportedTunPlatform(): TunPlatform {
+  const unavailable = async (): Promise<never> => {
+    throw new Error("TUN Mode is not available on this platform");
+  };
+  return {
+    mechanism: null,
+    inspect: async () => ({ state: "missing" }),
+    install: unavailable,
+    uninstall: unavailable,
+  };
+}
+
+const MECHANISM_NAMES: Record<TunPrivilegeMechanism, string> = {
+  service: "TUN service",
+  setuid: "setuid Core",
+  capabilities: "Core capabilities",
+};
+
+/** One-line helper state for the CLI and doctor. */
+export function describeTunHelper(status: TunStatusResponse): string {
+  if (!status.supported) return "Not available on this platform";
+  const { mechanism, state, detail } = status.privilege;
+  const reason = detail ? ` (${detail})` : "";
+  switch (state) {
+    case "ready":
+      return mechanism ? `Ready (${MECHANISM_NAMES[mechanism]})` : "Ready";
+    case "missing":
+      return `Not installed${reason}`;
+    case "stale":
+      return `Needs reinstall${reason}`;
+    case "unknown":
+      return `Unknown${reason}`;
+  }
+}
+
+/**
+ * Inspection may shell out (service queries, getcap), so status callers that
+ * poll — the daemon event feed — share one result for INSPECT_TTL_MS.
+ * Install/uninstall invalidates the cache, and interactive readers always
+ * inspect fresh.
  */
 const INSPECT_TTL_MS = 30_000;
 
 export class TunService {
-  private inspectCache: { at: number; value: TunHelperInspection } | undefined;
+  private inspectCache: { at: number; value: TunPrivilege } | undefined;
 
   constructor(
     readonly platform: TunPlatform,
     private readonly layout: SashLayout,
   ) {}
 
+  get supported(): boolean {
+    return this.platform.mechanism !== null;
+  }
+
   invalidateInspect(): void {
     this.inspectCache = undefined;
   }
 
-  private async inspect(fresh: boolean): Promise<TunHelperInspection> {
-    if (fresh) {
-      return this.platform.inspect(this.layout).catch(() => ({ installed: null }));
-    }
-    if (this.inspectCache && Date.now() - this.inspectCache.at < INSPECT_TTL_MS) {
+  private async inspect(fresh: boolean): Promise<TunPrivilege> {
+    if (!fresh && this.inspectCache && Date.now() - this.inspectCache.at < INSPECT_TTL_MS) {
       return this.inspectCache.value;
     }
-    const value = await this.platform.inspect(this.layout).catch(() => ({ installed: null }));
+    const value = await this.platform.inspect(this.layout).catch(
+      (error: unknown): TunPrivilege => ({
+        state: "unknown",
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+    );
     this.inspectCache = { at: Date.now(), value };
     return value;
   }
@@ -79,32 +134,40 @@ export class TunService {
     options: { fresh?: boolean } = {},
   ): Promise<TunStatusResponse> {
     const privilege = await this.inspect(options.fresh === true);
-    const needsReconsent = helperNeedsReconsent(privilege);
     return {
-      supported: this.platform.supported,
+      supported: this.supported,
       desired,
       applied: applied?.enable ?? false,
       privilege: {
-        mode: "helper",
-        installed: privilege.installed,
-        needsReconsent,
-        version: privilege.helperVersion ?? null,
-        coreSynced: privilege.coreSynced ?? null,
+        mechanism: this.platform.mechanism,
+        state: privilege.state,
+        detail: privilege.detail ?? null,
       },
     };
   }
 
   async checkReady(): Promise<void> {
-    if (!this.platform.supported) throw new Error("TUN helper integration is unavailable");
-    const status = await this.platform.inspect(this.layout);
-    if (!status.installed) throw new Error("Install the TUN helper before Apply");
-    if (helperNeedsReconsent(status))
-      throw new Error("TUN helper needs re-consent; run sash tun helper install");
+    if (!this.supported) throw new Error("TUN Mode is not available on this platform");
+    const { state, detail } = await this.inspect(true);
+    const reason = detail ? ` (${detail})` : "";
+    switch (state) {
+      case "ready":
+        return;
+      case "missing":
+        throw new Error(`Install the TUN helper first: sash tun helper install${reason}`);
+      case "stale":
+        throw new Error(`Install the TUN helper again: sash tun helper install${reason}`);
+      case "unknown":
+        throw new Error(`Could not check the TUN helper${reason}`);
+    }
   }
 
-  async setInstalled(installed: boolean): Promise<void> {
-    if (installed) await this.platform.install(this.layout);
-    else await this.platform.uninstall(this.layout);
-    this.invalidateInspect();
+  async setInstalled(installed: boolean, options: TunInstallOptions = {}): Promise<void> {
+    try {
+      if (installed) await this.platform.install(this.layout, options);
+      else await this.platform.uninstall(this.layout);
+    } finally {
+      this.invalidateInspect();
+    }
   }
 }

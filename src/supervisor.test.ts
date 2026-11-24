@@ -8,11 +8,11 @@ import os from "node:os";
 import path from "node:path";
 import { test, vi } from "vitest";
 import { mihomoEngine } from "./engine/index.js";
-import type { PrivilegedCore } from "./launcher/index.js";
 import { sashLayout } from "./paths.js";
 import { classifyProcessIdentityAsync, readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
 import { CORE_LOG_ROTATE_BYTES, CoreSupervisor, rotateCoreLogs } from "./supervisor.js";
+import type { HostedCore } from "./tun-service.js";
 
 test("restart: stale exit event from the replaced core does not clobber the new one", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-"));
@@ -470,63 +470,126 @@ test("health timeout aborts the child and clears its owned PID record", async ()
   }
 });
 
-test("privileged Core uses the same ownership lifecycle and clears its session on stop", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-privileged-test-"));
+function hostedFixture(prefix: string) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
   fs.writeFileSync(layout.coreExe, "fake-core");
   fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
   fs.writeFileSync(layout.configFile, "tun: {enable: true}\n");
-
-  let alive = true;
-  const reloads: string[] = [];
-  const child: PrivilegedCore = {
+  const host: HostedCore & { running: boolean; pid: number; starts: number; stops: number } = {
+    running: false,
     pid: 6565,
-    controller: {
-      connect: () => {
-        throw new Error("controller transport is not needed by the fake engine");
-      },
+    starts: 0,
+    stops: 0,
+    async start() {
+      host.starts += 1;
+      host.running = true;
+      return { pid: host.pid };
     },
-    alive: async () => alive,
-    reload: async (configText) => {
-      reloads.push(configText);
+    async stop() {
+      host.stops += 1;
+      host.running = false;
     },
-    stop: async () => {
-      alive = false;
+    async status() {
+      return { running: host.running, pid: host.running ? host.pid : null };
     },
   };
-  const settings = {
-    ...DEFAULT_SETTINGS,
-    tun: { ...DEFAULT_SETTINGS.tun, enable: true },
-  };
+  const settings = { ...DEFAULT_SETTINGS, tun: { ...DEFAULT_SETTINGS.tun, enable: true } };
+  const exits: unknown[] = [];
   const supervisor = new CoreSupervisor({
     layout,
     settings: () => settings,
-    privilegedLauncher: { launch: () => ({ mode: "privileged", child }) },
+    tunHost: host,
+    waitHealthyMs: 500,
+    spawnFn: () => {
+      throw new Error("a hosted TUN Core must not be spawned by Sash");
+    },
+    onExit: (code, signal) => {
+      exits.push([code, signal]);
+    },
     engine: {
       ...mihomoEngine,
       api(controller, secret, dispatcher) {
         const api = mihomoEngine.api(controller, secret, dispatcher);
-        return { ...api, version: async () => "v-privileged" };
+        return { ...api, version: async () => "v-hosted" };
       },
     },
   });
+  return { root, layout, host, settings, supervisor, exits };
+}
 
+test("hosted TUN Core: the host starts and stops it under the usual ownership rules", async () => {
+  const f = hostedFixture("sash-supervisor-hosted-test-");
   try {
-    assert.deepEqual(await supervisor.start(), { pid: 6565, version: "v-privileged" });
-    assert.equal(supervisor.isPrivileged(), true);
-    const owner = supervisor.ownedCoreSnapshot();
+    assert.deepEqual(await f.supervisor.start(), { pid: 6565, version: "v-hosted" });
+    const owner = f.supervisor.ownedCoreSnapshot();
     assert.ok(owner);
-    assert.equal(supervisor.ownsCore(owner), true);
-    await supervisor.reload("tun: {enable: true, stack: system}\n");
-    assert.deepEqual(reloads, ["tun: {enable: true, stack: system}\n"]);
-    await supervisor.stop();
-    assert.equal(supervisor.isRunning(), false);
-    assert.equal(supervisor.isPrivileged(), false);
-    assert.equal(supervisor.ownsCore(owner), false);
+    assert.equal(f.supervisor.ownsCore(owner), true);
+    assert.equal((await f.supervisor.status()).pid, 6565);
+    await assert.rejects(f.supervisor.start(), /already running/);
+    await f.supervisor.stop();
+    assert.equal(f.host.stops, 1);
+    assert.equal(f.supervisor.isRunning(), false);
+    assert.equal(f.supervisor.ownsCore(owner), false);
+    assert.deepEqual(f.exits, []);
+    assert.equal(readPidRecord(f.layout.pidFile), undefined);
   } finally {
-    await supervisor.stop().catch(() => {});
-    fs.rmSync(root, { recursive: true, force: true });
+    await f.supervisor.stop().catch(() => {});
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: an exit during startup reports the Core's recent errors", async () => {
+  const f = hostedFixture("sash-supervisor-hosted-exit-test-");
+  try {
+    f.host.start = async () => {
+      fs.appendFileSync(f.layout.coreErrLogFile, "fatal: configure tun interface: access denied\n");
+      return { pid: f.host.pid };
+    };
+    await assert.rejects(f.supervisor.start(), /exited during startup[\s\S]*access denied/);
+    assert.equal(f.supervisor.isRunning(), false);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: the heartbeat reports a Core that went away", async () => {
+  const f = hostedFixture("sash-supervisor-hosted-heartbeat-test-");
+  try {
+    vi.useFakeTimers();
+    await f.supervisor.start();
+    f.host.running = false;
+    await vi.advanceTimersByTimeAsync(1_000);
+    assert.equal(f.supervisor.isRunning(), false);
+    assert.deepEqual(f.exits, [[null, null]]);
+  } finally {
+    vi.useRealTimers();
+    await f.supervisor.stop().catch(() => {});
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: an orphan left by a previous Sash is stopped on recovery", async () => {
+  const f = hostedFixture("sash-supervisor-hosted-orphan-test-");
+  try {
+    f.host.running = true;
+    await f.supervisor.cleanStaleCore();
+    assert.equal(f.host.running, false);
+    assert.equal(f.host.stops, 1);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: ordinary mode still spawns the Core as Sash's child", async () => {
+  const f = hostedFixture("sash-supervisor-hosted-direct-test-");
+  f.settings.tun = { ...f.settings.tun, enable: false };
+  try {
+    await assert.rejects(f.supervisor.start(), /must not be spawned/);
+    assert.equal(f.host.starts, 0);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
   }
 });
 

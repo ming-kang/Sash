@@ -24,6 +24,8 @@ jobs:
       contents: read
       actions: read
       id-token: write
+    outputs:
+      ci_run: ${{ steps.ci.outputs.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,6 +104,16 @@ jobs:
           run-id: ${{ steps.ci.outputs.run_id }}
           github-token: ${{ github.token }}
 
+      # The Windows TUN helper ships on the GitHub Release, not in the npm
+      # package; refuse to publish a version whose Release could not carry it.
+      - name: Check the TUN helper built by the same CI run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tun-helper
+          path: ${{ runner.temp }}/tun-helper
+          run-id: ${{ steps.ci.outputs.run_id }}
+          github-token: ${{ github.token }}
+
       - name: Publish verified artifact
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -114,6 +126,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: read
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       RELEASE_SHA: ${{ github.sha }}
@@ -122,6 +135,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Download the TUN helper built by CI
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tun-helper
+          path: ${{ runner.temp }}/tun-helper
+          run-id: ${{ needs.publish.outputs.ci_run }}
+          github-token: ${{ github.token }}
 
       - name: Extract release notes from CHANGELOG.md
         run: |
@@ -169,9 +190,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "GitHub Release v$RELEASE_VERSION already exists."
+            echo "GitHub Release v$RELEASE_VERSION already exists; refreshing its TUN helper assets."
+            gh release upload "v$RELEASE_VERSION" "$RUNNER_TEMP"/tun-helper/*.exe \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
           else
-            gh release create "v$RELEASE_VERSION" \
+            gh release create "v$RELEASE_VERSION" "$RUNNER_TEMP"/tun-helper/*.exe \
               --repo "$GITHUB_REPOSITORY" \
               --title "Sash $RELEASE_VERSION" \
               --notes-file "$RUNNER_TEMP/release-notes.md" \

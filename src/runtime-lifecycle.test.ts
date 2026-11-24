@@ -9,7 +9,7 @@ import { sashLayout } from "./paths.js";
 import { RuntimeLifecycle, runtimeDelta } from "./runtime-lifecycle.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import { FakeCoreSupervisor, testSettings } from "./testing/state.js";
-import { TunService } from "./tun-service.js";
+import { type TunPrivilege, TunService } from "./tun-service.js";
 import { defaultTunSettings } from "./tun-settings.js";
 
 describe("Core and proxy lifecycle", () => {
@@ -333,16 +333,16 @@ describe("configuration reload", () => {
   });
 });
 
-describe("TUN session restore", () => {
+describe("TUN apply", () => {
   let root: string;
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-tun-restore-test-"));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-tun-apply-test-"));
   });
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  function fixture() {
+  function fixture(privilege: TunPrivilege = { state: "ready" }) {
     const layout = sashLayout(root);
     const settings = testSettings({
       systemProxy: true,
@@ -378,13 +378,10 @@ describe("TUN session restore", () => {
       controllerProbe: async () => false,
       tun: new TunService(
         {
-          supported: true,
-          inspect: async () => ({ installed: true }),
+          mechanism: "capabilities",
+          inspect: async () => privilege,
           install: async () => {},
           uninstall: async () => {},
-          connect: () => {
-            throw new Error("unreachable");
-          },
         },
         layout,
       ),
@@ -397,120 +394,45 @@ describe("TUN session restore", () => {
     return { layout, settings, core, events, lifecycle, configuration };
   }
 
-  it("re-applies the lost privileged configuration once the helper is back", async () => {
+  it("refuses TUN before stopping the running Core when the helper is not ready", async () => {
+    const f = fixture({ state: "missing" });
+    const ordinary = {
+      ...f.configuration,
+      settings: { ...f.settings, tun: { ...f.settings.tun, enable: false } },
+    };
+    await f.lifecycle.apply(ordinary);
+    const starts = f.core.starts;
+    await assert.rejects(f.lifecycle.apply(f.configuration), /Install the TUN helper first/);
+    assert.equal(f.core.running, true);
+    assert.equal(f.core.starts, starts);
+    assert.equal(f.lifecycle.configuration(), ordinary);
+  });
+
+  it("restores the previous configuration when the TUN Core fails to start", async () => {
+    const f = fixture();
+    const ordinary = {
+      ...f.configuration,
+      generated: { ...f.configuration.generated, yaml: "rules: ['MATCH,REJECT']\n" },
+      settings: { ...f.settings, tun: { ...f.settings.tun, enable: false } },
+    };
+    await f.lifecycle.apply(ordinary);
+    f.core.onStart = () => {
+      if (f.lifecycle.settings().tun.enable) throw new Error("TUN Core exited during startup");
+    };
+    await assert.rejects(f.lifecycle.apply(f.configuration), /TUN Core exited/);
+    assert.equal(f.core.running, true);
+    assert.equal(f.lifecycle.configuration(), ordinary);
+    assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), ordinary.generated.yaml);
+  });
+
+  it("treats a lost TUN Core like any unexpected exit", async () => {
     const f = fixture();
     await f.lifecycle.apply(f.configuration);
+    const starts = f.core.starts;
     f.core.running = false;
     await f.lifecycle.handleUnexpectedCoreExit();
-    const starts = f.core.starts;
-    await f.lifecycle.restoreTunSessionWithRetries(
-      f.configuration,
-      (action) => Promise.resolve(action()),
-      () => false,
-      [0],
-    );
-    assert.equal(f.core.running, true);
-    assert.equal(f.core.starts, starts + 1);
-    assert.equal(f.lifecycle.configuration(), f.configuration);
-    assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), f.configuration.generated.yaml);
-  });
-
-  it("does not restore after TUN was turned off in saved settings", async () => {
-    const f = fixture();
-    await f.lifecycle.apply(f.configuration);
-    f.core.running = false;
-    const starts = f.core.starts;
-    f.settings.tun = { ...f.settings.tun, enable: false };
-    await f.lifecycle.restoreTunSessionWithRetries(
-      f.configuration,
-      (action) => Promise.resolve(action()),
-      () => false,
-      [0, 0],
-    );
     assert.equal(f.core.starts, starts);
-    assert.equal(f.core.running, false);
-  });
-
-  it("does not restore when saved TUN settings drifted from the lost session", async () => {
-    const f = fixture();
-    await f.lifecycle.apply(f.configuration);
-    f.core.running = false;
-    const starts = f.core.starts;
-    f.settings.tun = { ...f.settings.tun, strictRoute: true };
-    await f.lifecycle.restoreTunSessionWithRetries(
-      f.configuration,
-      (action) => Promise.resolve(action()),
-      () => false,
-      [0, 0],
-    );
-    assert.equal(f.core.starts, starts);
-  });
-
-  it("skips restoring once a Core is running again", async () => {
-    const f = fixture();
-    await f.lifecycle.apply(f.configuration);
-    const starts = f.core.starts;
-    assert.equal(await f.lifecycle.restoreTunSession(f.configuration), true);
-    assert.equal(f.core.starts, starts);
-  });
-
-  it("retries failed attempts until the helper accepts the launch", async () => {
-    const f = fixture();
-    await f.lifecycle.apply(f.configuration);
-    f.core.running = false;
-    let failures = 2;
-    f.core.onStart = () => {
-      if (failures > 0) {
-        failures -= 1;
-        throw new Error("helper not listening yet");
-      }
-      f.events.push("start");
-    };
-    await f.lifecycle.restoreTunSessionWithRetries(
-      f.configuration,
-      (action) => Promise.resolve(action()),
-      () => false,
-      [0, 0, 0, 0],
-    );
-    assert.equal(f.core.running, true);
-    assert.equal(f.lifecycle.configuration(), f.configuration);
-  });
-
-  it("gives up after exhausting the retry budget", async () => {
-    const f = fixture();
-    await f.lifecycle.apply(f.configuration);
-    f.core.running = false;
-    const starts = f.core.starts;
-    f.core.onStart = () => {
-      throw new Error("helper unreachable");
-    };
-    await f.lifecycle.restoreTunSessionWithRetries(
-      f.configuration,
-      (action) => Promise.resolve(action()),
-      () => false,
-      [0, 0, 0],
-    );
-    assert.equal(f.core.starts, starts + 3);
-    assert.equal(f.core.running, false);
-  });
-
-  it("stops retrying once the daemon is closing", async () => {
-    const f = fixture();
-    await f.lifecycle.apply(f.configuration);
-    f.core.running = false;
-    const starts = f.core.starts;
-    let closing = false;
-    f.core.onStart = () => {
-      closing = true;
-      throw new Error("helper unreachable");
-    };
-    await f.lifecycle.restoreTunSessionWithRetries(
-      f.configuration,
-      (action) => Promise.resolve(action()),
-      () => closing,
-      [0, 0, 0],
-    );
-    assert.equal(f.core.starts, starts + 1);
+    assert.equal(f.events.at(-1), "release");
   });
 });
 

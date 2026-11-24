@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -49,6 +50,28 @@ describe("process utilities", () => {
       );
       assert.equal(await classifyProcessIdentityAsync(-1, process.execPath), "mismatch");
     });
+
+    it.skipIf(process.platform !== "linux")(
+      "falls back to argv[0] when a capability-granted Core hides its exe link",
+      async () => {
+        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+          stdio: "ignore",
+        });
+        try {
+          const pid = child.pid as number;
+          const readlink = fs.promises.readlink.bind(fs.promises);
+          vi.spyOn(fs.promises, "readlink").mockImplementation((async (file: fs.PathLike) => {
+            if (String(file) === `/proc/${pid}/exe`)
+              throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+            return readlink(file);
+          }) as typeof fs.promises.readlink);
+          assert.equal(await classifyProcessIdentityAsync(pid, process.execPath), "match");
+          assert.equal(await classifyProcessIdentityAsync(pid, "/usr/bin/other"), "mismatch");
+        } finally {
+          child.kill();
+        }
+      },
+    );
 
     it("reports true for the current process", () => {
       assert.equal(isProcessAlive(process.pid), true);

@@ -2,7 +2,7 @@ import { commandOutput } from "../cli-output.js";
 import { ensureDaemonSession, resolveDaemonSession } from "../daemon-session.js";
 import { log } from "../log.js";
 import { createTunPlatform } from "../tun-platform/index.js";
-import { TunService } from "../tun-service.js";
+import { describeTunHelper, TunService } from "../tun-service.js";
 import { runtimeContext } from "./shared.js";
 
 export type TunAction = "on" | "off" | "status" | "helper";
@@ -29,6 +29,7 @@ export async function runTun(
         return new TunService(createTunPlatform(), context.layout).status(
           context.settings.tun.enable,
           undefined,
+          { fresh: true },
         );
       }
       const { client } = await ensureDaemonSession(context);
@@ -41,40 +42,22 @@ export async function runTun(
       return client.tunStatus();
     },
     (status) => {
-      const helperState = !status.supported
-        ? "Not Supported"
-        : status.privilege.installed === null
-          ? "Unknown"
-          : status.privilege.installed
-            ? status.privilege.needsReconsent
-              ? "Needs Re-consent (run sash tun helper install)"
-              : "Installed"
-            : "Not Installed";
-      const rows: [string, string][] =
+      const helper: [string, string] = ["TUN Helper", describeTunHelper(status)];
+      log.table(
         action === "helper"
-          ? [
-              ["TUN Helper", helperState],
-              [
-                "Helper Version",
-                status.privilege.installed === true ? (status.privilege.version ?? "Unknown") : "—",
-              ],
-              [
-                "Paired Core",
-                status.privilege.installed === true
-                  ? status.privilege.coreSynced === true
-                    ? "Synced"
-                    : status.privilege.coreSynced === false
-                      ? "Drifted"
-                      : "Unknown"
-                  : "—",
-              ],
-            ]
+          ? [helper]
           : [
               ["TUN Setting", status.desired ? "On" : "Off"],
               ["TUN Applied", status.applied ? "On" : "Off"],
-              ["TUN Helper", helperState],
-            ];
-      log.table(rows);
+              helper,
+            ],
+      );
+      if (status.supported && status.privilege.state !== "ready")
+        log.info(
+          status.privilege.mechanism === "service"
+            ? "Run sash tun helper install to install the TUN service (administrator approval)."
+            : "Run sash tun helper install to authorize the Core (administrator approval); a Core update clears this.",
+        );
       if (status.applied) log.info("Sash does not check OS routes or DNS interception.");
       if (status.desired !== status.applied) log.info("Run sash restart to Apply the TUN setting.");
     },

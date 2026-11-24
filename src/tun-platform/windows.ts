@@ -1,440 +1,395 @@
-import { execFile, spawn } from "node:child_process";
-import crypto from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { Duplex } from "node:stream";
-import { promisify } from "node:util";
-import { type Entry, openPromise } from "yauzl";
-import { currentCoreVersion } from "../core.js";
-import { coreSha256 } from "../launcher/index.js";
-import { createIpcHelperClient } from "../launcher/ipc.js";
-import type { HelperClient } from "../launcher/protocol.js";
-import { currentPackageRoot } from "../package-info.js";
-import type { TunPlatform } from "../tun-service.js";
+import { z } from "zod";
+import { errorMessage } from "../error-utils.js";
 import {
-  HELPER_EXE_NAME,
-  HELPER_SERVICE_NAME,
-  helperBinDir,
-  helperManifestPath,
-  helperManifestSchema,
-  helperPipePath,
-  helperProtectedDir,
-  resolveHelperDistExe,
-  WINTUN_SHA256,
-  WINTUN_URL,
-} from "./windows-shared.js";
-
-const execFileAsync = promisify(execFile);
-
-function helperExePath(): string {
-  return resolveHelperDistExe(currentPackageRoot());
-}
-
-function pairedCoreExePath(): string {
-  return path.join(path.dirname(helperExePath()), `sash-tun-core-win32-${process.arch}.exe`);
-}
-
-function protectedHelperExePath(): string {
-  return path.join(helperBinDir(), HELPER_EXE_NAME);
-}
-
-async function pairedCoreDigest(): Promise<string | undefined> {
-  try {
-    const manifest = JSON.parse(
-      await fs.readFile(
-        path.join(path.dirname(helperExePath()), "bootstrap-manifest.json"),
-        "utf8",
-      ),
-    ) as { helpers?: { cores?: { name?: string; sha256?: string }[] } };
-    return manifest.helpers?.cores?.find(
-      (asset) => asset.name === path.basename(pairedCoreExePath()),
-    )?.sha256;
-  } catch {
-    return undefined;
-  }
-}
-
-async function helperDistDigest(helperExe: string): Promise<string> {
-  const manifestFile = path.join(path.dirname(helperExe), "bootstrap-manifest.json");
-  const manifest = JSON.parse(await fs.readFile(manifestFile, "utf8")) as {
-    helpers?: { assets?: { name?: string; sha256?: string }[] };
-  };
-  const expected = manifest.helpers?.assets?.find(
-    (asset) => asset.name === path.basename(helperExe),
-  )?.sha256;
-  if (!expected) {
-    throw new Error(
-      `Packaged helper manifest has no digest for ${path.basename(helperExe)}; rebuild the release package`,
-    );
-  }
-  const digest = await coreSha256(helperExe);
-  if (expected !== digest) {
-    throw new Error(`Helper executable ${helperExe} does not match the packaged digest`);
-  }
-  return expected;
-}
-
-async function run(command: string, args: string[], timeoutMs = 15_000): Promise<string> {
-  const { stdout } = await execFileAsync(command, args, {
-    timeout: timeoutMs,
-    maxBuffer: 4 * 1024 * 1024,
-  });
-  return stdout;
-}
-
-async function powershell(script: string, timeoutMs = 15_000): Promise<string> {
-  return run(
-    "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
-    timeoutMs,
-  );
-}
-
-async function currentUserSid(): Promise<string> {
-  const out = await run("whoami.exe", ["/user", "/fo", "csv", "/nh"]);
-  const sid = out.match(/"[^"]+","(S-1-[^"]+)"/)?.[1];
-  if (!sid) throw new Error("Could not resolve the current user's SID for the helper ACL");
-  return sid;
-}
-
-async function isElevated(): Promise<boolean> {
-  const out = await run("whoami.exe", ["/groups", "/fo", "csv", "/nh"]);
-  return out.includes("S-1-16-12288");
-}
-
-export async function fetchWintun(destination: string): Promise<string> {
-  const arch = process.arch === "arm64" ? "arm64" : "x64";
-  const dllName = `wintun/bin/${arch === "arm64" ? "arm64" : "amd64"}/wintun.dll`;
-  const expectedSha = WINTUN_SHA256[arch];
-  try {
-    const digest = await coreSha256(destination);
-    if (digest === expectedSha) return destination;
-  } catch {
-    // not downloaded yet
-  }
-  const response = await fetch(WINTUN_URL, { redirect: "follow" });
-  if (!response.ok) throw new Error(`wintun download failed: HTTP ${response.status}`);
-  const payload = await (async () => {
-    const temp = `${destination}.download`;
-    await fs.mkdir(path.dirname(destination), { recursive: true });
-    try {
-      await fs.writeFile(temp, Buffer.from(await response.arrayBuffer()));
-      const zip = await openPromise(temp, { lazyEntries: true });
-      const data = await new Promise<Buffer>((resolve, reject) => {
-        let payload: Buffer | undefined;
-        zip.on("entry", (entry: Entry) => {
-          if (entry.fileName.toLowerCase() !== dllName) {
-            zip.readEntry();
-            return;
-          }
-          zip.openReadStream(entry, (error, stream) => {
-            if (error) return zip.close();
-            const chunks: Buffer[] = [];
-            stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-            stream.on("end", () => {
-              payload = Buffer.concat(chunks);
-              zip.close();
-            });
-            stream.on("error", () => zip.close());
-          });
-        });
-        zip.on("end", () => zip.close());
-        zip.on("error", reject);
-        zip.once("close", () =>
-          payload
-            ? resolve(payload)
-            : reject(new Error(`${dllName} missing from the pinned wintun archive`)),
-        );
-        zip.readEntry();
-      });
-      return data;
-    } finally {
-      await fs.rm(temp, { force: true });
-    }
-  })();
-  const digest = crypto.createHash("sha256").update(payload).digest("hex");
-  if (digest !== expectedSha) {
-    throw new Error(`wintun digest mismatch: got ${digest}, expected ${expectedSha}`);
-  }
-  await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.writeFile(destination, payload, { mode: 0o755 });
-  return destination;
-}
-
-interface ElevatedResult {
-  ok: boolean;
-  error?: string;
-}
+  downloadReleaseAsset,
+  listReleaseAssets,
+  parseSha256Digest,
+  selectReleaseAsset,
+} from "../github.js";
+import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
+import type { SashLayout } from "../paths.js";
+import { runSanitizedCommandAsync, windowsSystemExecutable } from "../process.js";
+import type { HostedCore, TunPlatform, TunPrivilege } from "../tun-service.js";
+import { refuseElevationInTests } from "./shared.js";
 
 /**
- * Windows command-line quoting (CommandLineToArgvW rules): wrap in double
- * quotes; escape backslashes that precede a quote or the closing quote.
+ * The Windows TUN helper is the Go service under helper/. It is not part of
+ * the npm package: installation takes it from this Sash version's GitHub
+ * Release (or a local `npm run build:helper` output in a source checkout).
  */
-function quoteWinArg(arg: string): string {
-  return `"${arg.replace(
-    /(\\*)("|$)/g,
-    (_m, bs: string, tail: string) => bs + bs + (tail === '"' ? '\\"' : ""),
+export const HELPER_REPO = "ming-kang/Sash";
+export const HELPER_SERVICE = "SashTun";
+export const HELPER_PIPE = "\\\\.\\pipe\\sash-tun";
+/** Bumped together with protocolVersion in helper/server.go. */
+export const HELPER_PROTOCOL = 1;
+/** The 0.7.0 helper service, replaced on install and removed on uninstall. */
+const LEGACY_SERVICE = "SashTunHelper";
+
+export function helperAssetName(arch: string = process.arch): string {
+  return `sash-tun-helper-win32-${arch}.exe`;
+}
+
+const helperReplySchema = z.object({
+  ok: z.boolean(),
+  protocol: z.number().int(),
+  home: z.string(),
+  running: z.boolean(),
+  pid: z.number().int().positive().optional(),
+  error: z.string().optional(),
+});
+export type HelperReply = z.output<typeof helperReplySchema>;
+export type HelperOp = "status" | "start" | "stop";
+export type HelperRequest = (op: HelperOp, timeoutMs: number) => Promise<HelperReply>;
+
+/** One request line per connection, answered by one reply line. */
+export function requestHelper(
+  op: HelperOp,
+  timeoutMs: number,
+  pipe: string = HELPER_PIPE,
+): Promise<HelperReply> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ path: pipe });
+    let buffer = "";
+    const timer = setTimeout(
+      () => socket.destroy(new Error(`TUN helper did not answer ${op} within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    socket.setEncoding("utf8");
+    socket.once("connect", () => socket.write(`${JSON.stringify({ op })}\n`));
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline === -1) {
+        if (buffer.length > 64 * 1024) socket.destroy(new Error("TUN helper reply is too large"));
+        return;
+      }
+      clearTimeout(timer);
+      socket.end();
+      try {
+        resolve(helperReplySchema.parse(JSON.parse(buffer.slice(0, newline))));
+      } catch {
+        reject(new Error("TUN helper sent an invalid reply"));
+      }
+    });
+    socket.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    socket.once("close", () => {
+      clearTimeout(timer);
+      reject(new Error("TUN helper closed the connection without replying"));
+    });
+  });
+}
+
+function samePath(left: string, right: string): boolean {
+  return path.win32.resolve(left).toLowerCase() === path.win32.resolve(right).toLowerCase();
+}
+
+export function privilegeFromReply(reply: HelperReply, layout: SashLayout): TunPrivilege {
+  if (reply.protocol !== HELPER_PROTOCOL)
+    return {
+      state: "stale",
+      detail: `the TUN service speaks protocol ${reply.protocol}; this Sash needs ${HELPER_PROTOCOL}`,
+    };
+  if (!samePath(reply.home, layout.root))
+    return { state: "stale", detail: `the TUN service serves another data folder (${reply.home})` };
+  return { state: "ready" };
+}
+
+/** CommandLineToArgvW quoting; arguments without spaces or quotes stay bare. */
+export function quoteWindowsArgument(value: string): string {
+  if (value && !/[\s"]/.test(value)) return value;
+  return `"${value.replace(/(\\*)("|$)/g, (_match, slashes: string, quote: string) =>
+    quote ? `${slashes}${slashes}\\"` : `${slashes}${slashes}`,
   )}"`;
 }
 
-// Check the digest again after copying into the elevated staging directory.
-async function runElevatedStaged(
-  helperExe: string,
-  helperDigest: string,
-  args: string[],
-): Promise<void> {
-  const resultFile = path.join(
-    os.tmpdir(),
-    `sash-helper-${process.pid}-${crypto.randomBytes(6).toString("hex")}.json`,
-  );
-  const argv = [...args, "--result", resultFile];
-  // A single literal-quoted command line: Start-Process -ArgumentList would
-  // otherwise space-join an array and strip the quoting, breaking args with
-  // spaces (paths, result file).
-  const argLine = argv.map(quoteWinArg).join(" ");
-  // PowerShell single-quoted literal ('' escapes a single quote); JSON
-  // escaping does NOT work inside PS strings — \" would end the string.
-  const ps = (s: string) => `'${s.replace(/'/g, "''")}'`;
-  const script = `
-$ErrorActionPreference = 'Stop'
-$root = [Environment]::GetFolderPath('CommonApplicationData')
-if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-  throw 'ProgramData is a reparse point'
-}
-$sashRoot = Join-Path $root 'Sash'
-if (Test-Path -LiteralPath $sashRoot) {
-  $parent = Get-Item -LiteralPath $sashRoot -Force
-  if ($parent.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-    throw 'Sash root is a reparse point'
-  }
-  if (-not $parent.PSIsContainer) { throw 'Sash root is not a directory' }
-  # Before staging executable content under it, prove the existing parent is
-  # owned by SYSTEM or Administrators and grants no write rights to ordinary
-  # users — otherwise a lower-privileged actor could swap the staged helper.
-  $acl = Get-Acl -LiteralPath $sashRoot
-  $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-  if ($ownerSid -ne 'S-1-5-18' -and $ownerSid -ne 'S-1-5-32-544') {
-    throw "Sash root owner is not SYSTEM/Administrators: $ownerSid"
-  }
-  foreach ($ace in $acl.Access) {
-    if ($ace.AccessControlType -ne 'Allow') { continue }
-    try {
-      $sid = $ace.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
-    } catch {
-      $sid = ''
-    }
-    if ($sid -eq 'S-1-5-18' -or $sid -eq 'S-1-5-32-544' -or $sid -eq 'S-1-3-4') { continue }
-    if ($ace.FileSystemRights.ToString() -match 'FullControl|Modify|Write') {
-      throw "Untrusted identity $($ace.IdentityReference.Value) has write rights on Sash root"
-    }
-  }
-}
-$stage = Join-Path $sashRoot ('stage-' + [Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $stage -Force | Out-Null
-try {
-  icacls $stage /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "icacls failed with exit code $LASTEXITCODE" }
-  $staged = Join-Path $stage 'sash-helper.exe'
-  Copy-Item -LiteralPath ${ps(helperExe)} -Destination $staged -Force
-  $actual = (Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actual -ne ${ps(helperDigest)}) {
-    throw "Staged helper digest mismatch: $actual"
-  }
-  $p = Start-Process -FilePath $staged -ArgumentList ${ps(argLine)} -Wait -PassThru
-  if ($p.ExitCode -ne 0) { exit $p.ExitCode }
-} finally {
-  Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
-}`;
-  const encoded = Buffer.from(script, "utf16le").toString("base64");
-  let spawnError: unknown;
-  try {
-    if (await isElevated()) {
-      await execFileAsync("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-EncodedCommand",
-        encoded,
-      ]);
-    } else {
-      await powershell(
-        `Start-Process -FilePath powershell.exe -Verb RunAs -Wait -ArgumentList ` +
-          `${quoteWinArg(`-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`)}`,
-        240_000,
-      );
-    }
-  } catch (error) {
-    spawnError = error;
-  }
-  const result = await fs
-    .readFile(resultFile, "utf8")
-    .then((text) => JSON.parse(text) as ElevatedResult)
-    .catch(() => null);
-  await fs.rm(resultFile, { force: true });
-  if (result?.error) throw new Error(result.error);
-  if (spawnError) throw spawnError;
-  if (!result?.ok) throw new Error("Elevated helper operation produced no result");
+/** Everything the service may ever run is fixed here, at installation. */
+export function serviceArguments(layout: SashLayout, sid: string): string {
+  return [
+    "service",
+    "--user",
+    sid,
+    "--core",
+    layout.coreExe,
+    "--home",
+    layout.root,
+    "--config",
+    layout.configFile,
+    "--stdout",
+    layout.coreLogFile,
+    "--stderr",
+    layout.coreErrLogFile,
+  ]
+    .map(quoteWindowsArgument)
+    .join(" ");
 }
 
-async function runElevatedProtected(
-  helperExe: string,
-  helperDigest: string,
-  args: string[],
-): Promise<void> {
-  const protectedExe = protectedHelperExePath();
-  const manifest = await fs
-    .readFile(helperManifestPath(helperProtectedDir()), "utf8")
-    .then((text) => helperManifestSchema.parse(JSON.parse(text)))
-    .catch(() => undefined);
-  if (manifest) {
-    const installed = await coreSha256(protectedExe).catch(() => null);
-    if (installed === manifest.helperSha256) {
-      await runElevatedStaged(protectedExe, installed, args);
-      return;
-    }
-  }
-  await runElevatedStaged(helperExe, helperDigest, args);
-}
-
-async function serviceInstalled(): Promise<boolean> {
-  const config = await run("sc.exe", ["qc", HELPER_SERVICE_NAME]);
-  return config.toLowerCase().includes(helperProtectedDir().toLowerCase());
+function psQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 /**
- * Socket over the helper's `pipe-client` shim: Node/libuv cannot open the
- * front pipe with the DACL's limited client mask, so the daemon spawns the
- * protected helper as an unprivileged stdio bridge. Its process token is
- * what the server authenticates — it runs as the calling user.
+ * The helper lives in an Administrators-owned directory under ProgramData:
+ * ProgramData lets any user create folders, so an existing `Sash` folder is
+ * taken over and re-protected rather than trusted.
  */
-function openHelperSocket(): Duplex {
-  const child = spawn(protectedHelperExePath(), ["pipe-client", "--pipe", helperPipePath()], {
-    stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
-  });
-  const duplex = new Duplex({
-    allowHalfOpen: false,
-    write(chunk, _enc, cb) {
-      if (child.stdin.destroyed) {
-        cb(new Error("Helper pipe shim closed"));
-        return;
-      }
-      child.stdin.write(chunk, cb);
-    },
-    read() {},
-    final(cb) {
-      child.stdin.end(cb);
-    },
-    destroy(error, cb) {
-      child.kill();
-      cb(error);
-    },
-  });
-  child.stdout.on("data", (chunk: Buffer) => duplex.push(chunk));
-  child.stdout.on("end", () => duplex.push(null));
-  child.stdin.on("error", (error) => duplex.destroy(error));
-  child.on("error", (error) =>
-    duplex.destroy(error instanceof Error ? error : new Error(String(error))),
-  );
-  child.stderr.on("data", () => {}); // drain so a noisy shim can never block on a full pipe
-  child.on("close", (code) => {
-    if (code) duplex.destroy(new Error(`Helper pipe shim exited ${code}`));
-  });
-  // The supervisor's HTTP agent waits for 'connect' like a net.Socket; the
-  // shim connects to the pipe at startup, so from the caller's perspective
-  // the transport is usable once the child is spawned.
-  queueMicrotask(() => duplex.emit("connect"));
-  return duplex;
+const SCRIPT_PRELUDE = `
+$sashDir = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Sash'
+$helperDir = Join-Path $sashDir 'TUN'
+$helperExe = Join-Path $helperDir 'sash-tun-helper.exe'
+$legacyDir = Join-Path $sashDir 'core'
+function Remove-SashService([string]$name) {
+  $service = Get-Service -Name $name -ErrorAction SilentlyContinue
+  if (-not $service) { return }
+  if ($service.Status -ne 'Stopped') {
+    Stop-Service -Name $name -Force
+    $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+  }
+  $service.Close()
+  & sc.exe delete $name | Out-Null
+  for ($i = 0; $i -lt 50 -and (Get-Service -Name $name -ErrorAction SilentlyContinue); $i++) {
+    Start-Sleep -Milliseconds 200
+  }
+  if (Get-Service -Name $name -ErrorAction SilentlyContinue) { throw "Windows did not remove the $name service" }
+}
+function Protect-Directory([string]$dir) {
+  if (Test-Path -LiteralPath $dir) {
+    $item = Get-Item -LiteralPath $dir -Force
+    if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+      throw "$dir is not a plain directory"
+    }
+  } else {
+    New-Item -ItemType Directory -Path $dir | Out-Null
+  }
+  & icacls.exe $dir /setowner '*S-1-5-32-544' /Q | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "icacls could not take ownership of $dir" }
+  & icacls.exe $dir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /Q | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "icacls could not protect $dir" }
+}
+Remove-SashService '${HELPER_SERVICE}'
+Remove-SashService '${LEGACY_SERVICE}'
+if (Test-Path -LiteralPath $legacyDir) { Remove-Item -LiteralPath $legacyDir -Recurse -Force }
+`;
+
+export function installScript(input: {
+  source: string;
+  sha256: string;
+  arguments: string;
+}): string {
+  return `${SCRIPT_PRELUDE}
+foreach ($dir in @($sashDir, $helperDir)) { Protect-Directory $dir }
+Copy-Item -LiteralPath ${psQuote(input.source)} -Destination $helperExe -Force
+$actual = (Get-FileHash -LiteralPath $helperExe -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne ${psQuote(input.sha256)}) {
+  Remove-Item -LiteralPath $helperExe -Force
+  throw "TUN helper digest mismatch: got $actual"
+}
+New-Service -Name '${HELPER_SERVICE}' -BinaryPathName ('"' + $helperExe + '" ' + ${psQuote(input.arguments)}) -DisplayName 'Sash TUN Helper' -Description 'Starts and stops the Sash Core with the privileges TUN Mode needs.' -StartupType Automatic | Out-Null
+& sc.exe failure '${HELPER_SERVICE}' reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null
+Start-Service -Name '${HELPER_SERVICE}'
+`;
 }
 
-export function windowsTunPlatform(): TunPlatform {
+export function uninstallScript(): string {
+  return `${SCRIPT_PRELUDE}
+if (Test-Path -LiteralPath $helperDir) { Remove-Item -LiteralPath $helperDir -Recurse -Force }
+if ((Test-Path -LiteralPath $sashDir) -and -not (Get-ChildItem -LiteralPath $sashDir -Force)) {
+  Remove-Item -LiteralPath $sashDir -Force
+}
+`;
+}
+
+function powershellExe(): string {
+  return windowsSystemExecutable(path.join("WindowsPowerShell", "v1.0", "powershell.exe"));
+}
+
+async function runElevated(script: string, action: string): Promise<void> {
+  refuseElevationInTests(action);
+  const resultFile = path.join(
+    os.tmpdir(),
+    `sash-tun-${process.pid}-${randomBytes(6).toString("hex")}.txt`,
+  );
+  const elevated = `$ErrorActionPreference = 'Stop'
+try {
+${script}
+} catch {
+  Set-Content -LiteralPath ${psQuote(resultFile)} -Value $_.Exception.Message -Encoding UTF8
+  exit 1
+}`;
+  const encoded = Buffer.from(elevated, "utf16le").toString("base64");
+  const launcher =
+    "$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden " +
+    `-ArgumentList ${psQuote(`-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`)}; ` +
+    "exit $p.ExitCode";
+  try {
+    await runSanitizedCommandAsync(
+      powershellExe(),
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", launcher],
+      { timeoutMs: 300_000 },
+    );
+  } catch (error) {
+    const reason = (await fs.readFile(resultFile, "utf8").catch(() => "")).trim();
+    if (reason) throw new Error(`Could not ${action}: ${reason}`);
+    if (/cancel/i.test(errorMessage(error)))
+      throw new Error("Windows administrator approval was cancelled");
+    throw new Error(`Could not ${action}: ${errorMessage(error)}`);
+  } finally {
+    await fs.rm(resultFile, { force: true });
+  }
+}
+
+async function sha256File(file: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+interface HelperSource {
+  file: string;
+  sha256: string;
+  cleanup(): Promise<void>;
+}
+
+async function resolveHelperSource(layout: SashLayout, proxyUri?: string): Promise<HelperSource> {
+  const name = helperAssetName();
+  const local = path.join(currentPackageRoot(), "helper", "bin", name);
+  if ((await fs.stat(local).catch(() => undefined))?.isFile())
+    return { file: local, sha256: await sha256File(local), cleanup: async () => {} };
+
+  const { version } = readSashPackageInfo();
+  const tag = `v${version}`;
+  let assets: Awaited<ReturnType<typeof listReleaseAssets>>;
+  try {
+    assets = await listReleaseAssets(HELPER_REPO, tag, undefined, undefined, proxyUri);
+  } catch (error) {
+    throw new Error(`Could not read the Sash ${version} GitHub Release: ${errorMessage(error)}`);
+  }
+  const asset = selectReleaseAsset(assets, [name]);
+  if (!asset) throw new Error(`The Sash ${version} GitHub Release has no ${name}`);
+  await fs.mkdir(layout.tempDir, { recursive: true });
+  const file = path.join(layout.tempDir, name);
+  await downloadReleaseAsset({
+    repo: HELPER_REPO,
+    tag,
+    asset,
+    dest: file,
+    ...(proxyUri !== undefined ? { proxyUri } : {}),
+  });
   return {
-    supported: true,
-    async inspect() {
+    file,
+    sha256: parseSha256Digest(asset.digest),
+    cleanup: () => fs.rm(file, { force: true }),
+  };
+}
+
+async function currentUserSid(): Promise<string> {
+  const output = await runSanitizedCommandAsync(windowsSystemExecutable("whoami.exe"), [
+    "/user",
+    "/fo",
+    "csv",
+    "/nh",
+  ]);
+  const sid = output.match(/"[^"]*","(S-1-[\d-]+)"/)?.[1];
+  if (!sid) throw new Error("Could not read the current Windows account SID");
+  return sid;
+}
+
+async function serviceRegistered(name: string): Promise<boolean> {
+  try {
+    await runSanitizedCommandAsync(windowsSystemExecutable("sc.exe"), ["query", name]);
+    return true;
+  } catch (error) {
+    // ERROR_SERVICE_DOES_NOT_EXIST
+    if ((error as { code?: unknown }).code === 1060) return false;
+    throw error;
+  }
+}
+
+export interface WindowsTunPlatformDeps {
+  request?: HelperRequest;
+  serviceRegistered?: (name: string) => Promise<boolean>;
+}
+
+export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatform {
+  const request = deps.request ?? ((op, timeoutMs) => requestHelper(op, timeoutMs));
+  const registered = deps.serviceRegistered ?? serviceRegistered;
+
+  async function inspect(layout: SashLayout): Promise<TunPrivilege> {
+    let reply: HelperReply;
+    try {
+      reply = await request("status", 5_000);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EACCES" || code === "EPERM")
+        return { state: "stale", detail: "the TUN service belongs to another Windows account" };
+      if (await registered(HELPER_SERVICE))
+        return { state: "stale", detail: "the TUN service is installed but not running" };
+      if (await registered(LEGACY_SERVICE))
+        return { state: "stale", detail: "the TUN helper from Sash 0.7.0 must be replaced" };
+      return { state: "missing" };
+    }
+    return privilegeFromReply(reply, layout);
+  }
+
+  return {
+    mechanism: "service",
+    inspect,
+    async install(layout, options = {}) {
+      const source = await resolveHelperSource(layout, options.proxyUri);
       try {
-        if (!(await serviceInstalled())) return { installed: false };
-      } catch {
-        return { installed: false };
-      }
-      try {
-        const manifest = await fs
-          .readFile(helperManifestPath(helperProtectedDir()), "utf8")
-          .then((text) => helperManifestSchema.parse(JSON.parse(text)))
-          .catch(() => undefined);
-        const [expected, installedCoreDigest, installedHelperDigest] = await Promise.all([
-          pairedCoreDigest(),
-          coreSha256(path.join(helperBinDir(), "mihomo.exe")).catch(() => null),
-          coreSha256(protectedHelperExePath()).catch(() => null),
-        ]);
-        const needsReconsent =
-          expected === undefined ||
-          manifest === undefined ||
-          installedCoreDigest === null ||
-          installedHelperDigest === null ||
-          installedCoreDigest !== expected ||
-          installedHelperDigest !== manifest.helperSha256;
-        return {
-          installed: true,
-          helperVersion: manifest?.helperVersion ?? null,
-          coreSynced: expected !== undefined && installedCoreDigest === expected,
-          needsReconsent,
-        };
-      } catch {
-        // An inspection that cannot verify pairing must not claim a healthy
-        // install — flag reconsent so the user is asked to reinstall.
-        return { installed: true, needsReconsent: true };
-      }
-    },
-    async install(layout) {
-      const helperExe = helperExePath();
-      await fs.access(helperExe).catch(() => {
-        throw new Error(
-          `Missing helper executable ${helperExe}; build it with scripts/build-helper`,
+        const sid = await currentUserSid();
+        await runElevated(
+          installScript({
+            source: source.file,
+            sha256: source.sha256,
+            arguments: serviceArguments(layout, sid),
+          }),
+          "install the TUN helper",
         );
-      });
-      const packagedCore = pairedCoreExePath();
-      await fs.access(packagedCore).catch(() => {
-        throw new Error(
-          `Missing paired Core executable ${packagedCore}; rebuild the release package`,
-        );
-      });
-      const wintun = await fetchWintun(path.join(layout.tempDir, "wintun.dll"));
-      const sid = await currentUserSid();
-      const helperDigest = await helperDistDigest(helperExe);
-      await runElevatedStaged(helperExe, helperDigest, [
-        "install",
-        "--installer-sid",
-        sid,
-        "--core",
-        packagedCore,
-        "--core-version",
-        currentCoreVersion(layout) || "unknown",
-        "--helper-exe",
-        helperExe,
-        "--helper-sha256",
-        helperDigest,
-        "--wintun",
-        wintun,
-      ]);
+      } finally {
+        await source.cleanup();
+      }
+      let privilege: TunPrivilege = { state: "unknown" };
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        privilege = await inspect(layout);
+        if (privilege.state === "ready") return;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      throw new Error(
+        `The TUN service did not come up${privilege.detail ? `: ${privilege.detail}` : ""}`,
+      );
     },
     async uninstall() {
-      await runElevatedProtected(helperExePath(), await helperDistDigest(helperExePath()), [
-        "uninstall",
-      ]);
-      // The staged elevated run removes the protected tree but cannot reap
-      // the "Sash" parent while its own stage-* dir still lives inside it;
-      // by the time control returns here the stage is gone, so sweep here.
-      await fs.rmdir(path.win32.dirname(helperProtectedDir())).catch(() => undefined);
+      await runElevated(uninstallScript(), "remove the TUN helper");
     },
-    connect(): HelperClient {
-      // `start` pays for path audits (PowerShell) and the Core spawn; the
-      // default 10s IPC timeout is too tight on a cold service. The helper's
-      // front pipe needs the DACL's exact client mask, which libuv cannot
-      // open, so both the request socket and controller links go through the
-      // per-client pipe-client shim transport.
-      return createIpcHelperClient(helperPipePath(), 60_000, { connect: openHelperSocket });
+    host(layout): HostedCore {
+      return {
+        async start() {
+          const privilege = privilegeFromReply(await request("status", 5_000), layout);
+          if (privilege.state !== "ready")
+            throw new Error(`The TUN service cannot start this Core: ${privilege.detail}`);
+          const reply = await request("start", 30_000);
+          if (!reply.ok || !reply.pid)
+            throw new Error(reply.error ?? "The TUN service did not start the Core");
+          return { pid: reply.pid };
+        },
+        async stop() {
+          const reply = await request("stop", 30_000);
+          if (!reply.ok) throw new Error(reply.error ?? "The TUN service did not stop the Core");
+        },
+        async status() {
+          const reply = await request("status", 5_000);
+          return { running: reply.running, pid: reply.pid ?? null };
+        },
+      };
     },
   };
 }

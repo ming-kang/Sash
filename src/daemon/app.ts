@@ -5,7 +5,6 @@ import type { resolveCoreRelease, stageCore } from "../core.js";
 import { type CoreEngine, mihomoEngine } from "../engine/index.js";
 import { errorMessage } from "../error-utils.js";
 import type { GeodataSeedResult } from "../geodata-seed.js";
-import { privilegedCoreLauncher } from "../launcher/index.js";
 import type { GeneratedConfig, SubscriptionFetch } from "../mihomo-config.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
@@ -80,24 +79,11 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     new CoreSupervisor({
       layout,
       engine,
-      privilegedLauncher: privilegedCoreLauncher(() => tunPlatform.connect(layout)),
+      ...(tunPlatform.host ? { tunHost: tunPlatform.host(layout) } : {}),
       settings: () => lifecycle?.settings() ?? settings(),
       onExit: () =>
         gate
           .mutate(() => lifecycle.handleUnexpectedCoreExit())
-          .then(() => {
-            const applied = lifecycle.configuration();
-            if (applied?.settings.tun.enable)
-              void lifecycle
-                .restoreTunSessionWithRetries(
-                  applied,
-                  (action) => gate.mutate(action),
-                  () => gate.isClosing,
-                )
-                .catch((error: unknown) => {
-                  console.error(`[sashd] TUN session restore failed: ${errorMessage(error)}`);
-                });
-          })
           .catch((error: unknown) => {
             console.error(`[sashd] Core exit cleanup failed: ${errorMessage(error)}`);
           }),

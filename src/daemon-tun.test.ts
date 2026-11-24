@@ -5,7 +5,7 @@ import YAML from "yaml";
 import type { TunStatusResponse } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { FakeCoreSupervisor } from "./testing/state.js";
-import { TunService, unsupportedTunPlatform } from "./tun-service.js";
+import { unsupportedTunPlatform } from "./tun-service.js";
 
 describe("daemon TUN controls", () => {
   const harness = useDaemonTestHarness();
@@ -32,8 +32,8 @@ describe("daemon TUN controls", () => {
       supervisor,
       tunPlatform: {
         ...unsupportedTunPlatform(),
-        supported: true,
-        inspect: async () => ({ installed: true }),
+        mechanism: "capabilities",
+        inspect: async () => ({ state: "ready" }),
       },
     });
     assert.equal(
@@ -62,8 +62,8 @@ describe("daemon TUN controls", () => {
     await harness.startServer({
       tunPlatform: {
         ...unsupportedTunPlatform(),
-        supported: true,
-        inspect: async () => ({ installed: true }),
+        mechanism: "capabilities",
+        inspect: async () => ({ state: "ready" }),
       },
     });
     await harness.apiRequest("/sash/settings", {
@@ -81,16 +81,71 @@ describe("daemon TUN controls", () => {
     assert.equal("unverifiedChecks" in status, false);
   });
 
-  it("requires elevated reinstall for an outdated helper", async () => {
-    const service = new TunService(
-      {
+  it("refuses to Apply TUN until the helper is ready and keeps the Core running", async () => {
+    await harness.startServer({
+      tunPlatform: {
         ...unsupportedTunPlatform(),
-        supported: true,
-        inspect: async () => ({ installed: true, helperVersion: "0.0.0" }),
+        mechanism: "service",
+        inspect: async () => ({
+          state: "stale",
+          detail: "the TUN service serves another data folder",
+        }),
       },
-      harness.layout,
+    });
+    assert.equal(
+      (await harness.apiRequest("/sash/core/start", { method: "POST" })).statusCode,
+      200,
     );
-    assert.equal((await service.status(true, undefined)).privilege.needsReconsent, true);
-    await assert.rejects(service.checkReady(), /needs re-consent.*sash tun helper install/);
+    await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
+    assert.notEqual(applied.statusCode, 200);
+    assert.match(JSON.stringify(applied.data), /Install the TUN helper again.*another data folder/);
+    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.deepEqual(status.privilege, {
+      mechanism: "service",
+      state: "stale",
+      detail: "the TUN service serves another data folder",
+    });
+    assert.equal(status.applied, false);
+  });
+
+  it("installs the helper through the platform and refuses removal while TUN runs", async () => {
+    let ready = false;
+    const installs: unknown[] = [];
+    await harness.startServer({
+      tunPlatform: {
+        ...unsupportedTunPlatform(),
+        mechanism: "setuid",
+        inspect: async () => ({ state: ready ? "ready" : "missing" }),
+        install: async (_layout, options) => {
+          installs.push(options);
+          ready = true;
+        },
+        uninstall: async () => {
+          ready = false;
+        },
+      },
+    });
+    const installed = await harness.apiRequest("/sash/tun/helper/install", { method: "POST" });
+    assert.equal(installed.statusCode, 200);
+    assert.equal((installed.data as TunStatusResponse).privilege.state, "ready");
+    assert.equal(installs.length, 1);
+
+    await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(
+      (await harness.apiRequest("/sash/core/restart", { method: "POST" })).statusCode,
+      200,
+    );
+    assert.equal(
+      (await harness.apiRequest("/sash/tun/helper/uninstall", { method: "POST" })).statusCode,
+      409,
+    );
+    assert.equal(ready, true);
   });
 });

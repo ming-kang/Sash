@@ -13,7 +13,6 @@ import { type CoreEngine, mihomoEngine } from "./engine/index.js";
 import { errorMessage } from "./error-utils.js";
 import { atomicWriteFile } from "./fs-atomic.js";
 import { isRequestDeadlineError } from "./http.js";
-import { HELPER_RELOAD_TIMEOUT_MS, HelperReloadTimeoutError } from "./launcher/protocol.js";
 import type { GeneratedConfig } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
@@ -70,8 +69,6 @@ export function runtimeDelta(
     appliedProfile?.revision !== targetProfile?.revision;
   return { pending: profilePending || restartRequired, restartRequired };
 }
-
-const TUN_RESTORE_DELAYS_MS = [500, 1_500, 3_000, 6_000, 10_000, 15_000, 25_000];
 
 export class RuntimeLifecycle {
   private readonly engine: CoreEngine;
@@ -144,7 +141,7 @@ export class RuntimeLifecycle {
       (previous?.settings.tun.enable === true &&
         !sameTunSettings(previous.settings.tun, configuration.settings.tun));
     if (configuration.settings.tun.enable) {
-      if (!this.options.tun) throw new Error("TUN helper integration is unavailable");
+      if (!this.options.tun) throw new Error("TUN Mode is not available");
       await this.options.tun.checkReady();
     }
     await this.stop();
@@ -174,26 +171,14 @@ export class RuntimeLifecycle {
   }
 
   private async startConfiguration(configuration: RuntimeConfiguration): Promise<CoreStartResult> {
-    if (!configuration.settings.tun.enable) await this.requireVacantController();
+    await this.requireVacantController();
     this.applied = undefined;
     await atomicWriteFile(this.options.layout.configFile, configuration.generated.yaml);
     this.runtimeSettings = { ...configuration.settings };
     const result = await this.startCore();
-    if (configuration.settings.tun.enable) {
-      const owner = this.options.supervisor.ownedCoreSnapshot();
-      if (!owner || !this.options.supervisor.ownsCore(owner))
-        throw new Error("Privileged Core exited before TUN could be applied");
-    }
     this.applied = configuration;
     await this.reconcileSystemProxy();
     return result;
-  }
-
-  async restartPrivileged(): Promise<CoreStartResult> {
-    const applied = this.applied;
-    if (!applied?.settings.tun.enable || !this.options.supervisor.isPrivileged())
-      throw new Error("No privileged Core is running");
-    return this.apply(applied);
   }
 
   /**
@@ -218,16 +203,12 @@ export class RuntimeLifecycle {
       this.options.reloadConfig ??
       ((path, signal) => this.engine.api(controller, secret).reloadConfig(path, signal));
     try {
-      if (configuration.settings.tun.enable)
-        await this.options.supervisor.reload(configuration.generated.yaml);
-      else await reloadConfig(this.options.layout.configFile, signal);
+      await reloadConfig(this.options.layout.configFile, signal);
     } catch (error) {
       signal?.throwIfAborted();
-      if (error instanceof HelperReloadTimeoutError || isRequestDeadlineError(error)) {
-        const deadline =
-          error instanceof HelperReloadTimeoutError ? HELPER_RELOAD_TIMEOUT_MS : error.deadlineMs;
+      if (isRequestDeadlineError(error)) {
         throw new Error(
-          `The Core did not answer the configuration reload within ${deadline}ms — it may already be running the new configuration; Sash keeps it and reconciles on the next change`,
+          `The Core did not answer the configuration reload within ${error.deadlineMs}ms — it may already be running the new configuration; Sash keeps it and reconciles on the next change`,
           { cause: error },
         );
       }
@@ -358,53 +339,5 @@ export class RuntimeLifecycle {
         await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
       }
     }
-  }
-
-  /**
-   * Re-apply the last privileged configuration after the TUN helper (or the
-   * privileged Core under it) was lost. The platform service manager restarts
-   * the helper on its own, and the helper's journal teardown has already
-   * reverted OS routes and DNS, so restoring only needs a fresh `apply`.
-   * Retries live in the caller. Returns true once there is nothing left to
-   * restore — the Core is running again, or the saved TUN setting no longer
-   * matches what was applied — and throws on a retryable failure.
-   */
-  async restoreTunSession(expected: RuntimeConfiguration): Promise<boolean> {
-    if (this.options.supervisor.isRunning()) return true;
-    const desired = this.options.settings();
-    if (!desired.tun.enable || !sameTunSettings(desired.tun, expected.settings.tun)) return true;
-    await this.apply(expected);
-    console.warn("[sashd] TUN session restored after the helper restarted");
-    return true;
-  }
-
-  /**
-   * Retry budget for `restoreTunSession`. The platform service manager
-   * restarts the helper on its own schedule (systemd/launchd within ~1s, SCM
-   * recovery after a 10s delay), so attempts spread over roughly a minute.
-   * Each attempt runs under `mutate` so it serializes with user-initiated
-   * changes; the loop aborts early once the daemon starts closing.
-   */
-  async restoreTunSessionWithRetries(
-    expected: RuntimeConfiguration,
-    mutate: <T>(action: () => T | Promise<T>) => Promise<T>,
-    closing: () => boolean,
-    delays: readonly number[] = TUN_RESTORE_DELAYS_MS,
-  ): Promise<void> {
-    for (let index = 0; index < delays.length; index += 1) {
-      if (index > 0) await new Promise((resolve) => setTimeout(resolve, delays[index]));
-      if (closing()) return;
-      try {
-        if (await mutate(() => this.restoreTunSession(expected))) return;
-      } catch (error) {
-        if (closing()) return;
-        console.warn(
-          `[sashd] TUN session restore failed (attempt ${index + 1}/${delays.length}): ${errorMessage(error)}`,
-        );
-      }
-    }
-    console.warn(
-      "[sashd] TUN session did not come back with the helper — traffic is direct until `sash restart` or Apply succeeds",
-    );
   }
 }

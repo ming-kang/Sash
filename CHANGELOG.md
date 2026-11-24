@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Redesign the TUN helper so it only lends privilege to the Core Sash already manages: it works with any Core version, and `sash update` no longer needs a reinstall on Windows. Windows installs a small `SashTun` service that starts and stops Core as LocalSystem; macOS makes the Core setuid root; Linux grants it `cap_net_admin,cap_net_bind_service` through pkexec. Run `sash tun helper install` once after upgrading — it replaces the 0.7.0 helper service, LaunchDaemon or systemd unit.
+- Stop shipping executables in the npm package. The Windows TUN helper is downloaded from the GitHub Release matching the installed Sash and verified against GitHub's SHA-256 digest; macOS and Linux need no download.
+- Reach a TUN Core through its ordinary controller, so routing-mode switches, profile reloads and the dashboard behave exactly as without TUN.
+- Report the helper as ready, not installed, needing reinstall (with the reason: another data folder, an older protocol, a stopped service) or unknown in `sash tun helper status`, `sash doctor` and the TUN dialog.
+- On macOS and Linux a Core update replaces the authorized Core file; run `sash tun helper install` again afterwards.
+
+### Removed
+
+- Remove the release-paired TUN Core, helper/Core digest pairing, the helper's configuration whitelist and controller proxy, its network journal, and automatic TUN session restore after a helper restart. A TUN Core that exits unexpectedly is handled like any other Core.
+
 ### Fixed
 
 - Re-apply the complete Sash-owned TUN and DNS policy after generation plugins, so enabled TUN sessions cannot lose managed fields or required DNS settings during final config generation.

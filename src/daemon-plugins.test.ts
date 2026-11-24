@@ -64,8 +64,8 @@ describe("daemon configuration plugins", () => {
     await h.startServer({
       tunPlatform: {
         ...unsupportedTunPlatform(),
-        supported: true,
-        inspect: async () => ({ installed: true }),
+        mechanism: "capabilities",
+        inspect: async () => ({ state: "ready" }),
       },
     });
     await h.apiRequest("/sash/settings", {

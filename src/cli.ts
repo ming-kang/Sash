@@ -204,7 +204,7 @@ program
   );
 program
   .command("tun")
-  .description("Show or save TUN settings and manage the privileged helper.")
+  .description("Show or save TUN settings and grant the privilege TUN needs.")
   .addArgument(
     new Argument("[action]", "TUN action (default: status)").choices([
       "on",

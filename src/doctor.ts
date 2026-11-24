@@ -24,6 +24,7 @@ import {
   inspectWindowsProxyConnections,
   type ProxyConnectionsObservation,
 } from "./sysproxy/windows-connections.js";
+import { describeTunHelper } from "./tun-service.js";
 
 export interface DoctorCheck {
   id: string;
@@ -289,18 +290,20 @@ export async function diagnoseSash(
         try {
           const owner = await resolveDaemonSession(context);
           const tun = owner.kind === "daemon" ? await owner.client.tunStatus() : null;
+          const state = tun?.supported ? tun.privilege.state : undefined;
           add(
             "tun-helper",
-            tun?.privilege.needsReconsent ? "warning" : "info",
-            !tun
-              ? "TUN helper status unavailable while Sash is stopped"
-              : !tun.supported
-                ? "TUN helper integration is not available on this platform"
-                : tun.privilege.needsReconsent
-                  ? "TUN helper needs re-consent; run sash tun helper install"
-                  : tun.privilege.installed
-                    ? "TUN helper installed"
-                    : "TUN helper not installed",
+            state === "stale" ||
+              state === "unknown" ||
+              (state === "missing" && context.settings.tun.enable)
+              ? "warning"
+              : state === "ready"
+                ? "ok"
+                : "info",
+            tun
+              ? `TUN helper: ${describeTunHelper(tun)}`
+              : "TUN helper status unavailable while Sash is stopped",
+            state && state !== "ready" ? "Run sash tun helper install" : undefined,
           );
           if (tun?.applied)
             add("tun-network", "info", "TUN is applied; OS routes and DNS are not checked");

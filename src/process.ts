@@ -1,6 +1,7 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { errnoCode } from "./error-utils.js";
 import { atomicWriteFileSync } from "./fs-atomic.js";
 
 export interface PidRecord {
@@ -91,10 +92,7 @@ export async function classifyProcessIdentityAsync(
   if (pid === process.pid)
     return exePathsMatch(process.execPath, expectedExe) ? "match" : "mismatch";
   try {
-    if (process.platform === "linux")
-      return exePathsMatch(await fs.promises.readlink(`/proc/${pid}/exe`), expectedExe)
-        ? "match"
-        : "mismatch";
+    if (process.platform === "linux") return await classifyLinuxProcess(pid, expectedExe);
     if (process.platform === "darwin")
       return classifyDarwinComm(
         await runSanitizedCommandAsync("/bin/ps", ["-ww", "-p", String(pid), "-o", "comm="], {
@@ -110,6 +108,24 @@ export async function classifyProcessIdentityAsync(
     return isProcessAlive(pid) ? "unknown" : "mismatch";
   }
   return "unknown";
+}
+
+/**
+ * A Core granted file capabilities for TUN is not dumpable, so its
+ * /proc/<pid>/exe link is unreadable even to the user who started it. Its
+ * cmdline stays world-readable; argv[0] is the path Sash spawned.
+ */
+async function classifyLinuxProcess(pid: number, expectedExe: string): Promise<ProcessIdentity> {
+  let observed: string;
+  try {
+    observed = await fs.promises.readlink(`/proc/${pid}/exe`);
+  } catch (error) {
+    if (errnoCode(error) !== "EACCES" && errnoCode(error) !== "EPERM") throw error;
+    const argv0 = (await fs.promises.readFile(`/proc/${pid}/cmdline`, "utf8")).split("\0")[0];
+    if (!argv0) return "unknown";
+    observed = argv0;
+  }
+  return exePathsMatch(observed, expectedExe) ? "match" : "mismatch";
 }
 
 async function windowsProcessImageAsync(pid: number): Promise<string> {

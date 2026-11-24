@@ -10,6 +10,7 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 - **Zero-download web dashboard** — built-in Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
 - **Save and reload** — selected profile changes reload a healthy Core in place; proxy port and LAN changes wait for an explicit Apply
 - **Windows desktop integration** — system proxy with snapshot and conditional restore, plus start at login (`sash auto`)
+- **TUN Mode** — one administrator approval lets the managed Core run its TUN interface (`sash tun`); the helper only lends privilege and works with any Core version
 - **Verified updates** — integrity-checked Core downloads with rollback (`sash update`); `sash upgrade` installs a new Sash through npm and restarts it
 - **Diagnostics** — `sash doctor [--json]` checks installation, state, ports and Windows integration, with repair advice
 - **Credential hygiene** — child processes run with scrubbed environments; loopback traffic never traverses proxy dispatchers

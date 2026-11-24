@@ -1,19 +1,10 @@
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { coreCandidates, GEODATA_FILES } from "./bootstrap-manifest-data.mjs";
-import {
-  helperAssets,
-  helperTargets,
-  pairedCoreAsset,
-  pairedCoreFilename,
-} from "./helper-artifacts.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const outFile = path.join(root, "dist", "bootstrap-manifest.json");
-const buildHelpers = process.argv.includes("--build-helpers");
 
 const MIHOMO_REPO = "MetaCubeX/mihomo";
 const GEODATA_REPO = "MetaCubeX/meta-rules-dat";
@@ -99,52 +90,9 @@ if (missingGeodata.length > 0) {
 const manifest = {
   core: { tag: coreRelease.tag_name, assets: coreAssets },
   geodata: { tag: geodataRelease.tag_name, assets: geodataAssets },
-  helpers: { assets: [], cores: [] },
 };
 fs.mkdirSync(path.dirname(outFile), { recursive: true });
-if (buildHelpers) {
-  const targets = helperTargets();
-  if (targets.length > 0) {
-    const { extractCoreArchive, mihomoAssetCandidates, validateCoreReleaseTag } = await import(
-      "../src/core.ts"
-    );
-    const { downloadReleaseAsset } = await import("../src/github.ts");
-    const tag = validateCoreReleaseTag(manifest.core.tag);
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sash-helper-core-"));
-    try {
-      for (const { platform, arch } of targets) {
-        const name = mihomoAssetCandidates(tag, platform, arch).at(-1);
-        const asset = coreAssets.find((entry) => entry.name === name);
-        if (!asset) throw new Error(`Missing paired Core asset: ${name}`);
-        const archive = path.join(tmp, "archive");
-        const dist = path.dirname(outFile);
-        const exe = path.join(dist, pairedCoreFilename(platform, arch));
-        await downloadReleaseAsset({
-          repo: MIHOMO_REPO,
-          tag,
-          asset: { ...asset, digest: `sha256:${asset.sha256}` },
-          dest: archive,
-        });
-        await extractCoreArchive(archive, asset.name, exe);
-        manifest.helpers.cores.push(await pairedCoreAsset(dist, platform, arch));
-        fs.unlinkSync(archive);
-      }
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  }
-  fs.writeFileSync(outFile, `${JSON.stringify(manifest, null, 2)}\n`);
-  const result = spawnSync(process.execPath, ["scripts/build-helper.mjs", "--all"], {
-    cwd: root,
-    env: { ...process.env, SASH_REQUIRE_HELPER_BOOTSTRAP: "1" },
-    stdio: "inherit",
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error("Release helper build failed");
-}
-
-manifest.helpers.assets = await helperAssets(root);
 fs.writeFileSync(outFile, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(
-  `[build-bootstrap-manifest] pinned Core ${manifest.core.tag} (${coreAssets.length} assets), geodata ${manifest.geodata.tag} (${geodataAssets.length} files), and ${manifest.helpers.assets.length} packaged helpers`,
+  `[build-bootstrap-manifest] pinned Core ${manifest.core.tag} (${coreAssets.length} assets) and geodata ${manifest.geodata.tag} (${geodataAssets.length} files)`,
 );
