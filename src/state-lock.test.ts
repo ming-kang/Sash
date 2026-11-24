@@ -65,7 +65,13 @@ describe("state locks", () => {
       import fs from 'node:fs';
       import { acquireStateLock } from ${JSON.stringify(new URL("./state-lock.ts", import.meta.url).href)};
       for (let i = 0; i < 12; i++) {
-        const lease = await acquireStateLock(${JSON.stringify(lockFile)}, { purpose: 'contender', timeoutMs: 15000, pollMs: 2 });
+        const lease = await acquireStateLock(${JSON.stringify(lockFile)}, {
+          purpose: 'contender',
+          timeoutMs: 15000,
+          pollMs: 2,
+          classifyIdentity: () => 'match',
+          classifyName: () => 'match',
+        });
         const fd = fs.openSync(${JSON.stringify(critical)}, 'wx');
         try {
           const value = Number(fs.readFileSync(${JSON.stringify(count)}, 'utf8'));
