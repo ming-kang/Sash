@@ -423,6 +423,10 @@ export function windowsTunPlatform(): TunPlatform {
       await runElevatedProtected(helperExePath(), await helperDistDigest(helperExePath()), [
         "uninstall",
       ]);
+      // The staged elevated run removes the protected tree but cannot reap
+      // the "Sash" parent while its own stage-* dir still lives inside it;
+      // by the time control returns here the stage is gone, so sweep here.
+      await fs.rmdir(path.win32.dirname(helperProtectedDir())).catch(() => undefined);
     },
     connect(): HelperClient {
       // `start` pays for path audits (PowerShell) and the Core spawn; the
