@@ -22,7 +22,7 @@ import type { CoreEngine } from "../engine/index.js";
 import { errorMessage, withErrorPresentation } from "../error-utils.js";
 import { type GeodataSeedResult, seedGeodataFile } from "../geodata-seed.js";
 import { type DownloadTransport, envProxyUri, formatProxyFallbackWarning } from "../http.js";
-import { countProxies, enforceTunConfiguration, type GeneratedConfig } from "../mihomo-config.js";
+import { countProxies, ensureGlobalGroup, type GeneratedConfig } from "../mihomo-config.js";
 import type { SashLayout } from "../paths.js";
 import type { PluginGenerateContext } from "../plugins/index.js";
 import { renderActiveConfig } from "../profile-service.js";
@@ -36,6 +36,7 @@ import type {
 import { runtimeDelta } from "../runtime-lifecycle.js";
 import { publicSettings } from "../settings.js";
 import type { CoreSupervisor } from "../supervisor.js";
+import { enforceTunConfiguration } from "../tun-config.js";
 import type { TunSettings } from "../tun-settings.js";
 import { defaultTunSettings, sameTunSettings } from "../tun-settings.js";
 
@@ -252,6 +253,7 @@ export class CoreControlService {
     const document = YAML.parse(generated.yaml) as Record<string, unknown>;
     const patched = await plugins.applyGenerated(document, context);
     const warnings = [...(generated.warnings ?? [])];
+    ensureGlobalGroup(patched);
     enforceTunConfiguration(patched, context.settings.tun, warnings);
     return {
       yaml: YAML.stringify(patched, { indent: 2 }),
