@@ -3,7 +3,7 @@ import type { SettingsPatch } from "./contracts.js";
 import { errorMessage, withErrorPresentation } from "./error-utils.js";
 import type { ProfileCommitBoundary } from "./profile-service.js";
 import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
-import { listenerSettingsChanged } from "./runtime-lifecycle.js";
+import { restartRequiringSettingsChanged } from "./runtime-lifecycle.js";
 import { type SashSettings, validateSettingsCandidate } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 import { applyTunPatch, sameTunSettings } from "./tun-settings.js";
@@ -78,7 +78,7 @@ export class SettingsService {
       return {
         revision: saved.revision,
         settings: saved.settings,
-        restartRequired: listenerSettingsChanged(running, saved.settings),
+        restartRequired: restartRequiringSettingsChanged(running, saved.settings),
       };
     });
   }

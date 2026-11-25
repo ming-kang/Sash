@@ -79,6 +79,14 @@ export function testStatus(): DaemonStatus {
     },
     configuration: {
       pending: false,
+      pendingChanges: {
+        profile: false,
+        mixedPort: false,
+        allowLan: false,
+        tun: false,
+        runtimeUnknown: false,
+      },
+      applyMethod: "reload",
       appliedProfile: null,
       appliedSettings: { mixedPort: settings.mixedPort, allowLan: settings.allowLan },
     },

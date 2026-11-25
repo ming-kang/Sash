@@ -180,6 +180,14 @@ describe("profile management API", () => {
     const after = await status();
     assert.equal(after.configuration.appliedProfile?.id, a.profile.id);
     assert.equal(after.configuration.pending, true);
+    assert.deepEqual(after.configuration.pendingChanges, {
+      profile: true,
+      mixedPort: false,
+      allowLan: false,
+      tun: false,
+      runtimeUnknown: false,
+    });
+    assert.equal(after.configuration.applyMethod, "reload");
     assert.match(fs.readFileSync(h.layout.configFile, "utf8"), /node-a/);
     assert.equal((await h.apiRequest("/sash/core/restart", { method: "POST" })).statusCode, 500);
     assert.equal((await status()).configuration.pending, true);

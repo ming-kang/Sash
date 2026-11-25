@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Dashboard Apply and reload guidance now names the pending profile, proxy-port, LAN or TUN changes and distinguishes in-place reloads from connection-dropping restarts; the Core control reads “Restart and apply” when a restart is expected.
+- CLI help and user documentation now describe TUN Mode among the changes that wait for explicit Apply.
+
+### Fixed
+
+- The TUN dialog now reports advanced TUN settings waiting for Apply instead of tracking only the TUN enable switch.
+
 ## [0.7.2] - 2026-11-25
 
 ### Fixed

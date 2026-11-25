@@ -52,7 +52,9 @@ it("documents every command without starting Sash or initializing application st
   }
   assert.match(outputs.get("status") ?? "", /--verbose/);
   assert.match(outputs.get("restart") ?? "", /Reload Core when possible/);
+  assert.match(outputs.get("restart") ?? "", /TUN Mode/);
   assert.match(outputs.get("profile") ?? "", /Changes to the selected profile are applied/);
+  assert.match(outputs.get("profile") ?? "", /restart-requiring settings/);
   assert.match(outputs.get("web") ?? "", /without opening a browser/);
   assert.match(outputs.get("tun") ?? "", /Helper action/);
   assert.match(outputs.get("") ?? "", /-v, --version/);

@@ -175,7 +175,7 @@ export const en: Messages = {
     stateUnknown: "TUN helper status unavailable",
     clickInstall: "Click to install the helper",
     clickReinstall: "Click to reinstall the helper",
-    statePending: "Saved — takes effect when the configuration is applied",
+    statePending: "TUN changes are saved and take effect when the configuration is applied",
     ready: "TUN helper ready",
     unsupported: "TUN Mode is not available on this platform",
     stack: "Stack",
@@ -212,9 +212,25 @@ export const en: Messages = {
     langTitle: "Language",
     mixedPortTitle: "Proxy Port",
     portInvalid: "Enter a whole number from 1 to 65535",
-    restartDesc: "Changing the proxy port or LAN access restarts the Core; active connections drop",
     applyBtn: "Apply configuration",
     reloadBtn: "Reload configuration",
+    restartApplyBtn: "Restart and apply",
+    reloadInPlaceDesc: "Reload the current configuration in place; active connections are kept",
+    applyReloadDesc:
+      "Pending changes: {causes}. The Core reloads in place; active connections are kept",
+    applyRestartDesc:
+      "Pending changes: {causes}. Applying restarts the Core; active connections drop",
+    applyRestartGenericDesc: "Applying restarts the Core; active connections drop",
+    applyRuntimeUnknownDesc:
+      "The running configuration cannot be confirmed; applying restarts the Core and drops active connections",
+    applyLegacyDesc:
+      "Apply the saved configuration; some changes restart the Core and drop active connections",
+    pendingCause: {
+      profile: "profile",
+      mixedPort: "proxy port",
+      allowLan: "LAN access",
+      tun: "TUN Mode",
+    },
     startBtn: "Start Core",
     stopBtn: "Stop Core",
     cancelUpdateBtn: "Cancel download",

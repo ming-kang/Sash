@@ -8,7 +8,7 @@ Sash runs one background process per data folder. The CLI and dashboard use its 
 
 ## Process model
 
-[daemon/entry.ts](../src/daemon/entry.ts) acquires the instance lock, loads state, recovers interrupted Core/proxy operations, then opens the listener — the local API and dashboard work whether Core exists or not. [daemon/app.ts](../src/daemon/app.ts) wires the services; [DaemonGate](../src/daemon/context.ts) serializes saved-state and lifecycle mutations in memory while reads and live Core requests run independently. Preparation stays outside the queue: a prepared candidate is published only if the profile/listener target and runtime epoch it was built against are still current.
+[daemon/entry.ts](../src/daemon/entry.ts) acquires the instance lock, loads state, recovers interrupted Core/proxy operations, then opens the listener — the local API and dashboard work whether Core exists or not. [daemon/app.ts](../src/daemon/app.ts) wires the services; [DaemonGate](../src/daemon/context.ts) serializes saved-state and lifecycle mutations in memory while reads and live Core requests run independently. Preparation stays outside the queue: a prepared candidate is published only if the profile/restart-requiring target and runtime epoch it was built against are still current.
 
 Process locks coordinate instance startup and per-user Windows operations; ordinary writes use the in-memory queue. Lock contenders hold unique bakery tickets, so recovering a dead owner cannot evict a successor's lock.
 
@@ -22,7 +22,7 @@ Process locks coordinate instance startup and per-user Windows operations; ordin
 
 The ordering invariants:
 
-1. Build a candidate and run Core's own configuration check **outside** the mutation queue; before applying, re-check that the profile revision, listener settings and runtime it was built for still hold. Unrelated metadata edits must not invalidate a candidate.
+1. Build a candidate and run Core's own configuration check **outside** the mutation queue; before applying, re-check that the profile revision, restart-requiring settings and runtime it was built for still hold. Unrelated metadata edits must not invalidate a candidate.
 2. When only the profile changed, publish the core config and ask Core to reload in place — it swaps proxies, rules and DNS while established connections keep their outbound.
 3. Otherwise restart: restore the prior system proxy, stop Core, verify the controller port is free, publish the config, start Core and wait for its controller to report the expected version, then apply the saved system-proxy preference.
 
@@ -55,7 +55,7 @@ The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) enumerat
 
 Authorization: health, status and proxy observations are public reads; private profile URLs always need the bearer; everything else accepts either the CLI bearer or browser same-origin evidence (`Origin` equal to the loopback `Host`, or `Sec-Fetch-Site: same-origin` without `Origin`). A presented bearer must be valid. Errors are `{error: {code, message}}` with optional `error.presentation: {message, advice?}` for CLI display; the top-level error `message` remains the raw wire message. Empty success is `204`.
 
-Status projects saved vs. running state through `configuration: {pending, appliedProfile, appliedSettings}`; `daemon.bootId` identifies the process and `revisions.state`/`revisions.runtime` track saved and binary changes — clients key their refreshes off these. SSE sends full snapshots from one shared observer; slow clients retain only the newest pending snapshot.
+Status projects saved vs. running state through `configuration: {pending, pendingChanges, applyMethod, appliedProfile, appliedSettings}`; `daemon.bootId` identifies the process and `revisions.state`/`revisions.runtime` track saved and binary changes — clients key their refreshes off these. SSE sends full snapshots from one shared observer; slow clients retain only the newest pending snapshot.
 
 ## Security boundaries
 

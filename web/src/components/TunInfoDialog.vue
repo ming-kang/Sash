@@ -203,7 +203,11 @@ async function save(): Promise<void> {
   }
 }
 
-const pending = computed(() => !!props.tun && props.tun.desired !== props.tun.applied);
+const pending = computed(
+  () =>
+    Boolean(store.status?.configuration.pendingChanges?.tun) ||
+    (!!props.tun && props.tun.desired !== props.tun.applied),
+);
 const privilege = computed(() => (props.tun?.supported ? props.tun.privilege : undefined));
 const installable = computed(
   () => privilege.value?.state === "missing" || privilege.value?.state === "stale",
@@ -223,7 +227,7 @@ const summary = computed(() => {
     case "unknown":
       return t("tun.stateUnknown");
   }
-  if (s.desired !== s.applied) return t("tun.statePending");
+  if (pending.value) return t("tun.statePending");
   return t("tun.ready");
 });
 </script>

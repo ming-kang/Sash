@@ -131,6 +131,14 @@ export interface TunStatusResponse {
   };
   supported: boolean;
 }
+export interface ConfigurationPendingChanges {
+  profile: boolean;
+  mixedPort: boolean;
+  allowLan: boolean;
+  tun: boolean;
+  runtimeUnknown: boolean;
+}
+export type CoreApplyMethod = "start" | "reload" | "restart";
 export interface DaemonStatus {
   coreUpdate?: CoreUpdateProgress | null;
   downloadTransport?: DownloadTransport | null;
@@ -139,6 +147,8 @@ export interface DaemonStatus {
   core: CoreState;
   configuration: {
     pending: boolean;
+    pendingChanges: ConfigurationPendingChanges;
+    applyMethod: CoreApplyMethod;
     appliedProfile: { id: string; revision: number; name: string; url: string } | null;
     appliedSettings: { mixedPort: number; allowLan: boolean } | null;
   };

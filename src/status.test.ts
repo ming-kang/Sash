@@ -45,6 +45,14 @@ function statusResponse(
     revisions: { state: 1, runtime: 1 },
     configuration: {
       pending: false,
+      pendingChanges: {
+        profile: false,
+        mixedPort: false,
+        allowLan: false,
+        tun: false,
+        runtimeUnknown: false,
+      },
+      applyMethod: "reload",
       appliedProfile: null,
       appliedSettings: { mixedPort: 17890, allowLan: false },
     },

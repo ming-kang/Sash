@@ -77,6 +77,48 @@ describe("daemon TUN controls", () => {
     assert.equal(YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8")).tun.enable, false);
   });
 
+  it("reports only effective TUN edits as restart pending", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    await harness.startServer({ supervisor, tunPlatform: readyTunPlatform() });
+    assert.equal(
+      (await harness.apiRequest("/sash/core/start", { method: "POST" })).statusCode,
+      200,
+    );
+
+    assert.equal(
+      (
+        await harness.apiRequest("/sash/settings", {
+          method: "PATCH",
+          body: { tun: { autoRoute: false } },
+        })
+      ).statusCode,
+      200,
+    );
+    const dormant = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+    assert.equal(dormant.configuration.pending, false);
+    assert.equal(dormant.configuration.pendingChanges.tun, false);
+
+    assert.equal(
+      (
+        await harness.apiRequest("/sash/settings", {
+          method: "PATCH",
+          body: { tun: { enable: true } },
+        })
+      ).statusCode,
+      200,
+    );
+    const pending = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+    assert.equal(pending.configuration.pending, true);
+    assert.deepEqual(pending.configuration.pendingChanges, {
+      profile: false,
+      mixedPort: false,
+      allowLan: false,
+      tun: true,
+      runtimeUnknown: false,
+    });
+    assert.equal(pending.configuration.applyMethod, "restart");
+  });
+
   it("keeps the saved TUN preference when validation fails before any Core start", async () => {
     const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
     await harness.startServer({

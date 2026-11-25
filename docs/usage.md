@@ -6,7 +6,7 @@ Sash is a network toolbox for developers, learning and research. Use the CLI for
 
 ## Mental model
 
-Sash keeps a **saved** configuration and a **running** one. Selecting, editing or updating the selected profile applies to a running Core immediately — the reload swaps proxies and rules in place, so established connections survive. Only proxy-port and LAN changes wait for **Apply configuration** or `sash restart`, which restarts Core. `sash status` reports both sides: what is saved and what Core is actually using.
+Sash keeps a **saved** configuration and a **running** one. Selecting, editing or updating the selected profile applies to a running Core immediately — the reload swaps proxies and rules in place, so established connections survive. Only proxy-port, LAN-access and effective TUN changes wait for **Apply configuration** or `sash restart`, which restarts Core. Effective TUN changes are enable flips or, while TUN is enabled, edits to TUN settings that reach the running configuration. `sash status` reports both sides: what is saved and what Core is actually using.
 
 Validation happens before anything is touched. A rejected configuration leaves the running Core and your saved edits intact, so the dashboard stays usable for correction.
 

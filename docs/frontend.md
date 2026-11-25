@@ -24,7 +24,7 @@ Inbound frames are framing-, sequence- and process-checked before entering share
 
 Pages cover Overview (preferences, proxy port and runtime — there is no separate Settings page), Profiles, Logs, Connections and Rules. Cross-cutting behaviors worth knowing:
 
-- Saved-but-unapplied changes raise an Apply prompt by the sidebar's Core state; a stopped Core shows none because Start applies the saved configuration.
+- Saved-but-unapplied changes raise an Apply prompt by the sidebar's Core state; a stopped Core shows none because Start applies the saved configuration. The prompt and reload control derive their copy from `configuration.pendingChanges` and `configuration.applyMethod`, so they can distinguish in-place reloads from connection-dropping restarts.
 - The editor saves against the content revision read on open, so a concurrent edit fails rather than silently overwriting — reopen before saving again.
 - Toasts report only outcomes the page cannot show in place; a change already visible in the UI gets none.
 - Long lists paginate or virtualize; routes, the YAML editor and font slices load on demand.

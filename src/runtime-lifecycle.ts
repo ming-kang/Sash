@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import YAML from "yaml";
-import type { CoreStartResult } from "./contracts.js";
+import type { ConfigurationPendingChanges, CoreStartResult } from "./contracts.js";
 import type { StagedCore } from "./core.js";
 import {
   type CoreUpdateResult,
@@ -33,6 +33,7 @@ export interface RuntimeTarget {
 export interface RuntimeDelta {
   pending: boolean;
   restartRequired: boolean;
+  pendingChanges: ConfigurationPendingChanges;
 }
 export interface RuntimeLifecycleOptions {
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
@@ -71,29 +72,61 @@ export function verificationConfiguration(
   };
 }
 
-export function listenerSettingsChanged(
+function restartRequiringSettingChanges(
+  applied: Pick<SashSettings, "mixedPort" | "allowLan" | "tun">,
+  target: Pick<SashSettings, "mixedPort" | "allowLan" | "tun">,
+): Pick<ConfigurationPendingChanges, "mixedPort" | "allowLan" | "tun"> {
+  return {
+    mixedPort: applied.mixedPort !== target.mixedPort,
+    allowLan: applied.allowLan !== target.allowLan,
+    tun: !sameEffectiveTunSettings(applied.tun, target.tun),
+  };
+}
+
+export function restartRequiringSettingsChanged(
   applied: Pick<SashSettings, "mixedPort" | "allowLan" | "tun">,
   target: Pick<SashSettings, "mixedPort" | "allowLan" | "tun">,
 ): boolean {
-  return (
-    applied.mixedPort !== target.mixedPort ||
-    applied.allowLan !== target.allowLan ||
-    !sameEffectiveTunSettings(applied.tun, target.tun)
-  );
+  const changes = restartRequiringSettingChanges(applied, target);
+  return changes.mixedPort || changes.allowLan || changes.tun;
 }
 
 export function runtimeDelta(
   applied: RuntimeConfiguration | undefined,
   target: RuntimeTarget,
 ): RuntimeDelta {
-  if (!applied) return { pending: true, restartRequired: false };
-  const restartRequired = listenerSettingsChanged(applied.settings, target.settings);
+  if (!applied)
+    return {
+      pending: true,
+      restartRequired: false,
+      pendingChanges: {
+        profile: false,
+        mixedPort: false,
+        allowLan: false,
+        tun: false,
+        runtimeUnknown: true,
+      },
+    };
   const appliedProfile = applied.profile;
   const targetProfile = target.profile;
-  const profilePending =
-    appliedProfile?.id !== targetProfile?.id ||
-    appliedProfile?.revision !== targetProfile?.revision;
-  return { pending: profilePending || restartRequired, restartRequired };
+  const restartChanges = restartRequiringSettingChanges(applied.settings, target.settings);
+  const pendingChanges: ConfigurationPendingChanges = {
+    profile:
+      appliedProfile?.id !== targetProfile?.id ||
+      appliedProfile?.revision !== targetProfile?.revision,
+    ...restartChanges,
+    runtimeUnknown: false,
+  };
+  const restartRequired = restartChanges.mixedPort || restartChanges.allowLan || restartChanges.tun;
+  return {
+    pending:
+      pendingChanges.profile ||
+      pendingChanges.mixedPort ||
+      pendingChanges.allowLan ||
+      pendingChanges.tun,
+    restartRequired,
+    pendingChanges,
+  };
 }
 
 const CORE_RESTORE_DELAYS_MS = [500, 1_500, 3_000, 6_000, 10_000, 15_000, 25_000];
@@ -214,8 +247,8 @@ export class RuntimeLifecycle {
    * Apply a configuration to the running Core without restarting it: the Core
    * swaps proxies, rules and DNS in place, so connections established before
    * the reload keep their current outbound. Sash does not request forced
-   * listener rebinding, so ports and LAN settings take the `apply` path;
-   * the Core controller is never changed by a reload.
+   * listener rebinding, so port and LAN changes use the supervised restart
+   * path instead; the Core controller is never changed by a reload.
    */
   async reload(
     configuration: RuntimeConfiguration,

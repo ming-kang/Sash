@@ -8,7 +8,7 @@ Sash is a **network toolbox for developers, learning, and research**. It install
 
 - **Background supervisor** — one Sash process per data folder on port `19090`, managing the Core lifecycle, recovery and reverse proxying
 - **Zero-download web dashboard** — built-in Vue 3 dashboard bundled with the package at `http://127.0.0.1:19090/ui/`
-- **Save and reload** — selected profile changes reload a healthy Core in place; proxy port and LAN changes wait for an explicit Apply
+- **Save and reload** — selected profile changes reload a healthy Core in place; proxy port, LAN access and effective TUN changes wait for an explicit Apply
 - **Windows desktop integration** — system proxy with snapshot and conditional restore, plus start at login (`sash auto`)
 - **TUN Mode** — one administrator approval lets the managed Core run its TUN interface (`sash tun`); the helper only lends privilege and works with any Core version
 - **Verified updates** — integrity-checked Core downloads with rollback (`sash update`); `sash upgrade` installs a new Sash through npm and restarts it

@@ -5,7 +5,7 @@
       type="button"
       class="btn btn-primary btn-sm"
       :disabled="restarting || stopping || !store.status"
-      v-tooltip="t('settings.restartDesc')"
+      v-tooltip="coreApplyTooltip"
       @click="restartCore"
     >
       <Icon name="refresh" :size="13" :class="{ spin: restarting }" />
@@ -17,8 +17,8 @@
         type="button"
         class="icon-btn"
         :disabled="restarting || stopping || !store.status"
-        v-tooltip="`${t('settings.reloadBtn')} · ${t('settings.restartDesc')}`"
-        :aria-label="t('settings.reloadBtn')"
+        v-tooltip="coreApplyTooltip"
+        :aria-label="coreApplyActionLabel"
         @click="restartCore"
       >
         <Icon name="refresh" :size="15" :class="{ spin: restarting }" />
@@ -52,7 +52,11 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { useCoreControl } from "../composables/core-runtime.js";
+import {
+  coreApplyActionLabel,
+  coreApplyTooltip,
+  useCoreControl,
+} from "../composables/core-runtime.js";
 import { t } from "../i18n/index.js";
 import { store } from "../stores/index.js";
 import Icon from "./Icon.vue";

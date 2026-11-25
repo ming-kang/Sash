@@ -116,10 +116,20 @@ describe("save and apply API", () => {
     assert.equal(saved.settings.mixedPort, 18888);
     assert.equal(saved.configuration.appliedSettings?.mixedPort, h.settings.mixedPort);
     assert.equal(saved.configuration.pending, true);
+    assert.deepEqual(saved.configuration.pendingChanges, {
+      profile: false,
+      mixedPort: true,
+      allowLan: true,
+      tun: false,
+      runtimeUnknown: false,
+    });
+    assert.equal(saved.configuration.applyMethod, "restart");
     await h.apiRequest("/sash/core/restart", { method: "POST" });
     assert.equal(core.starts, starts + 1);
-    assert.equal((await status()).configuration.pending, false);
-    assert.equal((await status()).configuration.appliedSettings?.mixedPort, 18888);
+    const applied = await status();
+    assert.equal(applied.configuration.pending, false);
+    assert.equal(applied.configuration.applyMethod, "reload");
+    assert.equal(applied.configuration.appliedSettings?.mixedPort, 18888);
   });
   it("keeps old Core running on validation failure and preserves the saved edit", async () => {
     await h.startServer({

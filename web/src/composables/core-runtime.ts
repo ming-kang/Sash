@@ -1,7 +1,8 @@
 import { computed, ref } from "vue";
+import type { ConfigurationPendingChanges } from "../../../src/contracts.js";
 import { api } from "../api/index.js";
 import { confirmDialog } from "../components/confirm.js";
-import { t } from "../i18n/index.js";
+import { locale, t } from "../i18n/index.js";
 import { errorText, isConnected, refreshRuntimeState, store, toast } from "../stores/index.js";
 
 export function normalizeCoreVersion(version: string | undefined): string {
@@ -13,6 +14,39 @@ export const coreVersion = computed(() => normalizeCoreVersion(store.status?.cor
 export const applyPending = computed(() =>
   Boolean(isConnected.value && store.status?.core.running && store.status.configuration.pending),
 );
+
+const pendingCauseOrder = ["profile", "mixedPort", "allowLan", "tun"] as const;
+
+function pendingCauseList(changes: ConfigurationPendingChanges): string {
+  const labels = pendingCauseOrder
+    .filter((cause) => changes[cause])
+    .map((cause) => t(`settings.pendingCause.${cause}`));
+  if (locale.value === "zh") return labels.join("、");
+  return new Intl.ListFormat("en", { style: "long", type: "conjunction" }).format(labels);
+}
+
+export const coreApplyMethod = computed(() => store.status?.configuration.applyMethod);
+export const coreApplyActionLabel = computed(() =>
+  coreApplyMethod.value === "restart" ? t("settings.restartApplyBtn") : t("settings.reloadBtn"),
+);
+export const coreApplyTooltip = computed(() => {
+  const configuration = store.status?.configuration;
+  if (!configuration) return "";
+  const changes = configuration.pendingChanges;
+  const method = configuration.applyMethod;
+  if (!changes || !method) return t("settings.applyLegacyDesc");
+  if (method === "start") return t("settings.startBtn");
+  if (configuration.pending && changes.runtimeUnknown) return t("settings.applyRuntimeUnknownDesc");
+  const causes = pendingCauseList(changes);
+  if (method === "reload")
+    return configuration.pending && causes
+      ? t("settings.applyReloadDesc", { causes })
+      : t("settings.reloadInPlaceDesc");
+  const restartCauses = pendingCauseOrder.filter((cause) => cause !== "profile" && changes[cause]);
+  return configuration.pending && causes && restartCauses.length > 0
+    ? t("settings.applyRestartDesc", { causes })
+    : t("settings.applyRestartGenericDesc");
+});
 
 export const coreUpdateText = computed(() => {
   const update = store.status?.coreUpdate;

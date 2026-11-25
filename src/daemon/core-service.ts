@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import YAML from "yaml";
 import { type SashState, type SashStateStore, StateConflictError } from "../app-state.js";
-import type { CoreStartResult } from "../contracts.js";
+import type {
+  ConfigurationPendingChanges,
+  CoreApplyMethod,
+  CoreStartResult,
+} from "../contracts.js";
 import {
   assertCoreInstallationConsistent,
   coreInstalled,
@@ -35,7 +39,7 @@ import type {
 } from "../runtime-lifecycle.js";
 import { CoreUpdateResumeError, runtimeDelta } from "../runtime-lifecycle.js";
 import { publicSettings } from "../settings.js";
-import type { CoreSupervisor } from "../supervisor.js";
+import type { CoreState, CoreSupervisor } from "../supervisor.js";
 import { enforceTunConfiguration } from "../tun-config.js";
 import type { TunSettings } from "../tun-settings.js";
 import { defaultTunSettings, sameTunSettings } from "../tun-settings.js";
@@ -102,6 +106,21 @@ export class CoreControlService {
 
   get pendingApply(): boolean {
     return runtimeDelta(this.options.lifecycle.configuration(), this.savedTarget()).pending;
+  }
+
+  configurationState(core: CoreState): {
+    pending: boolean;
+    pendingChanges: ConfigurationPendingChanges;
+    applyMethod: CoreApplyMethod;
+  } {
+    const applied = this.options.lifecycle.configuration();
+    const delta = runtimeDelta(applied, this.savedTarget());
+    const applyMethod: CoreApplyMethod = !core.running
+      ? "start"
+      : applied && !delta.restartRequired && core.healthy === true
+        ? "reload"
+        : "restart";
+    return { pending: delta.pending, pendingChanges: delta.pendingChanges, applyMethod };
   }
 
   downloadTransport(): DownloadTransport | null {

@@ -125,6 +125,15 @@ async function verify(engine: BrowserType, name: string) {
     assert.equal(await page.locator("#mixed-port-hint").count(), 0);
     const starts = core.starts; await port.fill("18888"); await port.press("Enter");
     await page.locator(".pending-config").waitFor(); assert.equal(core.starts, starts);
+    const applyButton = page.locator(".pending-config").getByRole("button", { name: "应用配置", exact: true });
+    await applyButton.hover();
+    const applyTooltip = page.locator(".sash-tooltip.visible");
+    await applyTooltip.waitFor();
+    const applyCopy = await applyTooltip.innerText();
+    assert.match(applyCopy, /代理端口/);
+    assert.match(applyCopy, /重启核心/);
+    assert.match(applyCopy, /活动连接将中断/);
+    await page.getByRole("button", { name: "重启并应用", exact: true }).waitFor();
     await portFocused();
     await port.fill("18889"); await page.locator(".brand-name").click();
     for (let attempt = 0; attempt < 100; attempt += 1) {

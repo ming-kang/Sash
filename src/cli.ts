@@ -334,13 +334,13 @@ const summaries: Record<string, string> = {
 const helpDetails: Record<string, string> = {
   start: "If Sash and Core are already running, leave them running.",
   restart:
-    "Reload Core when possible. Restart it if the proxy port or LAN setting changed.\nStart Core if it is stopped.",
+    "Reload Core when possible. Restart it when the proxy port, LAN access, or TUN Mode changed.\nStart Core if it is stopped.",
   status:
     "Bare sash shows the same summary.\nNode and group names must match exactly.\nWith --watch --delay, latency is tested every 30 seconds.\nWith --watch --json, output one JSON snapshot per line.\n\nExit codes: 0 observation complete, 1 command failed, 2 observation incomplete.",
   doctor:
     "Includes network checks for Core download sources.\nDoes not install Core or start Sash.\n\nExit codes: 0 checks complete, 1 checks failed, 2 observation incomplete.",
   profile:
-    "Use a profile ID or exact name. Quote names containing spaces.\nChanges to the selected profile are applied to a healthy running Core when\nno listener changes are pending. Otherwise, they remain saved.",
+    "Use a profile ID or exact name. Quote names containing spaces.\nChanges to the selected profile are applied to a healthy running Core when\nno restart-requiring settings are pending. Otherwise, they remain saved.",
   proxy:
     "Enabling requires a healthy running Core.\nTurning it off restores the previous system proxy settings.",
   mode: "The mode applies to the current Core session.\nApplying the saved configuration may reset it.",

@@ -77,7 +77,7 @@ async function exercise(fixture, label) {
     .filter({ has: page.getByText("Node fast", { exact: true }) });
   await fast.locator(".node-main").click();
   await fast.locator(".node-main[aria-pressed='true']").waitFor();
-  await first.getByRole("button", { name: "Show/hide timed-out nodes" }).click();
+  await first.getByRole("button", { name: "Toggle timed-out nodes" }).click();
   assert.equal(await first.getByText("Node timeout", { exact: true }).count(), 0);
   assert.equal(await first.getByText("Node failed", { exact: true }).count(), 1);
   const failed = first

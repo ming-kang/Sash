@@ -9,8 +9,8 @@ import { mihomoEngine } from "./engine/index.js";
 import { RequestDeadlineError } from "./http.js";
 import { sashLayout } from "./paths.js";
 import {
-  listenerSettingsChanged,
   RuntimeLifecycle,
+  restartRequiringSettingsChanged,
   runtimeDelta,
   verificationConfiguration,
 } from "./runtime-lifecycle.js";
@@ -693,6 +693,14 @@ describe("TUN apply", () => {
 
 describe("runtime delta", () => {
   const settings = testSettings();
+  const noChanges = {
+    profile: false,
+    mixedPort: false,
+    allowLan: false,
+    tun: false,
+    runtimeUnknown: false,
+  };
+  const changes = (patch: Partial<typeof noChanges>) => ({ ...noChanges, ...patch });
   const applied = (
     patch: Partial<ReturnType<typeof testSettings>> = {},
     profile: { id: string; revision: number; name: string; url: string } | null = null,
@@ -705,36 +713,42 @@ describe("runtime delta", () => {
     assert.deepEqual(runtimeDelta(applied(), { profile: null, settings }), {
       pending: false,
       restartRequired: false,
+      pendingChanges: noChanges,
     });
   });
   it("treats an unknown runtime as pending without demanding a restart", () => {
     assert.deepEqual(runtimeDelta(undefined, { profile: null, settings }), {
       pending: true,
       restartRequired: false,
+      pendingChanges: changes({ runtimeUnknown: true }),
     });
   });
-  it("separates a new profile revision from a listener-level change", () => {
+  it("separates a new profile revision from restart-requiring changes", () => {
     const target = { profile: { id: "7", revision: 3 }, settings };
     assert.deepEqual(
       runtimeDelta(applied({}, { id: "7", revision: 2, name: "p", url: "" }), target),
       {
         pending: true,
         restartRequired: false,
+        pendingChanges: changes({ profile: true }),
       },
     );
     assert.deepEqual(runtimeDelta(applied({ mixedPort: 19099 }), target), {
       pending: true,
       restartRequired: true,
+      pendingChanges: changes({ profile: true, mixedPort: true }),
     });
     assert.deepEqual(runtimeDelta(applied({ allowLan: true }), target), {
       pending: true,
       restartRequired: true,
+      pendingChanges: changes({ profile: true, allowLan: true }),
     });
   });
   it("notices a selection that was never applied", () => {
     assert.deepEqual(runtimeDelta(applied(), { profile: { id: "7", revision: 1 }, settings }), {
       pending: true,
       restartRequired: false,
+      pendingChanges: changes({ profile: true }),
     });
   });
   it("ignores advanced TUN edits while TUN is disabled but demands a restart once enabled", () => {
@@ -749,6 +763,7 @@ describe("runtime delta", () => {
       {
         pending: false,
         restartRequired: false,
+        pendingChanges: noChanges,
       },
     );
     const enabled = { ...edited, enable: true };
@@ -760,12 +775,13 @@ describe("runtime delta", () => {
       {
         pending: true,
         restartRequired: true,
+        pendingChanges: changes({ tun: true }),
       },
     );
   });
 });
 
-describe("listener settings", () => {
+describe("restart-requiring settings", () => {
   const settings = testSettings();
   it("ignores advanced TUN field edits while TUN is disabled on both sides", () => {
     const edited = {
@@ -774,7 +790,7 @@ describe("listener settings", () => {
       strictRoute: true,
       dnsHijack: ["any:53"],
     };
-    assert.equal(listenerSettingsChanged(settings, { ...settings, tun: edited }), false);
+    assert.equal(restartRequiringSettingsChanged(settings, { ...settings, tun: edited }), false);
   });
   it("notices advanced TUN field edits while TUN is enabled on both sides", () => {
     const appliedTun = { ...settings.tun, enable: true };
@@ -785,17 +801,26 @@ describe("listener settings", () => {
       dnsHijack: ["any:53"],
     };
     assert.equal(
-      listenerSettingsChanged({ ...settings, tun: appliedTun }, { ...settings, tun: edited }),
+      restartRequiringSettingsChanged(
+        { ...settings, tun: appliedTun },
+        { ...settings, tun: edited },
+      ),
       true,
     );
   });
   it("notices a TUN enable flip", () => {
     assert.equal(
-      listenerSettingsChanged(settings, { ...settings, tun: { ...settings.tun, enable: true } }),
+      restartRequiringSettingsChanged(settings, {
+        ...settings,
+        tun: { ...settings.tun, enable: true },
+      }),
       true,
     );
     assert.equal(
-      listenerSettingsChanged({ ...settings, tun: { ...settings.tun, enable: true } }, settings),
+      restartRequiringSettingsChanged(
+        { ...settings, tun: { ...settings.tun, enable: true } },
+        settings,
+      ),
       true,
     );
   });

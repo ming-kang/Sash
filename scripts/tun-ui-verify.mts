@@ -43,11 +43,20 @@ async function openDialog(page: Page) {
   await page.locator(".network-toggle .toggle-link").click();
   const dialog = page.getByRole("dialog");
   await dialog.waitFor();
+  await page.waitForTimeout(180);
   return dialog;
 }
 
 function tunSwitch(page: Page) {
   return page.locator(".network-toggle", { has: page.locator(".toggle-link") }).getByRole("switch");
+}
+
+async function resetTunState(): Promise<void> {
+  await h.apiRequest("/sash/settings", {
+    method: "PATCH",
+    body: { tun: { enable: false, stack: "mixed", autoRoute: true, strictRoute: false } },
+  });
+  await h.apiRequest("/sash/core/restart", { method: "POST" });
 }
 
 async function capture(page: Page, name: string): Promise<void> {
@@ -59,6 +68,7 @@ async function capture(page: Page, name: string): Promise<void> {
 try {
   for (const { engine, name } of UI_ENGINES) {
     console.log(`Verifying ${name}`);
+    await resetTunState();
     const browser = await launchUiBrowser(engine);
     try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -83,6 +93,36 @@ try {
       await dialog.getByRole("button", { name: "关闭" }).click();
       assert.equal(await tunSwitch(page).isDisabled(), false);
       results.push(`${name}: installing from the dialog enables the switch`);
+
+      await tunSwitch(page).click();
+      const pendingDock = page.locator(".pending-config");
+      await pendingDock.waitFor();
+      const applyButton = pendingDock.getByRole("button", { name: "应用配置", exact: true });
+      await applyButton.hover();
+      const applyTooltip = page.locator(".sash-tooltip.visible");
+      await applyTooltip.waitFor();
+      const tunApplyCopy = await applyTooltip.innerText();
+      assert.match(tunApplyCopy, /TUN 模式/);
+      assert.match(tunApplyCopy, /重启核心/);
+      assert.match(tunApplyCopy, /活动连接将中断/);
+      await page.getByRole("button", { name: "重启并应用", exact: true }).waitFor();
+      await capture(page, `${name}-apply-tun-tooltip`);
+      await applyButton.click();
+      await pendingDock.waitFor({ state: "hidden" });
+      results.push(`${name}: enabling TUN explains the restart cost on Apply`);
+
+      dialog = await openDialog(page);
+      await dialog.getByRole("switch", { name: "Strict Route", exact: true }).click();
+      await dialog.getByRole("button", { name: "保存", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      dialog = await openDialog(page);
+      await dialog
+        .locator(".tun-info-status")
+        .filter({ hasText: "TUN 更改已保存，应用配置后生效" })
+        .waitFor();
+      await capture(page, `${name}-tun-settings-pending`);
+      await dialog.getByRole("button", { name: "关闭" }).click();
+      results.push(`${name}: editing active TUN settings reports a pending change`);
 
       await setPrivilege(page, { state: "stale", detail: STALE });
       dialog = await openDialog(page);

@@ -35,6 +35,7 @@ export async function readDaemonStatus(
   const activeProfile = ctx.profiles.active();
   if (core.running && (!ownership || !ctx.supervisor.ownsCore(ownership)))
     core = { running: false };
+  const configurationState = ctx.core.configurationState(core);
   const applied = ctx.lifecycle.configuration();
   const transport = ctx.core.downloadTransport();
   if (transport) {
@@ -64,7 +65,9 @@ export async function readDaemonStatus(
       runtime: ctx.lifecycle.revision,
     },
     configuration: {
-      pending: ctx.pendingApply(),
+      pending: configurationState.pending,
+      pendingChanges: configurationState.pendingChanges,
+      applyMethod: configurationState.applyMethod,
       appliedProfile: applied?.profile ? { ...applied.profile } : null,
       appliedSettings: applied
         ? { mixedPort: applied.settings.mixedPort, allowLan: applied.settings.allowLan }
