@@ -3,7 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, onTestFinished, vi } from "vitest";
-import { inspectLinuxTunNetwork, TunGuard, type TunGuardRunner } from "./tun-guard.js";
+import {
+  inspectLinuxTunNetwork,
+  inspectMacosTunNetwork,
+  parseMacosTunGuardStatus,
+  TunGuard,
+  type TunGuardRunner,
+} from "./tun-guard.js";
 
 interface RecordedCall {
   cmd: string;
@@ -111,7 +117,10 @@ describe("TunGuard invocation", () => {
     ]);
 
     await darwin.guard.reconcile("setup", { device: "utun5" });
-    assert.deepEqual(guardInvocations(darwin.calls)[1]?.args.slice(-2), ["setup", "utun5"]);
+    assert.deepEqual(guardInvocations(darwin.calls)[1]?.args.slice(-2), [
+      darwin.scriptPath,
+      "setup",
+    ]);
   });
 
   it("invokes the script directly as root without sudo", async () => {
@@ -483,5 +492,81 @@ describe("inspectLinuxTunNetwork", () => {
     });
     assert.equal(observations.find((entry) => entry.aspect === "blackhole4")?.state, "unknown");
     assert.equal(observations.find((entry) => entry.aspect === "resolved")?.state, "unknown");
+  });
+});
+
+describe("inspectMacosTunNetwork", () => {
+  function installedGuard() {
+    const root = tempDir("sash-macos-guard-inspect-");
+    const scriptPath = path.join(root, "sash-tun-guard");
+    fs.writeFileSync(scriptPath, "#!/bin/sh\n");
+    return scriptPath;
+  }
+
+  it("parses machine-readable guard status", () => {
+    assert.deepEqual(
+      parseMacosTunGuardStatus(
+        "main=attached\nanchor=loaded\nrules=9\npf=enabled\npf-reference=held\n",
+      ),
+      { main: "attached", anchor: "loaded", rules: 9, pf: "enabled", pfReference: "held" },
+    );
+  });
+
+  it("reads status through passwordless sudo and reports a converged anchor", async () => {
+    const scriptPath = installedGuard();
+    const seen: string[] = [];
+    const observations = await inspectMacosTunNetwork({
+      platform: "darwin",
+      scriptPath,
+      asRoot: false,
+      run: async (cmd, args) => {
+        seen.push([cmd, ...args].join(" "));
+        return "main=attached\nanchor=loaded\nrules=9\npf=enabled\npf-reference=held\n";
+      },
+    });
+    assert.deepEqual(seen, [`/usr/bin/sudo -n ${scriptPath} status`]);
+    assert.deepEqual(
+      observations.map((entry) => [entry.aspect, entry.state]),
+      [
+        ["pf-attachment", "ok"],
+        ["pf-anchor", "ok"],
+        ["pf-enabled", "ok"],
+      ],
+    );
+  });
+
+  it("fails closed diagnostics when the anchor or pf is not active", async () => {
+    const scriptPath = installedGuard();
+    const observations = await inspectMacosTunNetwork({
+      platform: "darwin",
+      scriptPath,
+      asRoot: true,
+      run: async () =>
+        "main=detached\nanchor=not-loaded\nrules=0\npf=disabled\npf-reference=not-held\n",
+    });
+    assert.deepEqual(
+      observations.map((entry) => [entry.aspect, entry.state]),
+      [
+        ["pf-attachment", "failed"],
+        ["pf-anchor", "failed"],
+        ["pf-enabled", "failed"],
+      ],
+    );
+  });
+
+  it("reports unknown rather than converged when status cannot be read", async () => {
+    const scriptPath = installedGuard();
+    const observations = await inspectMacosTunNetwork({
+      platform: "darwin",
+      scriptPath,
+      asRoot: true,
+      run: async () => {
+        throw new Error("sudo refused");
+      },
+    });
+    assert.deepEqual(
+      observations.map((entry) => [entry.aspect, entry.state]),
+      [["pf-anchor", "unknown"]],
+    );
   });
 });

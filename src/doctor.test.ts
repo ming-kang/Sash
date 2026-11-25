@@ -565,3 +565,33 @@ it("tunGuardCheck surfaces reconcile failures only when they matter", async () =
   );
   assert.equal(failedTeardown?.status, "warning");
 });
+
+it("tunNetworkChecks surfaces macOS pf guard observations with their own check ids", async () => {
+  const { tunNetworkChecks } = await import("./doctor.js");
+  const checks = await tunNetworkChecks(undefined, async () => [
+    {
+      aspect: "pf-attachment",
+      state: "ok",
+      detail: "the Sash pf anchor is attached to the main ruleset",
+    },
+    {
+      aspect: "pf-anchor",
+      state: "failed",
+      detail: "the Sash pf anchor is not loaded",
+    },
+    {
+      aspect: "pf-enabled",
+      state: "failed",
+      detail: "pf is not enabled",
+    },
+  ]);
+  assert.deepEqual(
+    checks.map((entry) => [entry.id, entry.status]),
+    [
+      ["tun-network-pf-attachment", "ok"],
+      ["tun-network-pf-anchor", "warning"],
+      ["tun-network-pf-enabled", "warning"],
+    ],
+  );
+  assert.match(checks[1]?.advice ?? "", /sash tun helper install/);
+});

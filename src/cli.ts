@@ -202,7 +202,7 @@ program
       (await import("./commands/proxy.js")).runProxy(action, opts),
     ),
   );
-program
+const tunCommand = program
   .command("tun")
   .description("Show or save TUN settings and grant the privilege TUN needs.")
   .addArgument(
@@ -230,6 +230,22 @@ program
       ) => (await import("./commands/tun.js")).runTun(action, helperAction, opts),
     ),
   );
+
+tunCommand
+  .command("guard", { hidden: true })
+  .addArgument(
+    new Argument("[verb]", "Guard action (default: status)").choices([
+      "setup",
+      "teardown",
+      "status",
+    ]),
+  )
+  .action(
+    lazyCommand(async (verb: "setup" | "teardown" | "status" | undefined) =>
+      (await import("./commands/tun.js")).runTunGuard(verb),
+    ),
+  );
+
 program
   .command("mode")
   .description("Set the running Core routing mode.")

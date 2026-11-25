@@ -119,7 +119,7 @@ export class TunGuard implements TunGuardLike {
 
   private effectiveDevice(configured: string | undefined): string | undefined {
     if (this.platform === "linux") return configured ?? LINUX_DEFAULT_TUN_DEVICE;
-    return configured;
+    return undefined;
   }
 
   private async drain(): Promise<void> {
@@ -246,7 +246,13 @@ export function noopTunGuard(): TunGuardLike {
   };
 }
 
-export type TunNetworkAspect = "blackhole4" | "blackhole6" | "resolved";
+export type TunNetworkAspect =
+  | "blackhole4"
+  | "blackhole6"
+  | "resolved"
+  | "pf-attachment"
+  | "pf-anchor"
+  | "pf-enabled";
 
 export interface TunNetworkObservation {
   aspect: TunNetworkAspect;
@@ -369,4 +375,107 @@ export async function inspectLinuxTunNetwork(
     resolvedObservation(run, device),
   ]);
   return [v4, ...(v6 ? [v6] : []), ...(resolved ? [resolved] : [])];
+}
+
+export interface MacosTunGuardStatus {
+  main?: string;
+  anchor?: string;
+  rules?: number;
+  pf?: string;
+  pfReference?: string;
+}
+
+export function parseMacosTunGuardStatus(output: string): MacosTunGuardStatus {
+  const status: MacosTunGuardStatus = {};
+  for (const line of output.split("\n")) {
+    const separator = line.indexOf("=");
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator);
+    const value = line.slice(separator + 1).trim();
+    if (key === "main") status.main = value;
+    if (key === "anchor") status.anchor = value;
+    if (key === "rules" && /^\d+$/.test(value)) status.rules = Number(value);
+    if (key === "pf") status.pf = value;
+    if (key === "pf-reference") status.pfReference = value;
+  }
+  return status;
+}
+
+export interface InspectMacosTunNetworkOptions {
+  platform?: NodeJS.Platform | string;
+  run?: TunGuardRunner;
+  scriptPath?: string;
+  asRoot?: boolean;
+}
+
+export async function inspectMacosTunNetwork(
+  options: InspectMacosTunNetworkOptions = {},
+): Promise<TunNetworkObservation[]> {
+  if ((options.platform ?? process.platform) !== "darwin") return [];
+  const run = options.run ?? defaultRunner;
+  const scriptPath = options.scriptPath ?? TUN_GUARD_PATH;
+  const asRoot = options.asRoot ?? process.geteuid?.() === 0;
+  if (!existsSync(scriptPath)) {
+    return [
+      {
+        aspect: "pf-anchor",
+        state: "failed",
+        detail: "the guard script is not installed; TUN traffic is not fail-closed",
+      },
+    ];
+  }
+  let output: string;
+  try {
+    output = asRoot
+      ? await run(scriptPath, ["status"], { timeoutMs: 5_000 })
+      : await run("/usr/bin/sudo", ["-n", scriptPath, "status"], { timeoutMs: 5_000 });
+  } catch (error) {
+    return [
+      {
+        aspect: "pf-anchor",
+        state: "unknown",
+        detail: `could not read the pf guard state: ${errorMessage(error)}`,
+      },
+    ];
+  }
+  const status = parseMacosTunGuardStatus(output);
+  return [
+    status.main === "attached"
+      ? {
+          aspect: "pf-attachment",
+          state: "ok",
+          detail: "the Sash pf anchor is attached to the main ruleset",
+        }
+      : {
+          aspect: "pf-attachment",
+          state: "failed",
+          detail: `the Sash pf anchor is not attached to the main ruleset (${status.main ?? "unknown"})`,
+        },
+    status.anchor === "loaded" && (status.rules ?? 0) > 0
+      ? {
+          aspect: "pf-anchor",
+          state: "ok",
+          detail: `the Sash pf anchor is loaded with ${status.rules} rules`,
+        }
+      : {
+          aspect: "pf-anchor",
+          state: "failed",
+          detail: `the Sash pf anchor is not loaded (${status.anchor ?? "unknown"}, ${status.rules ?? 0} rules); a killed TUN Core falls back to a direct connection`,
+        },
+    status.pf === "enabled"
+      ? { aspect: "pf-enabled", state: "ok", detail: "pf is enabled" }
+      : {
+          aspect: "pf-enabled",
+          state: "failed",
+          detail: `pf is not enabled (${status.pf ?? "unknown"}); the Sash anchor cannot filter traffic`,
+        },
+  ];
+}
+
+export async function inspectTunNetwork(
+  options: InspectTunNetworkOptions & InspectMacosTunNetworkOptions = {},
+): Promise<TunNetworkObservation[]> {
+  const platform = options.platform ?? process.platform;
+  if (platform === "darwin") return inspectMacosTunNetwork(options);
+  return inspectLinuxTunNetwork(options);
 }

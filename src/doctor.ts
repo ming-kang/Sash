@@ -27,7 +27,7 @@ import {
   inspectWindowsProxyConnections,
   type ProxyConnectionsObservation,
 } from "./sysproxy/windows-connections.js";
-import { inspectLinuxTunNetwork } from "./tun-guard.js";
+import { inspectTunNetwork } from "./tun-guard.js";
 import { describeTunHelper } from "./tun-service.js";
 
 export interface DoctorCheck {
@@ -108,6 +108,7 @@ export interface DiagnoseOptions {
   inspectPort?: typeof inspectListenerPort;
   inspectProxyConnections?: () => Promise<ProxyConnectionsObservation>;
   probeReachability?: (url: string, transport: DownloadTransport | undefined) => Promise<boolean>;
+  inspectTunNetwork?: typeof inspectTunNetwork;
 }
 
 function check(
@@ -318,8 +319,11 @@ export function tunGuardCheck(
   );
 }
 
-async function tunNetworkChecks(device: string | undefined): Promise<DoctorCheck[]> {
-  const observations = await inspectLinuxTunNetwork({ ...(device ? { device } : {}) });
+export async function tunNetworkChecks(
+  device: string | undefined,
+  inspect: typeof inspectTunNetwork = inspectTunNetwork,
+): Promise<DoctorCheck[]> {
+  const observations = await inspect({ ...(device ? { device } : {}) });
   if (observations.length === 0) return [];
   return observations.map((observation) => {
     const id = `tun-network-${observation.aspect}`;
@@ -334,7 +338,10 @@ async function tunNetworkChecks(device: string | undefined): Promise<DoctorCheck
   });
 }
 
-async function tunChecks(context: StatusObservationContext): Promise<DoctorCheck[]> {
+async function tunChecks(
+  context: StatusObservationContext,
+  inspectNetwork: typeof inspectTunNetwork = inspectTunNetwork,
+): Promise<DoctorCheck[]> {
   try {
     const owner = await resolveDaemonSession(context);
     if (owner.kind !== "daemon")
@@ -344,7 +351,7 @@ async function tunChecks(context: StatusObservationContext): Promise<DoctorCheck
     const guard = tunGuardCheck(status.tunGuard, context.settings.tun.enable);
     if (guard) checks.push(guard);
     if (tunApplyState(status).applied) {
-      const network = await tunNetworkChecks(context.settings.tun.device);
+      const network = await tunNetworkChecks(context.settings.tun.device, inspectNetwork);
       checks.push(
         ...(network.length > 0
           ? network
@@ -461,7 +468,7 @@ async function runtimeChecks(
       ),
     );
     if (context.settings.tun.enable || runtime.daemon.state === "healthy") {
-      checks.push(...(await tunChecks(context)));
+      checks.push(...(await tunChecks(context, options.inspectTunNetwork)));
     }
     checks.push(...autostartChecks(runtime, context.layout));
     return { checks, runtime };
