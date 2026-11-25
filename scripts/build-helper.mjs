@@ -5,9 +5,9 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { HELPER_ARCHITECTURES, helperAssetFileName } from "./helper-data.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const ARCHITECTURES = { x64: "amd64", arm64: "arm64" };
 
 const args = process.argv.slice(2);
 let outDir = path.join(root, "helper", "bin");
@@ -19,8 +19,8 @@ else if (args.length > 0) {
 
 const { version } = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 fs.mkdirSync(outDir, { recursive: true });
-for (const [arch, goarch] of Object.entries(ARCHITECTURES)) {
-  const outfile = path.join(outDir, `sash-tun-helper-win32-${arch}.exe`);
+for (const [arch, goarch] of Object.entries(HELPER_ARCHITECTURES)) {
+  const outfile = path.join(outDir, helperAssetFileName(arch));
   const result = spawnSync(
     "go",
     ["build", "-trimpath", "-ldflags", `-s -w -X main.buildVersion=${version}`, "-o", outfile, "."],

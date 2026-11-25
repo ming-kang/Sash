@@ -160,6 +160,17 @@ function assertPackedFiles(files) {
     assert.ok(manifestEntry.size > 0, "tarball contains empty dist/bootstrap-manifest.json");
   }
 
+  const digestsEntry = byPath.get("dist/tun-helper-digests.json");
+  if (process.env.SASH_PACKAGE_SMOKE_REQUIRE_BOOTSTRAP === "1") {
+    assert.ok(
+      digestsEntry,
+      "tarball is missing dist/tun-helper-digests.json (built by scripts/build-helper-digests.mjs)",
+    );
+  }
+  if (digestsEntry) {
+    assert.ok(digestsEntry.size > 0, "tarball contains empty dist/tun-helper-digests.json");
+  }
+
   const allowedTopLevel = new Set([
     "package.json",
     "LICENSE",
@@ -259,6 +270,23 @@ try {
     assert.ok(manifest.geodata.assets.length > 0, "manifest pins no geodata files");
     for (const asset of [...manifest.core.assets, ...manifest.geodata.assets]) {
       assert.match(asset.sha256, /^[0-9a-f]{64}$/, `manifest asset ${asset.name} has no digest`);
+      assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0);
+    }
+  }
+  const installedDigests = path.join(installedRoot, "dist", "tun-helper-digests.json");
+  if (fs.existsSync(installedDigests)) {
+    const digests = JSON.parse(fs.readFileSync(installedDigests, "utf8"));
+    assert.equal(
+      digests.version,
+      expectedVersion,
+      "helper digests do not match the package version",
+    );
+    assert.ok(Array.isArray(digests.assets), "helper digests carry no asset list");
+    for (const arch of ["x64", "arm64"]) {
+      const name = `sash-tun-helper-win32-${arch}.exe`;
+      const asset = digests.assets.find((entry) => entry.name === name);
+      assert.ok(asset, `helper digests carry no ${name}`);
+      assert.match(asset.sha256, /^[0-9a-f]{64}$/, `helper digest for ${name} is malformed`);
       assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0);
     }
   }

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Installing the Windows TUN helper no longer fails hard when the GitHub API is unavailable or rate-limited: the download falls back to the release's direct URL, verified against the helper SHA-256 digests embedded in the npm package at build time.
 - Editing advanced TUN settings while TUN is disabled no longer reports a required restart or blocks in-place configuration reloads, since those fields do not reach the running configuration.
 - Ignore an invalid `SASH_TUN_HELPER_AUTH` value instead of letting it override the remembered Linux elevation preference.
 - Keep the saved TUN preference when configuration validation or a geodata download fails during Apply; the preference rolls back only when the TUN Core itself fails to start.

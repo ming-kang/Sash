@@ -10,12 +10,14 @@ import {
   downloadReleaseAsset,
   listReleaseAssets,
   parseSha256Digest,
+  type ReleaseAsset,
   selectReleaseAsset,
 } from "../github.js";
 import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
 import { runSanitizedCommandAsync, windowsSystemExecutable } from "../process.js";
 import type { HostedCore, TunPlatform, TunPrivilege } from "../tun-service.js";
+import { readHelperDigests } from "./helper-digests.js";
 import { refuseElevationInTests } from "./shared.js";
 
 /**
@@ -258,24 +260,20 @@ interface HelperSource {
   cleanup(): Promise<void>;
 }
 
-async function resolveHelperSource(layout: SashLayout, proxyUri?: string): Promise<HelperSource> {
-  const name = helperAssetName();
-  const local = path.join(currentPackageRoot(), "helper", "bin", name);
-  if ((await fs.stat(local).catch(() => undefined))?.isFile())
-    return { file: local, sha256: await sha256File(local), cleanup: async () => {} };
+export interface HelperSourceOptions {
+  proxyUri?: string;
+  /** Test seam for the source-checkout precedence; production uses the real package. */
+  packageRoot?: string;
+}
 
-  const { version } = readSashPackageInfo();
-  const tag = `v${version}`;
-  let assets: Awaited<ReturnType<typeof listReleaseAssets>>;
-  try {
-    assets = await listReleaseAssets(HELPER_REPO, tag, undefined, undefined, proxyUri);
-  } catch (error) {
-    throw new Error(`Could not read the Sash ${version} GitHub Release: ${errorMessage(error)}`);
-  }
-  const asset = selectReleaseAsset(assets, [name]);
-  if (!asset) throw new Error(`The Sash ${version} GitHub Release has no ${name}`);
+async function downloadHelper(
+  layout: SashLayout,
+  tag: string,
+  asset: ReleaseAsset,
+  proxyUri?: string,
+): Promise<HelperSource> {
   await fs.mkdir(layout.tempDir, { recursive: true });
-  const file = path.join(layout.tempDir, name);
+  const file = path.join(layout.tempDir, asset.name);
   await downloadReleaseAsset({
     repo: HELPER_REPO,
     tag,
@@ -288,6 +286,57 @@ async function resolveHelperSource(layout: SashLayout, proxyUri?: string): Promi
     sha256: parseSha256Digest(asset.digest),
     cleanup: () => fs.rm(file, { force: true }),
   };
+}
+
+/**
+ * The release API is only a digest oracle: both paths download the same
+ * direct URL and verify the bytes after download. When the API cannot be
+ * read — rate limit, offline — the digests embedded in this package at build
+ * time take over as the oracle; they never skip or weaken verification.
+ */
+async function fallbackHelperSource(
+  layout: SashLayout,
+  tag: string,
+  name: string,
+  version: string,
+  cause: unknown,
+  proxyUri?: string,
+): Promise<HelperSource> {
+  const embedded = readHelperDigests()?.find((asset) => asset.name === name);
+  if (!embedded) {
+    throw new Error(
+      `Could not read the Sash ${version} GitHub Release: ${errorMessage(cause)}; ` +
+        `this package carries no embedded digest for ${name}, so the verified direct download is unavailable`,
+    );
+  }
+  return downloadHelper(
+    layout,
+    tag,
+    { name: embedded.name, size: embedded.size, digest: `sha256:${embedded.sha256}` },
+    proxyUri,
+  );
+}
+
+export async function resolveHelperSource(
+  layout: SashLayout,
+  options: HelperSourceOptions = {},
+): Promise<HelperSource> {
+  const name = helperAssetName();
+  const local = path.join(options.packageRoot ?? currentPackageRoot(), "helper", "bin", name);
+  if ((await fs.stat(local).catch(() => undefined))?.isFile())
+    return { file: local, sha256: await sha256File(local), cleanup: async () => {} };
+
+  const { version } = readSashPackageInfo();
+  const tag = `v${version}`;
+  let assets: Awaited<ReturnType<typeof listReleaseAssets>>;
+  try {
+    assets = await listReleaseAssets(HELPER_REPO, tag, undefined, undefined, options.proxyUri);
+  } catch (error) {
+    return fallbackHelperSource(layout, tag, name, version, error, options.proxyUri);
+  }
+  const asset = selectReleaseAsset(assets, [name]);
+  if (!asset) throw new Error(`The Sash ${version} GitHub Release has no ${name}`);
+  return downloadHelper(layout, tag, asset, options.proxyUri);
 }
 
 async function currentUserSid(): Promise<string> {
@@ -343,7 +392,7 @@ export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatfo
     mechanism: "service",
     inspect,
     async install(layout, options = {}) {
-      const source = await resolveHelperSource(layout, options.proxyUri);
+      const source = await resolveHelperSource(layout, options);
       try {
         const sid = await currentUserSid();
         await runElevated(
