@@ -33,7 +33,7 @@ import type {
   RuntimeLifecycle,
   RuntimeTarget,
 } from "../runtime-lifecycle.js";
-import { runtimeDelta } from "../runtime-lifecycle.js";
+import { CoreUpdateResumeError, runtimeDelta } from "../runtime-lifecycle.js";
 import { publicSettings } from "../settings.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import { enforceTunConfiguration } from "../tun-config.js";
@@ -559,6 +559,7 @@ export class CoreControlService {
     } catch (error) {
       if (
         snapshot.settings.tun.enable &&
+        error instanceof CoreUpdateResumeError &&
         !signal.aborted &&
         !(error instanceof StateConflictError)
       ) {

@@ -55,7 +55,8 @@ export interface CoreUpdateTransaction {
 }
 
 export interface CoreUpdateRuntime {
-  wasRunning: boolean;
+  /** Whether the Core should be in service after the update, or restored there after rollback. */
+  keepRunning: boolean;
   stop(): Promise<void>;
   startAndVerify(): Promise<void>;
   applySystemProxy(): Promise<void>;
@@ -283,7 +284,7 @@ export async function commitCoreUpdate(options: CoreUpdateOptions): Promise<Core
     durableRenameSync(staged.exe, layout.coreExe);
     writeInstallRecord(transaction.target, layout);
     await runtime.startAndVerify();
-    if (runtime.wasRunning) await runtime.applySystemProxy();
+    if (runtime.keepRunning) await runtime.applySystemProxy();
     else await runtime.stop();
     writeCoreUpdateTransaction(layout, { ...transaction, verified: true });
     finishVerified(layout, transaction);
@@ -308,7 +309,7 @@ async function rollbackTransaction(
 ): Promise<void> {
   await runtime.stop();
   restoreTransaction(layout, transaction);
-  if (runtime.wasRunning && previous) {
+  if (runtime.keepRunning && previous) {
     await runtime.startAndVerify();
     await runtime.applySystemProxy();
   }

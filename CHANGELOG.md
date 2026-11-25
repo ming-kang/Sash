@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Editing advanced TUN settings while TUN is disabled no longer reports a required restart or blocks in-place configuration reloads, since those fields do not reach the running configuration.
 - Ignore an invalid `SASH_TUN_HELPER_AUTH` value instead of letting it override the remembered Linux elevation preference.
 - Keep the saved TUN preference when configuration validation or a geodata download fails during Apply; the preference rolls back only when the TUN Core itself fails to start.
+- A failed Core download or verification during first install no longer disables the saved TUN preference; rollback happens only when the verified Core cannot start TUN.
 
 ## [0.7.1] - 2026-11-25
 

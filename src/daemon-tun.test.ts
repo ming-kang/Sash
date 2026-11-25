@@ -1,14 +1,33 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import { describe, it } from "vitest";
 import YAML from "yaml";
 import type { DaemonStatus, TunStatusResponse } from "./contracts.js";
+import { readInstallRecord } from "./core.js";
+import { CoreUpdateResumeError } from "./runtime-lifecycle.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { FakeCoreSupervisor } from "./testing/state.js";
-import { unsupportedTunPlatform } from "./tun-service.js";
+import { type TunPlatform, unsupportedTunPlatform } from "./tun-service.js";
 
 describe("daemon TUN controls", () => {
   const harness = useDaemonTestHarness();
+
+  function readyTunPlatform(): TunPlatform {
+    return {
+      ...unsupportedTunPlatform(),
+      mechanism: "capabilities",
+      inspect: async () => ({ state: "ready" }),
+    };
+  }
+
+  async function stage() {
+    fs.mkdirSync(harness.layout.tempDir, { recursive: true });
+    const dir = fs.mkdtempSync(path.join(harness.layout.tempDir, "candidate-"));
+    const exe = path.join(dir, "candidate");
+    fs.writeFileSync(exe, "v2-core");
+    return { exe, dir, version: "v2" };
+  }
 
   it("reports unsupported and refuses helper installation on an unsupported platform", async () => {
     await harness.startServer({ tunPlatform: unsupportedTunPlatform() });
@@ -83,6 +102,129 @@ describe("daemon TUN controls", () => {
     const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
     assert.equal(status.desired, true);
     assert.equal(status.applied, false);
+  });
+
+  it("keeps the saved TUN preference when a first-install Core download fails", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    await harness.startServer({
+      installCore: false,
+      supervisor,
+      stageCore: async () => {
+        throw new Error("Core download offline");
+      },
+      tunPlatform: readyTunPlatform(),
+    });
+    const write = await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(write.statusCode, 200);
+
+    const started = await harness.apiRequest("/sash/core/start", { method: "POST" });
+
+    assert.notEqual(started.statusCode, 200);
+    assert.match(JSON.stringify(started.data), /Core download offline/);
+    assert.equal(supervisor.starts, 0);
+    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(status.desired, true);
+  });
+
+  it("keeps the saved TUN preference when the first-install verification boot fails", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    supervisor.onStart = () => {
+      const config = YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8"));
+      if (config.tun?.enable !== true) throw new Error("verification boot failed");
+    };
+    await harness.startServer({
+      installCore: false,
+      supervisor,
+      stageCore: stage,
+      tunPlatform: readyTunPlatform(),
+    });
+    const write = await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(write.statusCode, 200);
+
+    const started = await harness.apiRequest("/sash/core/start", { method: "POST" });
+
+    assert.notEqual(started.statusCode, 200);
+    assert.match(JSON.stringify(started.data), /verification boot failed/);
+    assert.equal(readInstallRecord(harness.layout), undefined);
+    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(status.desired, true);
+  });
+
+  it("rolls back the saved TUN preference when the verified Core cannot resume TUN", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    supervisor.onStart = () => {
+      const config = YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8"));
+      if (config.tun?.enable === true) throw new Error("TUN Core exited during startup");
+    };
+    await harness.startServer({
+      installCore: false,
+      supervisor,
+      stageCore: stage,
+      tunPlatform: readyTunPlatform(),
+    });
+    const write = await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(write.statusCode, 200);
+
+    const started = await harness.apiRequest("/sash/core/start", { method: "POST" });
+
+    assert.notEqual(started.statusCode, 200);
+    assert.match(
+      JSON.stringify(started.data),
+      /Core updated to v2, but TUN could not restart: TUN Core exited during startup/,
+    );
+    assert.equal(readInstallRecord(harness.layout)?.coreVersion, "v2");
+    assert.equal(supervisor.running, false);
+    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(status.desired, false);
+  });
+
+  it("throws CoreUpdateResumeError when the first-install TUN resume fails", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    supervisor.onStart = () => {
+      const config = YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8"));
+      if (config.tun?.enable === true) throw new Error("TUN Core exited during startup");
+    };
+    await harness.startServer({
+      installCore: false,
+      supervisor,
+      stageCore: stage,
+      tunPlatform: readyTunPlatform(),
+    });
+    const lifecycle = harness.instance?.lifecycle;
+    assert.ok(lifecycle);
+    const update = lifecycle.update.bind(lifecycle);
+    let updateError: unknown;
+    lifecycle.update = async (staged, configuration, startAfterInstall) => {
+      try {
+        return await update(staged, configuration, startAfterInstall);
+      } catch (error) {
+        updateError = error;
+        throw error;
+      }
+    };
+    const write = await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(write.statusCode, 200);
+
+    const started = await harness.apiRequest("/sash/core/start", { method: "POST" });
+
+    assert.notEqual(started.statusCode, 200);
+    assert.ok(updateError instanceof CoreUpdateResumeError);
+    assert.match(
+      (updateError as CoreUpdateResumeError).message,
+      /Core updated to v2, but TUN could not restart/,
+    );
   });
 
   it("rolls the saved preference back to enabled when a TUN-disabling start fails", async () => {

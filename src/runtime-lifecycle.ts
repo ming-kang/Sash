@@ -45,6 +45,32 @@ export interface RuntimeLifecycleOptions {
   tun?: TunService;
 }
 
+export class CoreUpdateResumeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CoreUpdateResumeError";
+  }
+}
+
+export function verificationConfiguration(
+  configuration: RuntimeConfiguration,
+): RuntimeConfiguration {
+  if (!configuration.settings.tun.enable) return configuration;
+  // Verification must not need TUN privilege: replacing the Core file drops POSIX file-based grants.
+  const tun = configuration.settings.tun;
+  return {
+    ...configuration,
+    settings: { ...configuration.settings, tun: { ...tun, enable: false } },
+    generated: {
+      ...configuration.generated,
+      yaml: YAML.stringify({
+        ...YAML.parse(configuration.generated.yaml),
+        tun: { enable: false },
+      }),
+    },
+  };
+}
+
 export function listenerSettingsChanged(
   applied: Pick<SashSettings, "mixedPort" | "allowLan" | "tun">,
   target: Pick<SashSettings, "mixedPort" | "allowLan" | "tun">,
@@ -267,66 +293,65 @@ export class RuntimeLifecycle {
   ): Promise<CoreUpdateResult> {
     const wasRunning = this.options.supervisor.isRunning();
     const tun = configuration.settings.tun;
-    const smoke = tun.enable
-      ? {
-          ...configuration,
-          settings: { ...configuration.settings, tun: { ...tun, enable: false } },
-          generated: {
-            ...configuration.generated,
-            yaml: YAML.stringify({
-              ...YAML.parse(configuration.generated.yaml),
-              tun: { enable: false },
-            }),
-          },
-        }
-      : configuration;
-    if (!wasRunning || tun.enable) {
-      if (wasRunning) await this.stop();
-      await atomicWriteFile(this.options.layout.configFile, smoke.generated.yaml);
-      this.runtimeSettings = { ...smoke.settings };
-    }
-    let result: CoreUpdateResult;
-    try {
-      result = await commitCoreUpdate({
-        layout: this.options.layout,
-        staged,
-        runtime: {
-          wasRunning: !tun.enable && (wasRunning || startAfterInstall),
-          stop: async () => {
-            await this.stop();
-            await this.requireVacantController();
-          },
-          startAndVerify: async () => {
-            await this.startCore();
-            this.applied = smoke;
-          },
-          applySystemProxy: () => this.reconcileSystemProxy(),
-        },
-      });
-    } catch (error) {
-      if (tun.enable && wasRunning) {
-        try {
-          await this.apply(configuration);
-        } catch (rollbackError) {
-          throw new Error(
-            `${errorMessage(error)}; TUN restart failed: ${errorMessage(rollbackError)}`,
-          );
-        }
+    const verification = verificationConfiguration(configuration);
+
+    const prepareVerificationBoot = async (): Promise<void> => {
+      if (!wasRunning || tun.enable) {
+        if (wasRunning) await this.stop();
+        await atomicWriteFile(this.options.layout.configFile, verification.generated.yaml);
+        this.runtimeSettings = { ...verification.settings };
       }
-      throw error;
-    }
-    if (tun.enable) {
+    };
+
+    const commitStagedCore = async (): Promise<CoreUpdateResult> => {
+      try {
+        return await commitCoreUpdate({
+          layout: this.options.layout,
+          staged,
+          runtime: {
+            keepRunning: !tun.enable && (wasRunning || startAfterInstall),
+            stop: async () => {
+              await this.stop();
+              await this.requireVacantController();
+            },
+            startAndVerify: async () => {
+              await this.startCore();
+              this.applied = verification;
+            },
+            applySystemProxy: () => this.reconcileSystemProxy(),
+          },
+        });
+      } catch (error) {
+        if (tun.enable && wasRunning) {
+          try {
+            await this.apply(configuration);
+          } catch (rollbackError) {
+            throw new Error(
+              `${errorMessage(error)}; TUN restart failed: ${errorMessage(rollbackError)}`,
+            );
+          }
+        }
+        throw error;
+      }
+    };
+
+    const resumeConfiguration = async (): Promise<void> => {
+      if (!tun.enable) return;
       this.applied = undefined;
       if (wasRunning || startAfterInstall) {
         try {
           await this.apply(configuration);
         } catch (error) {
-          throw new Error(
+          throw new CoreUpdateResumeError(
             `Core updated to ${staged.version}, but TUN could not restart: ${errorMessage(error)}`,
           );
         }
       }
-    }
+    };
+
+    await prepareVerificationBoot();
+    const result = await commitStagedCore();
+    await resumeConfiguration();
     return result;
   }
 

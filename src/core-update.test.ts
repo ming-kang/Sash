@@ -39,9 +39,9 @@ describe("Core binary transaction", () => {
     fs.writeFileSync(exe, "v2-core");
     return { exe, dir, version: "v2" };
   }
-  function runtime(events: string[], wasRunning = true): CoreUpdateRuntime {
+  function runtime(events: string[], keepRunning = true): CoreUpdateRuntime {
     return {
-      wasRunning,
+      keepRunning,
       stop: async () => {
         events.push("stop");
       },

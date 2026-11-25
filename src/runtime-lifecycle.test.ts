@@ -4,14 +4,55 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "vitest";
+import YAML from "yaml";
 import { mihomoEngine } from "./engine/index.js";
 import { RequestDeadlineError } from "./http.js";
 import { sashLayout } from "./paths.js";
-import { listenerSettingsChanged, RuntimeLifecycle, runtimeDelta } from "./runtime-lifecycle.js";
+import {
+  listenerSettingsChanged,
+  RuntimeLifecycle,
+  runtimeDelta,
+  verificationConfiguration,
+} from "./runtime-lifecycle.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import { FakeCoreSupervisor, testSettings } from "./testing/state.js";
 import { type TunPrivilege, TunService } from "./tun-service.js";
 import { defaultTunSettings } from "./tun-settings.js";
+
+describe("verification configuration", () => {
+  const base = {
+    generated: {
+      yaml: "mixed-port: 18780\ntun:\n  enable: true\n  stack: system\nrules:\n  - MATCH,DIRECT\n",
+      proxyCount: 0,
+      source: "default" as const,
+    },
+    settings: testSettings({ tun: { ...defaultTunSettings(), enable: true } }),
+    profile: null,
+  };
+
+  it("returns a TUN-disabled configuration unchanged", () => {
+    const configuration = {
+      ...base,
+      settings: {
+        ...base.settings,
+        tun: { ...base.settings.tun, enable: false },
+      },
+    };
+    assert.equal(verificationConfiguration(configuration), configuration);
+  });
+
+  it("disables TUN in settings and generated yaml without mutating the input", () => {
+    const verification = verificationConfiguration(base);
+    assert.notEqual(verification, base);
+    assert.equal(verification.settings.tun.enable, false);
+    assert.equal(verification.settings.tun.stack, base.settings.tun.stack);
+    assert.deepEqual(YAML.parse(verification.generated.yaml).tun, { enable: false });
+    assert.equal(YAML.parse(verification.generated.yaml)["mixed-port"], 18780);
+    assert.equal(base.settings.tun.enable, true);
+    assert.equal(YAML.parse(base.generated.yaml).tun.enable, true);
+    assert.equal(YAML.parse(base.generated.yaml).tun.stack, "system");
+  });
+});
 
 describe("Core and proxy lifecycle", () => {
   let root: string;
