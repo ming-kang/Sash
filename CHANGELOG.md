@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-25
+
 ### Changed
 
 - Dashboard Apply and reload guidance now names the pending profile, proxy-port, LAN or TUN changes and distinguishes in-place reloads from connection-dropping restarts; the Core control reads “Restart and apply” when a restart is expected.
