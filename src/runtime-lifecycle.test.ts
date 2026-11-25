@@ -617,6 +617,28 @@ describe("TUN apply", () => {
     assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), ordinary.generated.yaml);
   });
 
+  it("does not restore the previous configuration when a non-TUN start fails", async () => {
+    const f = fixture();
+    const ordinary = {
+      ...f.configuration,
+      settings: { ...f.settings, tun: { ...f.settings.tun, enable: false } },
+    };
+    await f.lifecycle.apply(ordinary);
+    const replacement = {
+      ...ordinary,
+      generated: { ...ordinary.generated, yaml: "rules: ['MATCH,REJECT']\n" },
+    };
+    const starts = f.core.starts;
+    f.core.onStart = () => {
+      throw new Error("Core exited during startup");
+    };
+    await assert.rejects(f.lifecycle.apply(replacement), /Core exited during startup/);
+    assert.equal(f.core.running, false);
+    assert.equal(f.core.starts, starts + 1);
+    assert.equal(f.lifecycle.configuration(), undefined);
+    assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), replacement.generated.yaml);
+  });
+
   it("treats a lost TUN Core like any unexpected exit", async () => {
     const f = fixture();
     await f.lifecycle.apply(f.configuration);

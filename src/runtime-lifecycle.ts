@@ -19,7 +19,7 @@ import type { SashSettings } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import type { TunService } from "./tun-service.js";
-import { sameEffectiveTunSettings, sameTunSettings } from "./tun-settings.js";
+import { sameEffectiveTunSettings } from "./tun-settings.js";
 
 export interface RuntimeConfiguration {
   generated: GeneratedConfig;
@@ -141,10 +141,8 @@ export class RuntimeLifecycle {
   async apply(configuration: RuntimeConfiguration): Promise<CoreStartResult> {
     const saved = this.applied;
     const previous = this.options.supervisor.isRunning() ? saved : undefined;
-    const changesTun =
-      (previous?.settings.tun.enable ?? false) !== configuration.settings.tun.enable ||
-      (previous?.settings.tun.enable === true &&
-        !sameTunSettings(previous.settings.tun, configuration.settings.tun));
+    const involvesTun =
+      (previous?.settings.tun.enable ?? false) || configuration.settings.tun.enable;
     if (configuration.settings.tun.enable) {
       if (!this.options.tun) throw new Error("TUN Mode is not available");
       await this.options.tun.checkReady();
@@ -153,7 +151,7 @@ export class RuntimeLifecycle {
     try {
       return await this.startConfiguration(configuration);
     } catch (error) {
-      if (!changesTun && !configuration.settings.tun.enable) throw error;
+      if (!involvesTun) throw error;
       try {
         await this.stop();
         this.applied = undefined;

@@ -327,19 +327,17 @@ export class CoreControlService {
     return this.validateConfiguration(configuration, this.options.layout.coreExe, signal, proxyUri);
   }
 
-  private runExplicitConfiguration(
+  private async runExplicitConfiguration(
     plan: ConfigurationPlan,
     signal: AbortSignal,
     commit: (configuration: RuntimeConfiguration) => Promise<CoreStartResult>,
   ): Promise<CoreStartResult> {
-    return this.withExplicitTunRollback(plan, signal, async () => {
-      const validated = await this.prepareValidatedConfiguration(
-        plan,
-        signal,
-        this.downloadTransport()?.uri,
-      );
-      return commit(validated);
-    });
+    const validated = await this.prepareValidatedConfiguration(
+      plan,
+      signal,
+      this.downloadTransport()?.uri,
+    );
+    return this.withExplicitTunRollback(plan, signal, () => commit(validated));
   }
 
   private assertPlanCurrent(configuration: RuntimeConfiguration, plan: ConfigurationPlan): void {

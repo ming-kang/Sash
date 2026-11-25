@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "vitest";
 import YAML from "yaml";
-import type { TunStatusResponse } from "./contracts.js";
+import type { DaemonStatus, TunStatusResponse } from "./contracts.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { FakeCoreSupervisor } from "./testing/state.js";
 import { unsupportedTunPlatform } from "./tun-service.js";
@@ -56,6 +56,105 @@ describe("daemon TUN controls", () => {
     assert.equal(rolledBack.applied, false);
     assert.equal(supervisor.running, true);
     assert.equal(YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8")).tun.enable, false);
+  });
+
+  it("keeps the saved TUN preference when validation fails before any Core start", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    await harness.startServer({
+      supervisor,
+      validateConfig: () => {
+        throw new Error("rules[0] error: rule is invalid");
+      },
+      tunPlatform: {
+        ...unsupportedTunPlatform(),
+        mechanism: "capabilities",
+        inspect: async () => ({ state: "ready" }),
+      },
+    });
+    const write = await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(write.statusCode, 200);
+    const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
+    assert.notEqual(applied.statusCode, 200);
+    assert.match(JSON.stringify(applied.data), /rule is invalid/);
+    assert.equal(supervisor.starts, 0);
+    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(status.desired, true);
+    assert.equal(status.applied, false);
+  });
+
+  it("rolls the saved preference back to enabled when a TUN-disabling start fails", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    await harness.startServer({
+      supervisor,
+      tunPlatform: {
+        ...unsupportedTunPlatform(),
+        mechanism: "capabilities",
+        inspect: async () => ({ state: "ready" }),
+      },
+    });
+    await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(
+      (await harness.apiRequest("/sash/core/restart", { method: "POST" })).statusCode,
+      200,
+    );
+    const running = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(running.applied, true);
+
+    await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: false } },
+    });
+    let failures = 1;
+    supervisor.onStart = () => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("Core exited during startup");
+      }
+    };
+    const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
+    assert.notEqual(applied.statusCode, 200);
+    const rolledBack = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(rolledBack.desired, true);
+    assert.equal(rolledBack.applied, true);
+    assert.equal(supervisor.running, true);
+    assert.equal(YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8")).tun.enable, true);
+  });
+
+  it("leaves the saved settings untouched when a start without TUN fails", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    await harness.startServer({ supervisor });
+    assert.equal(
+      (await harness.apiRequest("/sash/core/start", { method: "POST" })).statusCode,
+      200,
+    );
+    const patched = await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { allowLan: true },
+    });
+    assert.equal(patched.statusCode, 200);
+    const before = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+    let failures = 1;
+    supervisor.onStart = () => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("Core exited during startup");
+      }
+    };
+    const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
+    assert.notEqual(applied.statusCode, 200);
+    assert.match(JSON.stringify(applied.data), /Core exited during startup/);
+    assert.equal(supervisor.starts, 2);
+    assert.equal(supervisor.running, false);
+    const after = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+    assert.equal(after.revisions.state, before.revisions.state);
+    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(status.desired, false);
   });
 
   it("applies TUN without OS probes and does not claim network verification", async () => {
