@@ -34,6 +34,8 @@ rm -rf /usr/local/lib/sash /var/lib/sash-helper
  */
 export const TUN_GUARD_SCRIPT = `#!/bin/sh
 set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 usage() {
   echo "usage: sash-tun-guard setup <device> | teardown" >&2
