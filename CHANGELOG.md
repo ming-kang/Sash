@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Keep the saved TUN preference when configuration validation or a geodata download fails during Apply; the preference rolls back only when the TUN Core itself fails to start.
 - A failed Core download or verification during first install no longer disables the saved TUN preference; rollback happens only when the verified Core cannot start TUN.
 - Restore system DNS capture on macOS TUN: generated configurations once again default `tun.dns-mode` to `native` unless the profile pins it, so resolvers pointing at LAN or router addresses no longer bypass fake-ip and leak DNS to the local network.
+- Show Core uptime as HH:MM:SS in the dashboard instead of the ambiguous DD:HH:MM, which read as seconds but only advanced once per minute.
 
 ## [0.7.1] - 2026-11-25
 

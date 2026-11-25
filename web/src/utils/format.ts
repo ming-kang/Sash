@@ -18,16 +18,15 @@ export function formatSpeed(bytesPerSec: number): string {
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
-/**
- * Uptime as DD:HH:MM. Minutes are the smallest unit, so a Core that just started reads 00:00:00
- * until its first minute completes.
- */
+/** Uptime as HH:MM:SS, day-prefixed past 24 hours. */
 export function formatUptime(startIso: string | undefined, now = Date.now()): string {
   const start = startIso ? new Date(startIso).getTime() : Number.NaN;
   if (!Number.isFinite(start)) return "--:--:--";
   const secs = Math.max(0, Math.floor((now - start) / 1000));
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(Math.floor(secs / 86400))}:${pad(Math.floor(secs / 3600) % 24)}:${pad(Math.floor(secs / 60) % 60)}`;
+  const time = `${pad(Math.floor(secs / 3600) % 24)}:${pad(Math.floor(secs / 60) % 60)}:${pad(secs % 60)}`;
+  const days = Math.floor(secs / 86400);
+  return days > 0 ? `${days}d ${time}` : time;
 }
 
 export function formatTime(date: Date = new Date()): string {

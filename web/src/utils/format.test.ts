@@ -61,16 +61,17 @@ describe("core uptime", () => {
     ["", "--:--:--"],
     ["not-a-date", "--:--:--"],
     [iso(NOW), "00:00:00"],
-    [iso(NOW - 59_000), "00:00:00"],
-    [iso(NOW - 60_000), "00:00:01"],
-    [iso(NOW - 3_600_000), "00:01:00"],
-    [iso(NOW - (2 * 3600 + 30 * 60) * 1000), "00:02:30"],
-    [iso(NOW - 86_400_000), "01:00:00"],
-    [iso(NOW - (3 * 86_400 + 5 * 3600 + 42 * 60) * 1000), "03:05:42"],
-    [iso(NOW - 58 * 86_400_000), "58:00:00"],
+    [iso(NOW - 59_000), "00:00:59"],
+    [iso(NOW - 60_000), "00:01:00"],
+    [iso(NOW - 61_000), "00:01:01"],
+    [iso(NOW - 3_600_000), "01:00:00"],
+    [iso(NOW - (2 * 3600 + 30 * 60 + 45) * 1000), "02:30:45"],
+    [iso(NOW - 86_400_000), "1d 00:00:00"],
+    [iso(NOW - (3 * 86_400 + 5 * 3600 + 42 * 60) * 1000), "3d 05:42:00"],
+    [iso(NOW - 58 * 86_400_000), "58d 00:00:00"],
     [iso(NOW + 60_000), "00:00:00"],
   ];
-  it("formats DD:HH:MM and reads as unknown without a start", () => {
+  it("formats HH:MM:SS with a day prefix and reads as unknown without a start", () => {
     for (const [input, expected] of uptimes) assert.equal(formatUptime(input, NOW), expected);
   });
 });
