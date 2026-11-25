@@ -195,6 +195,8 @@ export async function fixturePage(browser, server, theme, viewport) {
     }
     if (endpoint === "/sash/autostart")
       return reply({ state: "off", canEnable: true, reason: null });
+    if (endpoint === "/sash/core/update/check")
+      return reply({ current: "v1.0.0", target: "v1.0.0", available: false, asset: "fixture" });
     if (endpoint === "/core/api/configs")
       return fixture.failConfigs
         ? reply({ error: "Fixture snapshot unavailable" }, 502)

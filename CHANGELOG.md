@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - The TUN dialog now reports advanced TUN settings waiting for Apply instead of tracking only the TUN enable switch.
+- Raise connection chain tag contrast in light and dark themes.
 
 ## [0.7.2] - 2026-11-25
 

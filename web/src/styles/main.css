@@ -44,7 +44,7 @@
   --accent-shadow: rgba(48, 70, 160, 0.16);
   --danger-shadow: rgba(140, 50, 55, 0.15);
 
-  --selection: #4d6fd0;
+  --selection: #4566c4;
   --selection-soft: #edf1fc;
   --selection-border: #bcc8f0;
   --success: #287653;
@@ -142,7 +142,7 @@ html[data-theme="dark"] {
   --accent-shadow: rgba(0, 0, 0, 0.2);
   --danger-shadow: rgba(0, 0, 0, 0.2);
 
-  --selection: #9aa3d8;
+  --selection: #a8aee2;
   --selection-soft: #3b3f58;
   --selection-border: rgba(154, 163, 216, 0.45);
   --success: #75cda1;
