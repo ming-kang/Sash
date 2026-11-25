@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-25
+
 ### Changed
 
 - Generate third-party license notices at build time instead of shipping a hand-maintained `THIRD_PARTY_NOTICES.md`: backend entries embed `dist/*.LICENSE.md`, and the dashboard ships per-package license texts under `dist/ui/licenses/` (including the LXGW WenKai Lite OFL) with upstream license comments preserved inside the bundled assets.
