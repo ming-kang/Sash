@@ -7,7 +7,7 @@ import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
 import type { SashLayout } from "../paths.js";
 import { buildSanitizedEnv, findExecutableOnPath, runSanitizedCommandAsync } from "../process.js";
 import type { TunInstallOptions, TunPlatform, TunPrivilege } from "../tun-service.js";
-import { refuseElevationInTests, requireCoreFile } from "./shared.js";
+import { requireCoreFile } from "./shared.js";
 
 /** What mihomo documents for running TUN without root. */
 export const CORE_CAPABILITIES = "cap_net_admin,cap_net_bind_service=+ep";
@@ -154,7 +154,6 @@ export function linuxTunPlatform(
     action: string,
     options?: TunInstallOptions,
   ): Promise<void> {
-    refuseElevationInTests(action);
     const environment = env();
     const explicit = requestedHelperAuth(environment, options);
     if (explicit === "pkexec") rememberSudoPreference(layout, false);

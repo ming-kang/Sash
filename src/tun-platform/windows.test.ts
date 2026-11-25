@@ -1,26 +1,12 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import fs from "node:fs";
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
-import { MockAgent } from "undici";
-import { afterEach, describe, it, onTestFinished, vi } from "vitest";
-import { GITHUB_MIRRORS } from "../github.js";
-import { proxyAwareDispatcher } from "../http.js";
-import { readSashPackageInfo } from "../package-info.js";
+import { describe, it } from "vitest";
 import { sashLayout } from "../paths.js";
+import { HELPER_PROTOCOL, type HelperOp, type HelperReply } from "./helper-pipe.js";
+import type { HelperSource } from "./helper-source.js";
 import {
-  HELPER_PROTOCOL,
-  HELPER_REPO,
-  type HelperOp,
-  type HelperReply,
-  helperAssetName,
   installScript,
   privilegeFromReply,
   quoteWindowsArgument,
-  requestHelper,
-  resolveHelperSource,
   serviceArguments,
   uninstallScript,
   windowsTunPlatform,
@@ -53,7 +39,6 @@ describe("Windows helper arguments", () => {
         `--stderr "${layout.coreErrLogFile}"`,
       ].join(" "),
     );
-    assert.equal(helperAssetName("arm64"), "sash-tun-helper-win32-arm64.exe");
   });
 });
 
@@ -131,169 +116,87 @@ describe("Windows helper state", () => {
   });
 });
 
-describe("requestHelper", () => {
-  it.skipIf(process.platform !== "win32")("exchanges one JSON line over the pipe", async () => {
-    const pipe = `\\\\.\\pipe\\sash-tun-test-${process.pid}-${Date.now()}`;
-    const seen: string[] = [];
-    const server = net.createServer((socket) => {
-      socket.once("data", (chunk) => {
-        seen.push(chunk.toString());
-        socket.end(`${JSON.stringify(reply({ running: true, pid: 9 }))}\n`);
-      });
-    });
-    await new Promise<void>((resolve) => server.listen(pipe, resolve));
-    onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
-    assert.deepEqual(await requestHelper("status", 2_000, pipe), reply({ running: true, pid: 9 }));
-    assert.deepEqual(seen, ['{"op":"status"}\n']);
-  });
-
-  it("fails fast when nothing listens", async () => {
-    const pipe =
-      process.platform === "win32"
-        ? `\\\\.\\pipe\\sash-tun-missing-${process.pid}`
-        : path.join(os.tmpdir(), `sash-tun-missing-${process.pid}.sock`);
-    await assert.rejects(requestHelper("status", 2_000, pipe), /ENOENT|ECONNREFUSED/);
-  });
-});
-
-describe("resolveHelperSource", () => {
-  const { version } = readSashPackageInfo();
-  const tag = `v${version}`;
-  const name = helperAssetName();
-  const apiPath = `/repos/${HELPER_REPO}/releases/tags/${tag}`;
-  const downloadPath = `/${HELPER_REPO}/releases/download/${tag}/${name}`;
-  const downloadUrl = `https://github.com${downloadPath}`;
-
-  let savedDigestsEnv: string | undefined;
-  let tempDir: string | undefined;
-
-  function sha256(bytes: Buffer): string {
-    return createHash("sha256").update(bytes).digest("hex");
+describe("windowsTunPlatform install", () => {
+  function fakeSource(cleanup: () => void): HelperSource {
+    return {
+      file: "C:\\Users\\Dev User\\AppData\\Local\\Sash\\temp\\sash-tun-helper-win32-x64.exe",
+      sha256: "a".repeat(64),
+      cleanup: async () => cleanup(),
+    };
   }
 
-  function fixture(bytes: Buffer): {
-    layoutRoot: string;
-    packageRoot: string;
-    digestsFile: string;
-  } {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "sash-helper-source-"));
-    const layoutRoot = path.join(tempDir, "data");
-    const packageRoot = path.join(tempDir, "package");
-    fs.mkdirSync(packageRoot, { recursive: true });
-    const digestsFile = path.join(tempDir, "digests.json");
-    fs.writeFileSync(
-      digestsFile,
-      JSON.stringify({
-        version,
-        assets: [{ name, size: bytes.length, sha256: sha256(bytes) }],
+  it("runs the script built from the source and service arguments, then cleans up", async () => {
+    let cleaned = false;
+    const source = fakeSource(() => {
+      cleaned = true;
+    });
+    const runs: { script: string; action: string }[] = [];
+    const platform = windowsTunPlatform({
+      resolveSource: async () => source,
+      userSid: async () => "S-1-5-21-1-2-3-1001",
+      run: async (script, action) => {
+        runs.push({ script, action });
+      },
+      request: async () => reply(),
+    });
+    await platform.install(layout);
+    assert.deepEqual(
+      runs.map((run) => run.action),
+      ["install the TUN helper"],
+    );
+    assert.equal(
+      runs[0]?.script,
+      installScript({
+        source: source.file,
+        sha256: source.sha256,
+        arguments: serviceArguments(layout, "S-1-5-21-1-2-3-1001"),
       }),
     );
-    process.env.SASH_TUN_HELPER_DIGESTS = digestsFile;
-    return { layoutRoot, packageRoot, digestsFile };
-  }
-
-  function mockAgent(): MockAgent {
-    const agent = new MockAgent();
-    agent.disableNetConnect();
-    vi.spyOn(proxyAwareDispatcher(), "dispatch").mockImplementation(agent.dispatch.bind(agent));
-    onTestFinished(() => agent.close());
-    return agent;
-  }
-
-  function mockDownloads(agent: MockAgent, bytes: Buffer): void {
-    agent.get("https://github.com").intercept({ path: downloadPath }).reply(200, bytes);
-    for (const mirror of GITHUB_MIRRORS.filter(Boolean)) {
-      const mirrored = new URL(`${mirror}${downloadUrl}`);
-      agent.get(mirrored.origin).intercept({ path: mirrored.pathname }).reply(200, bytes);
-    }
-  }
-
-  afterEach(() => {
-    if (savedDigestsEnv === undefined) delete process.env.SASH_TUN_HELPER_DIGESTS;
-    else process.env.SASH_TUN_HELPER_DIGESTS = savedDigestsEnv;
-    savedDigestsEnv = undefined;
-    if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
-    tempDir = undefined;
+    assert.equal(cleaned, true);
   });
 
-  it("falls back to the embedded digest when the release API is rate-limited", async () => {
-    savedDigestsEnv = process.env.SASH_TUN_HELPER_DIGESTS;
-    const bytes = Buffer.from(`sash test helper ${process.pid}`);
-    const { layoutRoot, packageRoot } = fixture(bytes);
-    const agent = mockAgent();
-    agent.get("https://api.github.com").intercept({ path: apiPath }).reply(403, "rate limited");
-    mockDownloads(agent, bytes);
-
-    const source = await resolveHelperSource(sashLayout(layoutRoot), { packageRoot });
-    assert.equal(source.sha256, sha256(bytes));
-    assert.deepEqual(fs.readFileSync(source.file), bytes);
-    assert.equal(path.basename(source.file), name);
-    await source.cleanup();
-    assert.equal(fs.existsSync(source.file), false);
-  });
-
-  it("rejects the fallback download when the bytes do not match the embedded digest", async () => {
-    savedDigestsEnv = process.env.SASH_TUN_HELPER_DIGESTS;
-    const { layoutRoot, packageRoot } = fixture(Buffer.from("the real helper"));
-    const agent = mockAgent();
-    agent.get("https://api.github.com").intercept({ path: apiPath }).reply(403, "rate limited");
-    mockDownloads(agent, Buffer.from("a tampered helper"));
-
-    const layout = sashLayout(layoutRoot);
-    await assert.rejects(
-      resolveHelperSource(layout, { packageRoot }),
-      /Failed to download and verify .*SHA-256 mismatch/,
-    );
-    assert.equal(fs.existsSync(path.join(layout.tempDir, name)), false);
-  });
-
-  it("fails clearly when the API is down and no digest is embedded", async () => {
-    savedDigestsEnv = process.env.SASH_TUN_HELPER_DIGESTS;
-    const { layoutRoot, packageRoot, digestsFile } = fixture(Buffer.from("unused"));
-    process.env.SASH_TUN_HELPER_DIGESTS = `${digestsFile}.missing`;
-    const agent = mockAgent();
-    agent.get("https://api.github.com").intercept({ path: apiPath }).reply(403, "rate limited");
-
-    await assert.rejects(resolveHelperSource(sashLayout(layoutRoot), { packageRoot }), (error) => {
-      assert.ok(error instanceof Error);
-      assert.match(error.message, /Could not read the Sash .+ GitHub Release: .+HTTP 403/);
-      assert.match(error.message, new RegExp(`no embedded digest for ${name.replace(".", "\\.")}`));
-      return true;
+  it("cleans the source up when the elevated run fails", async () => {
+    let cleaned = false;
+    const platform = windowsTunPlatform({
+      resolveSource: async () =>
+        fakeSource(() => {
+          cleaned = true;
+        }),
+      userSid: async () => "S-1-5-21-1-2-3-1001",
+      run: async () => {
+        throw new Error("Windows administrator approval was cancelled");
+      },
+      request: async () => {
+        throw new Error("inspection must not be polled after a failed run");
+      },
     });
+    await assert.rejects(platform.install(layout), /approval was cancelled/);
+    assert.equal(cleaned, true);
   });
 
-  it("prefers the release API digest over the embedded one", async () => {
-    savedDigestsEnv = process.env.SASH_TUN_HELPER_DIGESTS;
-    const { layoutRoot, packageRoot } = fixture(Buffer.from("embedded helper bytes"));
-    const apiBytes = Buffer.from("api helper bytes");
-    const agent = mockAgent();
-    agent
-      .get("https://api.github.com")
-      .intercept({ path: apiPath })
-      .reply(200, {
-        assets: [{ name, size: apiBytes.length, digest: `sha256:${sha256(apiBytes)}` }],
-      });
-    mockDownloads(agent, apiBytes);
-
-    const source = await resolveHelperSource(sashLayout(layoutRoot), { packageRoot });
-    assert.equal(source.sha256, sha256(apiBytes));
-    assert.deepEqual(fs.readFileSync(source.file), apiBytes);
-    await source.cleanup();
+  it("polls inspection until the service is ready", async () => {
+    let statuses = 0;
+    const platform = windowsTunPlatform({
+      resolveSource: async () => fakeSource(() => {}),
+      userSid: async () => "S-1-5-21-1-2-3-1001",
+      run: async () => {},
+      request: async () => {
+        statuses += 1;
+        return reply({ home: statuses < 2 ? "D:\\Other" : layout.root });
+      },
+    });
+    await platform.install(layout);
+    assert.equal(statuses, 2);
   });
 
-  it("uses a source checkout's own helper build without any download", async () => {
-    savedDigestsEnv = process.env.SASH_TUN_HELPER_DIGESTS;
-    const { layoutRoot, packageRoot } = fixture(Buffer.from("unused"));
-    const bytes = Buffer.from("locally built helper");
-    const local = path.join(packageRoot, "helper", "bin", name);
-    fs.mkdirSync(path.dirname(local), { recursive: true });
-    fs.writeFileSync(local, bytes);
-    mockAgent();
-
-    const source = await resolveHelperSource(sashLayout(layoutRoot), { packageRoot });
-    assert.equal(source.file, local);
-    assert.equal(source.sha256, sha256(bytes));
-    await source.cleanup();
-    assert.equal(fs.existsSync(local), true, "the local build is never cleaned up");
+  it("removes the helper through the injected runner on uninstall", async () => {
+    const runs: { script: string; action: string }[] = [];
+    const platform = windowsTunPlatform({
+      run: async (script, action) => {
+        runs.push({ script, action });
+      },
+    });
+    await platform.uninstall(layout);
+    assert.deepEqual(runs, [{ script: uninstallScript(), action: "remove the TUN helper" }]);
   });
 });

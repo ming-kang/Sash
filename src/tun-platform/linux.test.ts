@@ -26,6 +26,17 @@ function layoutWithCore(core = true) {
   return layout;
 }
 
+function binWith(...names: string[]): string {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "sash-linux-bin-"));
+  onTestFinished(() => fs.rmSync(bin, { recursive: true, force: true }));
+  for (const name of names) fs.writeFileSync(path.join(bin, name), "", { mode: 0o755 });
+  return bin;
+}
+
+function helperAuthFile(layout: ReturnType<typeof layoutWithCore>): string {
+  return path.join(layout.stateDir, "tun-helper-auth");
+}
+
 describe("parseGetcap", () => {
   const core = "/home/a/.local/share/sash/bin/mihomo";
   it("accepts current and older libcap output", () => {
@@ -66,13 +77,6 @@ describe("Linux scripts", () => {
 describe.skipIf(process.platform === "win32" || process.geteuid?.() === 0)(
   "elevationCommand",
   () => {
-    function binWith(...names: string[]): string {
-      const bin = fs.mkdtempSync(path.join(os.tmpdir(), "sash-linux-bin-"));
-      onTestFinished(() => fs.rmSync(bin, { recursive: true, force: true }));
-      for (const name of names) fs.writeFileSync(path.join(bin, name), "", { mode: 0o755 });
-      return bin;
-    }
-
     it("prefers pkexec and uses sudo only when asked", () => {
       const bin = binWith("pkexec", "sudo");
       assert.deepEqual(elevationCommand({ PATH: bin }), {
@@ -210,4 +214,104 @@ describe("linuxTunPlatform.inspect", () => {
     const platform = linuxTunPlatform({ run: async () => "", env: { PATH: "" } });
     await assert.rejects(platform.install(layoutWithCore(false)), /Core is not installed/);
   });
+});
+
+describe("linuxTunPlatform elevation", () => {
+  function recordingRunner(failure?: string) {
+    const calls: { cmd: string; args: string[]; input?: string }[] = [];
+    const run: Runner = async (cmd, args, options) => {
+      calls.push({ cmd, args, input: options.input });
+      if (failure) throw new Error(failure);
+      return "";
+    };
+    return { calls, run };
+  }
+
+  it("passes the script on stdin with the Core path after --", async () => {
+    const layout = layoutWithCore();
+    const { calls, run } = recordingRunner();
+    const platform = linuxTunPlatform({ run, env: { PATH: binWith("pkexec") } });
+    await platform.install(layout);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0]?.args.slice(-2), ["--", layout.coreExe]);
+    assert.equal(calls[0]?.input, GRANT_SCRIPT);
+  });
+
+  it.skipIf(process.geteuid?.() === 0)(
+    "remembers sudo after a successful explicitly-sudo install",
+    async () => {
+      const bin = binWith("sudo", "pkexec");
+      const layout = layoutWithCore();
+      const { calls, run } = recordingRunner();
+      const platform = linuxTunPlatform({ run, env: { PATH: bin } });
+      await platform.install(layout, { helperAuth: "sudo" });
+      assert.equal(calls[0]?.cmd, path.join(bin, "sudo"));
+      assert.deepEqual(calls[0]?.args.slice(0, 3), ["-n", "/bin/sh", "-s"]);
+
+      await platform.install(layout);
+      assert.equal(calls[1]?.cmd, path.join(bin, "sudo"), "the stored preference keeps sudo");
+    },
+  );
+
+  it.skipIf(process.geteuid?.() === 0)(
+    "remembers sudo when the injected environment asks for it",
+    async () => {
+      const bin = binWith("sudo", "pkexec");
+      const layout = layoutWithCore();
+      const { calls, run } = recordingRunner();
+      await linuxTunPlatform({
+        run,
+        env: { PATH: bin, SASH_TUN_HELPER_AUTH: "sudo" },
+      }).install(layout);
+      assert.equal(calls[0]?.cmd, path.join(bin, "sudo"));
+
+      await linuxTunPlatform({ run, env: { PATH: bin } }).install(layout);
+      assert.equal(
+        calls[1]?.cmd,
+        path.join(bin, "sudo"),
+        "the stored preference outlives the environment choice",
+      );
+    },
+  );
+
+  it.skipIf(process.geteuid?.() === 0)(
+    "does not remember sudo when the run fails, and wraps the failure",
+    async () => {
+      const bin = binWith("sudo", "pkexec");
+      const layout = layoutWithCore();
+      const { run } = recordingRunner("dismissed by the user");
+      const platform = linuxTunPlatform({ run, env: { PATH: bin } });
+      await assert.rejects(
+        platform.install(layout, { helperAuth: "sudo" }),
+        /Could not authorize the Core for TUN Mode: dismissed by the user\. Approve the pkexec prompt/,
+      );
+      assert.equal(fs.existsSync(helperAuthFile(layout)), false);
+
+      const retry = recordingRunner();
+      await linuxTunPlatform({ run: retry.run, env: { PATH: bin } }).install(layout);
+      assert.equal(retry.calls[0]?.cmd, path.join(bin, "pkexec"), "nothing was remembered");
+    },
+  );
+
+  it.skipIf(process.geteuid?.() === 0)(
+    "an explicit pkexec forgets the stored sudo preference before running",
+    async () => {
+      const bin = binWith("sudo", "pkexec");
+      const layout = layoutWithCore();
+      fs.mkdirSync(layout.stateDir, { recursive: true });
+      fs.writeFileSync(helperAuthFile(layout), "sudo\n");
+      let existedDuringRun: boolean | undefined;
+      const calls: string[] = [];
+      const run: Runner = async (cmd) => {
+        calls.push(cmd);
+        existedDuringRun = fs.existsSync(helperAuthFile(layout));
+        return "";
+      };
+      const platform = linuxTunPlatform({ run, env: { PATH: bin } });
+      await platform.install(layout, { helperAuth: "pkexec" });
+      assert.equal(existedDuringRun, false, "the preference is gone before elevation runs");
+      assert.equal(fs.existsSync(helperAuthFile(layout)), false);
+      assert.equal(calls[0], path.join(bin, "pkexec"));
+    },
+  );
 });

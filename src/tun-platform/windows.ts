@@ -1,94 +1,22 @@
-import { createHash, randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { z } from "zod";
 import { errorMessage } from "../error-utils.js";
-import {
-  downloadReleaseAsset,
-  listReleaseAssets,
-  parseSha256Digest,
-  type ReleaseAsset,
-  selectReleaseAsset,
-} from "../github.js";
-import { currentPackageRoot, readSashPackageInfo } from "../package-info.js";
 import type { SashLayout } from "../paths.js";
 import { runSanitizedCommandAsync, windowsSystemExecutable } from "../process.js";
 import type { HostedCore, TunPlatform, TunPrivilege } from "../tun-service.js";
-import { readHelperDigests } from "./helper-digests.js";
-import { refuseElevationInTests } from "./shared.js";
+import {
+  HELPER_PROTOCOL,
+  type HelperReply,
+  type HelperRequest,
+  requestHelper,
+} from "./helper-pipe.js";
+import { resolveHelperSource } from "./helper-source.js";
 
-/**
- * The Windows TUN helper is the Go service under helper/. It is not part of
- * the npm package: installation takes it from this Sash version's GitHub
- * Release (or a local `npm run build:helper` output in a source checkout).
- */
-export const HELPER_REPO = "ming-kang/Sash";
 export const HELPER_SERVICE = "SashTun";
-export const HELPER_PIPE = "\\\\.\\pipe\\sash-tun";
-/** Bumped together with protocolVersion in helper/server.go. */
-export const HELPER_PROTOCOL = 1;
 /** The 0.7.0 helper service, replaced on install and removed on uninstall. */
 const LEGACY_SERVICE = "SashTunHelper";
-
-export function helperAssetName(arch: string = process.arch): string {
-  return `sash-tun-helper-win32-${arch}.exe`;
-}
-
-const helperReplySchema = z.object({
-  ok: z.boolean(),
-  protocol: z.number().int(),
-  home: z.string(),
-  running: z.boolean(),
-  pid: z.number().int().positive().optional(),
-  error: z.string().optional(),
-});
-export type HelperReply = z.output<typeof helperReplySchema>;
-export type HelperOp = "status" | "start" | "stop";
-export type HelperRequest = (op: HelperOp, timeoutMs: number) => Promise<HelperReply>;
-
-/** One request line per connection, answered by one reply line. */
-export function requestHelper(
-  op: HelperOp,
-  timeoutMs: number,
-  pipe: string = HELPER_PIPE,
-): Promise<HelperReply> {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ path: pipe });
-    let buffer = "";
-    const timer = setTimeout(
-      () => socket.destroy(new Error(`TUN helper did not answer ${op} within ${timeoutMs}ms`)),
-      timeoutMs,
-    );
-    socket.setEncoding("utf8");
-    socket.once("connect", () => socket.write(`${JSON.stringify({ op })}\n`));
-    socket.on("data", (chunk: string) => {
-      buffer += chunk;
-      const newline = buffer.indexOf("\n");
-      if (newline === -1) {
-        if (buffer.length > 64 * 1024) socket.destroy(new Error("TUN helper reply is too large"));
-        return;
-      }
-      clearTimeout(timer);
-      socket.end();
-      try {
-        resolve(helperReplySchema.parse(JSON.parse(buffer.slice(0, newline))));
-      } catch {
-        reject(new Error("TUN helper sent an invalid reply"));
-      }
-    });
-    socket.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    socket.once("close", () => {
-      clearTimeout(timer);
-      reject(new Error("TUN helper closed the connection without replying"));
-    });
-  });
-}
 
 function samePath(left: string, right: string): boolean {
   return path.win32.resolve(left).toLowerCase() === path.win32.resolve(right).toLowerCase();
@@ -214,7 +142,6 @@ function powershellExe(): string {
 }
 
 async function runElevated(script: string, action: string): Promise<void> {
-  refuseElevationInTests(action);
   const resultFile = path.join(
     os.tmpdir(),
     `sash-tun-${process.pid}-${randomBytes(6).toString("hex")}.txt`,
@@ -248,97 +175,6 @@ ${script}
   }
 }
 
-async function sha256File(file: string): Promise<string> {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(file)) hash.update(chunk);
-  return hash.digest("hex");
-}
-
-interface HelperSource {
-  file: string;
-  sha256: string;
-  cleanup(): Promise<void>;
-}
-
-export interface HelperSourceOptions {
-  proxyUri?: string;
-  /** Test seam for the source-checkout precedence; production uses the real package. */
-  packageRoot?: string;
-}
-
-async function downloadHelper(
-  layout: SashLayout,
-  tag: string,
-  asset: ReleaseAsset,
-  proxyUri?: string,
-): Promise<HelperSource> {
-  await fs.mkdir(layout.tempDir, { recursive: true });
-  const file = path.join(layout.tempDir, asset.name);
-  await downloadReleaseAsset({
-    repo: HELPER_REPO,
-    tag,
-    asset,
-    dest: file,
-    ...(proxyUri !== undefined ? { proxyUri } : {}),
-  });
-  return {
-    file,
-    sha256: parseSha256Digest(asset.digest),
-    cleanup: () => fs.rm(file, { force: true }),
-  };
-}
-
-/**
- * The release API is only a digest oracle: both paths download the same
- * direct URL and verify the bytes after download. When the API cannot be
- * read — rate limit, offline — the digests embedded in this package at build
- * time take over as the oracle; they never skip or weaken verification.
- */
-async function fallbackHelperSource(
-  layout: SashLayout,
-  tag: string,
-  name: string,
-  version: string,
-  cause: unknown,
-  proxyUri?: string,
-): Promise<HelperSource> {
-  const embedded = readHelperDigests()?.find((asset) => asset.name === name);
-  if (!embedded) {
-    throw new Error(
-      `Could not read the Sash ${version} GitHub Release: ${errorMessage(cause)}; ` +
-        `this package carries no embedded digest for ${name}, so the verified direct download is unavailable`,
-    );
-  }
-  return downloadHelper(
-    layout,
-    tag,
-    { name: embedded.name, size: embedded.size, digest: `sha256:${embedded.sha256}` },
-    proxyUri,
-  );
-}
-
-export async function resolveHelperSource(
-  layout: SashLayout,
-  options: HelperSourceOptions = {},
-): Promise<HelperSource> {
-  const name = helperAssetName();
-  const local = path.join(options.packageRoot ?? currentPackageRoot(), "helper", "bin", name);
-  if ((await fs.stat(local).catch(() => undefined))?.isFile())
-    return { file: local, sha256: await sha256File(local), cleanup: async () => {} };
-
-  const { version } = readSashPackageInfo();
-  const tag = `v${version}`;
-  let assets: Awaited<ReturnType<typeof listReleaseAssets>>;
-  try {
-    assets = await listReleaseAssets(HELPER_REPO, tag, undefined, undefined, options.proxyUri);
-  } catch (error) {
-    return fallbackHelperSource(layout, tag, name, version, error, options.proxyUri);
-  }
-  const asset = selectReleaseAsset(assets, [name]);
-  if (!asset) throw new Error(`The Sash ${version} GitHub Release has no ${name}`);
-  return downloadHelper(layout, tag, asset, options.proxyUri);
-}
-
 async function currentUserSid(): Promise<string> {
   const output = await runSanitizedCommandAsync(windowsSystemExecutable("whoami.exe"), [
     "/user",
@@ -365,11 +201,17 @@ async function serviceRegistered(name: string): Promise<boolean> {
 export interface WindowsTunPlatformDeps {
   request?: HelperRequest;
   serviceRegistered?: (name: string) => Promise<boolean>;
+  run?: (script: string, action: string) => Promise<void>;
+  resolveSource?: typeof resolveHelperSource;
+  userSid?: () => Promise<string>;
 }
 
 export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatform {
   const request = deps.request ?? ((op, timeoutMs) => requestHelper(op, timeoutMs));
   const registered = deps.serviceRegistered ?? serviceRegistered;
+  const run = deps.run ?? runElevated;
+  const resolveSource = deps.resolveSource ?? resolveHelperSource;
+  const userSid = deps.userSid ?? currentUserSid;
 
   async function inspect(layout: SashLayout): Promise<TunPrivilege> {
     let reply: HelperReply;
@@ -392,10 +234,10 @@ export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatfo
     mechanism: "service",
     inspect,
     async install(layout, options = {}) {
-      const source = await resolveHelperSource(layout, options);
+      const source = await resolveSource(layout, options);
       try {
-        const sid = await currentUserSid();
-        await runElevated(
+        const sid = await userSid();
+        await run(
           installScript({
             source: source.file,
             sha256: source.sha256,
@@ -417,7 +259,7 @@ export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatfo
       );
     },
     async uninstall() {
-      await runElevated(uninstallScript(), "remove the TUN helper");
+      await run(uninstallScript(), "remove the TUN helper");
     },
     host(layout): HostedCore {
       return {

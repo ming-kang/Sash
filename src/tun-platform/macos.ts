@@ -4,7 +4,7 @@ import { errorMessage } from "../error-utils.js";
 import type { SashLayout } from "../paths.js";
 import { runSanitizedCommandAsync } from "../process.js";
 import type { TunPlatform, TunPrivilege } from "../tun-service.js";
-import { refuseElevationInTests, requireCoreFile, shellQuote } from "./shared.js";
+import { requireCoreFile, shellQuote } from "./shared.js";
 
 const OSASCRIPT = "/usr/bin/osascript";
 
@@ -60,7 +60,6 @@ ${LEGACY_CLEANUP}`;
 }
 
 async function runAsAdministrator(script: string, action: string): Promise<void> {
-  refuseElevationInTests(action);
   // The script travels inside the command (base64 → /bin/sh), never as a
   // user-writable file that could change before root runs it.
   const encoded = Buffer.from(script, "utf8").toString("base64");
@@ -89,20 +88,22 @@ export async function inspectSetuidCore(core: string): Promise<TunPrivilege> {
     : { state: "stale", detail: "the Core is owned by root but is not setuid" };
 }
 
-export function macosTunPlatform(): TunPlatform {
+export interface MacosTunPlatformDeps {
+  run?: (script: string, action: string) => Promise<void>;
+}
+
+export function macosTunPlatform(deps: MacosTunPlatformDeps = {}): TunPlatform {
+  const run = deps.run ?? runAsAdministrator;
   const user = () => os.userInfo().username;
   return {
     mechanism: "setuid",
     inspect: (layout: SashLayout) => inspectSetuidCore(layout.coreExe),
     async install(layout) {
       await requireCoreFile(layout);
-      await runAsAdministrator(
-        grantScript(layout.coreExe, user()),
-        "authorize its Core for TUN Mode",
-      );
+      await run(grantScript(layout.coreExe, user()), "authorize its Core for TUN Mode");
     },
     async uninstall(layout) {
-      await runAsAdministrator(
+      await run(
         revokeScript(layout.coreExe, layout.root, user()),
         "remove the TUN Mode authorization from its Core",
       );

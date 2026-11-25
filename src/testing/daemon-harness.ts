@@ -17,6 +17,7 @@ import type { SashSettings } from "../settings.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../sysproxy/manager.js";
 import type { SystemProxyState } from "../sysproxy/types.js";
+import { unsupportedTunPlatform } from "../tun-service.js";
 import { FakeCoreSupervisor, testSettings } from "./state.js";
 
 export interface DaemonServerOverrides {
@@ -147,7 +148,7 @@ export class DaemonTestHarness {
       settings: this.settings,
       supervisor: fakeSupervisor,
       systemProxy: overrides.systemProxy ?? this.fakeSystemProxy(),
-      tunPlatform: overrides.tunPlatform,
+      tunPlatform: overrides.tunPlatform ?? unsupportedTunPlatform(),
       autostart: overrides.autostart ?? {
         backend: {
           inspect: async () => "off",

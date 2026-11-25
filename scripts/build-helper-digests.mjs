@@ -2,7 +2,7 @@
 // its artifact — the same bytes the GitHub Release later carries — and writes
 // them into the npm package as dist/tun-helper-digests.json. The packaged
 // digests are the SHA-256 trust anchor for the direct-download fallback when
-// the GitHub API is unreachable (see src/tun-platform/windows.ts).
+// the GitHub API is unreachable (see src/tun-platform/helper-source.ts).
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
