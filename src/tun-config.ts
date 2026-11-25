@@ -76,6 +76,15 @@ function mergeManagedTunKeys(
   config.tun = { ...profileTun, ...managedTun };
 }
 
+// macOS leaves the system DNS untouched when tun.dns-mode is empty, so LAN
+// resolvers bypass the tunnel; a profile that pins the key keeps its choice.
+function defaultSystemDnsMode(config: Record<string, unknown>): void {
+  if (process.platform !== "darwin") return;
+  const section = mapping(config.tun) ? config.tun : undefined;
+  if (!section || "dns-mode" in section) return;
+  section["dns-mode"] = "native";
+}
+
 const DIRECT_EMPTY_FALLBACKS = new Set(["DIRECT", "COMPATIBLE", "PASS"]);
 
 function failClosedEmptyGroups(config: Record<string, unknown>, warnings: string[]): void {
@@ -122,5 +131,8 @@ export function enforceTunConfiguration(
 ): void {
   removeTunListeners(config, warnings);
   mergeManagedTunKeys(config, tun, warnings);
-  if (tun.enable) hardenTunNetworking(config, warnings);
+  if (tun.enable) {
+    defaultSystemDnsMode(config);
+    hardenTunNetworking(config, warnings);
+  }
 }

@@ -59,4 +59,50 @@ describe("tun-config", () => {
       assert.ok(warnings.some((w) => w.includes("dns.enable")));
     });
   });
+
+  describe("system dns-mode default", () => {
+    function withMockedPlatform<T>(platform: string, run: () => T): T {
+      const original = Object.getOwnPropertyDescriptor(process, "platform");
+      Object.defineProperty(process, "platform", { value: platform });
+      try {
+        return run();
+      } finally {
+        if (original) Object.defineProperty(process, "platform", original);
+      }
+    }
+
+    const enabledTun = () => ({ ...defaultTunSettings(), enable: true });
+
+    it("defaults dns-mode to native on macOS when the profile does not pin it", () => {
+      withMockedPlatform("darwin", () => {
+        const config: Record<string, unknown> = { tun: { mtu: 1400 } };
+        enforceTunConfiguration(config, enabledTun());
+        assert.equal((config.tun as Record<string, unknown>)["dns-mode"], "native");
+      });
+    });
+
+    it("respects a profile-pinned dns-mode on macOS", () => {
+      withMockedPlatform("darwin", () => {
+        const config: Record<string, unknown> = { tun: { "dns-mode": "hijack" } };
+        enforceTunConfiguration(config, enabledTun());
+        assert.equal((config.tun as Record<string, unknown>)["dns-mode"], "hijack");
+      });
+    });
+
+    it("does not default dns-mode off macOS", () => {
+      withMockedPlatform("win32", () => {
+        const config: Record<string, unknown> = {};
+        enforceTunConfiguration(config, enabledTun());
+        assert.equal("dns-mode" in (config.tun as Record<string, unknown>), false);
+      });
+    });
+
+    it("does not default dns-mode while TUN is disabled", () => {
+      withMockedPlatform("darwin", () => {
+        const config: Record<string, unknown> = {};
+        enforceTunConfiguration(config, defaultTunSettings());
+        assert.equal("dns-mode" in (config.tun as Record<string, unknown>), false);
+      });
+    });
+  });
 });

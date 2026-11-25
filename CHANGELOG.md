@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Ignore an invalid `SASH_TUN_HELPER_AUTH` value instead of letting it override the remembered Linux elevation preference.
 - Keep the saved TUN preference when configuration validation or a geodata download fails during Apply; the preference rolls back only when the TUN Core itself fails to start.
 - A failed Core download or verification during first install no longer disables the saved TUN preference; rollback happens only when the verified Core cannot start TUN.
+- Restore system DNS capture on macOS TUN: generated configurations once again default `tun.dns-mode` to `native` unless the profile pins it, so resolvers pointing at LAN or router addresses no longer bypass fake-ip and leak DNS to the local network.
 
 ## [0.7.1] - 2026-11-25
 
