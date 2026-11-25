@@ -35,6 +35,10 @@ export type TunSettingsPatch = z.input<typeof tunSettingsPatchSchema>;
 export const sameTunSettings: (left: TunSettings, right: TunSettings) => boolean =
   isDeepStrictEqual;
 
+export function disabledTun(tun: TunSettings): TunSettings {
+  return { ...tun, enable: false };
+}
+
 // Disabled TUN fields never reach the generated configuration, so they cannot
 // require a restart; both sides project to the canonical disabled shape.
 export function effectiveTunSettings(tun: TunSettings): TunSettings {

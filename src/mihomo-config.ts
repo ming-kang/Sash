@@ -1,8 +1,9 @@
 import YAML from "yaml";
 import { fetchWithRetry, readErrorSummary } from "./http.js";
+import { mapping } from "./json-shape.js";
 import { inspectProfileOffThread } from "./profile-work.js";
 import type { SashSettings } from "./settings.js";
-import { enforceTunConfiguration } from "./tun-config.js";
+import { enforceTunConfiguration, tunDisabledDocument } from "./tun-config.js";
 
 export interface GeneratedConfig {
   yaml: string;
@@ -31,6 +32,14 @@ export function asCoreConfigDocument(doc: unknown): Record<string, unknown> {
     );
   }
   return doc as Record<string, unknown>;
+}
+
+export function tunDisabledGeneratedConfig(generated: GeneratedConfig): GeneratedConfig {
+  const document = asCoreConfigDocument(YAML.parse(generated.yaml));
+  return {
+    ...generated,
+    yaml: YAML.stringify(tunDisabledDocument(document), { indent: 2 }),
+  };
 }
 
 export interface SubscriptionUserinfo {
@@ -237,12 +246,6 @@ const MANAGED_KEYS = new Set([
 
 export function stripManagedKeys(base: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(base).filter(([key]) => !MANAGED_KEYS.has(key)));
-}
-
-// Looser than isPlainObject: plugin hooks run in a vm context, and their
-// object literals fail the main realm's prototype check.
-function mapping(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function groupNames(groups: Array<Record<string, unknown>>): string[] {

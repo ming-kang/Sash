@@ -37,12 +37,12 @@ import type {
   RuntimeLifecycle,
   RuntimeTarget,
 } from "../runtime-lifecycle.js";
-import { CoreUpdateResumeError, runtimeDelta } from "../runtime-lifecycle.js";
+import { CoreStartError, runtimeDelta } from "../runtime-lifecycle.js";
 import { publicSettings } from "../settings.js";
 import type { CoreState, CoreSupervisor } from "../supervisor.js";
 import { enforceTunConfiguration } from "../tun-config.js";
 import type { TunSettings } from "../tun-settings.js";
-import { defaultTunSettings, sameTunSettings } from "../tun-settings.js";
+import { disabledTun, sameEffectiveTunSettings } from "../tun-settings.js";
 
 export interface CoreControlServiceOptions {
   layout: SashLayout;
@@ -356,7 +356,7 @@ export class CoreControlService {
       signal,
       this.downloadTransport()?.uri,
     );
-    return this.withExplicitTunRollback(plan, signal, () => commit(validated));
+    return this.withTunStartFailureRollback(plan.snapshot, signal, () => commit(validated));
   }
 
   private assertPlanCurrent(configuration: RuntimeConfiguration, plan: ConfigurationPlan): void {
@@ -573,23 +573,7 @@ export class CoreControlService {
   private async installAndStart(signal: AbortSignal): Promise<CoreStartResult> {
     const { layout, lifecycle, supervisor } = this.options;
     const snapshot = this.options.state.snapshot();
-    try {
-      await this.update(undefined, true);
-    } catch (error) {
-      if (
-        snapshot.settings.tun.enable &&
-        error instanceof CoreUpdateResumeError &&
-        !signal.aborted &&
-        !(error instanceof StateConflictError)
-      ) {
-        await this.rollBackTunPreference(
-          snapshot.revision,
-          { ...snapshot.settings.tun, enable: false },
-          error,
-        );
-      }
-      throw error;
-    }
+    await this.withTunStartFailureRollback(snapshot, signal, () => this.update(undefined, true));
     return this.options.commit(() => {
       signal.throwIfAborted();
       const owner = supervisor.ownedCoreSnapshot();
@@ -603,25 +587,19 @@ export class CoreControlService {
     });
   }
 
-  private async withExplicitTunRollback(
-    plan: ConfigurationPlan,
+  private async withTunStartFailureRollback<T>(
+    snapshot: SashState,
     signal: AbortSignal,
-    action: () => Promise<CoreStartResult>,
-  ): Promise<CoreStartResult> {
-    const { lifecycle, supervisor } = this.options;
-    const previousTun = supervisor.isRunning()
-      ? (lifecycle.configuration()?.settings.tun ?? defaultTunSettings())
-      : { ...plan.snapshot.settings.tun, enable: false };
+    action: () => Promise<T>,
+  ): Promise<T> {
     try {
       return await action();
     } catch (error) {
-      if (
-        !signal.aborted &&
-        !(error instanceof StateConflictError) &&
-        (previousTun.enable || plan.snapshot.settings.tun.enable) &&
-        !sameTunSettings(previousTun, plan.snapshot.settings.tun)
-      ) {
-        await this.rollBackTunPreference(plan.snapshot.revision, previousTun, error);
+      if (error instanceof CoreStartError && !signal.aborted) {
+        const tun = error.restored?.settings.tun ?? disabledTun(snapshot.settings.tun);
+        if (!sameEffectiveTunSettings(tun, snapshot.settings.tun)) {
+          await this.rollBackTunPreference(snapshot.revision, tun, error);
+        }
       }
       throw error;
     }

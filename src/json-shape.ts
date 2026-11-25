@@ -15,6 +15,12 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   );
 }
 
+// Looser than isPlainObject: plugin hooks run in a vm context, and their
+// object literals fail the main realm's prototype check.
+export function mapping(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 export function hasExactOwnKeys(
   value: Record<string, unknown>,
   expectedKeys: readonly string[],

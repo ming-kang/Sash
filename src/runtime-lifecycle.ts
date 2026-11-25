@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import YAML from "yaml";
 import type { ConfigurationPendingChanges, CoreStartResult } from "./contracts.js";
 import type { StagedCore } from "./core.js";
 import {
@@ -10,16 +8,16 @@ import {
   recoverCoreUpdateTransaction,
 } from "./core-update.js";
 import type { CoreEngine } from "./engine/index.js";
-import { errorMessage } from "./error-utils.js";
+import { errorMessage, errorPresentation, withErrorPresentation } from "./error-utils.js";
 import { atomicWriteFile } from "./fs-atomic.js";
 import { isRequestDeadlineError } from "./http.js";
-import type { GeneratedConfig } from "./mihomo-config.js";
+import { type GeneratedConfig, tunDisabledGeneratedConfig } from "./mihomo-config.js";
 import type { SashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import type { TunService } from "./tun-service.js";
-import { sameEffectiveTunSettings } from "./tun-settings.js";
+import { disabledTun, sameEffectiveTunSettings } from "./tun-settings.js";
 
 export interface RuntimeConfiguration {
   generated: GeneratedConfig;
@@ -43,12 +41,27 @@ export interface RuntimeLifecycleOptions {
   systemProxy: SystemProxyController;
   settings: () => SashSettings;
   engine: CoreEngine;
-  tun?: TunService;
+  tun: TunService;
 }
 
-export class CoreUpdateResumeError extends Error {
-  constructor(message: string) {
-    super(message);
+export class CoreStartError extends Error {
+  readonly restored: RuntimeConfiguration | undefined;
+
+  constructor(
+    message: string,
+    options: { cause: unknown; restored: RuntimeConfiguration | undefined },
+  ) {
+    super(message, { cause: options.cause });
+    this.name = "CoreStartError";
+    this.restored = options.restored;
+    const presentation = errorPresentation(options.cause);
+    if (presentation) withErrorPresentation(this, presentation);
+  }
+}
+
+export class CoreUpdateResumeError extends CoreStartError {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause, restored: undefined });
     this.name = "CoreUpdateResumeError";
   }
 }
@@ -58,17 +71,13 @@ export function verificationConfiguration(
 ): RuntimeConfiguration {
   if (!configuration.settings.tun.enable) return configuration;
   // Verification must not need TUN privilege: replacing the Core file drops POSIX file-based grants.
-  const tun = configuration.settings.tun;
   return {
     ...configuration,
-    settings: { ...configuration.settings, tun: { ...tun, enable: false } },
-    generated: {
-      ...configuration.generated,
-      yaml: YAML.stringify({
-        ...YAML.parse(configuration.generated.yaml),
-        tun: { enable: false },
-      }),
+    settings: {
+      ...configuration.settings,
+      tun: disabledTun(configuration.settings.tun),
     },
+    generated: tunDisabledGeneratedConfig(configuration.generated),
   };
 }
 
@@ -198,37 +207,31 @@ export class RuntimeLifecycle {
   }
 
   async apply(configuration: RuntimeConfiguration): Promise<CoreStartResult> {
-    const saved = this.applied;
-    const previous = this.options.supervisor.isRunning() ? saved : undefined;
-    const involvesTun =
-      (previous?.settings.tun.enable ?? false) || configuration.settings.tun.enable;
+    const previous = this.options.supervisor.isRunning() ? this.applied : undefined;
     if (configuration.settings.tun.enable) {
-      if (!this.options.tun) throw new Error("TUN Mode is not available");
-      await this.options.tun.checkReady();
+      try {
+        await this.options.tun.checkReady();
+      } catch (error) {
+        throw new CoreStartError(errorMessage(error), { cause: error, restored: previous });
+      }
     }
-    await this.stop();
     try {
+      await this.stop();
       return await this.startConfiguration(configuration);
     } catch (error) {
-      if (!involvesTun) throw error;
+      if (!previous)
+        throw new CoreStartError(errorMessage(error), { cause: error, restored: undefined });
       try {
         await this.stop();
         this.applied = undefined;
-        if (previous) await this.startConfiguration(previous);
-        else {
-          this.runtimeSettings = {
-            ...configuration.settings,
-            tun: { ...configuration.settings.tun, enable: false },
-          };
-          if (saved) await atomicWriteFile(this.options.layout.configFile, saved.generated.yaml);
-          else await fs.rm(this.options.layout.configFile, { force: true });
-        }
-      } catch (rollbackError) {
-        throw new Error(
-          `${errorMessage(error)}; TUN rollback failed: ${errorMessage(rollbackError)}`,
+        await this.startConfiguration(previous);
+      } catch (restoreError) {
+        throw new CoreStartError(
+          `${errorMessage(error)}; restoring the previous configuration failed: ${errorMessage(restoreError)}`,
+          { cause: error, restored: undefined },
         );
       }
-      throw error;
+      throw new CoreStartError(errorMessage(error), { cause: error, restored: previous });
     }
   }
 
@@ -319,72 +322,72 @@ export class RuntimeLifecycle {
     await systemProxy.apply({ port: this.runtimeSettings.mixedPort });
   }
 
+  private async installStagedCoreInPlace(
+    staged: StagedCore,
+    configuration: RuntimeConfiguration,
+    keepRunning: boolean,
+  ): Promise<CoreUpdateResult> {
+    if (!this.options.supervisor.isRunning()) {
+      await atomicWriteFile(this.options.layout.configFile, configuration.generated.yaml);
+      this.runtimeSettings = { ...configuration.settings };
+    }
+    return commitCoreUpdate({
+      layout: this.options.layout,
+      staged,
+      runtime: {
+        keepRunning,
+        stop: async () => {
+          await this.stop();
+          await this.requireVacantController();
+        },
+        startAndVerify: async () => {
+          await this.startCore();
+          this.applied = configuration;
+        },
+        applySystemProxy: () => this.reconcileSystemProxy(),
+      },
+    });
+  }
+
   async update(
     staged: StagedCore,
     configuration: RuntimeConfiguration,
     startAfterInstall = false,
   ): Promise<CoreUpdateResult> {
     const wasRunning = this.options.supervisor.isRunning();
-    const tun = configuration.settings.tun;
+    if (!configuration.settings.tun.enable) {
+      return this.installStagedCoreInPlace(staged, configuration, wasRunning || startAfterInstall);
+    }
+
     const verification = verificationConfiguration(configuration);
-
-    const prepareVerificationBoot = async (): Promise<void> => {
-      if (!wasRunning || tun.enable) {
-        if (wasRunning) await this.stop();
-        await atomicWriteFile(this.options.layout.configFile, verification.generated.yaml);
-        this.runtimeSettings = { ...verification.settings };
-      }
-    };
-
-    const commitStagedCore = async (): Promise<CoreUpdateResult> => {
-      try {
-        return await commitCoreUpdate({
-          layout: this.options.layout,
-          staged,
-          runtime: {
-            keepRunning: !tun.enable && (wasRunning || startAfterInstall),
-            stop: async () => {
-              await this.stop();
-              await this.requireVacantController();
-            },
-            startAndVerify: async () => {
-              await this.startCore();
-              this.applied = verification;
-            },
-            applySystemProxy: () => this.reconcileSystemProxy(),
-          },
-        });
-      } catch (error) {
-        if (tun.enable && wasRunning) {
-          try {
-            await this.apply(configuration);
-          } catch (rollbackError) {
-            throw new Error(
-              `${errorMessage(error)}; TUN restart failed: ${errorMessage(rollbackError)}`,
-            );
-          }
-        }
-        throw error;
-      }
-    };
-
-    const resumeConfiguration = async (): Promise<void> => {
-      if (!tun.enable) return;
-      this.applied = undefined;
-      if (wasRunning || startAfterInstall) {
+    if (wasRunning) await this.stop();
+    let result: CoreUpdateResult;
+    try {
+      result = await this.installStagedCoreInPlace(staged, verification, false);
+    } catch (error) {
+      if (wasRunning) {
         try {
           await this.apply(configuration);
-        } catch (error) {
-          throw new CoreUpdateResumeError(
-            `Core updated to ${staged.version}, but TUN could not restart: ${errorMessage(error)}`,
+        } catch (restartError) {
+          throw new Error(
+            `${errorMessage(error)}; TUN restart failed: ${errorMessage(restartError)}`,
           );
         }
       }
-    };
+      throw error;
+    }
 
-    await prepareVerificationBoot();
-    const result = await commitStagedCore();
-    await resumeConfiguration();
+    this.applied = undefined;
+    if (wasRunning || startAfterInstall) {
+      try {
+        await this.apply(configuration);
+      } catch (error) {
+        throw new CoreUpdateResumeError(
+          `Core updated to ${staged.version}, but TUN could not restart: ${errorMessage(error)}`,
+          error,
+        );
+      }
+    }
     return result;
   }
 
@@ -402,17 +405,16 @@ export class RuntimeLifecycle {
     }
   }
 
-  async restoreCoreSession(expected: RuntimeConfiguration): Promise<boolean> {
-    if (this.options.supervisor.isRunning()) return true;
+  async restoreCoreSession(expected: RuntimeConfiguration): Promise<void> {
+    if (this.options.supervisor.isRunning()) return;
     const desired = this.options.settings();
     if (
       expected.settings.tun.enable &&
       !sameEffectiveTunSettings(desired.tun, expected.settings.tun)
     )
-      return true;
+      return;
     await this.apply(expected);
     console.warn("[sashd] Core restarted after an unexpected exit");
-    return true;
   }
 
   private allowRecoveryCycle(): boolean {
@@ -441,7 +443,8 @@ export class RuntimeLifecycle {
       if (index > 0) await new Promise((resolve) => setTimeout(resolve, delays[index]));
       if (closing()) return;
       try {
-        if (await mutate(() => this.restoreCoreSession(expected))) return;
+        await mutate(() => this.restoreCoreSession(expected));
+        return;
       } catch (error) {
         if (closing()) return;
         console.warn(

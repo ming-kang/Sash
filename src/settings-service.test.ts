@@ -11,6 +11,7 @@ import { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { SettingsService } from "./settings-service.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import { createTestState, FakeCoreSupervisor, testSettings } from "./testing/state.js";
+import { TunService, unsupportedTunPlatform } from "./tun-service.js";
 
 describe("saved settings", () => {
   let root: string;
@@ -48,6 +49,7 @@ describe("saved settings", () => {
       settings: () => state.snapshot().settings,
       engine: mihomoEngine,
       controllerProbe: async () => false,
+      tun: new TunService(unsupportedTunPlatform(), layout),
     });
     const gate = new DaemonGate(
       async () => {},

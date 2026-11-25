@@ -6,9 +6,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "vitest";
 import YAML from "yaml";
 import { mihomoEngine } from "./engine/index.js";
+import { errorPresentation, withErrorPresentation } from "./error-utils.js";
 import { RequestDeadlineError } from "./http.js";
 import { sashLayout } from "./paths.js";
 import {
+  CoreStartError,
   RuntimeLifecycle,
   restartRequiringSettingsChanged,
   runtimeDelta,
@@ -16,8 +18,8 @@ import {
 } from "./runtime-lifecycle.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import { FakeCoreSupervisor, testSettings } from "./testing/state.js";
-import { type TunPrivilege, TunService } from "./tun-service.js";
-import { defaultTunSettings } from "./tun-settings.js";
+import { type TunPrivilege, TunService, unsupportedTunPlatform } from "./tun-service.js";
+import { defaultTunSettings, disabledTun } from "./tun-settings.js";
 
 describe("verification configuration", () => {
   const base = {
@@ -35,7 +37,7 @@ describe("verification configuration", () => {
       ...base,
       settings: {
         ...base.settings,
-        tun: { ...base.settings.tun, enable: false },
+        tun: disabledTun(base.settings.tun),
       },
     };
     assert.equal(verificationConfiguration(configuration), configuration);
@@ -94,6 +96,7 @@ describe("Core and proxy lifecycle", () => {
       settings: () => settings,
       engine: mihomoEngine,
       controllerProbe: async () => false,
+      tun: new TunService(unsupportedTunPlatform(), layout),
     });
     const configuration = {
       generated: { yaml: "rules: ['MATCH,DIRECT']\n", proxyCount: 0, source: "default" as const },
@@ -147,7 +150,14 @@ describe("Core and proxy lifecycle", () => {
     f.core.onStart = () => {
       throw new Error("cannot start");
     };
-    await assert.rejects(f.lifecycle.apply(f.configuration), /cannot start/);
+    await assert.rejects(f.lifecycle.apply(f.configuration), (error: unknown) => {
+      if (!(error instanceof CoreStartError)) return false;
+      assert.match(error.message, /cannot start/);
+      assert.equal(error.restored, undefined);
+      assert.ok(error.cause instanceof Error);
+      assert.equal(error.cause.message, "cannot start");
+      return true;
+    });
     assert.equal(f.core.running, false);
     assert.equal(f.lifecycle.configuration(), undefined);
     assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), f.configuration.generated.yaml);
@@ -156,6 +166,47 @@ describe("Core and proxy lifecycle", () => {
       false,
     );
   });
+  it("keeps the start failure presentation on the typed error", async () => {
+    const f = fixture();
+    const presentation = { message: "The Core could not start.", advice: "Inspect the Core log." };
+    const failure = withErrorPresentation(new Error("cannot start"), presentation);
+    f.core.onStart = () => {
+      throw failure;
+    };
+    await assert.rejects(f.lifecycle.apply(f.configuration), (error: unknown) => {
+      if (!(error instanceof CoreStartError)) return false;
+      assert.equal(error.cause, failure);
+      assert.deepEqual(errorPresentation(error), presentation);
+      return true;
+    });
+  });
+  it("restores the running configuration when stopping for a replacement fails", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    const replacement = {
+      ...f.configuration,
+      generated: { ...f.configuration.generated, yaml: "rules: ['MATCH,REJECT']\n" },
+    };
+    const starts = f.core.starts;
+    let failures = 1;
+    f.core.onStop = () => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("stop failed");
+      }
+    };
+    await assert.rejects(f.lifecycle.apply(replacement), (error: unknown) => {
+      if (!(error instanceof CoreStartError)) return false;
+      assert.match(error.message, /stop failed/);
+      assert.equal(error.restored, f.configuration);
+      return true;
+    });
+    assert.equal(f.core.running, true);
+    assert.equal(f.core.starts, starts + 1);
+    assert.equal(f.lifecycle.configuration(), f.configuration);
+    assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), f.configuration.generated.yaml);
+  });
+
   it("ignores delayed exit cleanup once a replacement is running", async () => {
     const f = fixture();
     await f.lifecycle.apply(f.configuration);
@@ -284,6 +335,7 @@ describe("Core and proxy lifecycle", () => {
       settings: () => f.settings,
       engine: mihomoEngine,
       controllerProbe: async () => true,
+      tun: new TunService(unsupportedTunPlatform(), f.layout),
     });
     await assert.rejects(lifecycle.apply(f.configuration), /unowned Core controller/);
     assert.equal(f.core.starts, 0);
@@ -360,8 +412,8 @@ describe("configuration reload", () => {
       settings: () => settings,
       engine: mihomoEngine,
       controllerProbe: async () => false,
+      tun: tun ?? new TunService(unsupportedTunPlatform(), layout),
       ...(reloadConfig ? { reloadConfig } : {}),
-      ...(tun ? { tun } : {}),
     });
     const applied = {
       generated: { yaml: "rules: ['MATCH,DIRECT']\n", proxyCount: 0, source: "default" as const },
@@ -631,11 +683,17 @@ describe("TUN apply", () => {
     const f = fixture({ state: "missing" });
     const ordinary = {
       ...f.configuration,
-      settings: { ...f.settings, tun: { ...f.settings.tun, enable: false } },
+      settings: { ...f.settings, tun: disabledTun(f.settings.tun) },
     };
     await f.lifecycle.apply(ordinary);
     const starts = f.core.starts;
-    await assert.rejects(f.lifecycle.apply(f.configuration), /Install the TUN helper first/);
+    await assert.rejects(f.lifecycle.apply(f.configuration), (error: unknown) => {
+      if (!(error instanceof CoreStartError)) return false;
+      assert.match(error.message, /Install the TUN helper first/);
+      assert.equal(error.restored, ordinary);
+      assert.ok(error.cause instanceof Error);
+      return true;
+    });
     assert.equal(f.core.running, true);
     assert.equal(f.core.starts, starts);
     assert.equal(f.lifecycle.configuration(), ordinary);
@@ -646,23 +704,29 @@ describe("TUN apply", () => {
     const ordinary = {
       ...f.configuration,
       generated: { ...f.configuration.generated, yaml: "rules: ['MATCH,REJECT']\n" },
-      settings: { ...f.settings, tun: { ...f.settings.tun, enable: false } },
+      settings: { ...f.settings, tun: disabledTun(f.settings.tun) },
     };
     await f.lifecycle.apply(ordinary);
     f.core.onStart = () => {
       if (f.lifecycle.settings().tun.enable) throw new Error("TUN Core exited during startup");
     };
-    await assert.rejects(f.lifecycle.apply(f.configuration), /TUN Core exited/);
+    await assert.rejects(f.lifecycle.apply(f.configuration), (error: unknown) => {
+      if (!(error instanceof CoreStartError)) return false;
+      assert.match(error.message, /TUN Core exited/);
+      assert.equal(error.restored, ordinary);
+      assert.ok(error.cause instanceof Error);
+      return true;
+    });
     assert.equal(f.core.running, true);
     assert.equal(f.lifecycle.configuration(), ordinary);
     assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), ordinary.generated.yaml);
   });
 
-  it("does not restore the previous configuration when a non-TUN start fails", async () => {
+  it("restores the previous configuration when a non-TUN restart fails", async () => {
     const f = fixture();
     const ordinary = {
       ...f.configuration,
-      settings: { ...f.settings, tun: { ...f.settings.tun, enable: false } },
+      settings: { ...f.settings, tun: disabledTun(f.settings.tun) },
     };
     await f.lifecycle.apply(ordinary);
     const replacement = {
@@ -670,14 +734,54 @@ describe("TUN apply", () => {
       generated: { ...ordinary.generated, yaml: "rules: ['MATCH,REJECT']\n" },
     };
     const starts = f.core.starts;
+    let failures = 1;
     f.core.onStart = () => {
-      throw new Error("Core exited during startup");
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("Core exited during startup");
+      }
     };
-    await assert.rejects(f.lifecycle.apply(replacement), /Core exited during startup/);
+    await assert.rejects(f.lifecycle.apply(replacement), (error: unknown) => {
+      if (!(error instanceof CoreStartError)) return false;
+      assert.match(error.message, /Core exited during startup/);
+      assert.equal(error.restored, ordinary);
+      assert.ok(error.cause instanceof Error);
+      return true;
+    });
+    assert.equal(f.core.running, true);
+    assert.equal(f.core.starts, starts + 2);
+    assert.equal(f.lifecycle.configuration(), ordinary);
+    assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), ordinary.generated.yaml);
+  });
+
+  it("reports both failures when the previous configuration cannot be restored", async () => {
+    const f = fixture();
+    const ordinary = {
+      ...f.configuration,
+      settings: { ...f.settings, tun: disabledTun(f.settings.tun) },
+    };
+    await f.lifecycle.apply(ordinary);
+    const replacement = {
+      ...ordinary,
+      generated: { ...ordinary.generated, yaml: "rules: ['MATCH,REJECT']\n" },
+    };
+    let attempts = 0;
+    f.core.onStart = () => {
+      attempts += 1;
+      throw new Error(attempts === 1 ? "candidate failed" : "restore failed");
+    };
+    await assert.rejects(f.lifecycle.apply(replacement), (error: unknown) => {
+      if (!(error instanceof CoreStartError)) return false;
+      assert.match(error.message, /candidate failed/);
+      assert.match(error.message, /restoring the previous configuration failed/);
+      assert.match(error.message, /restore failed/);
+      assert.equal(error.restored, undefined);
+      assert.ok(error.cause instanceof Error);
+      assert.equal(error.cause.message, "candidate failed");
+      return true;
+    });
     assert.equal(f.core.running, false);
-    assert.equal(f.core.starts, starts + 1);
     assert.equal(f.lifecycle.configuration(), undefined);
-    assert.equal(fs.readFileSync(f.layout.configFile, "utf8"), replacement.generated.yaml);
   });
 
   it("treats a lost TUN Core like any unexpected exit", async () => {

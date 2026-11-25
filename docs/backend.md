@@ -26,20 +26,20 @@ The ordering invariants:
 2. When only the profile changed, publish the core config and ask Core to reload in place — it swaps proxies, rules and DNS while established connections keep their outbound.
 3. Otherwise restart: restore the prior system proxy, stop Core, verify the controller port is free, publish the config, start Core and wait for its controller to report the expected version, then apply the saved system-proxy preference.
 
-Failure semantics follow from the ordering: a rejected reload restores the previous on-disk config and leaves the previous configuration applied; a startup failure preserves saved edits and keeps the local API available. Geodata-only validation failures retry through mirrors, then Sash seeds the missing databases through its verified release pipeline — the configuration that passes is the one applied.
+Failure semantics follow from the ordering: a rejected reload restores the previous on-disk config and leaves the previous configuration applied; a failed restart starts the previously running configuration again and reports which configuration is back in service, so the saved edits stay pending; a failed start of a stopped Core preserves saved edits and keeps the local API available. A saved TUN preference that Core could not start is the one edit rolled back, to what is running. Geodata-only validation failures retry through mirrors, then Sash seeds the missing databases through its verified release pipeline — the configuration that passes is the one applied.
 
 Stopping Core cancels in-flight preparation and pending reloads; shutdown also cancels downloads and drains queued work before restoring the proxy. Unexpected Core exits trigger bounded proxy-restoration retries.
 
 ## TUN Mode
 
-TUN changes only *how Core gets privilege* — the controller, reloads, logs and Apply are identical. [TunService](../src/tun-service.ts) reports `ready`, `missing`, `stale` or `unknown`; Apply refuses TUN before stopping a running Core unless it is `ready`.
+TUN changes only *how Core gets privilege* — the controller, reloads, logs and Apply are identical. [CoreSupervisor](../src/supervisor.ts) drives one [CoreRunner](../src/core-runner.ts): a spawned child, or on Windows a Core started by the TUN service. [TunService](../src/tun-service.ts) reports `ready`, `missing`, `stale` or `unknown`; Apply refuses TUN before stopping a running Core unless it is `ready`.
 
 Each platform acts on the managed `bin/mihomo` itself, so no Core version is pinned:
 
 - **Windows:** a LocalSystem service built from `helper/` owns start/stop. Core path, data folder, configuration and log paths are fixed service arguments; its pipe admits only the installing account and accepts only `status`/`start`/`stop` — it never takes a path, arguments or configuration, so `sash update` needs no reinstall. Core runs inside a kill-on-close job and cannot outlive the service.
 - **macOS:** the Core file is setuid root; **Linux:** it carries `cap_net_admin,cap_net_bind_service`. A Core update replaces the file and drops the grant, so `helper install` must run again.
 
-`protocolVersion` in [helper/server.go](../helper/server.go) and `HELPER_PROTOCOL` in [tun-platform/windows.ts](../src/tun-platform/windows.ts) must change together, and only when the request or reply shape changes — Sash reports a protocol mismatch as needing reinstall, so such a change belongs in the changelog. [RELEASING.md](../RELEASING.md) covers how the helper is published.
+`protocolVersion` in [helper/server.go](../helper/server.go) and `HELPER_PROTOCOL` in [tun-platform/helper-pipe.ts](../src/tun-platform/helper-pipe.ts) must change together, and only when the request or reply shape changes — Sash reports a protocol mismatch as needing reinstall, so such a change belongs in the changelog. [RELEASING.md](../RELEASING.md) covers how the helper is published.
 
 ## Updates
 

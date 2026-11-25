@@ -152,14 +152,19 @@ describe("save and apply API", () => {
     await h.startServer({ supervisor: core });
     await h.apiRequest("/sash/core/start", { method: "POST" });
     await h.apiRequest("/sash/settings", { method: "PATCH", body: { allowLan: true } });
+    let failures = 1;
     core.onStart = () => {
-      throw new Error("startup failed");
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("startup failed");
+      }
     };
     assert.equal((await h.apiRequest("/sash/core/restart", { method: "POST" })).statusCode, 500);
     const failed = await status();
-    assert.equal(failed.core.running, false);
+    assert.equal(failed.core.running, true);
     assert.equal(failed.settings.allowLan, true);
     assert.equal(failed.configuration.pending, true);
+    assert.equal(failed.configuration.appliedSettings?.allowLan, false);
   });
   it("allows settings writes during preflight and rejects the superseded candidate", async () => {
     const entered = deferred();

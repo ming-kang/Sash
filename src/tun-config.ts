@@ -1,3 +1,4 @@
+import { mapping } from "./json-shape.js";
 import type { TunSettings } from "./tun-settings.js";
 
 /** TUN keys Sash owns outright; a profile's value for one is ignored. */
@@ -9,12 +10,6 @@ const TUN_MANAGED_KEYS = [
   "auto-detect-interface",
   "device",
 ] as const;
-
-// Looser than isPlainObject: plugin hooks run in a vm context, and their
-// object literals fail the main realm's prototype check.
-function mapping(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function unionStrings(...values: unknown[]): string[] {
   const out: string[] = [];
@@ -115,6 +110,10 @@ function hardenTunNetworking(config: Record<string, unknown>, warnings: string[]
   if (dns.enable === false)
     warnings.push("profile dns.enable: false ignored; TUN requires the Core DNS resolver");
   config.dns = { listen: "127.0.0.1:1053", "enhanced-mode": "fake-ip", ...dns, enable: true };
+}
+
+export function tunDisabledDocument(config: Record<string, unknown>): Record<string, unknown> {
+  return { ...config, tun: { enable: false } };
 }
 
 /**

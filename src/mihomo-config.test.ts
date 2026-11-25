@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { describe, it } from "vitest";
+import YAML from "yaml";
 import {
   asCoreConfigDocument,
   buildDefaultConfig,
@@ -11,6 +12,7 @@ import {
   parseSubscriptionUserinfo,
   resolveSubscriptionRedirect,
   stripManagedKeys,
+  tunDisabledGeneratedConfig,
 } from "./mihomo-config.js";
 import type { SashSettings } from "./settings.js";
 import { defaultTunSettings } from "./tun-settings.js";
@@ -34,6 +36,24 @@ describe("mihomo-config", () => {
       for (const value of [null, undefined, [], ["proxies"], "str", 12345, true]) {
         assert.throws(() => asCoreConfigDocument(value), /not a core configuration document/);
       }
+    });
+  });
+
+  describe("tunDisabledGeneratedConfig", () => {
+    it("serializes the document with TUN disabled while retaining generated metadata", () => {
+      const generated = {
+        yaml: "mixed-port: 7890\ntun:\n  enable: true\n  stack: system\n",
+        proxyCount: 2,
+        source: "subscription" as const,
+        warnings: ["kept"],
+      };
+      const disabled = tunDisabledGeneratedConfig(generated);
+      assert.deepEqual(YAML.parse(disabled.yaml).tun, { enable: false });
+      assert.equal(YAML.parse(disabled.yaml)["mixed-port"], 7890);
+      assert.equal(disabled.proxyCount, 2);
+      assert.equal(disabled.source, "subscription");
+      assert.deepEqual(disabled.warnings, ["kept"]);
+      assert.equal(YAML.parse(generated.yaml).tun.enable, true);
     });
   });
 

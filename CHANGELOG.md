@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- A failed **Apply configuration** or `sash restart` now brings Core back on the configuration it was running, for proxy-port and LAN-access changes as well as TUN; the saved changes stay pending instead of leaving Core stopped.
+
 ## [0.7.3] - 2026-11-25
 
 ### Changed

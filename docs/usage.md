@@ -6,7 +6,7 @@ Sash is a network toolbox for developers, learning and research. Use the CLI for
 
 ## Mental model
 
-Sash keeps a **saved** configuration and a **running** one. Selecting, editing or updating the selected profile applies to a running Core immediately — the reload swaps proxies and rules in place, so established connections survive. Only proxy-port, LAN-access and effective TUN changes wait for **Apply configuration** or `sash restart`, which restarts Core. Effective TUN changes are enable flips or, while TUN is enabled, edits to TUN settings that reach the running configuration. `sash status` reports both sides: what is saved and what Core is actually using.
+Sash keeps a **saved** configuration and a **running** one. Selecting, editing or updating the selected profile applies to a running Core immediately — the reload swaps proxies and rules in place, so established connections survive. Only proxy-port, LAN-access and effective TUN changes wait for **Apply configuration** or `sash restart`, which restarts Core; if the restart fails, Core returns to the configuration it was running and the saved changes stay pending. Effective TUN changes are enable flips or, while TUN is enabled, edits to TUN settings that reach the running configuration. `sash status` reports both sides: what is saved and what Core is actually using.
 
 Validation happens before anything is touched. A rejected configuration leaves the running Core and your saved edits intact, so the dashboard stays usable for correction.
 
@@ -43,7 +43,7 @@ sash restart
 | macOS | setuid root on the Core executable | Run `helper install` again |
 | Linux | `cap_net_admin,cap_net_bind_service` on the Core executable (pkexec, or `SASH_TUN_HELPER_AUTH=sudo`; a successful sudo choice is reused until `SASH_TUN_HELPER_AUTH=pkexec` is used once) | Run `helper install` again |
 
-`sash tun helper status` reports a helper serving another data folder or an older protocol; `install` replaces it, `uninstall` removes the grant (disable TUN first). A TUN Core that fails to start rolls back to the previous configuration.
+`sash tun helper status` reports a helper serving another data folder or an older protocol; `install` replaces it, `uninstall` removes the grant (disable TUN first). A TUN Core that fails to start rolls the saved TUN setting back.
 
 The helper grants privilege to a Core inside your data folder — anything running as your account can use that Core with the same privilege. Uninstall it when TUN is not needed.
 

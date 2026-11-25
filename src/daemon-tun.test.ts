@@ -5,7 +5,7 @@ import { describe, it } from "vitest";
 import YAML from "yaml";
 import type { DaemonStatus, TunStatusResponse } from "./contracts.js";
 import { readInstallRecord } from "./core.js";
-import { CoreUpdateResumeError } from "./runtime-lifecycle.js";
+import { CoreStartError, CoreUpdateResumeError } from "./runtime-lifecycle.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { FakeCoreSupervisor } from "./testing/state.js";
 import { type TunPlatform, unsupportedTunPlatform } from "./tun-service.js";
@@ -212,7 +212,7 @@ describe("daemon TUN controls", () => {
     });
     const write = await harness.apiRequest("/sash/settings", {
       method: "PATCH",
-      body: { tun: { enable: true } },
+      body: { tun: { enable: true, strictRoute: true, dnsHijack: ["any:53"] } },
     });
     assert.equal(write.statusCode, 200);
 
@@ -227,6 +227,43 @@ describe("daemon TUN controls", () => {
     assert.equal(supervisor.running, false);
     const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
     assert.equal(status.desired, false);
+    const daemon = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+    assert.equal(daemon.settings.tun.enable, false);
+    assert.equal(daemon.settings.tun.strictRoute, true);
+    assert.deepEqual(daemon.settings.tun.dnsHijack, ["any:53"]);
+  });
+
+  it("restores TUN after failed update verification and keeps the preference for a plain update", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    await harness.startServer({
+      supervisor,
+      stageCore: stage,
+      tunPlatform: readyTunPlatform(),
+    });
+    await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(
+      (await harness.apiRequest("/sash/core/restart", { method: "POST" })).statusCode,
+      200,
+    );
+    supervisor.onStart = () => {
+      if (readInstallRecord(harness.layout)?.coreVersion === "v2") {
+        throw new Error("verification boot failed");
+      }
+    };
+
+    const updated = await harness.apiRequest("/sash/core/update", { method: "POST" });
+
+    assert.notEqual(updated.statusCode, 200);
+    assert.match(JSON.stringify(updated.data), /verification boot failed/);
+    assert.equal(readInstallRecord(harness.layout)?.coreVersion, "v1.0.0");
+    assert.equal(supervisor.running, true);
+    assert.equal(YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8")).tun.enable, true);
+    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(status.desired, true);
+    assert.equal(status.applied, true);
   });
 
   it("throws CoreUpdateResumeError when the first-install TUN resume fails", async () => {
@@ -263,6 +300,9 @@ describe("daemon TUN controls", () => {
 
     assert.notEqual(started.statusCode, 200);
     assert.ok(updateError instanceof CoreUpdateResumeError);
+    assert.ok(updateError instanceof CoreStartError);
+    assert.equal(updateError.restored, undefined);
+    assert.ok(updateError.cause instanceof CoreStartError);
     assert.match(
       (updateError as CoreUpdateResumeError).message,
       /Core updated to v2, but TUN could not restart/,
@@ -310,7 +350,7 @@ describe("daemon TUN controls", () => {
     assert.equal(YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8")).tun.enable, true);
   });
 
-  it("leaves the saved settings untouched when a start without TUN fails", async () => {
+  it("restores the previous running configuration when a start without TUN fails", async () => {
     const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
     await harness.startServer({ supervisor });
     assert.equal(
@@ -333,10 +373,17 @@ describe("daemon TUN controls", () => {
     const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
     assert.notEqual(applied.statusCode, 200);
     assert.match(JSON.stringify(applied.data), /Core exited during startup/);
-    assert.equal(supervisor.starts, 2);
-    assert.equal(supervisor.running, false);
+    assert.equal(supervisor.starts, 3);
+    assert.equal(supervisor.running, true);
     const after = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
     assert.equal(after.revisions.state, before.revisions.state);
+    assert.equal(after.settings.allowLan, true);
+    assert.equal(after.configuration.pending, true);
+    assert.equal(after.configuration.appliedSettings?.allowLan, false);
+    assert.equal(
+      YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8"))["allow-lan"],
+      false,
+    );
     const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
     assert.equal(status.desired, false);
   });
@@ -393,6 +440,48 @@ describe("daemon TUN controls", () => {
       detail: "the TUN service serves another data folder",
     });
     assert.equal(status.applied, false);
+    assert.equal(status.desired, false);
+  });
+
+  it("keeps TUN enabled but reverts its edit when a ready check fails before restart", async () => {
+    let ready = true;
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    await harness.startServer({
+      supervisor,
+      tunPlatform: {
+        ...unsupportedTunPlatform(),
+        mechanism: "capabilities",
+        inspect: async () => ({ state: ready ? "ready" : "stale" }),
+      },
+    });
+    await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(
+      (await harness.apiRequest("/sash/core/restart", { method: "POST" })).statusCode,
+      200,
+    );
+    ready = false;
+    assert.equal(
+      (
+        await harness.apiRequest("/sash/settings", {
+          method: "PATCH",
+          body: { tun: { strictRoute: true } },
+        })
+      ).statusCode,
+      200,
+    );
+
+    const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
+
+    assert.notEqual(applied.statusCode, 200);
+    assert.equal(supervisor.running, true);
+    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    assert.equal(status.desired, true);
+    assert.equal(status.applied, true);
+    const daemon = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
+    assert.equal(daemon.settings.tun.strictRoute, false);
   });
 
   it("installs the helper through the platform and refuses removal while TUN runs", async () => {

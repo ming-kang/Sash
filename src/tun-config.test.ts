@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { enforceTunConfiguration } from "./tun-config.js";
+import { enforceTunConfiguration, tunDisabledDocument } from "./tun-config.js";
 import { defaultTunSettings } from "./tun-settings.js";
 
 describe("tun-config", () => {
+  describe("tunDisabledDocument", () => {
+    it("returns a copy with the TUN section reduced to disabled", () => {
+      const config: Record<string, unknown> = {
+        "mixed-port": 7890,
+        tun: { enable: true, stack: "system", mtu: 1400 },
+      };
+      const disabled = tunDisabledDocument(config);
+      assert.deepEqual(disabled, { "mixed-port": 7890, tun: { enable: false } });
+      assert.deepEqual(config.tun, { enable: true, stack: "system", mtu: 1400 });
+    });
+  });
+
   describe("enforceTunConfiguration", () => {
     it("enforces the Sash TUN setting after generation hooks", () => {
       const config = { tun: { enable: true, stack: "system" } };
