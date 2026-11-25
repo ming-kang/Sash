@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-25
+
 ### Fixed
 
 - Installing the Windows TUN helper no longer fails hard when the GitHub API is unavailable or rate-limited: the download falls back to the release's direct URL, verified against the helper SHA-256 digests embedded in the npm package at build time.
