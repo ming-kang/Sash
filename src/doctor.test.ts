@@ -495,3 +495,73 @@ it("falls back to a direct probe when the daemon did not answer", async () => {
     await f.cleanup();
   }
 });
+
+it("tunGuardCheck surfaces reconcile failures only when they matter", async () => {
+  const { tunGuardCheck } = await import("./doctor.js");
+  assert.equal(tunGuardCheck(undefined, true), undefined);
+  assert.equal(tunGuardCheck({ supported: false, lastReconcile: null }, true), undefined);
+  assert.equal(tunGuardCheck({ supported: true, lastReconcile: null }, false), undefined);
+  const pending = tunGuardCheck({ supported: true, lastReconcile: null }, true);
+  assert.equal(pending?.status, "info");
+  const ok = tunGuardCheck(
+    {
+      supported: true,
+      lastReconcile: { state: "ok", verb: "setup", detail: null, at: "2026-01-01T00:00:00Z" },
+    },
+    true,
+  );
+  assert.equal(ok?.status, "ok");
+  const failed = tunGuardCheck(
+    {
+      supported: true,
+      lastReconcile: {
+        state: "failed",
+        verb: "setup",
+        detail: "exit 1",
+        at: "2026-01-01T00:00:00Z",
+      },
+    },
+    true,
+  );
+  assert.equal(failed?.status, "warning");
+  assert.match(failed?.message ?? "", /exit 1/);
+  const unavailable = tunGuardCheck(
+    {
+      supported: true,
+      lastReconcile: {
+        state: "unavailable",
+        verb: "setup",
+        detail: "the guard script is not installed",
+        at: "2026-01-01T00:00:00Z",
+      },
+    },
+    true,
+  );
+  assert.equal(unavailable?.advice, "Run sash tun helper install");
+  const irrelevantSetup = tunGuardCheck(
+    {
+      supported: true,
+      lastReconcile: {
+        state: "failed",
+        verb: "setup",
+        detail: "exit 1",
+        at: "2026-01-01T00:00:00Z",
+      },
+    },
+    false,
+  );
+  assert.equal(irrelevantSetup, undefined);
+  const failedTeardown = tunGuardCheck(
+    {
+      supported: true,
+      lastReconcile: {
+        state: "failed",
+        verb: "teardown",
+        detail: "exit 1",
+        at: "2026-01-01T00:00:00Z",
+      },
+    },
+    false,
+  );
+  assert.equal(failedTeardown?.status, "warning");
+});

@@ -16,6 +16,7 @@ import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../sysproxy/manager.js";
+import { TunGuard, type TunGuardLike } from "../tun-guard.js";
 import { createTunPlatform } from "../tun-platform/index.js";
 import { type TunPlatform, TunService } from "../tun-service.js";
 import { resolveUiDir } from "../webui.js";
@@ -46,6 +47,7 @@ export interface DaemonDeps {
   resolveCoreReleaseFn?: typeof resolveCoreRelease;
   seedGeodataFn?: (file: string, options: { signal: AbortSignal }) => Promise<GeodataSeedResult>;
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
+  tunGuard?: TunGuardLike;
   engine?: CoreEngine;
   plugins?: PluginRegistry;
   onShutdown?: () => void;
@@ -85,6 +87,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
         layout,
         engine,
         ...(tunPlatform.host ? { tunHost: tunPlatform.host(layout) } : {}),
+        tunExpected: () => settings().tun.enable,
       }),
       settings: () => lifecycle?.settings() ?? settings(),
       onExit: () => {
@@ -114,6 +117,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
           });
       },
     });
+  const tunGuard = deps.tunGuard ?? new TunGuard();
   lifecycle = new RuntimeLifecycle({
     layout,
     supervisor,
@@ -121,13 +125,14 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     settings,
     engine,
     tun,
+    tunGuard,
     controllerProbe: deps.controllerProbe,
   });
   const cancelPreparations = (): void => {
     coreControl.cancelPreparation();
     profiles.cancelDownloads();
   };
-  gate = new DaemonGate(() => lifecycle.stop(), cancelPreparations, {
+  gate = new DaemonGate(() => lifecycle.stop({ final: true }), cancelPreparations, {
     onChange: () => events.notify(),
   });
   const mutate = <T>(action: () => T | Promise<T>) => gate.mutate(action);

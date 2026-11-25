@@ -3,7 +3,7 @@ import net from "node:net";
 import path from "node:path";
 import { readState, type SashState } from "./app-state.js";
 import { readLoginStartRecord } from "./autostart/login-record.js";
-import { type TunHelperStatus, tunApplyState } from "./contracts.js";
+import { type DaemonStatus, type TunHelperStatus, tunApplyState } from "./contracts.js";
 import { CORE_BINARY_SIZE_LIMIT, readInstallRecord } from "./core.js";
 import { GEODATA_FILE_NAMES } from "./core-config-validation.js";
 import { resolveDaemonSession } from "./daemon-session.js";
@@ -27,6 +27,7 @@ import {
   inspectWindowsProxyConnections,
   type ProxyConnectionsObservation,
 } from "./sysproxy/windows-connections.js";
+import { inspectLinuxTunNetwork } from "./tun-guard.js";
 import { describeTunHelper } from "./tun-service.js";
 
 export interface DoctorCheck {
@@ -289,6 +290,50 @@ function tunHelperCheck(helper: TunHelperStatus, tunSaved: boolean): DoctorCheck
   }
 }
 
+export function tunGuardCheck(
+  guard: DaemonStatus["tunGuard"],
+  tunSaved: boolean,
+): DoctorCheck | undefined {
+  if (!guard?.supported) return undefined;
+  const advice = "Run sash tun helper install";
+  const last = guard.lastReconcile;
+  if (!last) {
+    return tunSaved
+      ? check(
+          "tun-guard",
+          "info",
+          "TUN guard has not reconciled yet; it converges when the Core starts",
+        )
+      : undefined;
+  }
+  if (last.state === "ok") {
+    return check("tun-guard", "ok", `TUN guard ${last.verb} converged at ${last.at}`);
+  }
+  if (!tunSaved && last.verb === "setup") return undefined;
+  return check(
+    "tun-guard",
+    "warning",
+    `TUN guard ${last.verb} ${last.state}: ${last.detail ?? "unknown error"}`,
+    last.state === "unavailable" ? advice : undefined,
+  );
+}
+
+async function tunNetworkChecks(device: string | undefined): Promise<DoctorCheck[]> {
+  const observations = await inspectLinuxTunNetwork({ ...(device ? { device } : {}) });
+  if (observations.length === 0) return [];
+  return observations.map((observation) => {
+    const id = `tun-network-${observation.aspect}`;
+    if (observation.state === "ok") return check(id, "ok", observation.detail);
+    if (observation.state === "unknown") return check(id, "info", observation.detail);
+    return check(
+      id,
+      "warning",
+      observation.detail,
+      "Apply the TUN configuration again, or run sash tun helper install if the guard is missing",
+    );
+  });
+}
+
 async function tunChecks(context: StatusObservationContext): Promise<DoctorCheck[]> {
   try {
     const owner = await resolveDaemonSession(context);
@@ -296,10 +341,16 @@ async function tunChecks(context: StatusObservationContext): Promise<DoctorCheck
       return [check("tun-helper", "info", "TUN helper status unavailable while Sash is stopped")];
     const [helper, status] = await Promise.all([owner.client.tunHelper(), owner.client.status()]);
     const checks = [tunHelperCheck(helper, context.settings.tun.enable)];
-    if (tunApplyState(status).applied)
+    const guard = tunGuardCheck(status.tunGuard, context.settings.tun.enable);
+    if (guard) checks.push(guard);
+    if (tunApplyState(status).applied) {
+      const network = await tunNetworkChecks(context.settings.tun.device);
       checks.push(
-        check("tun-network", "info", "TUN is applied; OS routes and DNS are not checked"),
+        ...(network.length > 0
+          ? network
+          : [check("tun-network", "info", "TUN is applied; OS routes and DNS are not checked")]),
       );
+    }
     return checks;
   } catch {
     return [check("tun-helper", "info", "Could not read TUN helper status")];

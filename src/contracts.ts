@@ -134,6 +134,18 @@ export interface TunApplyState {
   /** The saved TUN settings differ from what a running Core uses, or no Core runs them yet. */
   pending: boolean;
 }
+
+export interface TunGuardReconcileState {
+  state: "ok" | "failed" | "unavailable";
+  verb: "setup" | "teardown";
+  detail: string | null;
+  at: string;
+}
+
+export interface TunGuardStatus {
+  supported: boolean;
+  lastReconcile: TunGuardReconcileState | null;
+}
 export interface ConfigurationPendingChanges {
   profile: boolean;
   mixedPort: boolean;
@@ -165,6 +177,7 @@ export interface DaemonStatus {
   };
   settings: PublicSashSettings;
   activeProfile: { id: string; name: string; url: string } | null;
+  tunGuard?: TunGuardStatus;
 }
 
 export function tunApplyState(status: DaemonStatus): TunApplyState {
