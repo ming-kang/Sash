@@ -19,7 +19,7 @@ import type { SashSettings } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import type { TunService } from "./tun-service.js";
-import { sameTunSettings } from "./tun-settings.js";
+import { sameEffectiveTunSettings, sameTunSettings } from "./tun-settings.js";
 
 export interface RuntimeConfiguration {
   generated: GeneratedConfig;
@@ -52,7 +52,7 @@ export function listenerSettingsChanged(
   return (
     applied.mixedPort !== target.mixedPort ||
     applied.allowLan !== target.allowLan ||
-    !sameTunSettings(applied.tun, target.tun)
+    !sameEffectiveTunSettings(applied.tun, target.tun)
   );
 }
 
@@ -200,7 +200,7 @@ export class RuntimeLifecycle {
     signal?.throwIfAborted();
     const applied = this.applied;
     if (!applied) throw new Error("Core configuration is unknown; apply it with a restart");
-    if (!sameTunSettings(applied.settings.tun, configuration.settings.tun))
+    if (!sameEffectiveTunSettings(applied.settings.tun, configuration.settings.tun))
       throw new Error("TUN settings changes require a supervised restart");
     await atomicWriteFile(this.options.layout.configFile, configuration.generated.yaml);
     const { controller, secret } = this.runtimeSettings;
@@ -349,7 +349,10 @@ export class RuntimeLifecycle {
   async restoreCoreSession(expected: RuntimeConfiguration): Promise<boolean> {
     if (this.options.supervisor.isRunning()) return true;
     const desired = this.options.settings();
-    if (expected.settings.tun.enable && !sameTunSettings(desired.tun, expected.settings.tun))
+    if (
+      expected.settings.tun.enable &&
+      !sameEffectiveTunSettings(desired.tun, expected.settings.tun)
+    )
       return true;
     await this.apply(expected);
     console.warn("[sashd] Core restarted after an unexpected exit");

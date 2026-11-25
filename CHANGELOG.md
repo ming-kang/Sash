@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Editing advanced TUN settings while TUN is disabled no longer reports a required restart or blocks in-place configuration reloads, since those fields do not reach the running configuration.
+
 ## [0.7.1] - 2026-11-25
 
 ### Changed

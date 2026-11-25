@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, it } from "vitest";
 import { mihomoEngine } from "./engine/index.js";
 import { RequestDeadlineError } from "./http.js";
 import { sashLayout } from "./paths.js";
-import { RuntimeLifecycle, runtimeDelta } from "./runtime-lifecycle.js";
+import { listenerSettingsChanged, RuntimeLifecycle, runtimeDelta } from "./runtime-lifecycle.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
 import { FakeCoreSupervisor, testSettings } from "./testing/state.js";
 import { type TunPrivilege, TunService } from "./tun-service.js";
@@ -288,7 +288,11 @@ describe("configuration reload", () => {
     };
   }
 
-  function fixture(controller: string, reloadConfig?: (path: string) => Promise<void>) {
+  function fixture(
+    controller: string,
+    reloadConfig?: (path: string) => Promise<void>,
+    tun?: TunService,
+  ) {
     const layout = sashLayout(root);
     const settings = testSettings({ controller });
     const core = new FakeCoreSupervisor(layout, settings);
@@ -316,6 +320,7 @@ describe("configuration reload", () => {
       engine: mihomoEngine,
       controllerProbe: async () => false,
       ...(reloadConfig ? { reloadConfig } : {}),
+      ...(tun ? { tun } : {}),
     });
     const applied = {
       generated: { yaml: "rules: ['MATCH,DIRECT']\n", proxyCount: 0, source: "default" as const },
@@ -404,6 +409,91 @@ describe("configuration reload", () => {
       const f = fixture(`127.0.0.1:${standIn.port}`);
       await assert.rejects(f.lifecycle.reload(f.applied), /apply it with a restart/);
       assert.deepEqual(standIn.seen, []);
+    } finally {
+      await standIn.close();
+    }
+  });
+
+  it("reloads in place when only disabled TUN fields differ", async () => {
+    const standIn = await coreStandIn(() => ({ status: 204 }));
+    try {
+      const f = fixture(`127.0.0.1:${standIn.port}`);
+      await f.lifecycle.apply(f.applied);
+      const next = {
+        ...f.applied,
+        settings: {
+          ...f.applied.settings,
+          tun: {
+            ...f.applied.settings.tun,
+            stack: "gvisor" as const,
+            strictRoute: true,
+            dnsHijack: ["any:53"],
+          },
+        },
+      };
+      const starts = f.core.starts;
+      const result = await f.lifecycle.reload(next);
+      assert.equal(result.alreadyRunning, true);
+      assert.equal(f.core.starts, starts);
+      assert.equal(f.lifecycle.configuration(), next);
+      assert.equal(standIn.seen.length, 1);
+    } finally {
+      await standIn.close();
+    }
+  });
+
+  it("refuses a reload when the TUN enable state differs", async () => {
+    const standIn = await coreStandIn(() => ({ status: 204 }));
+    try {
+      const f = fixture(`127.0.0.1:${standIn.port}`);
+      await f.lifecycle.apply(f.applied);
+      const next = {
+        ...f.applied,
+        settings: {
+          ...f.applied.settings,
+          tun: { ...f.applied.settings.tun, enable: true },
+        },
+      };
+      await assert.rejects(f.lifecycle.reload(next), /supervised restart/);
+      assert.deepEqual(standIn.seen, []);
+      assert.equal(f.lifecycle.configuration(), f.applied);
+    } finally {
+      await standIn.close();
+    }
+  });
+
+  it("refuses a reload when enabled TUN fields differ", async () => {
+    const standIn = await coreStandIn(() => ({ status: 204 }));
+    try {
+      const layout = sashLayout(root);
+      const tun = new TunService(
+        {
+          mechanism: "capabilities",
+          inspect: async () => ({ state: "ready" }),
+          install: async () => {},
+          uninstall: async () => {},
+        },
+        layout,
+      );
+      const f = fixture(`127.0.0.1:${standIn.port}`, undefined, tun);
+      const enabled = {
+        ...f.applied,
+        settings: {
+          ...f.applied.settings,
+          tun: { ...f.applied.settings.tun, enable: true },
+        },
+      };
+      await f.lifecycle.apply(enabled);
+      const next = {
+        ...enabled,
+        settings: {
+          ...enabled.settings,
+          tun: { ...enabled.settings.tun, stack: "gvisor" as const },
+        },
+      };
+      await assert.rejects(f.lifecycle.reload(next), /supervised restart/);
+      assert.deepEqual(standIn.seen, []);
+      assert.equal(f.lifecycle.configuration(), enabled);
     } finally {
       await standIn.close();
     }
@@ -583,5 +673,67 @@ describe("runtime delta", () => {
       pending: true,
       restartRequired: false,
     });
+  });
+  it("ignores advanced TUN edits while TUN is disabled but demands a restart once enabled", () => {
+    const edited = {
+      ...settings.tun,
+      stack: "gvisor" as const,
+      strictRoute: true,
+      dnsHijack: ["any:53"],
+    };
+    assert.deepEqual(
+      runtimeDelta(applied(), { profile: null, settings: { ...settings, tun: edited } }),
+      {
+        pending: false,
+        restartRequired: false,
+      },
+    );
+    const enabled = { ...edited, enable: true };
+    assert.deepEqual(
+      runtimeDelta(applied({ tun: { ...settings.tun, enable: true } }), {
+        profile: null,
+        settings: { ...settings, tun: enabled },
+      }),
+      {
+        pending: true,
+        restartRequired: true,
+      },
+    );
+  });
+});
+
+describe("listener settings", () => {
+  const settings = testSettings();
+  it("ignores advanced TUN field edits while TUN is disabled on both sides", () => {
+    const edited = {
+      ...settings.tun,
+      stack: "gvisor" as const,
+      strictRoute: true,
+      dnsHijack: ["any:53"],
+    };
+    assert.equal(listenerSettingsChanged(settings, { ...settings, tun: edited }), false);
+  });
+  it("notices advanced TUN field edits while TUN is enabled on both sides", () => {
+    const appliedTun = { ...settings.tun, enable: true };
+    const edited = {
+      ...appliedTun,
+      stack: "gvisor" as const,
+      strictRoute: true,
+      dnsHijack: ["any:53"],
+    };
+    assert.equal(
+      listenerSettingsChanged({ ...settings, tun: appliedTun }, { ...settings, tun: edited }),
+      true,
+    );
+  });
+  it("notices a TUN enable flip", () => {
+    assert.equal(
+      listenerSettingsChanged(settings, { ...settings, tun: { ...settings.tun, enable: true } }),
+      true,
+    );
+    assert.equal(
+      listenerSettingsChanged({ ...settings, tun: { ...settings.tun, enable: true } }, settings),
+      true,
+    );
   });
 });
