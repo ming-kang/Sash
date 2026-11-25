@@ -28,6 +28,44 @@ describe("tun-config", () => {
       assert.ok(warnings.some((w) => w.includes("TUN listeners")));
     });
 
+    it("fails empty proxy groups closed while TUN is disabled and stays idempotent", () => {
+      const config: Record<string, unknown> = {
+        "proxy-groups": [
+          { name: "Auto", type: "url-test", use: ["airport"] },
+          {
+            name: "CompatibleFallback",
+            type: "select",
+            proxies: [],
+            "empty-fallback": "COMPATIBLE",
+          },
+          { name: "PinnedFallback", type: "select", proxies: [], "empty-fallback": "node-a" },
+        ],
+      };
+      const warnings: string[] = [];
+
+      enforceTunConfiguration(config, defaultTunSettings(), warnings);
+
+      const groups = config["proxy-groups"] as Array<Record<string, unknown>>;
+      assert.equal(groups.find((group) => group.name === "Auto")?.["empty-fallback"], "REJECT");
+      assert.equal(
+        groups.find((group) => group.name === "CompatibleFallback")?.["empty-fallback"],
+        "REJECT",
+      );
+      assert.equal(
+        groups.find((group) => group.name === "PinnedFallback")?.["empty-fallback"],
+        "node-a",
+      );
+      assert.deepEqual(warnings, [
+        "proxy group CompatibleFallback used COMPATIBLE as its empty fallback; direct traffic from an empty group exposes the real egress, so Sash uses REJECT",
+      ]);
+      assert.equal(config.dns, undefined);
+
+      const enforced = structuredClone(config);
+      enforceTunConfiguration(config, defaultTunSettings(), warnings);
+      assert.deepEqual(config, enforced);
+      assert.equal(warnings.length, 1);
+    });
+
     it("re-applies the complete enabled TUN policy after generation hooks", () => {
       const tun = {
         ...defaultTunSettings(),

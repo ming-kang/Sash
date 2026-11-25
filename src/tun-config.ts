@@ -94,14 +94,13 @@ function failClosedEmptyGroups(config: Record<string, unknown>, warnings: string
     } else if (DIRECT_EMPTY_FALLBACKS.has(fallback.toUpperCase())) {
       group["empty-fallback"] = "REJECT";
       warnings.push(
-        `proxy group ${name} used ${fallback} as its empty fallback; TUN Mode uses REJECT to avoid direct traffic`,
+        `proxy group ${name} used ${fallback} as its empty fallback; direct traffic from an empty group exposes the real egress, so Sash uses REJECT`,
       );
     }
   }
 }
 
 function hardenTunNetworking(config: Record<string, unknown>, warnings: string[]): void {
-  failClosedEmptyGroups(config, warnings);
   if (config.dns !== undefined && !mapping(config.dns))
     warnings.push("profile dns is not a mapping; replaced with Core DNS defaults");
   const dns = (mapping(config.dns) ? config.dns : undefined) ?? {
@@ -130,6 +129,7 @@ export function enforceTunConfiguration(
 ): void {
   removeTunListeners(config, warnings);
   mergeManagedTunKeys(config, tun, warnings);
+  failClosedEmptyGroups(config, warnings);
   if (tun.enable) {
     defaultSystemDnsMode(config);
     hardenTunNetworking(config, warnings);
