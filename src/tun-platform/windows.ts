@@ -10,9 +10,11 @@ import {
   HELPER_PROTOCOL,
   type HelperReply,
   type HelperRequest,
+  helperGuardUnsupportedWarning,
   requestHelper,
 } from "./helper-pipe.js";
 import { resolveHelperSource } from "./helper-source.js";
+import type { WindowsGuardHost } from "./windows-guard.js";
 
 export const HELPER_SERVICE = "SashTun";
 /** The 0.7.0 helper service, replaced on install and removed on uninstall. */
@@ -53,8 +55,7 @@ export function guardFromReply(reply: HelperReply): WindowsGuardStatus {
 }
 
 export function guardSupportWarning(reply: HelperReply): string | null {
-  if (reply.protocol >= HELPER_PROTOCOL) return null;
-  return `the TUN service speaks protocol ${reply.protocol} and cannot run the TUN kill switch; reinstall it: sash tun helper install`;
+  return helperGuardUnsupportedWarning(reply);
 }
 
 /** CommandLineToArgvW quoting; arguments without spaces or quotes stay bare. */
@@ -287,7 +288,7 @@ export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatfo
       await run(uninstallScript(), "remove the TUN helper");
     },
     host(layout): HostedCore {
-      return {
+      const hosted: WindowsGuardHost = {
         async start(options) {
           const status = await request("status", 5_000);
           const privilege = privilegeFromReply(status, layout);
@@ -308,11 +309,20 @@ export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatfo
           const reply = await request("stop", 30_000);
           if (!reply.ok) throw new Error(reply.error ?? "The TUN service did not stop the Core");
         },
+        async unguard() {
+          const reply = await request("unguard", 10_000);
+          if (!reply.ok)
+            throw new Error(reply.error ?? "The TUN service did not remove the TUN kill switch");
+        },
         async status() {
           const reply = await request("status", 5_000);
           return { running: reply.running, pid: reply.pid ?? null };
         },
+        async probeGuard() {
+          return request("status", 5_000);
+        },
       };
+      return hosted;
     },
   };
 }

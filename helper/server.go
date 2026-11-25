@@ -17,8 +17,8 @@ import (
 
 // protocolVersion changes only when the request or response shape does;
 // Sash reinstalls a helper that reports another version. Version 2 adds the
-// guard fields: version-1 helpers serve start/stop/status without the kill
-// switch, which Sash treats as a degraded rather than broken service.
+// guard fields and unguard: version-1 helpers serve start/stop/status without
+// the kill switch, which Sash treats as a degraded rather than broken service.
 const protocolVersion = 2
 
 var devicePattern = regexp.MustCompile(`^[\w.-]{1,64}$`)
@@ -42,6 +42,7 @@ type response struct {
 type controller interface {
 	start(startOptions) error
 	stop() error
+	unguard() error
 	status() (bool, int)
 	guardState() guardState
 }
@@ -125,6 +126,8 @@ func dispatch(core controller, line []byte) response {
 		err = core.start(startOptions{guard: req.Guard, device: req.Device})
 	case "stop":
 		err = core.stop()
+	case "unguard":
+		err = core.unguard()
 	default:
 		return response{Error: fmt.Sprintf("unknown op %q", req.Op)}
 	}

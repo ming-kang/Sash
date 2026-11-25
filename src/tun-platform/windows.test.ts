@@ -18,6 +18,7 @@ import {
   uninstallScript,
   windowsTunPlatform,
 } from "./windows.js";
+import { windowsTunGuard } from "./windows-guard.js";
 
 const layout = sashLayout("C:\\Users\\Dev User\\AppData\\Local\\Sash");
 
@@ -154,6 +155,42 @@ describe("Windows helper state", () => {
     assert.ok(host);
     await host.start({ device: "sashtun" });
     assert.deepEqual(starts, [{ guard: true, device: "sashtun" }]);
+  });
+
+  it("removes the kill switch through the unguard verb", async () => {
+    const calls: HelperOp[] = [];
+    const host = windowsTunPlatform({
+      request: async (op) => {
+        calls.push(op);
+        return reply({ guard: { active: false } });
+      },
+    }).host?.(layout);
+    assert.ok(host);
+    await host.unguard();
+    assert.deepEqual(calls, ["unguard"]);
+  });
+
+  it("rejects an unguard failure", async () => {
+    const host = windowsTunPlatform({
+      request: async () => reply({ ok: false, error: `unknown op "unguard"` }),
+    }).host?.(layout);
+    assert.ok(host);
+    await assert.rejects(host.unguard(), /unknown op/);
+  });
+
+  it("lets the guard adapter probe through the host's injected requester", async () => {
+    const calls: HelperOp[] = [];
+    const host = windowsTunPlatform({
+      request: async (op) => {
+        calls.push(op);
+        return reply();
+      },
+    }).host?.(layout);
+    assert.ok(host);
+    const guard = windowsTunGuard(host);
+    await guard.reconcile("setup");
+    assert.deepEqual(calls, ["status"]);
+    assert.equal(guard.lastResult()?.state, "ok");
   });
 
   it("starts unguarded with a warning when the helper pre-dates the kill switch", async () => {

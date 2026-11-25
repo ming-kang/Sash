@@ -22,7 +22,13 @@ const helperReplySchema = z.object({
   error: z.string().optional(),
 });
 export type HelperReply = z.output<typeof helperReplySchema>;
-export type HelperOp = "status" | "start" | "stop";
+
+export function helperGuardUnsupportedWarning(reply: HelperReply): string | null {
+  if (reply.protocol >= HELPER_PROTOCOL) return null;
+  return `the TUN service speaks protocol ${reply.protocol} and cannot run the TUN kill switch; reinstall it: sash tun helper install`;
+}
+
+export type HelperOp = "status" | "start" | "stop" | "unguard";
 export interface HelperStartOptions {
   guard?: boolean;
   device?: string;

@@ -500,7 +500,27 @@ func TestUnguardedStartDoesNotTouchGuard(t *testing.T) {
 	}
 }
 
-func TestGuardedStopRemovesObjects(t *testing.T) {
+func TestGuardedStopKeepsObjects(t *testing.T) {
+	core, guard, host := testGuardedCore(newFakeEngine())
+	if err := core.start(startOptions{guard: true, device: "Meta"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.stop(); err != nil {
+		t.Fatal(err)
+	}
+	if host.running {
+		t.Fatal("Core still running after stop")
+	}
+	if !guard.state().Active {
+		t.Fatal("stop must keep the guard across the restart window")
+	}
+	_, count := core.guard.engine.(*fakeEngine).snapshot()
+	if count != 14 {
+		t.Fatalf("filters after stop: %d", count)
+	}
+}
+
+func TestGuardedRestartRefreshesObjects(t *testing.T) {
 	core, guard, _ := testGuardedCore(newFakeEngine())
 	if err := core.start(startOptions{guard: true, device: "Meta"}); err != nil {
 		t.Fatal(err)
@@ -508,22 +528,48 @@ func TestGuardedStopRemovesObjects(t *testing.T) {
 	if err := core.stop(); err != nil {
 		t.Fatal(err)
 	}
-	if guard.state().Active {
-		t.Fatal("guard still active after stop")
+	if err := core.start(startOptions{guard: true, device: "sashtun"}); err != nil {
+		t.Fatal(err)
 	}
-	_, count := core.guard.engine.(*fakeEngine).snapshot()
-	if count != 0 {
-		t.Fatalf("%d filters left after stop", count)
+	state := guard.state()
+	if !state.Active || state.Device != "sashtun" {
+		t.Fatalf("guard state after refresh %+v", state)
+	}
+	ops, count := core.guard.engine.(*fakeEngine).snapshot()
+	if count != 14 {
+		t.Fatalf("filters after refresh: %d", count)
+	}
+	if strings.Count(ops, "commit") != 2 || strings.Contains(ops, "abort") {
+		t.Fatalf("refresh transactions: %s", ops)
 	}
 }
 
-func TestStopWithoutCoreStillRemovesObjects(t *testing.T) {
+func TestUnguardWithoutCoreRemovesObjects(t *testing.T) {
 	core, _, _ := testGuardedCore(newFakeEngine())
 	if err := installGuardPlan(core.guard.engine.(*fakeEngine), buildGuardPlan([]byte("x"), 1)); err != nil {
 		t.Fatal(err)
 	}
-	if err := core.stop(); err != nil {
+	if err := core.unguard(); err != nil {
 		t.Fatal(err)
+	}
+	_, count := core.guard.engine.(*fakeEngine).snapshot()
+	if count != 0 {
+		t.Fatalf("%d filters left", count)
+	}
+}
+
+func TestUnguardIsIdempotent(t *testing.T) {
+	core, guard, _ := testGuardedCore(newFakeEngine())
+	if err := core.start(startOptions{guard: true, device: "Meta"}); err != nil {
+		t.Fatal(err)
+	}
+	for call := 0; call < 2; call++ {
+		if err := core.unguard(); err != nil {
+			t.Fatalf("unguard %d: %v", call, err)
+		}
+	}
+	if guard.state().Active {
+		t.Fatal("guard still active after unguard")
 	}
 	_, count := core.guard.engine.(*fakeEngine).snapshot()
 	if count != 0 {
@@ -618,7 +664,7 @@ func TestResolverStopsWhenUninstalled(t *testing.T) {
 	if err := core.start(startOptions{guard: true, device: "Meta"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := core.stop(); err != nil {
+	if err := core.unguard(); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(20 * time.Millisecond)

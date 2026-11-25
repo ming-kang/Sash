@@ -18,6 +18,7 @@ import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../sysproxy/manager.js";
 import { TunGuard, type TunGuardLike } from "../tun-guard.js";
 import { createTunPlatform } from "../tun-platform/index.js";
+import { windowsTunGuard } from "../tun-platform/windows-guard.js";
 import { type TunPlatform, TunService } from "../tun-service.js";
 import { resolveUiDir } from "../webui.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
@@ -77,6 +78,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   let profiles: ProfileService;
   let coreControl: CoreControlService;
   let coreRecovery: Promise<void> | undefined;
+  const hostedCore = tunPlatform.host?.(layout);
   const events = new DaemonEvents(createEventObserver(() => context));
   const supervisor =
     deps.supervisor ??
@@ -86,7 +88,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       runner: createCoreRunner({
         layout,
         engine,
-        ...(tunPlatform.host ? { tunHost: tunPlatform.host(layout) } : {}),
+        ...(hostedCore ? { tunHost: hostedCore } : {}),
         tunExpected: () => settings().tun.enable,
       }),
       settings: () => lifecycle?.settings() ?? settings(),
@@ -117,7 +119,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
           });
       },
     });
-  const tunGuard = deps.tunGuard ?? new TunGuard();
+  const tunGuard =
+    deps.tunGuard ??
+    (process.platform === "win32" && hostedCore ? windowsTunGuard(hostedCore) : new TunGuard());
   lifecycle = new RuntimeLifecycle({
     layout,
     supervisor,

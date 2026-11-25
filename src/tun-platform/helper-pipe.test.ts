@@ -53,6 +53,13 @@ describe("requestHelper", () => {
     assert.deepEqual(seen, ['{"op":"start","guard":true,"device":"sashtun"}\n']);
   });
 
+  it.skipIf(process.platform !== "win32")("sends the unguard verb", async () => {
+    const pipe = testPipe("unguard");
+    const seen = await serve(pipe, () => JSON.stringify(reply()));
+    await requestHelper("unguard", 2_000, { pipe });
+    assert.deepEqual(seen, ['{"op":"unguard"}\n']);
+  });
+
   it.skipIf(process.platform !== "win32")("omits empty start options", async () => {
     const pipe = testPipe("plain-start");
     const seen = await serve(pipe, () => JSON.stringify(reply({ running: true, pid: 9 })));

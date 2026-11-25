@@ -513,8 +513,8 @@ type coreControl interface {
 }
 
 // guardedCore composes the Core host with the guard lifecycle: the kill
-// switch goes in before the Core starts, comes out only when the Core stops
-// on purpose, and is refreshed rather than touched when the Core crashes.
+// switch goes in before the Core starts and stays across restarts and crashes
+// until the daemon explicitly converges it away.
 type guardedCore struct {
 	host     coreControl
 	corePath string
@@ -554,9 +554,10 @@ func (c *guardedCore) start(options startOptions) error {
 }
 
 func (c *guardedCore) stop() error {
-	if err := c.host.stop(); err != nil {
-		return err
-	}
+	return c.host.stop()
+}
+
+func (c *guardedCore) unguard() error {
 	return c.guard.uninstall()
 }
 

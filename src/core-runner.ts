@@ -408,17 +408,13 @@ export class HostedCoreRunner implements CoreRunner {
     } catch {
       return; // no reachable host, no hosted Core
     }
-    if (running) {
-      await this.host.stop();
-      return;
-    }
-    // Nothing runs, yet the host may still hold the Windows kill switch of a
-    // crashed Core. When the configuration expects a TUN Core the guard must
-    // survive — the next launch refreshes it; otherwise it is a leftover and
-    // the stop converges it away (idempotent for the Core side).
+    if (running) await this.host.stop();
+    // A stopped or absent Core can leave the Windows kill switch behind. When
+    // the configuration expects a TUN Core the guard must survive — the next
+    // launch refreshes it; otherwise it is a leftover.
     if (this.tunExpected?.()) return;
     try {
-      await this.host.stop();
+      await this.host.unguard();
     } catch (error) {
       console.warn(`[sashd] Could not converge the TUN host state: ${errorMessage(error)}`);
     }

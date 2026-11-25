@@ -23,6 +23,7 @@ export interface HostedCoreStartOptions {
 export interface HostedCore {
   start(options?: HostedCoreStartOptions): Promise<{ pid: number }>;
   stop(): Promise<void>;
+  unguard(): Promise<void>;
   status(): Promise<{ running: boolean; pid: number | null }>;
 }
 
