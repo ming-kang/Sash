@@ -7,12 +7,36 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { test, vi } from "vitest";
+import { type CoreRunnerOptions, createCoreRunner } from "./core-runner.js";
 import { mihomoEngine } from "./engine/index.js";
 import { sashLayout } from "./paths.js";
 import { classifyProcessIdentityAsync, readPidRecord, writePidRecord } from "./process.js";
 import { DEFAULT_SETTINGS } from "./settings.js";
-import { CORE_LOG_ROTATE_BYTES, CoreSupervisor, rotateCoreLogs } from "./supervisor.js";
+import {
+  CORE_LOG_ROTATE_BYTES,
+  CoreSupervisor,
+  type CoreSupervisorOptions,
+  rotateCoreLogs,
+} from "./supervisor.js";
 import type { HostedCore } from "./tun-service.js";
+
+function createSupervisor(
+  options: Omit<CoreSupervisorOptions, "runner"> & Omit<CoreRunnerOptions, "layout" | "engine">,
+): CoreSupervisor {
+  const { spawnFn, isAliveFn, killFn, classifyIdentityFn, tunHost, ...supervision } = options;
+  return new CoreSupervisor({
+    ...supervision,
+    runner: createCoreRunner({
+      layout: options.layout,
+      engine: options.engine,
+      spawnFn,
+      isAliveFn,
+      killFn,
+      classifyIdentityFn,
+      tunHost,
+    }),
+  });
+}
 
 test("restart: stale exit event from the replaced core does not clobber the new one", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-supervisor-"));
@@ -46,7 +70,7 @@ test("restart: stale exit event from the replaced core does not clobber the new 
 
   const settings = { ...DEFAULT_SETTINGS, controller: `127.0.0.1:${port}`, secret: "" };
   let exitCalls = 0;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => settings,
     engine: mihomoEngine,
@@ -117,7 +141,7 @@ test("stop preserves Core ownership when termination cannot be confirmed", async
   const port = (server.address() as AddressInfo).port;
   const fakeChild = Object.assign(new EventEmitter(), { pid: 4242 }) as ChildProcess;
   const settings = { ...DEFAULT_SETTINGS, controller: `127.0.0.1:${port}` };
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => settings,
     engine: mihomoEngine,
@@ -154,7 +178,7 @@ test("stale Core cleanup preserves PID state when identity is unknown", async ()
     startedAt: "2026-01-01T00:00:00.000Z",
   });
   let killCalled = false;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     isAliveFn: () => true,
@@ -183,7 +207,7 @@ test("stale Core cleanup clears a PID record that belongs to another executable"
     exe: layout.coreExe,
     startedAt: "2026-01-01T00:00:00.000Z",
   });
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     isAliveFn: () => true,
@@ -210,7 +234,7 @@ test("start terminates the child when PID ownership cannot be persisted", async 
   const fakeChild = Object.assign(new EventEmitter(), { pid: 4343 }) as ChildProcess;
   let alive = true;
   let killCalls = 0;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     engine: mihomoEngine,
@@ -237,7 +261,7 @@ test("stale Core cleanup rejects a corrupt PID record", async () => {
   const layout = sashLayout(root);
   fs.mkdirSync(layout.stateDir, { recursive: true });
   fs.writeFileSync(layout.pidFile, "{ broken");
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     engine: mihomoEngine,
@@ -281,7 +305,7 @@ test("status reports stopped when its controller probe outlives the owned child"
   const port = (server.address() as AddressInfo).port;
   const child = Object.assign(new EventEmitter(), { pid: 5151 }) as ChildProcess;
   let alive = true;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS, controller: `127.0.0.1:${port}` }),
     engine: mihomoEngine,
@@ -315,7 +339,7 @@ test("stale Core cleanup never trusts an executable path supplied by the PID rec
     startedAt: "2026-01-01T00:00:00.000Z",
   });
   let killCalled = false;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     isAliveFn: () => true,
@@ -348,7 +372,7 @@ test("start installs an error listener before rejecting a child without a PID", 
     exitCode: null,
     signalCode: null,
   }) as ChildProcess;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     engine: mihomoEngine,
@@ -377,7 +401,7 @@ test("PID write failure preserves uncertain ownership when termination fails", a
     signalCode: null,
   }) as ChildProcess;
   let rmCalls = 0;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS }),
     spawnFn: () => child,
@@ -417,7 +441,7 @@ test("start aborts an owned child after an asynchronous spawn error", async () =
   }) as ChildProcess;
   let alive = true;
   let killCalls = 0;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS, controller: "127.0.0.1:1" }),
     engine: mihomoEngine,
@@ -458,7 +482,7 @@ test("health timeout aborts the child and clears its owned PID record", async ()
   }) as ChildProcess;
   let alive = true;
   let killCalls = 0;
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS, controller: "127.0.0.1:1" }),
     spawnFn: () => child,
@@ -482,7 +506,67 @@ test("health timeout aborts the child and clears its owned PID record", async ()
   }
 });
 
-function hostedFixture(prefix: string) {
+function spawnedFixture(prefix: string, killFn: () => Promise<boolean>) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const layout = sashLayout(root);
+  fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
+  fs.writeFileSync(layout.coreExe, "fake-core");
+  fs.mkdirSync(path.dirname(layout.configFile), { recursive: true });
+  fs.writeFileSync(layout.configFile, "mixed-port: 1\n");
+  const child = Object.assign(new EventEmitter(), { pid: 5656 }) as ChildProcess;
+  const state = { alive: true };
+  const exits: unknown[] = [];
+  const supervisor = createSupervisor({
+    layout,
+    settings: () => ({ ...DEFAULT_SETTINGS }),
+    spawnFn: () => child,
+    isAliveFn: () => state.alive,
+    killFn,
+    onExit: (code, signal) => {
+      exits.push([code, signal]);
+    },
+    engine: {
+      ...mihomoEngine,
+      api(controller, secret, dispatcher) {
+        const api = mihomoEngine.api(controller, secret, dispatcher);
+        return { ...api, version: async () => "v-spawned" };
+      },
+    },
+  });
+  return { root, layout, child, state, supervisor, exits };
+}
+
+test("an unexpected exit is reported and clears the owned PID record", async () => {
+  const f = spawnedFixture("sash-supervisor-unexpected-exit-test-", async () => true);
+  try {
+    await f.supervisor.start();
+    assert.equal(readPidRecord(f.layout.pidFile)?.pid, 5656);
+    f.state.alive = false;
+    f.child.emit("exit", 1, null);
+    assert.deepEqual(f.exits, [[1, null]]);
+    assert.equal(f.supervisor.isRunning(), false);
+    assert.equal(readPidRecord(f.layout.pidFile), undefined);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("an exit after an unconfirmed stop is not reported as unexpected", async () => {
+  const f = spawnedFixture("sash-supervisor-late-exit-test-", async () => false);
+  try {
+    await f.supervisor.start();
+    await assert.rejects(f.supervisor.stop(), /still running after termination attempt/);
+    f.state.alive = false;
+    f.child.emit("exit", 0, null);
+    assert.deepEqual(f.exits, []);
+    assert.equal(f.supervisor.isRunning(), false);
+    assert.equal(readPidRecord(f.layout.pidFile), undefined);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+function hostedFixture(prefix: string, version: () => Promise<string> = async () => "v-hosted") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
@@ -509,7 +593,7 @@ function hostedFixture(prefix: string) {
   };
   const settings = { ...DEFAULT_SETTINGS, tun: { ...DEFAULT_SETTINGS.tun, enable: true } };
   const exits: unknown[] = [];
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => settings,
     tunHost: host,
@@ -524,7 +608,7 @@ function hostedFixture(prefix: string) {
       ...mihomoEngine,
       api(controller, secret, dispatcher) {
         const api = mihomoEngine.api(controller, secret, dispatcher);
-        return { ...api, version: async () => "v-hosted" };
+        return { ...api, version };
       },
     },
   });
@@ -578,6 +662,85 @@ test("hosted TUN Core: the heartbeat reports a Core that went away", async () =>
   } finally {
     vi.useRealTimers();
     await f.supervisor.stop().catch(() => {});
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: the heartbeat tolerates a briefly unreachable host", async () => {
+  const f = hostedFixture("sash-supervisor-hosted-unreachable-test-");
+  const status = f.host.status;
+  try {
+    vi.useFakeTimers();
+    await f.supervisor.start();
+    f.host.status = async () => {
+      throw new Error("pipe busy");
+    };
+    await vi.advanceTimersByTimeAsync(2_000);
+    assert.equal(f.supervisor.isRunning(), true);
+    f.host.status = status;
+    await vi.advanceTimersByTimeAsync(1_000);
+    f.host.status = async () => {
+      throw new Error("pipe gone");
+    };
+    await vi.advanceTimersByTimeAsync(2_000);
+    assert.equal(f.supervisor.isRunning(), true);
+    assert.deepEqual(f.exits, []);
+    await vi.advanceTimersByTimeAsync(1_000);
+    assert.equal(f.supervisor.isRunning(), false);
+    assert.deepEqual(f.exits, [[null, null]]);
+  } finally {
+    vi.useRealTimers();
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: a failed stop keeps the session and resumes the heartbeat", async () => {
+  const f = hostedFixture("sash-supervisor-hosted-stop-failure-test-");
+  const stop = f.host.stop;
+  try {
+    vi.useFakeTimers();
+    await f.supervisor.start();
+    f.host.stop = async () => {
+      throw new Error("pipe busy");
+    };
+    await assert.rejects(f.supervisor.stop(), /pipe busy/);
+    assert.equal(f.supervisor.isRunning(), true);
+    f.host.running = false;
+    await vi.advanceTimersByTimeAsync(1_000);
+    assert.equal(f.supervisor.isRunning(), false);
+    assert.deepEqual(f.exits, [[null, null]]);
+  } finally {
+    vi.useRealTimers();
+    f.host.stop = stop;
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: a failed start the host cannot stop keeps the session", async () => {
+  const f = hostedFixture("sash-supervisor-hosted-abort-failure-test-", async () => {
+    throw new Error("controller unreachable");
+  });
+  const stop = f.host.stop;
+  try {
+    fs.mkdirSync(f.layout.logsDir, { recursive: true });
+    f.host.start = async () => {
+      fs.appendFileSync(f.layout.coreErrLogFile, "fatal: controller bind failed\n");
+      return { pid: f.host.pid };
+    };
+    f.host.running = true;
+    f.host.stop = async () => {
+      throw new Error("pipe busy");
+    };
+    await assert.rejects(
+      f.supervisor.start(),
+      /did not become healthy within 500ms\.\nRecent errors:\nfatal: controller bind failed\nThe TUN service could not stop the Core: pipe busy/,
+    );
+    assert.equal(f.supervisor.isRunning(), true);
+    f.host.stop = stop;
+    await f.supervisor.stop();
+    assert.equal(f.supervisor.isRunning(), false);
+    assert.deepEqual(f.exits, []);
+  } finally {
     fs.rmSync(f.root, { recursive: true, force: true });
   }
 });
@@ -761,7 +924,7 @@ test("defaultSpawn rotates oversized log files before opening append fds", async
   fs.ftruncateSync(fd, CORE_LOG_ROTATE_BYTES);
   fs.closeSync(fd);
 
-  const supervisor = new CoreSupervisor({
+  const supervisor = createSupervisor({
     layout,
     settings: () => ({ ...DEFAULT_SETTINGS, controller: "127.0.0.1:1" }),
     engine: mihomoEngine,

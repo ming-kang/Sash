@@ -113,8 +113,8 @@ describe("daemon server", () => {
       let ownership: object = {};
       const fakeSupervisor = {
         isRunning: () => running,
-        ownedCoreSnapshot: () => (running ? { child: ownership, pid: 1234 } : undefined),
-        ownsCore: (snapshot: { child: object }) => running && snapshot.child === ownership,
+        ownedCoreSnapshot: () => (running ? { session: ownership, pid: 1234 } : undefined),
+        ownsCore: (snapshot: { session: object }) => running && snapshot.session === ownership,
         status: async (): Promise<CoreState> => ({ running, healthy: running }),
         start: async () => {
           running = true;

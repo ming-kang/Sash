@@ -3,6 +3,7 @@ import path from "node:path";
 import { SashStateStore } from "../app-state.js";
 import type { DaemonStatus, ProfileMeta } from "../contracts.js";
 import { currentCoreVersion } from "../core.js";
+import { createCoreRunner } from "../core-runner.js";
 import { mihomoEngine } from "../engine/index.js";
 import type { SashLayout } from "../paths.js";
 import { DEFAULT_SETTINGS, publicSettings, type SashSettings } from "../settings.js";
@@ -118,16 +119,21 @@ export class FakeCoreSupervisor extends CoreSupervisor {
     private readonly testLayout: SashLayout,
     settings = testSettings(),
   ) {
-    super({ layout: testLayout, settings: () => settings, engine: mihomoEngine });
+    super({
+      layout: testLayout,
+      settings: () => settings,
+      engine: mihomoEngine,
+      runner: createCoreRunner({ layout: testLayout, engine: mihomoEngine }),
+    });
   }
   override isRunning(): boolean {
     return this.running;
   }
   override ownedCoreSnapshot(): CoreOwnershipSnapshot | undefined {
-    return this.running ? { child: this.ownership, pid: this.pid } : undefined;
+    return this.running ? { session: this.ownership, pid: this.pid } : undefined;
   }
   override ownsCore(owner: CoreOwnershipSnapshot): boolean {
-    return this.running && owner.child === this.ownership;
+    return this.running && owner.session === this.ownership;
   }
   override async status(): Promise<CoreState> {
     await this.onStatus?.();

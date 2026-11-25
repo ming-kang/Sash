@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { SashStateStore } from "../app-state.js";
 import { AutostartService, type AutostartServiceOptions } from "../autostart/service.js";
 import type { resolveCoreRelease, stageCore } from "../core.js";
+import { createCoreRunner } from "../core-runner.js";
 import { type CoreEngine, mihomoEngine } from "../engine/index.js";
 import { errorMessage } from "../error-utils.js";
 import type { GeodataSeedResult } from "../geodata-seed.js";
@@ -80,7 +81,11 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     new CoreSupervisor({
       layout,
       engine,
-      ...(tunPlatform.host ? { tunHost: tunPlatform.host(layout) } : {}),
+      runner: createCoreRunner({
+        layout,
+        engine,
+        ...(tunPlatform.host ? { tunHost: tunPlatform.host(layout) } : {}),
+      }),
       settings: () => lifecycle?.settings() ?? settings(),
       onExit: () => {
         const expected = lifecycle.configuration();

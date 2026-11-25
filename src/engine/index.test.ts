@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "vitest";
+import { createCoreRunner } from "../core-runner.js";
 import { GEOX_MIRROR_SETS } from "../mihomo-config.js";
 import { sashLayout } from "../paths.js";
 import { classifyProcessIdentityAsync } from "../process.js";
@@ -12,6 +13,7 @@ import { DEFAULT_SETTINGS } from "../settings.js";
 import { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../sysproxy/manager.js";
 import { FakeCoreSupervisor, testSettings } from "../testing/state.js";
+import { TunService, unsupportedTunPlatform } from "../tun-service.js";
 import { type CoreEngine, mihomoEngine } from "./index.js";
 
 describe("mihomoEngine", () => {
@@ -98,15 +100,19 @@ describe("CoreEngine injection", () => {
       layout,
       settings: () => settings,
       engine,
-      spawnFn: () => {
-        const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-          stdio: "ignore",
-          windowsHide: true,
-        });
-        children.push(child);
-        return child;
-      },
-      classifyIdentityFn: (pid) => classifyProcessIdentityAsync(pid, process.execPath),
+      runner: createCoreRunner({
+        layout,
+        engine,
+        spawnFn: () => {
+          const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+            stdio: "ignore",
+            windowsHide: true,
+          });
+          children.push(child);
+          return child;
+        },
+        classifyIdentityFn: (pid) => classifyProcessIdentityAsync(pid, process.execPath),
+      }),
       waitHealthyMs: 8000,
     });
 
@@ -146,6 +152,7 @@ describe("CoreEngine injection", () => {
         systemProxy: proxy,
         settings: () => settings,
         engine,
+        tun: new TunService(unsupportedTunPlatform(), layout),
       });
       await assert.rejects(
         lifecycle.apply({
@@ -191,6 +198,7 @@ describe("CoreEngine injection", () => {
         systemProxy: proxy,
         settings: () => settings,
         engine,
+        tun: new TunService(unsupportedTunPlatform(), layout),
       });
       const configuration = {
         generated: { yaml: "rules: []\n", proxyCount: 0, source: "default" as const },
