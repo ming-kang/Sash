@@ -8,11 +8,11 @@ import {
   CORE_CAPABILITIES,
   elevationCommand,
   GRANT_SCRIPT,
-  helperAuthEnvironment,
   linuxTunPlatform,
   parseGetcap,
   REVOKE_SCRIPT,
   type Runner,
+  resolveHelperAuth,
 } from "./linux.js";
 
 function layoutWithCore(core = true) {
@@ -63,55 +63,119 @@ describe("Linux scripts", () => {
   });
 });
 
-describe("elevationCommand", () => {
-  it.skipIf(process.platform === "win32" || process.geteuid?.() === 0)(
-    "prefers pkexec and uses sudo only when asked",
-    () => {
+describe.skipIf(process.platform === "win32" || process.geteuid?.() === 0)(
+  "elevationCommand",
+  () => {
+    function binWith(...names: string[]): string {
       const bin = fs.mkdtempSync(path.join(os.tmpdir(), "sash-linux-bin-"));
       onTestFinished(() => fs.rmSync(bin, { recursive: true, force: true }));
-      for (const name of ["pkexec", "sudo"])
-        fs.writeFileSync(path.join(bin, name), "", { mode: 0o755 });
+      for (const name of names) fs.writeFileSync(path.join(bin, name), "", { mode: 0o755 });
+      return bin;
+    }
+
+    it("prefers pkexec and uses sudo only when asked", () => {
+      const bin = binWith("pkexec", "sudo");
       assert.deepEqual(elevationCommand({ PATH: bin }), {
         cmd: path.join(bin, "pkexec"),
         args: ["/bin/sh", "-s"],
       });
-      assert.deepEqual(elevationCommand({ PATH: bin, SASH_TUN_HELPER_AUTH: "sudo" }), {
+      assert.deepEqual(elevationCommand({ PATH: bin }, "sudo"), {
         cmd: path.join(bin, "sudo"),
         args: ["-n", "/bin/sh", "-s"],
       });
       assert.throws(() => elevationCommand({ PATH: "" }), /needs pkexec/);
-    },
-  );
-});
+    });
 
-describe("helperAuthEnvironment", () => {
-  it("uses the stored sudo preference when the daemon environment has none", () => {
+    it("ignores SASH_TUN_HELPER_AUTH in the environment it is given", () => {
+      const bin = binWith("pkexec", "sudo");
+      assert.deepEqual(elevationCommand({ PATH: bin, SASH_TUN_HELPER_AUTH: "sudo" }), {
+        cmd: path.join(bin, "pkexec"),
+        args: ["/bin/sh", "-s"],
+      });
+    });
+
+    it("does not mutate the environment it is given", () => {
+      const bin = binWith("pkexec", "sudo");
+      const env = { PATH: bin, SASH_TUN_HELPER_AUTH: "sudo" };
+      elevationCommand(env, "sudo");
+      assert.deepEqual(env, { PATH: bin, SASH_TUN_HELPER_AUTH: "sudo" });
+    });
+
+    it("falls back to pkexec when sudo is preferred but absent", () => {
+      const bin = binWith("pkexec");
+      assert.deepEqual(elevationCommand({ PATH: bin }, "sudo"), {
+        cmd: path.join(bin, "pkexec"),
+        args: ["/bin/sh", "-s"],
+      });
+    });
+  },
+);
+
+describe("resolveHelperAuth", () => {
+  function layoutWithStoredHelperAuth(content?: string) {
     const layout = layoutWithCore();
     fs.mkdirSync(layout.stateDir, { recursive: true });
-    fs.writeFileSync(path.join(layout.stateDir, "tun-helper-auth"), "sudo\n");
-    const resolved = helperAuthEnvironment({ PATH: "" }, layout);
-    assert.equal(resolved.env.SASH_TUN_HELPER_AUTH, "sudo");
-    assert.equal(resolved.explicit, undefined);
+    if (content !== undefined)
+      fs.writeFileSync(path.join(layout.stateDir, "tun-helper-auth"), content);
+    return layout;
+  }
+
+  it("uses the stored sudo preference when the environment has none", () => {
+    assert.equal(resolveHelperAuth(layoutWithStoredHelperAuth("sudo\n"), { PATH: "" }), "sudo");
   });
 
   it("lets an explicit request or environment choice override the stored preference", () => {
-    const layout = layoutWithCore();
-    fs.mkdirSync(layout.stateDir, { recursive: true });
-    fs.writeFileSync(path.join(layout.stateDir, "tun-helper-auth"), "sudo\n");
+    const layout = layoutWithStoredHelperAuth("sudo\n");
+    assert.equal(resolveHelperAuth(layout, { PATH: "" }, { helperAuth: "pkexec" }), "pkexec");
+    assert.equal(resolveHelperAuth(layout, { PATH: "", SASH_TUN_HELPER_AUTH: "pkexec" }), "pkexec");
     assert.equal(
-      helperAuthEnvironment({ PATH: "" }, layout, { helperAuth: "pkexec" }).env
-        .SASH_TUN_HELPER_AUTH,
-      "pkexec",
-    );
-    assert.equal(
-      helperAuthEnvironment({ PATH: "", SASH_TUN_HELPER_AUTH: "sudo" }, layout).explicit,
+      resolveHelperAuth(layoutWithCore(), { PATH: "", SASH_TUN_HELPER_AUTH: " sudo " }),
       "sudo",
     );
     assert.equal(
-      helperAuthEnvironment({ PATH: "", SASH_TUN_HELPER_AUTH: "typo" }, layout).env
-        .SASH_TUN_HELPER_AUTH,
-      "pkexec",
+      resolveHelperAuth(
+        layoutWithCore(),
+        { PATH: "", SASH_TUN_HELPER_AUTH: "pkexec" },
+        { helperAuth: "sudo" },
+      ),
+      "sudo",
     );
+  });
+
+  it("ignores an invalid environment value instead of overriding the stored preference", () => {
+    assert.equal(
+      resolveHelperAuth(layoutWithStoredHelperAuth("sudo\n"), {
+        PATH: "",
+        SASH_TUN_HELPER_AUTH: "typo",
+      }),
+      "sudo",
+    );
+    assert.equal(
+      resolveHelperAuth(layoutWithCore(), { PATH: "", SASH_TUN_HELPER_AUTH: "typo" }),
+      undefined,
+    );
+    assert.equal(
+      resolveHelperAuth(layoutWithCore(), { PATH: "", SASH_TUN_HELPER_AUTH: "  " }),
+      undefined,
+    );
+  });
+
+  it("treats the stored file as a remember-sudo boolean", () => {
+    assert.equal(
+      resolveHelperAuth(layoutWithStoredHelperAuth("pkexec\n"), { PATH: "" }),
+      undefined,
+    );
+    assert.equal(
+      resolveHelperAuth(layoutWithStoredHelperAuth("garbage\n"), { PATH: "" }),
+      undefined,
+    );
+    assert.equal(resolveHelperAuth(layoutWithCore(), { PATH: "" }), undefined);
+  });
+
+  it("resolves without re-encoding or mutating the environment", () => {
+    const env = { PATH: "", SASH_TUN_HELPER_AUTH: "typo" };
+    assert.equal(resolveHelperAuth(layoutWithStoredHelperAuth("sudo\n"), env), "sudo");
+    assert.deepEqual(env, { PATH: "", SASH_TUN_HELPER_AUTH: "typo" });
   });
 });
 

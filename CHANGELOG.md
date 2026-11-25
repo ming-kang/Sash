@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Editing advanced TUN settings while TUN is disabled no longer reports a required restart or blocks in-place configuration reloads, since those fields do not reach the running configuration.
+- Ignore an invalid `SASH_TUN_HELPER_AUTH` value instead of letting it override the remembered Linux elevation preference.
 
 ## [0.7.1] - 2026-11-25
 

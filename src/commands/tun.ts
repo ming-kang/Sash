@@ -1,4 +1,5 @@
 import { commandOutput } from "../cli-output.js";
+import { parseTunHelperAuth } from "../contracts.js";
 import { ensureDaemonSession, resolveDaemonSession } from "../daemon-session.js";
 import { log } from "../log.js";
 import { createTunPlatform } from "../tun-platform/index.js";
@@ -34,8 +35,7 @@ export async function runTun(
       }
       const { client } = await ensureDaemonSession(context);
       if (action === "helper") {
-        const raw = process.env.SASH_TUN_HELPER_AUTH?.trim();
-        const helperAuth = raw === "sudo" || raw === "pkexec" ? raw : undefined;
+        const helperAuth = parseTunHelperAuth(process.env.SASH_TUN_HELPER_AUTH?.trim());
         return client.setTunHelper(helperAction === "install", {
           ...(helperAuth ? { helperAuth } : {}),
         });

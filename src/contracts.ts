@@ -99,6 +99,11 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
 
 export type TunHelperAuth = "sudo" | "pkexec";
 
+/** Ambient input like an environment variable ignores invalid values; explicit API input stays strict. */
+export function parseTunHelperAuth(value: unknown): TunHelperAuth | undefined {
+  return value === "sudo" || value === "pkexec" ? value : undefined;
+}
+
 /**
  * How a platform lends the managed Core the privilege TUN needs. None pins a
  * Core version: all act on `layout.coreExe`, the same Core `sash update`

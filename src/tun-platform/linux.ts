@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { TunHelperAuth } from "../contracts.js";
+import { parseTunHelperAuth, type TunHelperAuth } from "../contracts.js";
 import { errorMessage } from "../error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
 import type { SashLayout } from "../paths.js";
@@ -63,14 +63,16 @@ const defaultRunner: Runner = (cmd, args, { timeoutMs, input }) =>
 
 /**
  * pkexec is the interactive path on a desktop; sudo -n is used only when the
- * user opted in with SASH_TUN_HELPER_AUTH=sudo. A refused pkexec prompt is
- * never retried through another mechanism.
+ * caller resolved a sudo preference. A refused pkexec prompt is never retried
+ * through another mechanism.
  */
-export function elevationCommand(env: NodeJS.ProcessEnv): { cmd: string; args: string[] } {
+export function elevationCommand(
+  env: NodeJS.ProcessEnv,
+  preference?: TunHelperAuth,
+): { cmd: string; args: string[] } {
   if (process.geteuid?.() === 0) return { cmd: "/bin/sh", args: ["-s"] };
   const sudo = findExecutableOnPath("sudo", env);
-  if (env.SASH_TUN_HELPER_AUTH === "sudo" && sudo)
-    return { cmd: sudo, args: ["-n", "/bin/sh", "-s"] };
+  if (preference === "sudo" && sudo) return { cmd: sudo, args: ["-n", "/bin/sh", "-s"] };
   const pkexec = findExecutableOnPath("pkexec", env);
   if (pkexec) return { cmd: pkexec, args: ["/bin/sh", "-s"] };
   throw new Error(
@@ -106,37 +108,38 @@ function helperAuthFile(layout: SashLayout): string {
   return path.join(layout.stateDir, "tun-helper-auth");
 }
 
-function readStoredHelperAuth(layout: SashLayout): TunHelperAuth | undefined {
+/**
+ * The file only ever records "remember sudo": pkexec is the default and needs
+ * no state, so any other content means nothing was remembered.
+ */
+function readStoredHelperAuth(layout: SashLayout): "sudo" | undefined {
   try {
-    const value = readFileSync(helperAuthFile(layout), "utf8").trim();
-    return value === "sudo" || value === "pkexec" ? value : undefined;
+    return readFileSync(helperAuthFile(layout), "utf8").trim() === "sudo" ? "sudo" : undefined;
   } catch {
     return undefined;
   }
 }
 
-function storeHelperAuth(layout: SashLayout, value: TunHelperAuth): void {
+function rememberSudoPreference(layout: SashLayout, remember: boolean): void {
   try {
-    if (value === "sudo") atomicWriteFileSync(helperAuthFile(layout), "sudo\n");
+    if (remember) atomicWriteFileSync(helperAuthFile(layout), "sudo\n");
     else durableRemoveFileSync(helperAuthFile(layout));
   } catch {}
 }
 
-export function helperAuthEnvironment(
-  base: NodeJS.ProcessEnv,
-  layout: SashLayout,
+function requestedHelperAuth(
+  env: NodeJS.ProcessEnv,
   options?: TunInstallOptions,
-): { env: NodeJS.ProcessEnv; explicit: TunHelperAuth | undefined } {
-  const raw = options?.helperAuth ?? base.SASH_TUN_HELPER_AUTH?.trim();
-  const explicit = raw ? (raw === "sudo" ? "sudo" : "pkexec") : undefined;
-  const env = { ...base };
-  if (explicit) env.SASH_TUN_HELPER_AUTH = explicit;
-  else {
-    delete env.SASH_TUN_HELPER_AUTH;
-    const stored = readStoredHelperAuth(layout);
-    if (stored) env.SASH_TUN_HELPER_AUTH = stored;
-  }
-  return { env, explicit };
+): TunHelperAuth | undefined {
+  return options?.helperAuth ?? parseTunHelperAuth(env.SASH_TUN_HELPER_AUTH?.trim());
+}
+
+export function resolveHelperAuth(
+  layout: SashLayout,
+  env: NodeJS.ProcessEnv,
+  options?: TunInstallOptions,
+): TunHelperAuth | undefined {
+  return requestedHelperAuth(env, options) ?? readStoredHelperAuth(layout);
 }
 
 export function linuxTunPlatform(
@@ -152,9 +155,13 @@ export function linuxTunPlatform(
     options?: TunInstallOptions,
   ): Promise<void> {
     refuseElevationInTests(action);
-    const choice = helperAuthEnvironment(env(), layout, options);
-    if (choice.explicit === "pkexec") storeHelperAuth(layout, "pkexec");
-    const { cmd, args } = elevationCommand(choice.env);
+    const environment = env();
+    const explicit = requestedHelperAuth(environment, options);
+    if (explicit === "pkexec") rememberSudoPreference(layout, false);
+    const { cmd, args } = elevationCommand(
+      environment,
+      resolveHelperAuth(layout, environment, options),
+    );
     try {
       await run(cmd, [...args, "--", layout.coreExe], { timeoutMs: 120_000, input: script });
     } catch (error) {
@@ -162,7 +169,7 @@ export function linuxTunPlatform(
         `Could not ${action}: ${errorMessage(error)}. Approve the pkexec prompt, or rerun with SASH_TUN_HELPER_AUTH=sudo when sudoers allows it.`,
       );
     }
-    if (choice.explicit) storeHelperAuth(layout, choice.explicit);
+    if (explicit === "sudo") rememberSudoPreference(layout, true);
   }
 
   return {

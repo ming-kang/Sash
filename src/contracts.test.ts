@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { apiErrorBody, parseApiErrorBody, SashApiError } from "./contracts.js";
+import { apiErrorBody, parseApiErrorBody, parseTunHelperAuth, SashApiError } from "./contracts.js";
 import { errorPresentation } from "./error-utils.js";
+
+describe("parseTunHelperAuth", () => {
+  it("accepts exactly the two mechanisms and ignores anything else", () => {
+    assert.equal(parseTunHelperAuth("sudo"), "sudo");
+    assert.equal(parseTunHelperAuth("pkexec"), "pkexec");
+    for (const invalid of ["yes", "Sudo", "", undefined, null, 1, {}])
+      assert.equal(parseTunHelperAuth(invalid), undefined);
+  });
+});
 
 describe("API error bodies", () => {
   it("round-trips an optional presentation through JSON", () => {
