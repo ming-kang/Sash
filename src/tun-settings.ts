@@ -46,7 +46,16 @@ export function defaultTunSettings(): TunSettings {
   };
 }
 
-export const tunSettingsSchema = tunSettingsPatchSchema.transform((value): TunSettings => {
+export function applyTunPatch(base: TunSettings, patch: TunSettingsPatch): TunSettings {
+  const hasDevicePatch = Object.hasOwn(patch, "device");
+  const { device, ...fields } = patch;
+  const merged: TunSettings = { ...base, ...fields };
+  if (device === null) delete merged.device;
+  else if (hasDevicePatch) merged.device = device;
+  return merged;
+}
+
+export const tunSettingsSchema = tunFields.partial().transform((value): TunSettings => {
   const { device, ...rest } = value;
   return { ...defaultTunSettings(), ...rest, ...(typeof device === "string" ? { device } : {}) };
 });

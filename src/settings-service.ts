@@ -6,7 +6,7 @@ import type { RuntimeLifecycle } from "./runtime-lifecycle.js";
 import { listenerSettingsChanged } from "./runtime-lifecycle.js";
 import { type SashSettings, validateSettingsCandidate } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
-import { sameTunSettings } from "./tun-settings.js";
+import { applyTunPatch, sameTunSettings } from "./tun-settings.js";
 
 export class SettingsInputError extends Error {
   constructor(message?: string) {
@@ -46,8 +46,7 @@ export class SettingsService {
       const state = this.options.state.snapshot();
       const { expectedRevision, ...changes } = patch;
       this.options.state.assertCurrent(expectedRevision ?? state.revision);
-      const tun = { ...state.settings.tun, ...changes.tun };
-      if (changes.tun?.device === null) delete tun.device;
+      const tun = applyTunPatch(state.settings.tun, changes.tun ?? {});
       let settings: SashSettings;
       try {
         settings = validateSettingsCandidate({ ...state.settings, ...changes, tun });

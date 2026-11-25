@@ -11,7 +11,12 @@ import {
   settingsPatchBodySchema,
 } from "../api-schemas.js";
 import { parseAutostartEnabled } from "../autostart/contract.js";
-import type { HealthInfo, SettingsPatch, SystemProxyStatusResponse } from "../contracts.js";
+import type {
+  HealthInfo,
+  SettingsPatch,
+  SystemProxyStatusResponse,
+  TunHelperAuth,
+} from "../contracts.js";
 import { validateCoreReleaseTag } from "../core.js";
 import { validateDelayTarget } from "../core-delay.js";
 import { errorMessage } from "../error-utils.js";
@@ -482,7 +487,7 @@ async function readTun(ctx: DaemonContext): Promise<RouteResponse> {
   return { status: 200, json: await currentTunStatus(ctx, true) };
 }
 
-function readTunHelperAuth(body: Record<string, unknown>): "sudo" | "pkexec" | undefined {
+function readTunHelperAuth(body: Record<string, unknown>): TunHelperAuth | undefined {
   const value = body.helperAuth;
   if (value === undefined) return undefined;
   if (value === "sudo" || value === "pkexec") return value;

@@ -1,21 +1,11 @@
-import type { TunStatusResponse } from "./contracts.js";
+import type {
+  TunHelperAuth,
+  TunPrivilegeMechanism,
+  TunPrivilegeState,
+  TunStatusResponse,
+} from "./contracts.js";
 import type { SashLayout } from "./paths.js";
 import type { TunSettings } from "./tun-settings.js";
-
-/**
- * How a platform lends the managed Core the privilege TUN needs. None pins a
- * Core version: all act on `layout.coreExe`, the same Core `sash update`
- * replaces.
- */
-export type TunPrivilegeMechanism = "service" | "setuid" | "capabilities";
-
-/**
- * - `ready`: TUN can start.
- * - `missing`: nothing is installed or granted.
- * - `stale`: something is installed but cannot serve this data folder — install again.
- * - `unknown`: the platform could not tell.
- */
-export type TunPrivilegeState = "ready" | "missing" | "stale" | "unknown";
 
 export interface TunPrivilege {
   state: TunPrivilegeState;
@@ -31,8 +21,6 @@ export interface HostedCore {
   stop(): Promise<void>;
   status(): Promise<{ running: boolean; pid: number | null }>;
 }
-
-export type TunHelperAuth = "sudo" | "pkexec";
 
 export interface TunInstallOptions {
   /** Transport for any download the installation needs. */

@@ -1,16 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { TunHelperAuth } from "../contracts.js";
 import { errorMessage } from "../error-utils.js";
 import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
 import type { SashLayout } from "../paths.js";
 import { buildSanitizedEnv, findExecutableOnPath, runSanitizedCommandAsync } from "../process.js";
-import type {
-  TunHelperAuth,
-  TunInstallOptions,
-  TunPlatform,
-  TunPrivilege,
-} from "../tun-service.js";
+import type { TunInstallOptions, TunPlatform, TunPrivilege } from "../tun-service.js";
 import { refuseElevationInTests, requireCoreFile } from "./shared.js";
 
 /** What mihomo documents for running TUN without root. */

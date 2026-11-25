@@ -10,7 +10,6 @@ import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy/types.js";
-import type { TunPrivilegeMechanism, TunPrivilegeState } from "./tun-service.js";
 import type { TunSettingsPatch } from "./tun-settings.js";
 
 export type { ProfileMeta, ProfilesIndex };
@@ -97,6 +96,24 @@ export interface SystemProxyStatusResponse extends SystemProxyState {
   stateKnown: boolean;
   queryError?: string;
 }
+
+export type TunHelperAuth = "sudo" | "pkexec";
+
+/**
+ * How a platform lends the managed Core the privilege TUN needs. None pins a
+ * Core version: all act on `layout.coreExe`, the same Core `sash update`
+ * replaces.
+ */
+export type TunPrivilegeMechanism = "service" | "setuid" | "capabilities";
+
+/**
+ * - `ready`: TUN can start.
+ * - `missing`: nothing is installed or granted.
+ * - `stale`: something is installed but cannot serve this data folder — install again.
+ * - `unknown`: the platform could not tell.
+ */
+export type TunPrivilegeState = "ready" | "missing" | "stale" | "unknown";
+
 export interface TunStatusResponse {
   desired: boolean;
   applied: boolean;

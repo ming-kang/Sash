@@ -18,6 +18,7 @@ import {
   type SettingsPatch,
   type SettingsWriteResult,
   type SystemProxyStatusResponse,
+  type TunHelperAuth,
   type TunStatusResponse,
 } from "./contracts.js";
 import { CORE_DELAY_REQUEST_MS, type CoreDelayResult } from "./core-delay.js";
@@ -26,7 +27,6 @@ import type { ErrorPresentation } from "./error-utils.js";
 import { isPlainObject } from "./json-shape.js";
 import { type DaemonEvent, decodeDaemonEvents } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
-import type { TunHelperAuth } from "./tun-service.js";
 
 export { SashApiError } from "./contracts.js";
 

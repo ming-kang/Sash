@@ -9,6 +9,13 @@ import {
   validateSettingsCandidate,
 } from "./settings.js";
 import { testSettings } from "./testing/state.js";
+import {
+  applyTunPatch,
+  defaultTunSettings,
+  parseStoredTunSettings,
+  tunSettingsPatchSchema,
+  tunSettingsSchema,
+} from "./tun-settings.js";
 
 describe("settings boundaries", () => {
   it("does not migrate a legacy boolean or malformed TUN settings to enabled", () => {
@@ -17,6 +24,28 @@ describe("settings boundaries", () => {
       assert.equal(parseStoredSettings({ ...settings, tun }).tun.enable, false);
     assert.equal(parseStoredSettings({ ...settings, tun: { enable: true } }).tun.enable, true);
     assert.throws(() => validateSettingsCandidate({ ...settings, tun: true }));
+  });
+  it("separates stored TUN settings from patch deletion semantics", () => {
+    assert.deepEqual(parseStoredTunSettings({ enable: true }), {
+      ...defaultTunSettings(),
+      enable: true,
+    });
+    assert.equal(tunSettingsPatchSchema.safeParse({ device: null }).success, true);
+    assert.equal(tunSettingsSchema.safeParse({ device: null }).success, false);
+    const settings = testSettings();
+    assert.throws(() =>
+      validateSettingsCandidate({ ...settings, tun: { ...settings.tun, device: null } }),
+    );
+  });
+  it("merges TUN patches and removes a device without mutating the base", () => {
+    const device = process.platform === "darwin" ? "utun7" : "sash-tun";
+    const base = { ...defaultTunSettings(), enable: true, device };
+    const cleared = applyTunPatch(base, { strictRoute: true, device: null });
+    assert.equal(cleared.enable, true);
+    assert.equal(cleared.strictRoute, true);
+    assert.equal(cleared.device, undefined);
+    assert.equal(base.device, device);
+    assert.deepEqual(applyTunPatch(base, {}), base);
   });
   it("generates independent private credentials", () => {
     const settings = initialSettings();
