@@ -70,11 +70,16 @@ export function runtimeDelta(
   return { pending: profilePending || restartRequired, restartRequired };
 }
 
+const CORE_RESTORE_DELAYS_MS = [500, 1_500, 3_000, 6_000, 10_000, 15_000, 25_000];
+const CORE_RECOVERY_WINDOW_MS = 10 * 60 * 1000;
+const CORE_RECOVERY_CYCLES_PER_WINDOW = 3;
+
 export class RuntimeLifecycle {
   private readonly engine: CoreEngine;
   private runtimeRevision = 0;
   private applied: RuntimeConfiguration | undefined;
   private runtimeSettings: SashSettings;
+  private recoveryCycles: number[] = [];
 
   constructor(private readonly options: RuntimeLifecycleOptions) {
     this.engine = options.engine;
@@ -339,5 +344,54 @@ export class RuntimeLifecycle {
         await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
       }
     }
+  }
+
+  async restoreCoreSession(expected: RuntimeConfiguration): Promise<boolean> {
+    if (this.options.supervisor.isRunning()) return true;
+    const desired = this.options.settings();
+    if (expected.settings.tun.enable && !sameTunSettings(desired.tun, expected.settings.tun))
+      return true;
+    await this.apply(expected);
+    console.warn("[sashd] Core restarted after an unexpected exit");
+    return true;
+  }
+
+  private allowRecoveryCycle(): boolean {
+    const now = Date.now();
+    this.recoveryCycles = this.recoveryCycles.filter(
+      (startedAt) => now - startedAt < CORE_RECOVERY_WINDOW_MS,
+    );
+    if (this.recoveryCycles.length >= CORE_RECOVERY_CYCLES_PER_WINDOW) return false;
+    this.recoveryCycles.push(now);
+    return true;
+  }
+
+  async restoreCoreSessionWithRetries(
+    expected: RuntimeConfiguration,
+    mutate: <T>(action: () => T | Promise<T>) => Promise<T>,
+    closing: () => boolean,
+    delays: readonly number[] = CORE_RESTORE_DELAYS_MS,
+  ): Promise<void> {
+    if (!this.allowRecoveryCycle()) {
+      console.warn(
+        "[sashd] Core recovery paused after repeated crashes; run sash restart after fixing the cause",
+      );
+      return;
+    }
+    for (let index = 0; index < delays.length; index += 1) {
+      if (index > 0) await new Promise((resolve) => setTimeout(resolve, delays[index]));
+      if (closing()) return;
+      try {
+        if (await mutate(() => this.restoreCoreSession(expected))) return;
+      } catch (error) {
+        if (closing()) return;
+        console.warn(
+          `[sashd] Core recovery failed (attempt ${index + 1}/${delays.length}): ${errorMessage(error)}`,
+        );
+      }
+    }
+    console.warn(
+      "[sashd] Core did not recover; traffic is direct until sash restart or Apply succeeds",
+    );
   }
 }

@@ -33,7 +33,13 @@ export async function runTun(
         );
       }
       const { client } = await ensureDaemonSession(context);
-      if (action === "helper") return client.setTunHelper(helperAction === "install");
+      if (action === "helper") {
+        const raw = process.env.SASH_TUN_HELPER_AUTH?.trim();
+        const helperAuth = raw === "sudo" || raw === "pkexec" ? raw : undefined;
+        return client.setTunHelper(helperAction === "install", {
+          ...(helperAuth ? { helperAuth } : {}),
+        });
+      }
       const status = await client.status();
       await client.patchSettings({
         tun: { enable: action === "on" },

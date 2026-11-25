@@ -17,10 +17,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 
-- Remove the release-paired TUN Core, helper/Core digest pairing, the helper's configuration whitelist and controller proxy, its network journal, and automatic TUN session restore after a helper restart. A TUN Core that exits unexpectedly is handled like any other Core.
+- Remove the release-paired TUN Core, helper/Core digest pairing, the helper's configuration whitelist and controller proxy, and its network journal.
 
 ### Fixed
 
+- Restart Core automatically after an unexpected exit, with bounded retries and a crash-loop pause, instead of leaving TUN and proxied traffic fail-open until a manual `sash restart`.
+- Generate an explicit `GLOBAL` selector that defaults to the profile's primary `MATCH` group, so global mode no longer silently behaves like direct mode while still allowing node and group selection.
+- Fail empty proxy groups closed with `empty-fallback: REJECT` while TUN is enabled, blocking the startup window in which provider-backed groups otherwise fall back to direct traffic before proxies finish loading.
+- Preserve the Linux `SASH_TUN_HELPER_AUTH` choice across daemon restarts after a successful helper operation, and forward the CLI's choice to an already running daemon; use `SASH_TUN_HELPER_AUTH=pkexec` once to return to interactive pkexec.
 - Keep CLI recovery advice synchronized with daemon errors through structured presentation metadata instead of matching error text, and restore the intended system-proxy and autostart guidance in `sash doctor`.
 - Deduplicate dashboard profile refreshes, catch up when state changes during a fetch, and discard profile responses from a previous daemon process.
 - Reject malformed profile field types and invalid settings revision or port values with HTTP 400 at the local API boundary instead of passing them through handler fallbacks.

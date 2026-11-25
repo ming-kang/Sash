@@ -482,6 +482,13 @@ async function readTun(ctx: DaemonContext): Promise<RouteResponse> {
   return { status: 200, json: await currentTunStatus(ctx, true) };
 }
 
+function readTunHelperAuth(body: Record<string, unknown>): "sudo" | "pkexec" | undefined {
+  const value = body.helperAuth;
+  if (value === undefined) return undefined;
+  if (value === "sudo" || value === "pkexec") return value;
+  throw new HttpError(400, 'helperAuth must be "sudo" or "pkexec"');
+}
+
 async function setTunHelper(
   ctx: DaemonContext,
   req: DaemonRequest,
@@ -491,11 +498,15 @@ async function setTunHelper(
   if (peer !== "127.0.0.1" && peer !== "::1" && peer !== "::ffff:127.0.0.1")
     throw new HttpError(403, "TUN helper administration is local only", "unauthorized");
   if (!ctx.tun.supported) throw new HttpError(501, "TUN Mode is not available on this platform");
+  const helperAuth = readTunHelperAuth(await req.readJson());
   await ctx.mutate(async () => {
     if (ctx.supervisor.isRunning() && ctx.lifecycle.configuration()?.settings.tun.enable)
       throw new HttpError(409, "Disable TUN and Apply before changing the helper", "conflict");
     const proxyUri = ctx.core.downloadTransport()?.uri;
-    await ctx.tun.setInstalled(install, proxyUri !== undefined ? { proxyUri } : {});
+    await ctx.tun.setInstalled(install, {
+      ...(proxyUri !== undefined ? { proxyUri } : {}),
+      ...(helperAuth !== undefined ? { helperAuth } : {}),
+    });
   });
   return readTun(ctx);
 }

@@ -32,16 +32,20 @@ export interface HostedCore {
   status(): Promise<{ running: boolean; pid: number | null }>;
 }
 
+export type TunHelperAuth = "sudo" | "pkexec";
+
 export interface TunInstallOptions {
   /** Transport for any download the installation needs. */
   proxyUri?: string;
+  /** Linux elevation mechanism explicitly chosen for this invocation. */
+  helperAuth?: TunHelperAuth;
 }
 
 export interface TunPlatform {
   readonly mechanism: TunPrivilegeMechanism | null;
   inspect(layout: SashLayout): Promise<TunPrivilege>;
   install(layout: SashLayout, options?: TunInstallOptions): Promise<void>;
-  uninstall(layout: SashLayout): Promise<void>;
+  uninstall(layout: SashLayout, options?: TunInstallOptions): Promise<void>;
   /**
    * Present when TUN Cores run under a privileged host. Without it the
    * privileged Core is launched like any other Core, as Sash's child.
@@ -159,7 +163,7 @@ export class TunService {
   async setInstalled(installed: boolean, options: TunInstallOptions = {}): Promise<void> {
     try {
       if (installed) await this.platform.install(this.layout, options);
-      else await this.platform.uninstall(this.layout);
+      else await this.platform.uninstall(this.layout, options);
     } finally {
       this.invalidateInspect();
     }

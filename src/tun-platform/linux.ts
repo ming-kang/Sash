@@ -1,9 +1,16 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { errorMessage } from "../error-utils.js";
+import { atomicWriteFileSync, durableRemoveFileSync } from "../fs-atomic.js";
 import type { SashLayout } from "../paths.js";
 import { buildSanitizedEnv, findExecutableOnPath, runSanitizedCommandAsync } from "../process.js";
-import type { TunPlatform, TunPrivilege } from "../tun-service.js";
+import type {
+  TunHelperAuth,
+  TunInstallOptions,
+  TunPlatform,
+  TunPrivilege,
+} from "../tun-service.js";
 import { refuseElevationInTests, requireCoreFile } from "./shared.js";
 
 /** What mihomo documents for running TUN without root. */
@@ -99,15 +106,59 @@ export function parseGetcap(output: string, core: string): boolean {
   return granted.has("cap_net_admin") && granted.has("cap_net_bind_service");
 }
 
+function helperAuthFile(layout: SashLayout): string {
+  return path.join(layout.stateDir, "tun-helper-auth");
+}
+
+function readStoredHelperAuth(layout: SashLayout): TunHelperAuth | undefined {
+  try {
+    const value = readFileSync(helperAuthFile(layout), "utf8").trim();
+    return value === "sudo" || value === "pkexec" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function storeHelperAuth(layout: SashLayout, value: TunHelperAuth): void {
+  try {
+    if (value === "sudo") atomicWriteFileSync(helperAuthFile(layout), "sudo\n");
+    else durableRemoveFileSync(helperAuthFile(layout));
+  } catch {}
+}
+
+export function helperAuthEnvironment(
+  base: NodeJS.ProcessEnv,
+  layout: SashLayout,
+  options?: TunInstallOptions,
+): { env: NodeJS.ProcessEnv; explicit: TunHelperAuth | undefined } {
+  const raw = options?.helperAuth ?? base.SASH_TUN_HELPER_AUTH?.trim();
+  const explicit = raw ? (raw === "sudo" ? "sudo" : "pkexec") : undefined;
+  const env = { ...base };
+  if (explicit) env.SASH_TUN_HELPER_AUTH = explicit;
+  else {
+    delete env.SASH_TUN_HELPER_AUTH;
+    const stored = readStoredHelperAuth(layout);
+    if (stored) env.SASH_TUN_HELPER_AUTH = stored;
+  }
+  return { env, explicit };
+}
+
 export function linuxTunPlatform(
   deps: { run?: Runner; env?: NodeJS.ProcessEnv } = {},
 ): TunPlatform {
   const run = deps.run ?? defaultRunner;
   const env = () => deps.env ?? buildSanitizedEnv();
 
-  async function elevate(script: string, layout: SashLayout, action: string): Promise<void> {
+  async function elevate(
+    script: string,
+    layout: SashLayout,
+    action: string,
+    options?: TunInstallOptions,
+  ): Promise<void> {
     refuseElevationInTests(action);
-    const { cmd, args } = elevationCommand(env());
+    const choice = helperAuthEnvironment(env(), layout, options);
+    if (choice.explicit === "pkexec") storeHelperAuth(layout, "pkexec");
+    const { cmd, args } = elevationCommand(choice.env);
     try {
       await run(cmd, [...args, "--", layout.coreExe], { timeoutMs: 120_000, input: script });
     } catch (error) {
@@ -115,6 +166,7 @@ export function linuxTunPlatform(
         `Could not ${action}: ${errorMessage(error)}. Approve the pkexec prompt, or rerun with SASH_TUN_HELPER_AUTH=sudo when sudoers allows it.`,
       );
     }
+    if (choice.explicit) storeHelperAuth(layout, choice.explicit);
   }
 
   return {
@@ -131,12 +183,17 @@ export function linuxTunPlatform(
         return { state: "unknown", detail: errorMessage(error) };
       }
     },
-    async install(layout) {
+    async install(layout, options) {
       await requireCoreFile(layout);
-      await elevate(GRANT_SCRIPT, layout, "authorize the Core for TUN Mode");
+      await elevate(GRANT_SCRIPT, layout, "authorize the Core for TUN Mode", options);
     },
-    async uninstall(layout) {
-      await elevate(REVOKE_SCRIPT, layout, "remove the TUN Mode authorization from the Core");
+    async uninstall(layout, options) {
+      await elevate(
+        REVOKE_SCRIPT,
+        layout,
+        "remove the TUN Mode authorization from the Core",
+        options,
+      );
     },
   };
 }

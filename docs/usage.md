@@ -41,7 +41,7 @@ sash restart
 | --- | --- | --- |
 | Windows | Installs the `SashTun` service — downloaded from this Sash version's GitHub Release — which runs Core as LocalSystem | Nothing |
 | macOS | setuid root on the Core executable | Run `helper install` again |
-| Linux | `cap_net_admin,cap_net_bind_service` on the Core executable (pkexec, or `SASH_TUN_HELPER_AUTH=sudo`) | Run `helper install` again |
+| Linux | `cap_net_admin,cap_net_bind_service` on the Core executable (pkexec, or `SASH_TUN_HELPER_AUTH=sudo`; a successful sudo choice is reused until `SASH_TUN_HELPER_AUTH=pkexec` is used once) | Run `helper install` again |
 
 `sash tun helper status` reports a helper serving another data folder or an older protocol; `install` replaces it, `uninstall` removes the grant (disable TUN first). A TUN Core that fails to start rolls back to the previous configuration.
 

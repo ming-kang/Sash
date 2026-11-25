@@ -73,6 +73,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   let gate: DaemonGate;
   let profiles: ProfileService;
   let coreControl: CoreControlService;
+  let coreRecovery: Promise<void> | undefined;
   const events = new DaemonEvents(createEventObserver(() => context));
   const supervisor =
     deps.supervisor ??
@@ -81,12 +82,32 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       engine,
       ...(tunPlatform.host ? { tunHost: tunPlatform.host(layout) } : {}),
       settings: () => lifecycle?.settings() ?? settings(),
-      onExit: () =>
-        gate
+      onExit: () => {
+        const expected = lifecycle.configuration();
+        return gate
           .mutate(() => lifecycle.handleUnexpectedCoreExit())
+          .then(() => {
+            if (!expected || coreRecovery) return;
+            const current = (async () => {
+              try {
+                await lifecycle.restoreCoreSessionWithRetries(
+                  expected,
+                  (action) => gate.mutate(action),
+                  () => gate.isClosing,
+                );
+              } catch (error: unknown) {
+                console.error(`[sashd] Core recovery failed: ${errorMessage(error)}`);
+              }
+            })();
+            coreRecovery = current;
+            void current.then(() => {
+              if (coreRecovery === current) coreRecovery = undefined;
+            });
+          })
           .catch((error: unknown) => {
             console.error(`[sashd] Core exit cleanup failed: ${errorMessage(error)}`);
-          }),
+          });
+      },
     });
   lifecycle = new RuntimeLifecycle({
     layout,
