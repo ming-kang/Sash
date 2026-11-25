@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 import { sashLayout } from "../paths.js";
-import { HELPER_PROTOCOL, type HelperOp, type HelperReply } from "./helper-pipe.js";
+import {
+  HELPER_PROTOCOL,
+  type HelperOp,
+  type HelperReply,
+  type HelperStartOptions,
+} from "./helper-pipe.js";
 import type { HelperSource } from "./helper-source.js";
 import {
+  guardFromReply,
+  guardSupportWarning,
   installScript,
   privilegeFromReply,
   quoteWindowsArgument,
@@ -82,6 +89,27 @@ describe("Windows helper state", () => {
       privilegeFromReply(reply({ protocol: HELPER_PROTOCOL + 1 }), layout).state,
       "stale",
     );
+    assert.equal(privilegeFromReply(reply({ protocol: 0 }), layout).state, "stale");
+  });
+
+  it("accepts a protocol-1 helper as ready but without a kill switch", () => {
+    const legacy = reply({ protocol: 1 });
+    assert.deepEqual(privilegeFromReply(legacy, layout), { state: "ready" });
+    assert.deepEqual(guardFromReply(legacy), { supported: false, active: false });
+    assert.match(guardSupportWarning(legacy) ?? "", /protocol 1/);
+    assert.equal(guardSupportWarning(reply()), null);
+  });
+
+  it("reads the kill switch state out of a status reply", () => {
+    assert.deepEqual(guardFromReply(reply()), { supported: true, active: false });
+    assert.deepEqual(
+      guardFromReply(reply({ guard: { active: true, device: "sashtun", interfaceIndex: 17 } })),
+      { supported: true, active: true, device: "sashtun", interfaceIndex: 17 },
+    );
+    assert.deepEqual(guardFromReply(reply({ guard: { active: false } })), {
+      supported: true,
+      active: false,
+    });
   });
 
   it("tells a missing service from a stopped or legacy one", async () => {
@@ -113,6 +141,42 @@ describe("Windows helper state", () => {
     home = "D:\\Other";
     await assert.rejects(host.start(), /cannot start this Core/);
     assert.deepEqual(calls, ["status", "start", "status"]);
+  });
+
+  it("starts the Core with the kill switch and the configured device", async () => {
+    const starts: (HelperStartOptions | undefined)[] = [];
+    const host = windowsTunPlatform({
+      request: async (op, _timeoutMs, start) => {
+        if (op === "start") starts.push(start);
+        return reply({ running: op === "start", ...(op === "start" ? { pid: 77 } : {}) });
+      },
+    }).host?.(layout);
+    assert.ok(host);
+    await host.start({ device: "sashtun" });
+    assert.deepEqual(starts, [{ guard: true, device: "sashtun" }]);
+  });
+
+  it("starts unguarded with a warning when the helper pre-dates the kill switch", async () => {
+    const starts: (HelperStartOptions | undefined)[] = [];
+    const warnings: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((line: unknown) => {
+      warnings.push(String(line));
+    });
+    const host = windowsTunPlatform({
+      request: async (op, _timeoutMs, start) => {
+        if (op === "start") starts.push(start);
+        return reply({
+          protocol: 1,
+          running: op === "start",
+          ...(op === "start" ? { pid: 77 } : {}),
+        });
+      },
+    }).host?.(layout);
+    assert.ok(host);
+    await host.start({ device: "sashtun" });
+    assert.deepEqual(starts, [{ guard: false, device: "sashtun" }]);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? "", /kill switch/);
   });
 });
 

@@ -9,49 +9,77 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"regexp"
 	"time"
 
 	"github.com/Microsoft/go-winio"
 )
 
 // protocolVersion changes only when the request or response shape does;
-// Sash reinstalls a helper that reports another version.
-const protocolVersion = 1
+// Sash reinstalls a helper that reports another version. Version 2 adds the
+// guard fields: version-1 helpers serve start/stop/status without the kill
+// switch, which Sash treats as a degraded rather than broken service.
+const protocolVersion = 2
+
+var devicePattern = regexp.MustCompile(`^[\w.-]{1,64}$`)
 
 type request struct {
-	Op string `json:"op"`
+	Op     string `json:"op"`
+	Guard  bool   `json:"guard,omitempty"`
+	Device string `json:"device,omitempty"`
 }
 
 type response struct {
-	OK       bool   `json:"ok"`
-	Protocol int    `json:"protocol"`
-	Home     string `json:"home"`
-	Running  bool   `json:"running"`
-	PID      int    `json:"pid,omitempty"`
-	Error    string `json:"error,omitempty"`
+	OK       bool       `json:"ok"`
+	Protocol int        `json:"protocol"`
+	Home     string     `json:"home"`
+	Running  bool       `json:"running"`
+	PID      int        `json:"pid,omitempty"`
+	Guard    guardState `json:"guard"`
+	Error    string     `json:"error,omitempty"`
 }
 
 type controller interface {
-	start() error
+	start(startOptions) error
 	stop() error
 	status() (bool, int)
+	guardState() guardState
 }
 
-// open prepares the Core host and the control pipe. The pipe admits only
-// LocalSystem, Administrators and the installing account; remote clients are
-// always rejected.
-func open(cfg config) (*coreHost, net.Listener, error) {
+// open prepares the Core host, the kill switch engine and the control pipe.
+// The pipe admits only LocalSystem, Administrators and the installing
+// account; remote clients are always rejected.
+func open(cfg config) (*guardedCore, net.Listener, error) {
+	engine, engineErr := openWfpEngine()
+	core, listener, err := openWithEngine(cfg, engine, engineErr)
+	if err != nil && engine != nil {
+		engine.close()
+	}
+	return core, listener, err
+}
+
+func openWithEngine(cfg config, engine filterEngine, engineErr error) (*guardedCore, net.Listener, error) {
 	host, err := newCoreHost(cfg)
 	if err != nil {
 		return nil, nil, err
 	}
+	core := newGuardedCore(host, newTunGuard(engine, engineErr))
 	sddl := fmt.Sprintf("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;%s)", cfg.user)
 	listener, err := winio.ListenPipe(cfg.pipe, &winio.PipeConfig{SecurityDescriptor: sddl})
 	if err != nil {
-		host.close()
+		core.close()
 		return nil, nil, fmt.Errorf("listen on %s: %w", cfg.pipe, err)
 	}
-	return host, listener, nil
+	return core, listener, nil
+}
+
+// convergeStartup removes kill switch objects a previous helper life left
+// behind: no Core can be running when the service starts, so a leftover
+// guard would only block the machine without protecting a Core.
+func convergeStartup(core *guardedCore, logPath string) {
+	if err := core.guard.uninstall(); err != nil {
+		reportIssue(logPath, fmt.Errorf("startup kill switch cleanup: %w", err))
+	}
 }
 
 func serve(listener net.Listener, core controller, home string) {
@@ -91,14 +119,17 @@ func dispatch(core controller, line []byte) response {
 	switch req.Op {
 	case "status":
 	case "start":
-		err = core.start()
+		if req.Device != "" && !devicePattern.MatchString(req.Device) {
+			return response{Error: fmt.Sprintf("invalid device name %q", req.Device)}
+		}
+		err = core.start(startOptions{guard: req.Guard, device: req.Device})
 	case "stop":
 		err = core.stop()
 	default:
 		return response{Error: fmt.Sprintf("unknown op %q", req.Op)}
 	}
 	running, pid := core.status()
-	res := response{OK: err == nil, Running: running, PID: pid}
+	res := response{OK: err == nil, Running: running, PID: pid, Guard: core.guardState()}
 	if err != nil {
 		res.Error = err.Error()
 	}

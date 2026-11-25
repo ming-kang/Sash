@@ -110,9 +110,11 @@ func TestCoreEnvironmentKeepsOnlySystemVariables(t *testing.T) {
 type fakeController struct {
 	running bool
 	fail    error
+	started []startOptions
 }
 
-func (f *fakeController) start() error {
+func (f *fakeController) start(options startOptions) error {
+	f.started = append(f.started, options)
 	if f.fail != nil {
 		return f.fail
 	}
@@ -126,17 +128,32 @@ func (f *fakeController) status() (bool, int) {
 	}
 	return false, 0
 }
+func (f *fakeController) guardState() guardState {
+	return guardState{Active: true, Device: "Meta", InterfaceIndex: 7}
+}
 
 func TestDispatch(t *testing.T) {
 	core := &fakeController{}
 	if res := dispatch(core, []byte(`{"op":"start"}`)); !res.OK || !res.Running || res.PID != 42 {
 		t.Fatalf("start: %+v", res)
 	}
+	if res := dispatch(core, []byte(`{"op":"start","guard":true,"device":"Meta"}`)); !res.OK {
+		t.Fatalf("guarded start: %+v", res)
+	}
+	if len(core.started) != 2 || core.started[0].guard || !core.started[1].guard || core.started[1].device != "Meta" {
+		t.Fatalf("start options passed through: %+v", core.started)
+	}
+	if res := dispatch(core, []byte(`{"op":"start","guard":true,"device":"bad device!"}`)); res.OK || res.Error == "" {
+		t.Fatalf("invalid device must be rejected: %+v", res)
+	}
 	if res := dispatch(core, []byte(`{"op":"status"}`)); !res.OK || !res.Running {
 		t.Fatalf("status: %+v", res)
 	}
 	if res := dispatch(core, []byte(`{"op":"stop"}`)); !res.OK || res.Running || res.PID != 0 {
 		t.Fatalf("stop: %+v", res)
+	}
+	if res := dispatch(core, []byte(`{"op":"status"}`)); !res.Guard.Active || res.Guard.Device != "Meta" || res.Guard.InterfaceIndex != 7 {
+		t.Fatalf("guard state in response: %+v", res)
 	}
 	core.fail = errors.New("boom")
 	if res := dispatch(core, []byte(`{"op":"start"}`)); res.OK || res.Error != "boom" {
@@ -210,7 +227,7 @@ func TestCoreHostRejectsMissingCoreAndLinkedLogs(t *testing.T) {
 
 func TestPipeRoundTrip(t *testing.T) {
 	cfg := testConfig(t)
-	host, listener, err := open(cfg)
+	host, listener, err := openWithEngine(cfg, newFakeEngine(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -385,10 +385,15 @@ class HostedCoreSession implements RunningCore {
 }
 
 export class HostedCoreRunner implements CoreRunner {
-  constructor(private readonly host: HostedCore) {}
+  constructor(
+    private readonly host: HostedCore,
+    private readonly tunExpected?: () => boolean,
+  ) {}
 
-  async launch(): Promise<RunningCore> {
-    const { pid } = await this.host.start();
+  async launch(settings: SashSettings): Promise<RunningCore> {
+    const { pid } = await this.host.start({
+      ...(settings.tun.device !== undefined ? { device: settings.tun.device } : {}),
+    });
     return new HostedCoreSession(this.host, pid);
   }
 
@@ -403,7 +408,20 @@ export class HostedCoreRunner implements CoreRunner {
     } catch {
       return; // no reachable host, no hosted Core
     }
-    if (running) await this.host.stop();
+    if (running) {
+      await this.host.stop();
+      return;
+    }
+    // Nothing runs, yet the host may still hold the Windows kill switch of a
+    // crashed Core. When the configuration expects a TUN Core the guard must
+    // survive — the next launch refreshes it; otherwise it is a leftover and
+    // the stop converges it away (idempotent for the Core side).
+    if (this.tunExpected?.()) return;
+    try {
+      await this.host.stop();
+    } catch (error) {
+      console.warn(`[sashd] Could not converge the TUN host state: ${errorMessage(error)}`);
+    }
   }
 }
 
@@ -414,12 +432,14 @@ export interface CoreRunnerOptions extends SpawnedCoreRunnerOptions {
    * other Core; its privilege comes from the Core file itself.
    */
   tunHost?: HostedCore;
+  /** Whether the current configuration expects a TUN Core; steers stale host convergence. */
+  tunExpected?: () => boolean;
 }
 
 export function createCoreRunner(options: CoreRunnerOptions): CoreRunner {
   const spawned = new SpawnedCoreRunner(options);
   if (!options.tunHost) return spawned;
-  const hosted = new HostedCoreRunner(options.tunHost);
+  const hosted = new HostedCoreRunner(options.tunHost, options.tunExpected);
   return {
     launch: (settings) => (settings.tun.enable ? hosted : spawned).launch(settings),
     async reclaimStale() {

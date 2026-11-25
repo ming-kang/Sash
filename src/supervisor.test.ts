@@ -23,7 +23,8 @@ import type { HostedCore } from "./tun-service.js";
 function createSupervisor(
   options: Omit<CoreSupervisorOptions, "runner"> & Omit<CoreRunnerOptions, "layout" | "engine">,
 ): CoreSupervisor {
-  const { spawnFn, isAliveFn, killFn, classifyIdentityFn, tunHost, ...supervision } = options;
+  const { spawnFn, isAliveFn, killFn, classifyIdentityFn, tunHost, tunExpected, ...supervision } =
+    options;
   return new CoreSupervisor({
     ...supervision,
     runner: createCoreRunner({
@@ -34,6 +35,7 @@ function createSupervisor(
       killFn,
       classifyIdentityFn,
       tunHost,
+      tunExpected,
     }),
   });
 }
@@ -566,7 +568,11 @@ test("an exit after an unconfirmed stop is not reported as unexpected", async ()
   }
 });
 
-function hostedFixture(prefix: string, version: () => Promise<string> = async () => "v-hosted") {
+function hostedFixture(
+  prefix: string,
+  version: () => Promise<string> = async () => "v-hosted",
+  tunExpected?: () => boolean,
+) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const layout = sashLayout(root);
   fs.mkdirSync(path.dirname(layout.coreExe), { recursive: true });
@@ -597,6 +603,7 @@ function hostedFixture(prefix: string, version: () => Promise<string> = async ()
     layout,
     settings: () => settings,
     tunHost: host,
+    ...(tunExpected ? { tunExpected } : {}),
     waitHealthyMs: 500,
     spawnFn: () => {
       throw new Error("a hosted TUN Core must not be spawned by Sash");
@@ -752,6 +759,57 @@ test("hosted TUN Core: an orphan left by a previous Sash is stopped on recovery"
     await f.supervisor.cleanStaleCore();
     assert.equal(f.host.running, false);
     assert.equal(f.host.stops, 1);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: recovery keeps the host state when the configuration expects TUN", async () => {
+  const f = hostedFixture(
+    "sash-supervisor-hosted-keep-test-",
+    async () => "v-hosted",
+    () => true,
+  );
+  try {
+    await f.supervisor.cleanStaleCore();
+    assert.equal(f.host.stops, 0);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: recovery converges the host state when TUN is off", async () => {
+  const f = hostedFixture(
+    "sash-supervisor-hosted-converge-test-",
+    async () => "v-hosted",
+    () => false,
+  );
+  try {
+    await f.supervisor.cleanStaleCore();
+    assert.equal(f.host.stops, 1);
+    assert.equal(f.host.running, false);
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosted TUN Core: recovery tolerates a convergence failure", async () => {
+  const f = hostedFixture(
+    "sash-supervisor-hosted-converge-failure-test-",
+    async () => "v-hosted",
+    () => false,
+  );
+  const warnings: string[] = [];
+  vi.spyOn(console, "warn").mockImplementation((line: unknown) => {
+    warnings.push(String(line));
+  });
+  try {
+    f.host.stop = async () => {
+      throw new Error("pipe busy");
+    };
+    await f.supervisor.cleanStaleCore();
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? "", /pipe busy/);
   } finally {
     fs.rmSync(f.root, { recursive: true, force: true });
   }
