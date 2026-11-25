@@ -155,6 +155,7 @@ describe("mihomo-config", () => {
         "auto-detect-interface": true,
         "dns-hijack": ["any:53", "tcp://any:53"],
         "route-exclude-address": [],
+        ...(process.platform === "darwin" ? { "dns-mode": "native" } : {}),
       });
       assert.ok(overlayManagedKeys({}, options).dns);
       const fixed = overlayManagedKeys(
@@ -191,6 +192,7 @@ describe("mihomo-config", () => {
         "route-exclude-address": ["10.0.0.0/8"],
         mtu: 1500,
         "udp-timeout": 300,
+        ...(process.platform === "darwin" ? { "dns-mode": "native" } : {}),
       });
       assert.ok(warnings.some((w) => w.includes("tun.strict-route")));
       assert.ok(!warnings.some((w) => w.includes("tun.enable")));

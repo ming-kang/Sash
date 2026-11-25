@@ -89,6 +89,7 @@ describe("daemon configuration plugins", () => {
       mtu: 1400,
       "dns-hijack": ["any:53", "tcp://any:53"],
       "route-exclude-address": [],
+      ...(process.platform === "darwin" ? { "dns-mode": "native" } : {}),
     });
     assert.deepEqual(written.dns, {
       listen: "127.0.0.1:1053",

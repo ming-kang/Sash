@@ -48,6 +48,7 @@ describe("tun-config", () => {
         mtu: 1400,
         "dns-hijack": ["any:53", "tcp://any:53"],
         "route-exclude-address": ["10.0.0.0/8", "192.168.0.0/16"],
+        ...(process.platform === "darwin" ? { "dns-mode": "native" } : {}),
       });
       assert.deepEqual(config.dns, {
         listen: "127.0.0.1:1053",
