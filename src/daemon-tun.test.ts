@@ -129,10 +129,22 @@ describe("daemon TUN controls", () => {
         },
       },
     });
-    const installed = await harness.apiRequest("/sash/tun/helper/install", { method: "POST" });
+    const installed = await harness.apiRequest("/sash/tun/helper/install", {
+      method: "POST",
+      body: { helperAuth: "sudo" },
+    });
     assert.equal(installed.statusCode, 200);
     assert.equal((installed.data as TunStatusResponse).privilege.state, "ready");
-    assert.equal(installs.length, 1);
+    assert.deepEqual(installs, [{ helperAuth: "sudo" }]);
+    assert.equal(
+      (
+        await harness.apiRequest("/sash/tun/helper/install", {
+          method: "POST",
+          body: { helperAuth: "invalid" },
+        })
+      ).statusCode,
+      400,
+    );
 
     await harness.apiRequest("/sash/settings", {
       method: "PATCH",

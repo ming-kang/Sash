@@ -26,6 +26,7 @@ import type { ErrorPresentation } from "./error-utils.js";
 import { isPlainObject } from "./json-shape.js";
 import { type DaemonEvent, decodeDaemonEvents } from "./sash-events.js";
 import type { PublicSashSettings } from "./settings.js";
+import type { TunHelperAuth } from "./tun-service.js";
 
 export { SashApiError } from "./contracts.js";
 
@@ -281,9 +282,13 @@ export class SashClient {
     return this.request("/sash/tun", { timeoutMs: 10_000, attempts: 1 });
   }
 
-  async setTunHelper(installed: boolean): Promise<TunStatusResponse> {
+  async setTunHelper(
+    installed: boolean,
+    options: { helperAuth?: TunHelperAuth } = {},
+  ): Promise<TunStatusResponse> {
     return this.request(`/sash/tun/helper/${installed ? "install" : "uninstall"}`, {
       method: "POST",
+      body: options.helperAuth ? { helperAuth: options.helperAuth } : {},
       timeoutMs: 120_000,
       attempts: 1,
     });

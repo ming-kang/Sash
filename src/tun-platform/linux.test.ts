@@ -8,6 +8,7 @@ import {
   CORE_CAPABILITIES,
   elevationCommand,
   GRANT_SCRIPT,
+  helperAuthEnvironment,
   linuxTunPlatform,
   parseGetcap,
   REVOKE_SCRIPT,
@@ -81,6 +82,37 @@ describe("elevationCommand", () => {
       assert.throws(() => elevationCommand({ PATH: "" }), /needs pkexec/);
     },
   );
+});
+
+describe("helperAuthEnvironment", () => {
+  it("uses the stored sudo preference when the daemon environment has none", () => {
+    const layout = layoutWithCore();
+    fs.mkdirSync(layout.stateDir, { recursive: true });
+    fs.writeFileSync(path.join(layout.stateDir, "tun-helper-auth"), "sudo\n");
+    const resolved = helperAuthEnvironment({ PATH: "" }, layout);
+    assert.equal(resolved.env.SASH_TUN_HELPER_AUTH, "sudo");
+    assert.equal(resolved.explicit, undefined);
+  });
+
+  it("lets an explicit request or environment choice override the stored preference", () => {
+    const layout = layoutWithCore();
+    fs.mkdirSync(layout.stateDir, { recursive: true });
+    fs.writeFileSync(path.join(layout.stateDir, "tun-helper-auth"), "sudo\n");
+    assert.equal(
+      helperAuthEnvironment({ PATH: "" }, layout, { helperAuth: "pkexec" }).env
+        .SASH_TUN_HELPER_AUTH,
+      "pkexec",
+    );
+    assert.equal(
+      helperAuthEnvironment({ PATH: "", SASH_TUN_HELPER_AUTH: "sudo" }, layout).explicit,
+      "sudo",
+    );
+    assert.equal(
+      helperAuthEnvironment({ PATH: "", SASH_TUN_HELPER_AUTH: "typo" }, layout).env
+        .SASH_TUN_HELPER_AUTH,
+      "pkexec",
+    );
+  });
 });
 
 describe("linuxTunPlatform.inspect", () => {

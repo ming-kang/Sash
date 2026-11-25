@@ -260,12 +260,83 @@ function unionStrings(...values: unknown[]): string[] {
   return out;
 }
 
+// Looser than isPlainObject: plugin hooks run in a vm context, and their
+// object literals fail the main realm's prototype check.
+function mapping(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function groupNames(groups: Array<Record<string, unknown>>): string[] {
+  return groups.flatMap((group) => (typeof group.name === "string" ? [group.name] : []));
+}
+
+function preferredGlobalTarget(
+  config: Record<string, unknown>,
+  groups: Array<Record<string, unknown>>,
+): string | undefined {
+  const names = groupNames(groups);
+  const rules = Array.isArray(config.rules) ? config.rules : [];
+  for (let index = rules.length - 1; index >= 0; index -= 1) {
+    const rule = rules[index];
+    if (typeof rule !== "string") continue;
+    const match = /^\s*MATCH\s*,\s*([^,\s]+)/i.exec(rule);
+    if (match?.[1] && names.includes(match[1])) return match[1];
+  }
+  const selector = groups.find(
+    (group) => typeof group.name === "string" && String(group.type).toLowerCase() === "select",
+  )?.name;
+  return typeof selector === "string" ? selector : names[0];
+}
+
+function ensureGlobalGroup(config: Record<string, unknown>): void {
+  if (config["proxy-groups"] === undefined) config["proxy-groups"] = [];
+  const value = config["proxy-groups"];
+  if (!Array.isArray(value)) return;
+  const groups = value.filter(mapping);
+  if (groups.some((group) => group.name === "GLOBAL")) return;
+  const names = groupNames(groups);
+  const preferred = preferredGlobalTarget(config, groups);
+  const ordered = preferred ? [preferred, ...names.filter((name) => name !== preferred)] : names;
+  value.push({
+    name: "GLOBAL",
+    type: "select",
+    proxies: ordered,
+    "include-all": true,
+    ...(preferred ? { "default-selected": preferred } : {}),
+  });
+}
+
+const DIRECT_EMPTY_FALLBACKS = new Set(["DIRECT", "COMPATIBLE", "PASS"]);
+
+function failClosedEmptyGroups(config: Record<string, unknown>, warnings: string[]): void {
+  const value = config["proxy-groups"];
+  if (!Array.isArray(value)) return;
+  for (const group of value.filter(mapping)) {
+    const name = typeof group.name === "string" ? group.name : "unnamed";
+    const raw = group["empty-fallback"];
+    const fallback = typeof raw === "string" ? raw.trim() : "";
+    if (!fallback) {
+      group["empty-fallback"] = "REJECT";
+    } else if (DIRECT_EMPTY_FALLBACKS.has(fallback.toUpperCase())) {
+      group["empty-fallback"] = "REJECT";
+      warnings.push(
+        `proxy group ${name} used ${fallback} as its empty fallback; TUN Mode uses REJECT to avoid direct traffic`,
+      );
+    }
+  }
+}
+
 export function overlayManagedKeys(
   base: Record<string, unknown>,
   settings: SashSettings,
   warnings: string[] = [],
 ): Record<string, unknown> {
   const out = stripManagedKeys(base);
+  if (Array.isArray(out["proxy-groups"])) {
+    out["proxy-groups"] = out["proxy-groups"].map((group) =>
+      mapping(group) ? { ...group } : group,
+    );
+  }
   out["mixed-port"] = settings.mixedPort;
   out["allow-lan"] = settings.allowLan;
   out["external-controller"] = settings.controller;
@@ -285,10 +356,7 @@ export function enforceTunConfiguration(
   tun: TunSettings,
   warnings: string[] = [],
 ): void {
-  // Looser than isPlainObject: plugin hooks run in a vm context, and their
-  // object literals fail the main realm's prototype check.
-  const mapping = (value: unknown): value is Record<string, unknown> =>
-    value !== null && typeof value === "object" && !Array.isArray(value);
+  ensureGlobalGroup(config);
   if (Array.isArray(config.listeners)) {
     const kept = config.listeners.filter(
       (entry) => !(mapping(entry) && String(entry.type).toLowerCase() === "tun"),
@@ -331,6 +399,7 @@ export function enforceTunConfiguration(
   config.tun = { ...profileTun, ...managedTun };
 
   if (tun.enable) {
+    failClosedEmptyGroups(config, warnings);
     if (config.dns !== undefined && !mapping(config.dns))
       warnings.push("profile dns is not a mapping; replaced with Core DNS defaults");
     const dns = (mapping(config.dns) ? config.dns : undefined) ?? {

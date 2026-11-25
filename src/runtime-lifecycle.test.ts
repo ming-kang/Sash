@@ -125,6 +125,103 @@ describe("Core and proxy lifecycle", () => {
     await f.lifecycle.handleUnexpectedCoreExit();
     assert.deepEqual(f.events, ["release"]);
   });
+
+  it("restores the applied configuration after an unexpected Core exit", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    f.core.running = false;
+    await f.lifecycle.handleUnexpectedCoreExit();
+    const starts = f.core.starts;
+    await f.lifecycle.restoreCoreSessionWithRetries(
+      f.configuration,
+      (action) => Promise.resolve(action()),
+      () => false,
+      [0],
+    );
+    assert.equal(f.core.running, true);
+    assert.equal(f.core.starts, starts + 1);
+    assert.equal(f.lifecycle.configuration(), f.configuration);
+  });
+
+  it("does not restore TUN after the saved TUN setting changed", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    f.core.running = false;
+    const starts = f.core.starts;
+    const expected = {
+      ...f.configuration,
+      settings: {
+        ...f.configuration.settings,
+        tun: { ...f.configuration.settings.tun, enable: true },
+      },
+    };
+    await f.lifecycle.restoreCoreSessionWithRetries(
+      expected,
+      (action) => Promise.resolve(action()),
+      () => false,
+      [0, 0],
+    );
+    assert.equal(f.core.running, false);
+    assert.equal(f.core.starts, starts);
+  });
+
+  it("retries Core recovery until the process accepts the launch", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    f.core.running = false;
+    let failures = 2;
+    f.core.onStart = () => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("controller not ready");
+      }
+    };
+    await f.lifecycle.restoreCoreSessionWithRetries(
+      f.configuration,
+      (action) => Promise.resolve(action()),
+      () => false,
+      [0, 0, 0],
+    );
+    assert.equal(f.core.running, true);
+    assert.equal(failures, 0);
+  });
+
+  it("gives up Core recovery after the retry budget", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    f.core.running = false;
+    const starts = f.core.starts;
+    f.core.onStart = () => {
+      throw new Error("core cannot start");
+    };
+    await f.lifecycle.restoreCoreSessionWithRetries(
+      f.configuration,
+      (action) => Promise.resolve(action()),
+      () => false,
+      [0, 0, 0],
+    );
+    assert.equal(f.core.starts, starts + 3);
+    assert.equal(f.core.running, false);
+  });
+
+  it("pauses automatic Core recovery after repeated crash cycles", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    f.core.running = false;
+    const starts = f.core.starts;
+    f.core.onStart = () => {
+      throw new Error("core cannot start");
+    };
+    for (let cycle = 0; cycle < 4; cycle += 1) {
+      await f.lifecycle.restoreCoreSessionWithRetries(
+        f.configuration,
+        (action) => Promise.resolve(action()),
+        () => false,
+        [0],
+      );
+    }
+    assert.equal(f.core.starts, starts + 3);
+  });
   it("does not terminate stale Core when startup proxy recovery fails", async () => {
     const f = fixture();
     let cleaned = false;
