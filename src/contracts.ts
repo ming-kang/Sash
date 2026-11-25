@@ -10,7 +10,7 @@ import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy/types.js";
-import type { TunSettingsPatch } from "./tun-settings.js";
+import type { TunSettings, TunSettingsPatch } from "./tun-settings.js";
 
 export type { ProfileMeta, ProfilesIndex };
 
@@ -119,17 +119,20 @@ export type TunPrivilegeMechanism = "service" | "setuid" | "capabilities";
  */
 export type TunPrivilegeState = "ready" | "missing" | "stale" | "unknown";
 
-export interface TunStatusResponse {
+export type TunHelperStatus =
+  | { state: "unsupported" }
+  | {
+      state: TunPrivilegeState;
+      mechanism: TunPrivilegeMechanism;
+      /** Why the privilege is not ready, when Sash can tell. */
+      detail: string | null;
+    };
+
+export interface TunApplyState {
   desired: boolean;
   applied: boolean;
-  privilege: {
-    /** How the Core is given TUN privilege here; null when TUN is unsupported. */
-    mechanism: TunPrivilegeMechanism | null;
-    state: TunPrivilegeState;
-    /** Why the privilege is not ready, when Sash can tell. */
-    detail: string | null;
-  };
-  supported: boolean;
+  /** The saved TUN settings differ from what a running Core uses, or no Core runs them yet. */
+  pending: boolean;
 }
 export interface ConfigurationPendingChanges {
   profile: boolean;
@@ -150,7 +153,7 @@ export interface DaemonStatus {
     pendingChanges: ConfigurationPendingChanges;
     applyMethod: CoreApplyMethod;
     appliedProfile: { id: string; revision: number; name: string; url: string } | null;
-    appliedSettings: { mixedPort: number; allowLan: boolean } | null;
+    appliedSettings: { mixedPort: number; allowLan: boolean; tun: TunSettings } | null;
   };
   systemProxy: {
     desired: boolean;
@@ -162,6 +165,17 @@ export interface DaemonStatus {
   };
   settings: PublicSashSettings;
   activeProfile: { id: string; name: string; url: string } | null;
+}
+
+export function tunApplyState(status: DaemonStatus): TunApplyState {
+  const desired = status.settings.tun.enable;
+  const applied =
+    status.core.running && (status.configuration.appliedSettings?.tun.enable ?? false);
+  return {
+    desired,
+    applied,
+    pending: status.configuration.pendingChanges.tun || desired !== applied,
+  };
 }
 
 export function apiErrorBody(

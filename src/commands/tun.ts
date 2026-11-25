@@ -1,13 +1,28 @@
 import { commandOutput } from "../cli-output.js";
-import { parseTunHelperAuth } from "../contracts.js";
+import {
+  parseTunHelperAuth,
+  type TunApplyState,
+  type TunHelperStatus,
+  tunApplyState,
+} from "../contracts.js";
 import { ensureDaemonSession, resolveDaemonSession } from "../daemon-session.js";
 import { log } from "../log.js";
+import type { SashClient } from "../sash-client.js";
 import { createTunPlatform } from "../tun-platform/index.js";
 import { describeTunHelper, TunService } from "../tun-service.js";
 import { runtimeContext } from "./shared.js";
 
 export type TunAction = "on" | "off" | "status" | "helper";
 export type TunHelperAction = "install" | "uninstall" | "status";
+
+export interface TunReport extends TunApplyState {
+  helper: TunHelperStatus;
+}
+
+async function daemonReport(client: SashClient, helper?: TunHelperStatus): Promise<TunReport> {
+  const [status, current] = await Promise.all([client.status(), helper ?? client.tunHelper()]);
+  return { ...tunApplyState(status), helper: current };
+}
 
 export async function runTun(
   action: TunAction = "status",
@@ -18,54 +33,61 @@ export async function runTun(
     throw new Error("Helper actions require sash tun helper");
   await commandOutput(
     options.json,
-    async () => {
+    async (): Promise<TunReport> => {
       const context = runtimeContext();
       if (
         action === "status" ||
         (action === "helper" && (!helperAction || helperAction === "status"))
       ) {
         const owner = await resolveDaemonSession(context);
-        if (owner.kind === "daemon") return owner.client.tunStatus();
+        if (owner.kind === "daemon") return daemonReport(owner.client);
         if (owner.kind === "unhealthy") process.exitCode = 2;
-        return new TunService(createTunPlatform(), context.layout).status(
-          context.settings.tun.enable,
-          undefined,
-          { fresh: true },
-        );
+        const desired = context.settings.tun.enable;
+        return {
+          desired,
+          applied: false,
+          pending: desired,
+          helper: await new TunService(createTunPlatform(), context.layout).helperStatus({
+            fresh: true,
+          }),
+        };
       }
       const { client } = await ensureDaemonSession(context);
       if (action === "helper") {
         const helperAuth = parseTunHelperAuth(process.env.SASH_TUN_HELPER_AUTH?.trim());
-        return client.setTunHelper(helperAction === "install", {
-          ...(helperAuth ? { helperAuth } : {}),
-        });
+        return daemonReport(
+          client,
+          await client.setTunHelper(helperAction === "install", {
+            ...(helperAuth ? { helperAuth } : {}),
+          }),
+        );
       }
       const status = await client.status();
       await client.patchSettings({
         tun: { enable: action === "on" },
         expectedRevision: status.revisions.state,
       });
-      return client.tunStatus();
+      return daemonReport(client);
     },
-    (status) => {
-      const helper: [string, string] = ["TUN Helper", describeTunHelper(status)];
+    ({ desired, applied, pending, helper }) => {
+      const helperRow: [string, string] = ["TUN Helper", describeTunHelper(helper)];
       log.table(
         action === "helper"
-          ? [helper]
+          ? [helperRow]
           : [
-              ["TUN Setting", status.desired ? "On" : "Off"],
-              ["TUN Applied", status.applied ? "On" : "Off"],
-              helper,
+              ["TUN Setting", desired ? "On" : "Off"],
+              ["TUN Applied", applied ? "On" : "Off"],
+              helperRow,
             ],
       );
-      if (status.supported && status.privilege.state !== "ready")
+      if (helper.state !== "unsupported" && helper.state !== "ready")
         log.info(
-          status.privilege.mechanism === "service"
+          helper.mechanism === "service"
             ? "Run sash tun helper install to install the TUN service (administrator approval)."
             : "Run sash tun helper install to authorize the Core (administrator approval); a Core update clears this.",
         );
-      if (status.applied) log.info("Sash does not check OS routes or DNS interception.");
-      if (status.desired !== status.applied) log.info("Run sash restart to Apply the TUN setting.");
+      if (applied) log.info("Sash does not check OS routes or DNS interception.");
+      if (pending) log.info("Run sash restart to Apply the TUN settings.");
     },
   );
 }

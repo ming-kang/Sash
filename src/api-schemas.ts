@@ -45,6 +45,10 @@ export const settingsPatchBodySchema = z
   })
   .strict();
 
+export const tunHelperBodySchema = z
+  .object({ helperAuth: z.enum(["sudo", "pkexec"]).optional() })
+  .strict();
+
 export type CoreUpdateBody = z.infer<typeof coreUpdateBodySchema>;
 export type CoreModeBody = z.infer<typeof coreModeBodySchema>;
 export type CoreDelayBody = z.infer<typeof coreDelayBodySchema>;

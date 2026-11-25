@@ -17,7 +17,7 @@ function platform(inspect: TunPlatform["inspect"], extra: Partial<TunPlatform> =
   return { ...unsupportedTunPlatform(), mechanism: "service", inspect, ...extra };
 }
 
-describe("TunService.status", () => {
+describe("TunService.helperStatus", () => {
   it("reports the mechanism, state and reason", async () => {
     const service = new TunService(
       platform(async () => ({
@@ -26,18 +26,17 @@ describe("TunService.status", () => {
       })),
       layout,
     );
-    assert.deepEqual((await service.status(true, undefined)).privilege, {
-      mechanism: "service",
+    assert.deepEqual(await service.helperStatus(), {
       state: "stale",
+      mechanism: "service",
       detail: "the TUN service serves another data folder",
     });
   });
 
   it("reports an unsupported platform", async () => {
-    const status = await new TunService(unsupportedTunPlatform(), layout).status(false, undefined);
-    assert.equal(status.supported, false);
-    assert.equal(status.privilege.mechanism, null);
-    assert.equal(describeTunHelper(status), "Not available on this platform");
+    const helper = await new TunService(unsupportedTunPlatform(), layout).helperStatus();
+    assert.deepEqual(helper, { state: "unsupported" });
+    assert.equal(describeTunHelper(helper), "Not available on this platform");
   });
 
   it("reuses the cached inspection for polling readers; fresh readers bypass it", async () => {
@@ -46,13 +45,10 @@ describe("TunService.status", () => {
       platform(async () => ({ state: calls++ === 0 ? "ready" : "missing" })),
       layout,
     );
-    assert.equal((await service.status(false, undefined)).privilege.state, "ready");
-    assert.equal((await service.status(false, undefined)).privilege.state, "ready");
+    assert.equal((await service.helperStatus()).state, "ready");
+    assert.equal((await service.helperStatus()).state, "ready");
     assert.equal(calls, 1);
-    assert.equal(
-      (await service.status(false, undefined, { fresh: true })).privilege.state,
-      "missing",
-    );
+    assert.equal((await service.helperStatus({ fresh: true })).state, "missing");
     assert.equal(calls, 2);
   });
 
@@ -67,9 +63,9 @@ describe("TunService.status", () => {
       }),
       layout,
     );
-    assert.equal((await service.status(false, undefined)).privilege.state, "missing");
+    assert.equal((await service.helperStatus()).state, "missing");
     await assert.rejects(service.setInstalled(true), /verification failed/);
-    assert.equal((await service.status(false, undefined)).privilege.state, "ready");
+    assert.equal((await service.helperStatus()).state, "ready");
   });
 
   it("keeps reporting when the inspection throws", async () => {
@@ -79,9 +75,11 @@ describe("TunService.status", () => {
       }),
       layout,
     );
-    const status = await service.status(false, undefined);
-    assert.equal(status.privilege.state, "unknown");
-    assert.equal(status.privilege.detail, "helper probe failed");
+    assert.deepEqual(await service.helperStatus(), {
+      state: "unknown",
+      mechanism: "service",
+      detail: "helper probe failed",
+    });
   });
 });
 
@@ -117,7 +115,7 @@ describe("TunService.checkReady", () => {
       platform(async () => ({ state })),
       layout,
     );
-    await service.status(false, undefined);
+    await service.helperStatus();
     state = "missing";
     await assert.rejects(service.checkReady(), /Install the TUN helper first/);
   });
@@ -128,12 +126,7 @@ describe("describeTunHelper", () => {
     const status = (
       state: "ready" | "missing" | "stale" | "unknown",
       detail: string | null = null,
-    ) => ({
-      supported: true,
-      desired: false,
-      applied: false,
-      privilege: { mechanism: "capabilities" as const, state, detail },
-    });
+    ) => ({ state, mechanism: "capabilities" as const, detail });
     assert.equal(describeTunHelper(status("ready")), "Ready (Core capabilities)");
     assert.equal(describeTunHelper(status("missing")), "Not installed");
     assert.equal(

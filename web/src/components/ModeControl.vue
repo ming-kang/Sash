@@ -37,7 +37,7 @@
           :disabled="
             store.operations.networkSetting ||
             !store.status ||
-            (tun?.privilege.state !== 'ready' && !tunEnabled)
+            (store.tunHelper?.state !== 'ready' && !tunEnabled)
           "
           @update:model-value="toggleTun"
         />
@@ -54,8 +54,10 @@
     </div>
 
     <TunInfoDialog
-      v-if="showTunInfo"
-      :tun="tun"
+      v-if="showTunInfo && store.status"
+      :settings="store.status.settings.tun"
+      :helper="store.tunHelper"
+      :pending="tunApplyState(store.status).pending"
       :installing="installingHelper"
       @close="showTunInfo = false"
       @install="installHelper"
@@ -65,6 +67,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { tunApplyState } from "../../../src/contracts.js";
 import { api } from "../api/index.js";
 import { t } from "../i18n/index.js";
 import {
@@ -95,10 +98,7 @@ const modes = computed(() => [
 ]);
 
 const allowLanOn = computed(() => store.status?.settings.allowLan ?? false);
-const tunEnabled = computed(() => store.status?.settings.tun?.enable ?? false);
-// Driven by the daemon event feed (stores/runtime-events.ts): out-of-band
-// helper changes surface without a refresh, no per-mount polling needed.
-const tun = computed(() => store.tun);
+const tunEnabled = computed(() => store.status?.settings.tun.enable ?? false);
 const installingHelper = ref(false);
 
 const showTunInfo = ref(false);
@@ -107,8 +107,8 @@ async function installHelper(): Promise<void> {
   installingHelper.value = true;
   const bootId = store.status?.daemon.bootId;
   try {
-    const status = await api.installTunHelper();
-    if (bootId === store.status?.daemon.bootId) store.tun = status;
+    const helper = await api.installTunHelper();
+    if (bootId === store.status?.daemon.bootId) store.tunHelper = helper;
   } catch (error) {
     toast.error(t("toast.failed", { msg: errorText(error) }));
   } finally {

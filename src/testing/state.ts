@@ -89,7 +89,11 @@ export function testStatus(): DaemonStatus {
       },
       applyMethod: "reload",
       appliedProfile: null,
-      appliedSettings: { mixedPort: settings.mixedPort, allowLan: settings.allowLan },
+      appliedSettings: {
+        mixedPort: settings.mixedPort,
+        allowLan: settings.allowLan,
+        tun: settings.tun,
+      },
     },
     systemProxy: {
       desired: false,

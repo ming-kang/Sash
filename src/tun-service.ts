@@ -1,11 +1,10 @@
 import type {
   TunHelperAuth,
+  TunHelperStatus,
   TunPrivilegeMechanism,
   TunPrivilegeState,
-  TunStatusResponse,
 } from "./contracts.js";
 import type { SashLayout } from "./paths.js";
-import type { TunSettings } from "./tun-settings.js";
 
 export interface TunPrivilege {
   state: TunPrivilegeState;
@@ -41,9 +40,11 @@ export interface TunPlatform {
   host?(layout: SashLayout): HostedCore;
 }
 
+const UNSUPPORTED = "TUN Mode is not available on this platform";
+
 export function unsupportedTunPlatform(): TunPlatform {
   const unavailable = async (): Promise<never> => {
-    throw new Error("TUN Mode is not available on this platform");
+    throw new Error(UNSUPPORTED);
   };
   return {
     mechanism: null,
@@ -60,13 +61,12 @@ const MECHANISM_NAMES: Record<TunPrivilegeMechanism, string> = {
 };
 
 /** One-line helper state for the CLI and doctor. */
-export function describeTunHelper(status: TunStatusResponse): string {
-  if (!status.supported) return "Not available on this platform";
-  const { mechanism, state, detail } = status.privilege;
-  const reason = detail ? ` (${detail})` : "";
-  switch (state) {
+export function describeTunHelper(helper: TunHelperStatus): string {
+  if (helper.state === "unsupported") return "Not available on this platform";
+  const reason = helper.detail ? ` (${helper.detail})` : "";
+  switch (helper.state) {
     case "ready":
-      return mechanism ? `Ready (${MECHANISM_NAMES[mechanism]})` : "Ready";
+      return `Ready (${MECHANISM_NAMES[helper.mechanism]})`;
     case "missing":
       return `Not installed${reason}`;
     case "stale":
@@ -114,29 +114,18 @@ export class TunService {
     return value;
   }
 
-  async status(
-    desired: boolean,
-    applied: TunSettings | undefined,
-    options: { fresh?: boolean } = {},
-  ): Promise<TunStatusResponse> {
+  async helperStatus(options: { fresh?: boolean } = {}): Promise<TunHelperStatus> {
+    const { mechanism } = this.platform;
+    if (mechanism === null) return { state: "unsupported" };
     const privilege = await this.inspect(options.fresh === true);
-    return {
-      supported: this.supported,
-      desired,
-      applied: applied?.enable ?? false,
-      privilege: {
-        mechanism: this.platform.mechanism,
-        state: privilege.state,
-        detail: privilege.detail ?? null,
-      },
-    };
+    return { state: privilege.state, mechanism, detail: privilege.detail ?? null };
   }
 
   async checkReady(): Promise<void> {
-    if (!this.supported) throw new Error("TUN Mode is not available on this platform");
-    const { state, detail } = await this.inspect(true);
-    const reason = detail ? ` (${detail})` : "";
-    switch (state) {
+    const helper = await this.helperStatus({ fresh: true });
+    if (helper.state === "unsupported") throw new Error(UNSUPPORTED);
+    const reason = helper.detail ? ` (${helper.detail})` : "";
+    switch (helper.state) {
       case "ready":
         return;
       case "missing":

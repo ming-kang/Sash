@@ -54,7 +54,7 @@ function statusResponse(
       },
       applyMethod: "reload",
       appliedProfile: null,
-      appliedSettings: { mixedPort: 17890, allowLan: false },
+      appliedSettings: { mixedPort: 17890, allowLan: false, tun: defaultTunSettings() },
     },
     core,
     systemProxy: {

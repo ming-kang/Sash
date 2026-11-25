@@ -3,6 +3,7 @@ import net from "node:net";
 import path from "node:path";
 import { readState, type SashState } from "./app-state.js";
 import { readLoginStartRecord } from "./autostart/login-record.js";
+import { type TunHelperStatus, tunApplyState } from "./contracts.js";
 import { CORE_BINARY_SIZE_LIMIT, readInstallRecord } from "./core.js";
 import { GEODATA_FILE_NAMES } from "./core-config-validation.js";
 import { resolveDaemonSession } from "./daemon-session.js";
@@ -272,28 +273,30 @@ function geodataCheck(layout: SashLayout): DoctorCheck {
   }
 }
 
+function tunHelperCheck(helper: TunHelperStatus, tunSaved: boolean): DoctorCheck {
+  const message = `TUN helper: ${describeTunHelper(helper)}`;
+  const advice = "Run sash tun helper install";
+  switch (helper.state) {
+    case "ready":
+      return check("tun-helper", "ok", message);
+    case "unsupported":
+      return check("tun-helper", "info", message);
+    case "missing":
+      return check("tun-helper", tunSaved ? "warning" : "info", message, advice);
+    case "stale":
+    case "unknown":
+      return check("tun-helper", "warning", message, advice);
+  }
+}
+
 async function tunChecks(context: StatusObservationContext): Promise<DoctorCheck[]> {
   try {
     const owner = await resolveDaemonSession(context);
-    const tun = owner.kind === "daemon" ? await owner.client.tunStatus() : null;
-    const state = tun?.supported ? tun.privilege.state : undefined;
-    const checks = [
-      check(
-        "tun-helper",
-        state === "stale" ||
-          state === "unknown" ||
-          (state === "missing" && context.settings.tun.enable)
-          ? "warning"
-          : state === "ready"
-            ? "ok"
-            : "info",
-        tun
-          ? `TUN helper: ${describeTunHelper(tun)}`
-          : "TUN helper status unavailable while Sash is stopped",
-        state && state !== "ready" ? "Run sash tun helper install" : undefined,
-      ),
-    ];
-    if (tun?.applied)
+    if (owner.kind !== "daemon")
+      return [check("tun-helper", "info", "TUN helper status unavailable while Sash is stopped")];
+    const [helper, status] = await Promise.all([owner.client.tunHelper(), owner.client.status()]);
+    const checks = [tunHelperCheck(helper, context.settings.tun.enable)];
+    if (tunApplyState(status).applied)
       checks.push(
         check("tun-network", "info", "TUN is applied; OS routes and DNS are not checked"),
       );

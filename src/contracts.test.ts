@@ -1,7 +1,73 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { apiErrorBody, parseApiErrorBody, parseTunHelperAuth, SashApiError } from "./contracts.js";
+import {
+  apiErrorBody,
+  type DaemonStatus,
+  parseApiErrorBody,
+  parseTunHelperAuth,
+  SashApiError,
+  tunApplyState,
+} from "./contracts.js";
 import { errorPresentation } from "./error-utils.js";
+import { testStatus } from "./testing/state.js";
+import { defaultTunSettings } from "./tun-settings.js";
+
+describe("tunApplyState", () => {
+  function status(
+    saved: boolean,
+    running: { enable: boolean } | "stopped",
+    tunPending = false,
+  ): DaemonStatus {
+    const base = testStatus();
+    return {
+      ...base,
+      core: running === "stopped" ? { running: false } : base.core,
+      settings: { ...base.settings, tun: { ...defaultTunSettings(), enable: saved } },
+      configuration: {
+        ...base.configuration,
+        pendingChanges: { ...base.configuration.pendingChanges, tun: tunPending },
+        appliedSettings: {
+          mixedPort: base.settings.mixedPort,
+          allowLan: base.settings.allowLan,
+          tun: { ...defaultTunSettings(), enable: running !== "stopped" && running.enable },
+        },
+      },
+    };
+  }
+
+  it("is settled when the running Core uses the saved TUN settings", () => {
+    assert.deepEqual(tunApplyState(status(true, { enable: true })), {
+      desired: true,
+      applied: true,
+      pending: false,
+    });
+    assert.deepEqual(tunApplyState(status(false, { enable: false })), {
+      desired: false,
+      applied: false,
+      pending: false,
+    });
+  });
+
+  it("is pending while the enable switch or an effective setting waits for Apply", () => {
+    assert.equal(tunApplyState(status(true, { enable: false }, true)).pending, true);
+    assert.equal(tunApplyState(status(false, { enable: true }, true)).applied, true);
+    assert.deepEqual(tunApplyState(status(true, { enable: true }, true)), {
+      desired: true,
+      applied: true,
+      pending: true,
+    });
+  });
+
+  it("never reports TUN applied while Core is stopped", () => {
+    const stopped = status(true, "stopped");
+    stopped.configuration.appliedSettings = {
+      mixedPort: stopped.settings.mixedPort,
+      allowLan: stopped.settings.allowLan,
+      tun: { ...defaultTunSettings(), enable: true },
+    };
+    assert.deepEqual(tunApplyState(stopped), { desired: true, applied: false, pending: true });
+  });
+});
 
 describe("parseTunHelperAuth", () => {
   it("accepts exactly the two mechanisms and ignores anything else", () => {

@@ -93,7 +93,7 @@ export function startRuntimeEvents(intervalMs = 2000): () => void {
         if (!active()) return;
         adoptRuntimeSnapshot(event.status);
         if (!active()) return;
-        store.tun = event.tun;
+        store.tunHelper = event.tun;
         store.connection = "connected";
         void refreshResources();
       }

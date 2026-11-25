@@ -32,7 +32,7 @@ Stopping Core cancels in-flight preparation and pending reloads; shutdown also c
 
 ## TUN Mode
 
-TUN changes only *how Core gets privilege* — the controller, reloads, logs and Apply are identical. [CoreSupervisor](../src/supervisor.ts) drives one [CoreRunner](../src/core-runner.ts): a spawned child, or on Windows a Core started by the TUN service. [TunService](../src/tun-service.ts) reports `ready`, `missing`, `stale` or `unknown`; Apply refuses TUN before stopping a running Core unless it is `ready`.
+TUN changes only *how Core gets privilege* — the controller, reloads, logs and Apply are identical. [CoreSupervisor](../src/supervisor.ts) drives one [CoreRunner](../src/core-runner.ts): a spawned child, or on Windows a Core started by the TUN service. [TunService](../src/tun-service.ts) reports the helper as `unsupported`, `ready`, `missing`, `stale` or `unknown` — that is all `GET /sash/tun` and the event feed carry; whether TUN is saved, applied or pending is read from status through `tunApplyState` in [contracts.ts](../src/contracts.ts). Apply refuses TUN before stopping a running Core unless it is `ready`.
 
 Each platform acts on the managed `bin/mihomo` itself, so no Core version is pinned:
 

@@ -19,7 +19,7 @@ import {
   type SettingsWriteResult,
   type SystemProxyStatusResponse,
   type TunHelperAuth,
-  type TunStatusResponse,
+  type TunHelperStatus,
 } from "./contracts.js";
 import { CORE_DELAY_REQUEST_MS, type CoreDelayResult } from "./core-delay.js";
 import type { CoreUpdateCheck, CoreUpdateProgress } from "./core-update.js";
@@ -278,14 +278,14 @@ export class SashClient {
     return this.request<SystemProxyStatusResponse>(fresh ? "/sash/proxy?fresh=1" : "/sash/proxy");
   }
 
-  async tunStatus(): Promise<TunStatusResponse> {
+  async tunHelper(): Promise<TunHelperStatus> {
     return this.request("/sash/tun", { timeoutMs: 10_000, attempts: 1 });
   }
 
   async setTunHelper(
     installed: boolean,
     options: { helperAuth?: TunHelperAuth } = {},
-  ): Promise<TunStatusResponse> {
+  ): Promise<TunHelperStatus> {
     return this.request(`/sash/tun/helper/${installed ? "install" : "uninstall"}`, {
       method: "POST",
       body: options.helperAuth ? { helperAuth: options.helperAuth } : {},

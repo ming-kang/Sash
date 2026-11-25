@@ -116,16 +116,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, useId } from "vue";
-import type { TunStatusResponse } from "../../../src/contracts.js";
+import type { TunHelperStatus } from "../../../src/contracts.js";
+import type { TunSettings } from "../../../src/tun-settings.js";
 import { useDialogFocus } from "../composables/useDialogFocus.js";
 import { t } from "../i18n/index.js";
-import { errorText, saveNetworkSettings, store, toast } from "../stores/index.js";
+import { errorText, saveNetworkSettings, toast } from "../stores/index.js";
 import Icon from "./Icon.vue";
 import TagListInput from "./TagListInput.vue";
 import UiSwitch from "./UiSwitch.vue";
 
 const props = defineProps<{
-  tun: TunStatusResponse | undefined;
+  settings: TunSettings;
+  helper: TunHelperStatus | undefined;
+  pending: boolean;
   installing: boolean;
 }>();
 const emit = defineEmits<{ close: []; install: [] }>();
@@ -145,31 +148,26 @@ onUnmounted(() => {
   close();
 });
 
-const stackOptions = ["mixed", "system", "gvisor"] as const;
+const stackOptions = ["mixed", "system", "gvisor"] as const satisfies readonly TunSettings["stack"][];
 const devicePlaceholder = navigator.userAgent.includes("Mac") ? "utun4" : "tun0";
 
-const current = computed(() => store.status?.settings.tun);
-const draft = reactive({
-  stack: (current.value?.stack ?? "mixed") as (typeof stackOptions)[number],
-  autoRoute: current.value?.autoRoute ?? true,
-  strictRoute: current.value?.strictRoute ?? false,
-  dnsHijack: [...(current.value?.dnsHijack ?? [])],
-  routeExcludeAddress: [...(current.value?.routeExcludeAddress ?? [])],
-  device: current.value?.device ?? "",
-});
+function editableFields(settings: TunSettings) {
+  return {
+    stack: settings.stack,
+    autoRoute: settings.autoRoute,
+    strictRoute: settings.strictRoute,
+    dnsHijack: [...settings.dnsHijack],
+    routeExcludeAddress: [...settings.routeExcludeAddress],
+    device: settings.device ?? "",
+  };
+}
+
+const draft = reactive(editableFields(props.settings));
 const saving = ref(false);
 
-const dirty = computed(() => {
-  const s = current.value;
-  return (
-    draft.stack !== (s?.stack ?? "mixed") ||
-    draft.autoRoute !== (s?.autoRoute ?? true) ||
-    draft.strictRoute !== (s?.strictRoute ?? false) ||
-    draft.device !== (s?.device ?? "") ||
-    JSON.stringify(draft.dnsHijack) !== JSON.stringify(s?.dnsHijack ?? []) ||
-    JSON.stringify(draft.routeExcludeAddress) !== JSON.stringify(s?.routeExcludeAddress ?? [])
-  );
-});
+const dirty = computed(
+  () => JSON.stringify(draft) !== JSON.stringify(editableFields(props.settings)),
+);
 
 function nonEmptyToken(item: string): string | undefined {
   return /\S/.test(item) && !/\s/.test(item) ? undefined : t("tun.invalidEntry");
@@ -185,14 +183,7 @@ async function save(): Promise<void> {
   try {
     const device = draft.device.trim();
     const applied = await saveNetworkSettings({
-      tun: {
-        stack: draft.stack,
-        autoRoute: draft.autoRoute,
-        strictRoute: draft.strictRoute,
-        dnsHijack: draft.dnsHijack,
-        routeExcludeAddress: draft.routeExcludeAddress,
-        device: device === "" ? null : device,
-      },
+      tun: { ...draft, device: device === "" ? null : device },
     });
     if (!applied) toast.info(t("toast.settingSavedUnverified"));
     else emit("close");
@@ -203,32 +194,25 @@ async function save(): Promise<void> {
   }
 }
 
-const pending = computed(
-  () =>
-    Boolean(store.status?.configuration.pendingChanges?.tun) ||
-    (!!props.tun && props.tun.desired !== props.tun.applied),
-);
-const privilege = computed(() => (props.tun?.supported ? props.tun.privilege : undefined));
 const installable = computed(
-  () => privilege.value?.state === "missing" || privilege.value?.state === "stale",
+  () => props.helper?.state === "missing" || props.helper?.state === "stale",
 );
 // Platform-specific reason (another data folder, old protocol, ...), shown on hover.
-const detail = computed(() => privilege.value?.detail ?? "");
+const detail = computed(() =>
+  props.helper && props.helper.state !== "unsupported" ? (props.helper.detail ?? "") : "",
+);
+
+const NOT_READY_SUMMARY = {
+  unknown: "tun.stateUnknown",
+  unsupported: "tun.unsupported",
+  stale: "tun.clickReinstall",
+  missing: "tun.clickInstall",
+} as const;
 
 const summary = computed(() => {
-  const s = props.tun;
-  if (!s) return t("tun.stateUnknown");
-  if (!s.supported) return t("tun.unsupported");
-  switch (s.privilege.state) {
-    case "stale":
-      return t("tun.clickReinstall");
-    case "missing":
-      return t("tun.clickInstall");
-    case "unknown":
-      return t("tun.stateUnknown");
-  }
-  if (pending.value) return t("tun.statePending");
-  return t("tun.ready");
+  const state = props.helper?.state ?? "unknown";
+  if (state !== "ready") return t(NOT_READY_SUMMARY[state]);
+  return t(props.pending ? "tun.statePending" : "tun.ready");
 });
 </script>
 

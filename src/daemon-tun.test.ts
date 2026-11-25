@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "vitest";
 import YAML from "yaml";
-import type { DaemonStatus, TunStatusResponse } from "./contracts.js";
+import { type DaemonStatus, type TunHelperStatus, tunApplyState } from "./contracts.js";
 import { readInstallRecord } from "./core.js";
 import { CoreStartError, CoreUpdateResumeError } from "./runtime-lifecycle.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
@@ -12,6 +12,10 @@ import { type TunPlatform, unsupportedTunPlatform } from "./tun-service.js";
 
 describe("daemon TUN controls", () => {
   const harness = useDaemonTestHarness();
+
+  async function tunState() {
+    return tunApplyState((await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus);
+  }
 
   function readyTunPlatform(): TunPlatform {
     return {
@@ -33,7 +37,7 @@ describe("daemon TUN controls", () => {
     await harness.startServer({ tunPlatform: unsupportedTunPlatform() });
     const status = await harness.apiRequest("/sash/tun");
     assert.equal(status.statusCode, 200);
-    assert.equal((status.data as TunStatusResponse).supported, false);
+    assert.deepEqual(status.data, { state: "unsupported" });
     assert.equal((await harness.apiRequest("/sash/tun", { token: "" })).statusCode, 401);
     assert.equal(
       (await harness.apiRequest("/sash/tun/helper/install", { method: "POST" })).statusCode,
@@ -64,13 +68,13 @@ describe("daemon TUN controls", () => {
       body: { tun: { enable: true } },
     });
     assert.equal(write.statusCode, 200);
-    const pending = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const pending = await tunState();
     assert.equal(pending.desired, true);
     assert.equal(pending.applied, false);
     assert.equal(supervisor.starts, 1);
     const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
     assert.notEqual(applied.statusCode, 200);
-    const rolledBack = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const rolledBack = await tunState();
     assert.equal(rolledBack.desired, false);
     assert.equal(rolledBack.applied, false);
     assert.equal(supervisor.running, true);
@@ -141,7 +145,7 @@ describe("daemon TUN controls", () => {
     assert.notEqual(applied.statusCode, 200);
     assert.match(JSON.stringify(applied.data), /rule is invalid/);
     assert.equal(supervisor.starts, 0);
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const status = await tunState();
     assert.equal(status.desired, true);
     assert.equal(status.applied, false);
   });
@@ -167,7 +171,7 @@ describe("daemon TUN controls", () => {
     assert.notEqual(started.statusCode, 200);
     assert.match(JSON.stringify(started.data), /Core download offline/);
     assert.equal(supervisor.starts, 0);
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const status = await tunState();
     assert.equal(status.desired, true);
   });
 
@@ -194,7 +198,7 @@ describe("daemon TUN controls", () => {
     assert.notEqual(started.statusCode, 200);
     assert.match(JSON.stringify(started.data), /verification boot failed/);
     assert.equal(readInstallRecord(harness.layout), undefined);
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const status = await tunState();
     assert.equal(status.desired, true);
   });
 
@@ -225,7 +229,7 @@ describe("daemon TUN controls", () => {
     );
     assert.equal(readInstallRecord(harness.layout)?.coreVersion, "v2");
     assert.equal(supervisor.running, false);
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const status = await tunState();
     assert.equal(status.desired, false);
     const daemon = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
     assert.equal(daemon.settings.tun.enable, false);
@@ -261,7 +265,7 @@ describe("daemon TUN controls", () => {
     assert.equal(readInstallRecord(harness.layout)?.coreVersion, "v1.0.0");
     assert.equal(supervisor.running, true);
     assert.equal(YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8")).tun.enable, true);
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const status = await tunState();
     assert.equal(status.desired, true);
     assert.equal(status.applied, true);
   });
@@ -327,7 +331,7 @@ describe("daemon TUN controls", () => {
       (await harness.apiRequest("/sash/core/restart", { method: "POST" })).statusCode,
       200,
     );
-    const running = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const running = await tunState();
     assert.equal(running.applied, true);
 
     await harness.apiRequest("/sash/settings", {
@@ -343,7 +347,7 @@ describe("daemon TUN controls", () => {
     };
     const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
     assert.notEqual(applied.statusCode, 200);
-    const rolledBack = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const rolledBack = await tunState();
     assert.equal(rolledBack.desired, true);
     assert.equal(rolledBack.applied, true);
     assert.equal(supervisor.running, true);
@@ -384,7 +388,7 @@ describe("daemon TUN controls", () => {
       YAML.parse(fs.readFileSync(harness.layout.configFile, "utf8"))["allow-lan"],
       false,
     );
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const status = await tunState();
     assert.equal(status.desired, false);
   });
 
@@ -404,11 +408,14 @@ describe("daemon TUN controls", () => {
       (await harness.apiRequest("/sash/core/restart", { method: "POST" })).statusCode,
       200,
     );
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const status = await tunState();
     assert.equal(status.desired, true);
     assert.equal(status.applied, true);
-    assert.equal("observed" in status, false);
-    assert.equal("unverifiedChecks" in status, false);
+    assert.deepEqual((await harness.apiRequest("/sash/tun")).data, {
+      state: "ready",
+      mechanism: "capabilities",
+      detail: null,
+    });
   });
 
   it("refuses to Apply TUN until the helper is ready and keeps the Core running", async () => {
@@ -433,12 +440,12 @@ describe("daemon TUN controls", () => {
     const applied = await harness.apiRequest("/sash/core/restart", { method: "POST" });
     assert.notEqual(applied.statusCode, 200);
     assert.match(JSON.stringify(applied.data), /Install the TUN helper again.*another data folder/);
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
-    assert.deepEqual(status.privilege, {
-      mechanism: "service",
+    assert.deepEqual((await harness.apiRequest("/sash/tun")).data, {
       state: "stale",
+      mechanism: "service",
       detail: "the TUN service serves another data folder",
     });
+    const status = await tunState();
     assert.equal(status.applied, false);
     assert.equal(status.desired, false);
   });
@@ -477,7 +484,7 @@ describe("daemon TUN controls", () => {
 
     assert.notEqual(applied.statusCode, 200);
     assert.equal(supervisor.running, true);
-    const status = (await harness.apiRequest("/sash/tun")).data as TunStatusResponse;
+    const status = await tunState();
     assert.equal(status.desired, true);
     assert.equal(status.applied, true);
     const daemon = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
@@ -506,7 +513,7 @@ describe("daemon TUN controls", () => {
       body: { helperAuth: "sudo" },
     });
     assert.equal(installed.statusCode, 200);
-    assert.equal((installed.data as TunStatusResponse).privilege.state, "ready");
+    assert.equal((installed.data as TunHelperStatus).state, "ready");
     assert.deepEqual(installs, [{ helperAuth: "sudo" }]);
     assert.equal(
       (

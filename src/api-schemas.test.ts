@@ -7,6 +7,7 @@ import {
   profileImportBodySchema,
   profileRenameBodySchema,
   settingsPatchBodySchema,
+  tunHelperBodySchema,
 } from "./api-schemas.js";
 import type { SettingsPatch } from "./contracts.js";
 
@@ -74,6 +75,13 @@ describe("daemon request body schemas", () => {
     assert.deepEqual(profileRenameBodySchema.parse({ name: "renamed" }), { name: "renamed" });
     for (const body of [{ name: 42 }, { name: true }, { name: ["x"] }])
       assert.equal(profileRenameBodySchema.safeParse(body).success, false, JSON.stringify(body));
+  });
+
+  it("accepts only a known helper elevation mechanism", () => {
+    assert.deepEqual(tunHelperBodySchema.parse({}), {});
+    assert.deepEqual(tunHelperBodySchema.parse({ helperAuth: "sudo" }), { helperAuth: "sudo" });
+    assert.equal(tunHelperBodySchema.safeParse({ helperAuth: "doas" }).success, false);
+    assert.equal(tunHelperBodySchema.safeParse({ core: "C:/other.exe" }).success, false);
   });
 
   it("parses a settings patch that is assignable to SettingsPatch", () => {

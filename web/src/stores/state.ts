@@ -1,6 +1,6 @@
 import { createPinia, defineStore, setActivePinia } from "pinia";
 import { computed } from "vue";
-import type { TunStatusResponse } from "../../../src/contracts.js";
+import type { TunHelperStatus } from "../../../src/contracts.js";
 import { currentRoute } from "../router.js";
 import type {
   ConnectionItem,
@@ -33,7 +33,7 @@ export type CoreResource = "configs" | "proxies" | "rules" | "connections";
 export type DaemonConnection = "connecting" | "connected" | "offline" | "refused";
 export interface StoreState {
   status: SashStatus | null;
-  tun: TunStatusResponse | undefined;
+  tunHelper: TunHelperStatus | undefined;
   connection: DaemonConnection;
   lastStateRevision: number | null;
   resourceLoaded: Partial<Record<CoreResource, boolean>>;
@@ -68,7 +68,7 @@ export const HISTORY_LEN = 60;
 function initialState(): StoreState {
   return {
     status: null,
-    tun: undefined,
+    tunHelper: undefined,
     connection: "connecting",
     lastStateRevision: null,
     resourceLoaded: {},
@@ -181,7 +181,7 @@ export function setProfiles(response: ProfilesResponse): void {
 
 export function resetCoreState(): void {
   store.mode = "rule";
-  store.tun = undefined;
+  store.tunHelper = undefined;
   store.proxies = {};
   store.proxyGroups = [];
   store.connections = [];

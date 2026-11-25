@@ -9,14 +9,10 @@ import {
   profileRenameBodySchema,
   profilesReorderBodySchema,
   settingsPatchBodySchema,
+  tunHelperBodySchema,
 } from "../api-schemas.js";
 import { parseAutostartEnabled } from "../autostart/contract.js";
-import type {
-  HealthInfo,
-  SettingsPatch,
-  SystemProxyStatusResponse,
-  TunHelperAuth,
-} from "../contracts.js";
+import type { HealthInfo, SettingsPatch, SystemProxyStatusResponse } from "../contracts.js";
 import { validateCoreReleaseTag } from "../core.js";
 import { validateDelayTarget } from "../core-delay.js";
 import { errorMessage } from "../error-utils.js";
@@ -26,7 +22,6 @@ import type { DaemonContext } from "./context.js";
 import { HttpError } from "./http.js";
 import type { DaemonRequest, RouteDef, RouteResponse } from "./router.js";
 import { readDaemonStatus } from "./status.js";
-import { currentTunStatus } from "./tun-read.js";
 
 const JSON_KB = 1024;
 const PROFILE_BODY_LIMIT = 8 * 1024 * 1024;
@@ -484,14 +479,7 @@ function readSettingsPatch(body: unknown): SettingsPatch {
 }
 
 async function readTun(ctx: DaemonContext): Promise<RouteResponse> {
-  return { status: 200, json: await currentTunStatus(ctx, true) };
-}
-
-function readTunHelperAuth(body: Record<string, unknown>): TunHelperAuth | undefined {
-  const value = body.helperAuth;
-  if (value === undefined) return undefined;
-  if (value === "sudo" || value === "pkexec") return value;
-  throw new HttpError(400, 'helperAuth must be "sudo" or "pkexec"');
+  return { status: 200, json: await ctx.tun.helperStatus({ fresh: true }) };
 }
 
 async function setTunHelper(
@@ -503,7 +491,9 @@ async function setTunHelper(
   if (peer !== "127.0.0.1" && peer !== "::1" && peer !== "::ffff:127.0.0.1")
     throw new HttpError(403, "TUN helper administration is local only", "unauthorized");
   if (!ctx.tun.supported) throw new HttpError(501, "TUN Mode is not available on this platform");
-  const helperAuth = readTunHelperAuth(await req.readJson());
+  const body = tunHelperBodySchema.safeParse(await req.readJson());
+  if (!body.success) throw new HttpError(400, 'helperAuth must be "sudo" or "pkexec"');
+  const { helperAuth } = body.data;
   await ctx.mutate(async () => {
     if (ctx.supervisor.isRunning() && ctx.lifecycle.configuration()?.settings.tun.enable)
       throw new HttpError(409, "Disable TUN and Apply before changing the helper", "conflict");

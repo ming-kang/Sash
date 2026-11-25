@@ -70,7 +70,11 @@ export async function readDaemonStatus(
       applyMethod: configurationState.applyMethod,
       appliedProfile: applied?.profile ? { ...applied.profile } : null,
       appliedSettings: applied
-        ? { mixedPort: applied.settings.mixedPort, allowLan: applied.settings.allowLan }
+        ? {
+            mixedPort: applied.settings.mixedPort,
+            allowLan: applied.settings.allowLan,
+            tun: applied.settings.tun,
+          }
         : null,
     },
     core,
