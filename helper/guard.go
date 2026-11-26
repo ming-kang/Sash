@@ -35,6 +35,8 @@ const (
 	filterPermitCoreV6
 	filterPermitInterfaceV4
 	filterPermitInterfaceV6
+	filterPermitLoopbackV4
+	filterPermitLoopbackV6
 	filterPermitLanV4Private10
 	filterPermitLanV4Private172
 	filterPermitLanV4Private192
@@ -142,8 +144,9 @@ func permitFilter(ordinal uint32, layer windows.GUID, name string, conditions []
 }
 
 // buildGuardPlan assembles the filter set that fails the machine closed while
-// the Core is down: the Core itself, traffic entering the tunnel, LAN and
-// IPv6 neighbor discovery pass; everything else is blocked at connect time.
+// the Core is down: the Core itself, loopback, traffic entering the tunnel,
+// LAN and IPv6 neighbor discovery pass; everything else is blocked at connect
+// time.
 func buildGuardPlan(appID []byte, interfaceIndex uint32) guardPlan {
 	plan := guardPlan{
 		sublayer: sublayerSpec{
@@ -181,6 +184,15 @@ func buildGuardPlan(appID []byte, interfaceIndex uint32) guardPlan {
 			permitFilter(filterPermitInterfaceV6, fwpmLayerAleAuthConnectV6, "permit tunnel v6", interfaceCondition),
 		)
 	}
+
+	// Loopback connects traverse the connect layers like any other, and the
+	// whole of 127/8 is local, so a remote-address permit cannot leak.
+	plan.filters = append(plan.filters,
+		permitFilter(filterPermitLoopbackV4, fwpmLayerAleAuthConnectV4, "permit loopback v4",
+			[]conditionSpec{v4NetworkCondition(0x7F000000, 0xFF000000)}),
+		permitFilter(filterPermitLoopbackV6, fwpmLayerAleAuthConnectV6, "permit loopback v6",
+			[]conditionSpec{v6NetworkCondition([16]byte{15: 1}, 128)}),
+	)
 
 	// Host-order values, as FWP_V4_ADDR_AND_MASK expects them.
 	for _, lan := range []struct {

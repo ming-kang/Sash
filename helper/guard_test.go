@@ -136,7 +136,7 @@ func TestGuardPlanAssembly(t *testing.T) {
 	if plan.sublayer.weight != math.MaxUint16 {
 		t.Fatalf("sublayer weight %d", plan.sublayer.weight)
 	}
-	if len(plan.filters) != 14 {
+	if len(plan.filters) != 16 {
 		t.Fatalf("filter count without interface: %d", len(plan.filters))
 	}
 
@@ -259,6 +259,41 @@ func TestGuardPlanLanAddresses(t *testing.T) {
 	}
 }
 
+func TestGuardPlanLoopbackPermits(t *testing.T) {
+	plan := buildGuardPlan([]byte("appid"), 0)
+	var v4, v6 *filterSpec
+	for i := range plan.filters {
+		switch plan.filters[i].key.Data1 {
+		case filterPermitLoopbackV4:
+			v4 = &plan.filters[i]
+		case filterPermitLoopbackV6:
+			v6 = &plan.filters[i]
+		}
+	}
+	if v4 == nil || v6 == nil {
+		t.Fatalf("loopback permits missing: v4 %v v6 %v", v4, v6)
+	}
+	if v4.layer != fwpmLayerAleAuthConnectV4 || v6.layer != fwpmLayerAleAuthConnectV6 {
+		t.Fatalf("loopback permits on wrong layers")
+	}
+	for name, filter := range map[string]*filterSpec{"v4": v4, "v6": v6} {
+		if filter.weight != weightPermit || filter.action != fwpActionPermit {
+			t.Fatalf("loopback %s must outweigh the block: weight %d action %x", name, filter.weight, filter.action)
+		}
+		if len(filter.conditions) != 1 || filter.conditions[0].field != fwpmConditionIPRemoteAddress {
+			t.Fatalf("loopback %s conditions %+v", name, filter.conditions)
+		}
+	}
+	value4 := v4.conditions[0].value
+	if value4.dataType != fwpV4AddrMask || value4.addr4.network != 0x7F000000 || value4.addr4.mask != 0xFF000000 {
+		t.Fatalf("loopback v4 must be 127.0.0.0/8: %+v", value4)
+	}
+	value6 := v6.conditions[0].value
+	if value6.dataType != fwpV6AddrMask || value6.addr6.prefix != 128 || value6.addr6.network != [16]byte{15: 1} {
+		t.Fatalf("loopback v6 must be ::1/128: %+v", value6)
+	}
+}
+
 func TestGuardPlanNdp(t *testing.T) {
 	plan := buildGuardPlan([]byte("appid"), 0)
 	solicitation := 0
@@ -314,7 +349,7 @@ func TestGuardPlanNdp(t *testing.T) {
 
 func TestGuardPlanInterfacePermits(t *testing.T) {
 	plan := buildGuardPlan([]byte("appid"), 42)
-	if len(plan.filters) != 16 {
+	if len(plan.filters) != 18 {
 		t.Fatalf("filter count with interface: %d", len(plan.filters))
 	}
 	seen := 0
@@ -463,7 +498,7 @@ func TestGuardedStartInstallsBeforeCoreStarts(t *testing.T) {
 		t.Fatalf("guard state %+v", state)
 	}
 	_, count := core.guard.engine.(*fakeEngine).snapshot()
-	if count != 14 {
+	if count != 16 {
 		t.Fatalf("filters without interface: %d", count)
 	}
 }
@@ -526,7 +561,7 @@ func TestGuardedStopKeepsObjects(t *testing.T) {
 		t.Fatal("stop must keep the guard across the restart window")
 	}
 	_, count := core.guard.engine.(*fakeEngine).snapshot()
-	if count != 14 {
+	if count != 16 {
 		t.Fatalf("filters after stop: %d", count)
 	}
 }
@@ -547,7 +582,7 @@ func TestGuardedRestartRefreshesObjects(t *testing.T) {
 		t.Fatalf("guard state after refresh %+v", state)
 	}
 	ops, count := core.guard.engine.(*fakeEngine).snapshot()
-	if count != 14 {
+	if count != 16 {
 		t.Fatalf("filters after refresh: %d", count)
 	}
 	if strings.Count(ops, "commit") != 2 || strings.Contains(ops, "abort") {
@@ -625,7 +660,7 @@ func TestResolverInstallsInterfacePermits(t *testing.T) {
 		t.Fatalf("interface index %+v", guard.state())
 	}
 	_, count := core.guard.engine.(*fakeEngine).snapshot()
-	if count != 16 {
+	if count != 18 {
 		t.Fatalf("filters with interface: %d", count)
 	}
 }
@@ -662,7 +697,7 @@ func TestResolverRetriesUntilInterfaceAppears(t *testing.T) {
 		t.Fatalf("resolver never installed the interface: %+v", guard.state())
 	}
 	_, count := core.guard.engine.(*fakeEngine).snapshot()
-	if count != 16 {
+	if count != 18 {
 		t.Fatalf("filters after resolution: %d", count)
 	}
 }
@@ -737,7 +772,7 @@ func TestResolverRetriesInstallFailure(t *testing.T) {
 		t.Fatalf("resolver never recovered: %+v", guard.state())
 	}
 	_, count := engine.snapshot()
-	if count != 16 {
+	if count != 18 {
 		t.Fatalf("filters after recovery: %d", count)
 	}
 }
