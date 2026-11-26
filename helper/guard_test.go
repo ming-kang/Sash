@@ -39,6 +39,17 @@ func TestWfpStructLayoutsMatchC(t *testing.T) {
 	}
 }
 
+// Lazy resolution hides wrong entry point names until the first call, which
+// production reports as a panic; resolving the whole inventory here fails the
+// test run instead.
+func TestWfpProcsResolve(t *testing.T) {
+	for _, proc := range wfpProcs {
+		if err := proc.Find(); err != nil {
+			t.Errorf("%s: %v", proc.Name, err)
+		}
+	}
+}
+
 type fakeEngine struct {
 	mu       sync.Mutex
 	ops      []string
@@ -82,7 +93,7 @@ func (f *fakeEngine) deleteSubLayer(key windows.GUID) error {
 	defer f.mu.Unlock()
 	f.ops = append(f.ops, "sublayer-")
 	if f.sublayer == nil {
-		return fmt.Errorf("FwpmSubLayerDelete0: %w", fwpESublayerNotFound)
+		return fmt.Errorf("FwpmSubLayerDeleteByKey0: %w", fwpESublayerNotFound)
 	}
 	f.sublayer = nil
 	return nil
@@ -104,7 +115,7 @@ func (f *fakeEngine) deleteFilter(key windows.GUID) error {
 	defer f.mu.Unlock()
 	f.ops = append(f.ops, fmt.Sprintf("filter-%d", key.Data1))
 	if _, ok := f.filters[key]; !ok {
-		return fmt.Errorf("FwpmFilterDelete0: %w", fwpEFilterNotFound)
+		return fmt.Errorf("FwpmFilterDeleteByKey0: %w", fwpEFilterNotFound)
 	}
 	delete(f.filters, key)
 	return nil

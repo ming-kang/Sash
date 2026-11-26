@@ -173,12 +173,39 @@ var (
 	procFwpmTransactionCommit0    = modfwpuclnt.NewProc("FwpmTransactionCommit0")
 	procFwpmTransactionAbort0     = modfwpuclnt.NewProc("FwpmTransactionAbort0")
 	procFwpmSubLayerAdd0          = modfwpuclnt.NewProc("FwpmSubLayerAdd0")
-	procFwpmSubLayerDelete0       = modfwpuclnt.NewProc("FwpmSubLayerDelete0")
+	procFwpmSubLayerDeleteByKey0  = modfwpuclnt.NewProc("FwpmSubLayerDeleteByKey0")
 	procFwpmFilterAdd0            = modfwpuclnt.NewProc("FwpmFilterAdd0")
-	procFwpmFilterDelete0         = modfwpuclnt.NewProc("FwpmFilterDelete0")
+	procFwpmFilterDeleteByKey0    = modfwpuclnt.NewProc("FwpmFilterDeleteByKey0")
 	procFwpmGetAppIdFromFileName0 = modfwpuclnt.NewProc("FwpmGetAppIdFromFileName0")
 	procFwpmFreeMemory0           = modfwpuclnt.NewProc("FwpmFreeMemory0")
 )
+
+// Lazy resolution panics on first use, so every entry point is resolved when
+// the engine opens: a missing export then reads as an ordinary engine
+// failure instead of crashing the service inside a transaction. The list
+// doubles as the test's inventory of names to check against the real DLL.
+var wfpProcs = []*windows.LazyProc{
+	procFwpmEngineOpen0,
+	procFwpmEngineClose0,
+	procFwpmTransactionBegin0,
+	procFwpmTransactionCommit0,
+	procFwpmTransactionAbort0,
+	procFwpmSubLayerAdd0,
+	procFwpmSubLayerDeleteByKey0,
+	procFwpmFilterAdd0,
+	procFwpmFilterDeleteByKey0,
+	procFwpmGetAppIdFromFileName0,
+	procFwpmFreeMemory0,
+}
+
+func resolveWfpProcs() error {
+	for _, proc := range wfpProcs {
+		if err := proc.Find(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func fwpmEngineOpen0(session *fwpmSession0) (uintptr, error) {
 	var engine uintptr
@@ -236,8 +263,8 @@ func fwpmSubLayerAdd0(engine uintptr, sublayer *fwpmSublayer0) error {
 	return nil
 }
 
-func fwpmSubLayerDelete0(engine uintptr, key *windows.GUID) error {
-	r1, _, _ := syscall.SyscallN(procFwpmSubLayerDelete0.Addr(), engine, uintptr(unsafe.Pointer(key)))
+func fwpmSubLayerDeleteByKey0(engine uintptr, key *windows.GUID) error {
+	r1, _, _ := syscall.SyscallN(procFwpmSubLayerDeleteByKey0.Addr(), engine, uintptr(unsafe.Pointer(key)))
 	if r1 != 0 {
 		return syscall.Errno(r1)
 	}
@@ -258,8 +285,8 @@ func fwpmFilterAdd0(engine uintptr, filter *fwpmFilter0) error {
 	return nil
 }
 
-func fwpmFilterDelete0(engine uintptr, key *windows.GUID) error {
-	r1, _, _ := syscall.SyscallN(procFwpmFilterDelete0.Addr(), engine, uintptr(unsafe.Pointer(key)))
+func fwpmFilterDeleteByKey0(engine uintptr, key *windows.GUID) error {
+	r1, _, _ := syscall.SyscallN(procFwpmFilterDeleteByKey0.Addr(), engine, uintptr(unsafe.Pointer(key)))
 	if r1 != 0 {
 		return syscall.Errno(r1)
 	}
@@ -310,6 +337,9 @@ type wfpEngine struct {
 }
 
 func openWfpEngine() (*wfpEngine, error) {
+	if err := resolveWfpProcs(); err != nil {
+		return nil, err
+	}
 	display, err := displayData("Sash TUN Guard", "Sash TUN kill switch objects")
 	if err != nil {
 		return nil, err
@@ -364,8 +394,8 @@ func (e *wfpEngine) addSubLayer(spec sublayerSpec) error {
 }
 
 func (e *wfpEngine) deleteSubLayer(key windows.GUID) error {
-	if err := fwpmSubLayerDelete0(e.engine, &key); err != nil {
-		return fmt.Errorf("FwpmSubLayerDelete0: %w", err)
+	if err := fwpmSubLayerDeleteByKey0(e.engine, &key); err != nil {
+		return fmt.Errorf("FwpmSubLayerDeleteByKey0: %w", err)
 	}
 	return nil
 }
@@ -450,8 +480,8 @@ func (e *wfpEngine) addFilter(spec filterSpec) error {
 }
 
 func (e *wfpEngine) deleteFilter(key windows.GUID) error {
-	if err := fwpmFilterDelete0(e.engine, &key); err != nil {
-		return fmt.Errorf("FwpmFilterDelete0: %w", err)
+	if err := fwpmFilterDeleteByKey0(e.engine, &key); err != nil {
+		return fmt.Errorf("FwpmFilterDeleteByKey0: %w", err)
 	}
 	return nil
 }

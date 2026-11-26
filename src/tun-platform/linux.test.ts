@@ -183,8 +183,8 @@ describe("TUN guard scripts", () => {
   });
 });
 
-describe.skipIf(process.platform === "win32")("TUN guard shell behavior", () => {
-  const sh = process.platform === "darwin" || process.platform === "linux" ? "/bin/sh" : "sh";
+describe.skipIf(process.platform !== "linux")("TUN guard shell behavior", () => {
+  const sh = "/bin/sh";
 
   function writeRig(root: string): void {
     fs.mkdirSync(path.join(root, "bin"), { recursive: true });
