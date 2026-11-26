@@ -109,6 +109,7 @@ export class DaemonTestHarness {
     let applied = false;
     const state = (): SystemProxyState => ({ supported: true, enabled: applied });
     return {
+      supported: true,
       apply: async () => {
         applied = true;
       },

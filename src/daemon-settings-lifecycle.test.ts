@@ -5,6 +5,7 @@ import { readState } from "./app-state.js";
 import { formatCliError } from "./cli-errors.js";
 import { type DaemonStatus, SashApiError, type SettingsWriteResult } from "./contracts.js";
 import { createDaemonClient } from "./sash-client-node.js";
+import type { SystemProxyController } from "./sysproxy/manager.js";
 import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { deferred, FakeCoreSupervisor } from "./testing/state.js";
 
@@ -281,5 +282,58 @@ describe("save and apply API", () => {
       formatCliError(failure),
       "Core is not healthy. System proxy was not enabled.\nRun sash doctor for details.",
     );
+  });
+
+  it("rejects proxy on without persisting when the system proxy is unsupported", async () => {
+    const core = new FakeCoreSupervisor(h.layout, h.settings);
+    core.running = true;
+    let applies = 0;
+    const systemProxy: SystemProxyController = {
+      supported: false,
+      apply: async () => {
+        applies += 1;
+      },
+      release: async () => {},
+      inspect: async () => ({
+        applied: false,
+        appliedKnown: true,
+        stateKnown: true,
+        state: { supported: false, enabled: false },
+      }),
+    };
+    await h.startServer({ supervisor: core, systemProxy });
+    const response = await h.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { systemProxy: true },
+    });
+    assert.equal(response.statusCode, 409);
+    assert.deepEqual(response.data, {
+      error: {
+        code: "conflict",
+        message: "Cannot enable system proxy: not supported on this system",
+        presentation: {
+          message:
+            "System proxy integration is not supported on this system, so it was not enabled.",
+          advice: "On Linux this requires a GNOME or KDE desktop session.",
+        },
+      },
+    });
+    assert.equal(applies, 0);
+    assert.equal(readState(h.layout)?.settings.systemProxy, false);
+    assert.equal((await status()).settings.systemProxy, false);
+
+    const client = createDaemonClient(h.boundPort, h.settings.daemonSecret);
+    const failure = await client.patchSettings({ systemProxy: true }).then(
+      () => {
+        throw new Error("expected the request to fail");
+      },
+      (error: unknown) => error,
+    );
+    assert.ok(failure instanceof SashApiError);
+    assert.equal(
+      formatCliError(failure),
+      "System proxy integration is not supported on this system, so it was not enabled.\nOn Linux this requires a GNOME or KDE desktop session.",
+    );
+    assert.equal(readState(h.layout)?.settings.systemProxy, false);
   });
 });

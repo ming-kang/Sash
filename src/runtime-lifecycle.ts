@@ -162,6 +162,9 @@ export class RuntimeLifecycle {
   get tunGuard(): TunGuardLike | undefined {
     return this.options.tunGuard;
   }
+  get systemProxySupported(): boolean {
+    return this.options.systemProxy.supported;
+  }
   settings(): SashSettings {
     return { ...this.runtimeSettings };
   }

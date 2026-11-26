@@ -6,7 +6,11 @@ import {
   ProfileInputError,
   ProfileNotFoundError,
 } from "../profile-service.js";
-import { CoreUnhealthyError, SettingsInputError } from "../settings-service.js";
+import {
+  CoreUnhealthyError,
+  SettingsInputError,
+  SystemProxyUnsupportedError,
+} from "../settings-service.js";
 import { HttpError } from "./http.js";
 
 export class ShuttingDownError extends Error {
@@ -54,6 +58,7 @@ function classifyHttpError(err: unknown): HttpErrorMapping {
   if (err instanceof SettingsInputError) return { status: 400, code: "invalid_input", message };
   if (err instanceof ProfileConflictError) return { status: 409, code: "conflict", message };
   if (err instanceof CoreUnhealthyError) return { status: 409, code: "core_unhealthy", message };
+  if (err instanceof SystemProxyUnsupportedError) return { status: 409, code: "conflict", message };
   if (err instanceof ShuttingDownError) return { status: 503, code: "shutting_down", message };
   return { status: 500, code: "internal", message };
 }

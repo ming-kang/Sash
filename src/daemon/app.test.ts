@@ -13,6 +13,7 @@ import { buildDaemonContext } from "./app.js";
 
 function systemProxy(): SystemProxyController {
   return {
+    supported: true,
     apply: async () => {},
     release: async () => {},
     inspect: async () => ({

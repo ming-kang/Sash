@@ -406,6 +406,9 @@ fi
 /bin/rm -f /etc/pf.anchors/${MACOS_TUN_GUARD_ANCHOR}
 /bin/rm -f /etc/sudoers.d/sash-tun-guard
 /bin/rm -f /usr/local/libexec/sash-tun-guard
+/bin/rm -f /var/run/sash-tun-guard.lock
+/bin/rm -f /var/run/sash-tun-guard/pf.token
+/bin/rmdir /var/run/sash-tun-guard 2>/dev/null || true
 ${PF_CONF_EDIT_FUNCTIONS}
 if ! sash_remove_pf_anchor /etc/pf.conf; then
   echo "warning: could not remove the Sash anchor line from /etc/pf.conf" >&2

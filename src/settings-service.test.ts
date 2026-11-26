@@ -22,13 +22,14 @@ describe("saved settings", () => {
     vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
   });
-  function fixture(systemProxy = false) {
+  function fixture(systemProxy = false, proxySupported = true) {
     const layout = sashLayout(root);
     const state = createTestState(layout, testSettings({ systemProxy }));
     const core = new FakeCoreSupervisor(layout);
     let releases = 0;
     let applies = 0;
     const proxy: SystemProxyController = {
+      supported: proxySupported,
       apply: async () => {
         applies += 1;
       },
@@ -118,6 +119,19 @@ describe("saved settings", () => {
     await assert.rejects(f.service.apply({ systemProxy: true }), /not healthy/);
     assert.equal(f.state.snapshot().revision, 0);
     assert.equal(f.state.snapshot().settings.systemProxy, false);
+  });
+  it("rejects proxy on without persisting anything when the system proxy is unsupported", async () => {
+    const f = fixture(false, false);
+    f.core.running = true;
+    await assert.rejects(
+      f.service.apply({ systemProxy: true, mixedPort: 18888 }),
+      /not supported on this system/,
+    );
+    assert.equal(f.state.snapshot().revision, 0);
+    assert.equal(readState(f.layout)?.settings.systemProxy, false);
+    assert.equal(readState(f.layout)?.settings.mixedPort, f.lifecycle.settings().mixedPort);
+    assert.equal(f.applies(), 0);
+    assert.equal(f.core.running, true);
   });
   it("persists proxy off before OS cleanup and allows an explicit retry", async () => {
     const f = fixture(true);

@@ -22,6 +22,7 @@ export interface SystemProxyInspection {
 }
 
 export interface SystemProxyController {
+  readonly supported: boolean;
   apply(opts: EnableOptions): Promise<void>;
   release(): Promise<void>;
   inspect(fresh?: boolean): Promise<SystemProxyInspection>;
@@ -141,6 +142,10 @@ export class SystemProxyManager implements SystemProxyController {
       throw new Error("System proxy journal requires a systemProxyStateFile path");
     }
     this.operationLockFile = this.layout.systemProxyLockFile;
+  }
+
+  get supported(): boolean {
+    return this.backend.supported;
   }
 
   apply(opts: EnableOptions): Promise<void> {

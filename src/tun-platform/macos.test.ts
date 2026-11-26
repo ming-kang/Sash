@@ -115,6 +115,19 @@ describe("macOS TUN guard scripts", () => {
     assert.match(script, /awk -v line='anchor "dev\.astralyn\.sash"' '\$0 != line'/);
     assert.match(script, /launchctl bootout "system\/\$legacy"/);
   });
+
+  it("revoke removes the guard lock file, the pf token and the state directory", () => {
+    const script = revokeScript("/c", "/h", "dev");
+    assert.match(script, /rm -f \/var\/run\/sash-tun-guard\.lock/);
+    assert.match(script, /rm -f \/var\/run\/sash-tun-guard\/pf\.token/);
+    assert.match(script, /rmdir \/var\/run\/sash-tun-guard 2>\/dev\/null \|\| true/);
+    const teardown = script.indexOf("sash-tun-guard teardown");
+    const lockRemoval = script.indexOf("rm -f /var/run/sash-tun-guard.lock");
+    assert.ok(
+      teardown > 0 && lockRemoval > teardown,
+      "the guard releases its pf reference before the lock goes away",
+    );
+  });
 });
 
 const shAvailable = spawnSync("sh", ["-c", "exit 0"], { stdio: "ignore" }).status === 0;

@@ -151,7 +151,7 @@ describe("TUN guard scripts", () => {
     assert.match(TUN_GUARD_SCRIPT, /systemctl is-active --quiet systemd-resolved/);
   });
 
-  it("guard script: teardown removes both blackhole routes idempotently", () => {
+  it("guard script: teardown removes both blackhole routes idempotently and flushes the table", () => {
     assert.match(
       TUN_GUARD_SCRIPT,
       /ip route del blackhole default metric 100 table "\$table" 2>\/dev\/null \|\| true/,
@@ -160,13 +160,29 @@ describe("TUN guard scripts", () => {
       TUN_GUARD_SCRIPT,
       /ip -6 route del blackhole default metric 100 table "\$table" 2>\/dev\/null \|\| true/,
     );
+    assert.match(TUN_GUARD_SCRIPT, /ip route flush table "\$table" 2>\/dev\/null \|\| true/);
+    assert.match(TUN_GUARD_SCRIPT, /ip -6 route flush table "\$table" 2>\/dev\/null \|\| true/);
   });
 
-  it("revoke removes the sudoers rule, the guard script and the blackhole routes", () => {
+  it("guard script: copies only kernel-connected subnets into the table", () => {
+    assert.match(TUN_GUARD_SCRIPT, /ip route show proto kernel scope link/);
+    assert.match(TUN_GUARD_SCRIPT, /ip -6 route show proto kernel/);
+    assert.match(TUN_GUARD_SCRIPT, /ip route add "\$prefix" dev "\$devname" table "\$table"/);
+    assert.match(TUN_GUARD_SCRIPT, /ip -6 route add "\$prefix" dev "\$devname" table "\$table"/);
+    const blackhole = TUN_GUARD_SCRIPT.indexOf("ip route replace blackhole");
+    const copy = TUN_GUARD_SCRIPT.indexOf("copy_connected_routes v4");
+    assert.ok(blackhole > 0 && copy > blackhole, "connected routes copy after the blackhole");
+    assert.match(TUN_GUARD_SCRIPT, /fe\[89ab\]\[0-9a-f\]:\*/);
+  });
+
+  it("revoke removes the sudoers rule, the guard script, the lock and the table routes", () => {
     assert.match(REVOKE_SCRIPT, /rm -f \/etc\/sudoers\.d\/sash-tun-guard/);
     assert.match(REVOKE_SCRIPT, /rm -f \/usr\/local\/libexec\/sash-tun-guard/);
+    assert.match(REVOKE_SCRIPT, /rm -f \/run\/sash-tun-guard\.lock/);
     assert.match(REVOKE_SCRIPT, /ip route del blackhole default metric 100 table 2022/);
     assert.match(REVOKE_SCRIPT, /ip -6 route del blackhole default metric 100 table 2022/);
+    assert.match(REVOKE_SCRIPT, /ip route flush table 2022/);
+    assert.match(REVOKE_SCRIPT, /ip -6 route flush table 2022/);
     assert.match(REVOKE_SCRIPT, /resolvectl revert Meta/);
   });
 
@@ -199,6 +215,8 @@ describe.skipIf(process.platform !== "linux")("TUN guard shell behavior", () => 
 case "$1 $2" in
   "link show") [ -f "$RIG/state/link-up" ] && exit 0 || exit 1 ;;
   "route del") exit 1 ;;
+  "route show") cat "$RIG/state/v4routes" 2>/dev/null ;;
+  "-6 route") [ "$3" = "show" ] && cat "$RIG/state/v6routes" 2>/dev/null ;;
 esac
 exit 0`,
     );
@@ -210,7 +228,10 @@ exit 0`,
     const script = path.join(root, "guard.sh");
     fs.writeFileSync(
       script,
-      TUN_GUARD_SCRIPT.replace("/run/sash-tun-guard.lock", path.join(root, "run", "lock")),
+      TUN_GUARD_SCRIPT.replace("/run/sash-tun-guard.lock", path.join(root, "run", "lock")).replace(
+        "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+        ": test rigs intercept through the inherited PATH",
+      ),
     );
     return script;
   }
@@ -276,13 +297,42 @@ exit 0`,
     assert.equal(log(root), "");
   });
 
-  it("teardown removes routes and tolerates their absence", async () => {
+  it("teardown removes routes, flushes the table and tolerates their absence", async () => {
     const root = rig();
     const first = await runGuard(root, ["teardown"]);
     const second = await runGuard(root, ["teardown"]);
     assert.equal(first.code, 0);
     assert.equal(second.code, 0);
     assert.match(log(root), /route del blackhole default metric 100/);
+    assert.match(log(root), /ip route flush table 2022/);
+    assert.match(log(root), /ip -6 route flush table 2022/);
+  });
+
+  it("copies connected subnets after the blackhole, skipping link-local, unreachable and multipath", async () => {
+    const root = rig();
+    fs.writeFileSync(path.join(root, "state", "link-up"), "");
+    fs.writeFileSync(
+      path.join(root, "state", "v4routes"),
+      "192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.5\n172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "state", "v6routes"),
+      "::1 dev lo proto kernel metric 256 pref medium\nfe80::/64 dev eth0 proto kernel metric 256 pref medium\n2001:db8:1::/64 dev eth0 proto kernel metric 256 pref medium\nunreachable 2001:db8:dead::/64 dev lo proto kernel metric 256 error -113 pref medium\n2001:db8:2::/64 proto kernel metric 256\n\tnexthop dev eth0 weight 1\n\tnexthop dev eth1 weight 1\n2001:db8:3::/64 dev eth0 proto kernel metric 256 expires 300sec pref medium\n",
+    );
+    const result = await runGuard(root, ["setup", "Meta"]);
+    assert.equal(result.code, 0, result.stderr);
+    const logged = log(root);
+    assert.match(logged, /route add 192\.168\.1\.0\/24 dev eth0 table 2022/);
+    assert.match(logged, /route add 172\.17\.0\.0\/16 dev docker0 table 2022/);
+    assert.match(logged, /-6 route add 2001:db8:1::\/64 dev eth0 table 2022/);
+    assert.equal(logged.includes("fe80"), false);
+    assert.equal(logged.includes("2001:db8:dead"), false);
+    assert.equal(logged.includes("2001:db8:2"), false);
+    assert.equal(logged.includes("2001:db8:3"), false);
+    const lines = logged.split("\n");
+    const blackhole = lines.findIndex((line) => line.includes("route replace blackhole"));
+    const copied = lines.findIndex((line) => line.includes("route add 192.168.1.0/24"));
+    assert.ok(blackhole > 0 && copied > blackhole, logged);
   });
 
   it("exits nonzero when the interface never appears but keeps the blackhole", async () => {

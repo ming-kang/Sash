@@ -79,12 +79,51 @@ table=2022
 if [ "$verb" = "teardown" ]; then
   ip route del blackhole default metric 100 table "$table" 2>/dev/null || true
   ip -6 route del blackhole default metric 100 table "$table" 2>/dev/null || true
+  # Teardown only runs with TUN off or at final shutdown, when mihomo's dev
+  # Meta routes are already gone with the interface, so the flush converges
+  # the copied connected routes and any strays without touching live ones.
+  ip route flush table "$table" 2>/dev/null || true
+  ip -6 route flush table "$table" 2>/dev/null || true
   echo "sash-tun-guard: blackhole fallback removed from table $table" >&2
   exit 0
 fi
 
 ip route replace blackhole default metric 100 table "$table"
 ip -6 route replace blackhole default metric 100 table "$table" 2>/dev/null || true
+
+# Only the kernel-connected subnets are copied: a wider exemption cannot be
+# told apart from healthy routing, since a longer prefix wins in either state,
+# so remote private networks keep entering the tunnel while directly attached
+# subnets bypass it even with the Core dead, the same LAN exemption the
+# macOS and Windows kill switches apply.
+copy_connected_routes() {
+  if [ "$1" = v6 ]; then
+    ip -6 route show proto kernel 2>/dev/null
+  else
+    ip route show proto kernel scope link 2>/dev/null
+  fi | while read -r prefix devword devname rest; do
+    case $prefix in
+      "" | default | ::/0 | 0.0.0.0/0 | unreachable | nexthop | fe[89ab][0-9a-f]:*)
+        continue
+        ;;
+    esac
+    if [ "$devword" != dev ] || [ -z "$devname" ]; then
+      continue
+    fi
+    case $rest in
+      *" expires "*)
+        continue
+        ;;
+    esac
+    if [ "$1" = v6 ]; then
+      ip -6 route add "$prefix" dev "$devname" table "$table" 2>/dev/null || true
+    else
+      ip route add "$prefix" dev "$devname" table "$table" 2>/dev/null || true
+    fi
+  done
+}
+copy_connected_routes v4
+copy_connected_routes v6
 
 if ! command -v resolvectl >/dev/null 2>&1; then
   echo "sash-tun-guard: resolvectl is missing; skipping systemd-resolved integration" >&2
@@ -188,8 +227,11 @@ fi
 const GUARD_REMOVE = `
 rm -f /etc/sudoers.d/sash-tun-guard
 rm -f /usr/local/libexec/sash-tun-guard
+rm -f /run/sash-tun-guard.lock
 ip route del blackhole default metric 100 table 2022 2>/dev/null || true
 ip -6 route del blackhole default metric 100 table 2022 2>/dev/null || true
+ip route flush table 2022 2>/dev/null || true
+ip -6 route flush table 2022 2>/dev/null || true
 if command -v resolvectl >/dev/null 2>&1; then
   resolvectl revert Meta >/dev/null 2>&1 || true
 fi

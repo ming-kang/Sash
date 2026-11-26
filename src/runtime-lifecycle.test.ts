@@ -76,6 +76,7 @@ describe("Core and proxy lifecycle", () => {
       events.push("stop");
     };
     const proxy: SystemProxyController = {
+      supported: true,
       apply: async ({ port }) => {
         events.push(`proxy:${port}`);
       },
@@ -392,6 +393,7 @@ describe("configuration reload", () => {
     core.running = true;
     const events: string[] = [];
     const proxy: SystemProxyController = {
+      supported: true,
       apply: async ({ port }) => {
         events.push(`proxy:${port}`);
       },
@@ -641,6 +643,7 @@ describe("TUN apply", () => {
       events.push("stop");
     };
     const proxy: SystemProxyController = {
+      supported: true,
       apply: async ({ port }) => {
         events.push(`proxy:${port}`);
       },
@@ -821,6 +824,7 @@ describe("TUN guard reconcile", () => {
       lastResult: () => undefined,
     };
     const proxy: SystemProxyController = {
+      supported: true,
       apply: async () => {},
       release: async () => {},
       inspect: async () => ({
@@ -971,6 +975,7 @@ describe("TUN guard reconcile", () => {
     const settings = testSettings();
     const core = new FakeCoreSupervisor(layout, settings);
     const proxy: SystemProxyController = {
+      supported: true,
       apply: async () => {},
       release: async () => {},
       inspect: async () => ({
