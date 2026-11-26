@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { commandOutput } from "../cli-output.js";
 import {
   parseTunHelperAuth,
@@ -8,6 +10,7 @@ import {
 import { ensureDaemonSession, resolveDaemonSession } from "../daemon-session.js";
 import { log } from "../log.js";
 import type { SashClient } from "../sash-client.js";
+import { TUN_GUARD_PATH } from "../tun-guard.js";
 import { createTunPlatform } from "../tun-platform/index.js";
 import { describeTunHelper, TunService } from "../tun-service.js";
 import { runtimeContext } from "./shared.js";
@@ -22,6 +25,42 @@ export interface TunReport extends TunApplyState {
 async function daemonReport(client: SashClient, helper?: TunHelperStatus): Promise<TunReport> {
   const [status, current] = await Promise.all([client.status(), helper ?? client.tunHelper()]);
   return { ...tunApplyState(status), helper: current };
+}
+
+export type TunGuardAction = "setup" | "teardown" | "status";
+export type TunGuardProcessLauncher = (cmd: string, args: string[]) => Promise<number>;
+
+function spawnInherited(cmd: string, args: string[]): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: "inherit" });
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? 1));
+  });
+}
+
+export interface TunGuardCommandDeps {
+  platform?: NodeJS.Platform | string;
+  asRoot?: boolean;
+  scriptPath?: string;
+  launch?: TunGuardProcessLauncher;
+}
+
+/** Hidden recovery entry point: unlike the normal TUN commands it does not need the daemon. */
+export async function runTunGuard(
+  verb: TunGuardAction = "status",
+  deps: TunGuardCommandDeps = {},
+): Promise<void> {
+  if ((deps.platform ?? process.platform) !== "darwin")
+    throw new Error("sash tun guard is only available on macOS");
+  const scriptPath = deps.scriptPath ?? TUN_GUARD_PATH;
+  if (!existsSync(scriptPath))
+    throw new Error("the TUN guard is not installed; run sash tun helper install first");
+  const asRoot = deps.asRoot ?? process.geteuid?.() === 0;
+  const launch = deps.launch ?? spawnInherited;
+  const code = asRoot
+    ? await launch(scriptPath, [verb])
+    : await launch("/usr/bin/sudo", ["-n", scriptPath, verb]);
+  if (code !== 0) process.exitCode = code;
 }
 
 export async function runTun(

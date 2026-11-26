@@ -16,6 +16,7 @@ import type { SashLayout } from "./paths.js";
 import type { SashSettings } from "./settings.js";
 import type { CoreSupervisor } from "./supervisor.js";
 import type { SystemProxyController } from "./sysproxy/manager.js";
+import type { TunGuardLike } from "./tun-guard.js";
 import type { TunService } from "./tun-service.js";
 import { disabledTun, sameEffectiveTunSettings } from "./tun-settings.js";
 
@@ -42,6 +43,7 @@ export interface RuntimeLifecycleOptions {
   settings: () => SashSettings;
   engine: CoreEngine;
   tun: TunService;
+  tunGuard?: TunGuardLike;
 }
 
 export class CoreStartError extends Error {
@@ -157,6 +159,12 @@ export class RuntimeLifecycle {
   get revision(): number {
     return this.runtimeRevision;
   }
+  get tunGuard(): TunGuardLike | undefined {
+    return this.options.tunGuard;
+  }
+  get systemProxySupported(): boolean {
+    return this.options.systemProxy.supported;
+  }
   settings(): SashSettings {
     return { ...this.runtimeSettings };
   }
@@ -235,6 +243,18 @@ export class RuntimeLifecycle {
     }
   }
 
+  private reconcileTunGuard(configuration: RuntimeConfiguration): void {
+    const guard = this.options.tunGuard;
+    if (!guard) return;
+    const tun = configuration.settings.tun;
+    const reconciled = tun.enable
+      ? guard.reconcile("setup", { device: tun.device })
+      : guard.reconcile("teardown", {});
+    void reconciled.catch((error: unknown) => {
+      console.warn(`[sashd] TUN guard reconcile failed: ${errorMessage(error)}`);
+    });
+  }
+
   private async startConfiguration(configuration: RuntimeConfiguration): Promise<CoreStartResult> {
     await this.requireVacantController();
     this.applied = undefined;
@@ -242,6 +262,7 @@ export class RuntimeLifecycle {
     this.runtimeSettings = { ...configuration.settings };
     const result = await this.startCore();
     this.applied = configuration;
+    this.reconcileTunGuard(configuration);
     await this.reconcileSystemProxy();
     return result;
   }
@@ -293,6 +314,7 @@ export class RuntimeLifecycle {
     const core = await this.options.supervisor.status();
     if (!core.running || !core.healthy || !core.pid)
       throw new Error("Core did not stay healthy after the configuration reload");
+    if (configuration.settings.tun.enable) this.reconcileTunGuard(configuration);
     await this.reconcileSystemProxy();
     return {
       pid: core.pid,
@@ -302,10 +324,29 @@ export class RuntimeLifecycle {
     };
   }
 
-  async stop(): Promise<void> {
+  async stop(options: { final?: boolean } = {}): Promise<void> {
     await this.options.systemProxy.release();
     await this.options.supervisor.stop();
     this.runtimeRevision += 1;
+    const guard = this.options.tunGuard;
+    if (!options.final || !guard) return;
+    const teardown = guard.reconcile("teardown", {});
+    const timeout = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), 5_000);
+      timer.unref?.();
+    });
+    const outcome = await Promise.race([
+      teardown.then(
+        () => "done" as const,
+        (error: unknown) => {
+          console.warn(`[sashd] TUN guard teardown failed: ${errorMessage(error)}`);
+          return "done" as const;
+        },
+      ),
+      timeout,
+    ]);
+    if (outcome === "timeout")
+      console.warn("[sashd] TUN guard teardown did not finish within 5s; continuing shutdown");
   }
 
   async reconcileSystemProxy(enabled = this.options.settings().systemProxy): Promise<void> {

@@ -108,11 +108,14 @@ func TestCoreEnvironmentKeepsOnlySystemVariables(t *testing.T) {
 }
 
 type fakeController struct {
-	running bool
-	fail    error
+	running   bool
+	fail      error
+	started   []startOptions
+	unguarded int
 }
 
-func (f *fakeController) start() error {
+func (f *fakeController) start(options startOptions) error {
+	f.started = append(f.started, options)
 	if f.fail != nil {
 		return f.fail
 	}
@@ -120,11 +123,18 @@ func (f *fakeController) start() error {
 	return nil
 }
 func (f *fakeController) stop() error { f.running = false; return nil }
+func (f *fakeController) unguard() error {
+	f.unguarded++
+	return nil
+}
 func (f *fakeController) status() (bool, int) {
 	if f.running {
 		return true, 42
 	}
 	return false, 0
+}
+func (f *fakeController) guardState() guardState {
+	return guardState{Active: true, Device: "Meta", InterfaceIndex: 7}
 }
 
 func TestDispatch(t *testing.T) {
@@ -132,11 +142,29 @@ func TestDispatch(t *testing.T) {
 	if res := dispatch(core, []byte(`{"op":"start"}`)); !res.OK || !res.Running || res.PID != 42 {
 		t.Fatalf("start: %+v", res)
 	}
+	if res := dispatch(core, []byte(`{"op":"start","guard":true,"device":"Meta"}`)); !res.OK {
+		t.Fatalf("guarded start: %+v", res)
+	}
+	if len(core.started) != 2 || core.started[0].guard || !core.started[1].guard || core.started[1].device != "Meta" {
+		t.Fatalf("start options passed through: %+v", core.started)
+	}
+	if res := dispatch(core, []byte(`{"op":"start","guard":true,"device":"bad device!"}`)); res.OK || res.Error == "" {
+		t.Fatalf("invalid device must be rejected: %+v", res)
+	}
 	if res := dispatch(core, []byte(`{"op":"status"}`)); !res.OK || !res.Running {
 		t.Fatalf("status: %+v", res)
 	}
 	if res := dispatch(core, []byte(`{"op":"stop"}`)); !res.OK || res.Running || res.PID != 0 {
 		t.Fatalf("stop: %+v", res)
+	}
+	if core.unguarded != 0 {
+		t.Fatal("stop must not converge the guard")
+	}
+	if res := dispatch(core, []byte(`{"op":"unguard"}`)); !res.OK || core.unguarded != 1 {
+		t.Fatalf("unguard: %+v after %d calls", res, core.unguarded)
+	}
+	if res := dispatch(core, []byte(`{"op":"status"}`)); !res.Guard.Active || res.Guard.Device != "Meta" || res.Guard.InterfaceIndex != 7 {
+		t.Fatalf("guard state in response: %+v", res)
 	}
 	core.fail = errors.New("boom")
 	if res := dispatch(core, []byte(`{"op":"start"}`)); res.OK || res.Error != "boom" {
@@ -210,7 +238,7 @@ func TestCoreHostRejectsMissingCoreAndLinkedLogs(t *testing.T) {
 
 func TestPipeRoundTrip(t *testing.T) {
 	cfg := testConfig(t)
-	host, listener, err := open(cfg)
+	host, listener, err := openWithEngine(cfg, newFakeEngine(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +246,7 @@ func TestPipeRoundTrip(t *testing.T) {
 	defer listener.Close()
 	go serve(listener, host, cfg.home)
 
-	call := func(op string) response {
+	callLine := func(line string) response {
 		t.Helper()
 		timeout := 5 * time.Second
 		conn, err := winio.DialPipe(cfg.pipe, &timeout)
@@ -226,27 +254,34 @@ func TestPipeRoundTrip(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer conn.Close()
-		if _, err := fmt.Fprintf(conn, "{\"op\":%q}\n", op); err != nil {
+		if _, err := fmt.Fprintln(conn, line); err != nil {
 			t.Fatal(err)
 		}
 		var res response
-		line, err := bufio.NewReader(conn).ReadBytes('\n')
+		answer, err := bufio.NewReader(conn).ReadBytes('\n')
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := json.Unmarshal(line, &res); err != nil {
+		if err := json.Unmarshal(answer, &res); err != nil {
 			t.Fatal(err)
 		}
 		return res
+	}
+	call := func(op string) response {
+		t.Helper()
+		return callLine(fmt.Sprintf("{\"op\":%q}", op))
 	}
 
 	if res := call("status"); !res.OK || res.Running || res.Protocol != protocolVersion || res.Home != cfg.home {
 		t.Fatalf("status: %+v", res)
 	}
-	if res := call("start"); !res.OK || !res.Running || res.PID == 0 {
-		t.Fatalf("start: %+v", res)
+	if res := callLine(`{"op":"start","guard":true,"device":"Meta"}`); !res.OK || !res.Running || res.PID == 0 || !res.Guard.Active {
+		t.Fatalf("guarded start: %+v", res)
 	}
-	if res := call("stop"); !res.OK || res.Running {
-		t.Fatalf("stop: %+v", res)
+	if res := call("stop"); !res.OK || res.Running || !res.Guard.Active {
+		t.Fatalf("stop must keep the guard: %+v", res)
+	}
+	if res := call("unguard"); !res.OK || res.Guard.Active {
+		t.Fatalf("unguard: %+v", res)
 	}
 }

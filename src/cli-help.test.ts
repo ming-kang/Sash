@@ -57,6 +57,8 @@ it("documents every command without starting Sash or initializing application st
   assert.match(outputs.get("profile") ?? "", /restart-requiring settings/);
   assert.match(outputs.get("web") ?? "", /without opening a browser/);
   assert.match(outputs.get("tun") ?? "", /Helper action/);
+  assert.ok(!(outputs.get("tun") ?? "").includes("guard"));
+  assert.ok(!(outputs.get("") ?? "").includes("guard"));
   assert.match(outputs.get("") ?? "", /-v, --version/);
   assert.ok(!(outputs.get("") ?? "").includes("SASH_DEBUG"));
   assert.deepEqual(fs.readdirSync(root), []);

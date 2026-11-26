@@ -11,13 +11,19 @@ export interface TunPrivilege {
   detail?: string;
 }
 
+export interface HostedCoreStartOptions {
+  /** TUN interface name the Core will create; the Windows guard resolves it. */
+  device?: string;
+}
+
 /**
  * A Core that runs outside Sash's process tree: a privileged host starts and
  * stops it, while Sash still reaches it through its ordinary controller.
  */
 export interface HostedCore {
-  start(): Promise<{ pid: number }>;
+  start(options?: HostedCoreStartOptions): Promise<{ pid: number }>;
   stop(): Promise<void>;
+  unguard(): Promise<void>;
   status(): Promise<{ running: boolean; pid: number | null }>;
 }
 

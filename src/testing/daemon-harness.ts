@@ -17,6 +17,7 @@ import type { SashSettings } from "../settings.js";
 import type { CoreSupervisor } from "../supervisor.js";
 import type { SystemProxyController } from "../sysproxy/manager.js";
 import type { SystemProxyState } from "../sysproxy/types.js";
+import { noopTunGuard } from "../tun-guard.js";
 import { unsupportedTunPlatform } from "../tun-service.js";
 import { FakeCoreSupervisor, testSettings } from "./state.js";
 
@@ -108,6 +109,7 @@ export class DaemonTestHarness {
     let applied = false;
     const state = (): SystemProxyState => ({ supported: true, enabled: applied });
     return {
+      supported: true,
       apply: async () => {
         applied = true;
       },
@@ -161,6 +163,7 @@ export class DaemonTestHarness {
       fetchProfileFn: overrides.fetchProfile,
       validateConfigFn: overrides.validateConfig ?? (() => undefined),
       controllerProbe: async () => false,
+      tunGuard: noopTunGuard(),
       stageCoreFn:
         overrides.stageCore ??
         (async () => {

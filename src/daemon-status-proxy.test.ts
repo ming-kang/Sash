@@ -60,6 +60,7 @@ describe("daemon server", () => {
         releaseInspect = resolve;
       });
       const systemProxy: SystemProxyController = {
+        supported: true,
         apply: async () => {},
         release: async () => {},
         inspect: async (fresh) => {
@@ -92,6 +93,7 @@ describe("daemon server", () => {
       let disabledCalls = 0;
       let applied = false;
       const systemProxy: SystemProxyController = {
+        supported: true,
         apply: async () => {
           enabledCalls++;
           applied = true;
@@ -169,6 +171,7 @@ describe("daemon server", () => {
       let fetches = 0;
       let releases = 0;
       const systemProxy: SystemProxyController = {
+        supported: true,
         apply: async () => {},
         release: async () => {
           if (++releases === 1) throw new Error("release failed");
@@ -215,6 +218,7 @@ describe("daemon server", () => {
         }) as typeof clearTimeout,
       };
       const systemProxy: SystemProxyController = {
+        supported: true,
         apply: async () => {},
         release: async () => {
           if (++releases === 1) throw new Error("restore failed");
@@ -287,6 +291,7 @@ describe("daemon server", () => {
     it("allows daemon close to be retried after a transient cleanup failure", async () => {
       let releases = 0;
       const systemProxy: SystemProxyController = {
+        supported: true,
         apply: async () => {},
         release: async () => {
           releases++;

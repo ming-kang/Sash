@@ -23,6 +23,221 @@ rm -rf /usr/local/lib/sash /var/lib/sash-helper
 `;
 
 /**
+ * The privileged TUN guard: root:root 0755, installed once by the grant
+ * script and invoked through the sudoers rule. setup installs the blackhole
+ * fallback routes first — they are what keeps a killed Core fail-closed —
+ * then redoes the systemd-resolved integration sing-tun only attempts once
+ * per interface, unprivileged and without retries.
+ *
+ * The heredoc embedding keeps the content fixed; the device name only ever
+ * arrives as a validated argv word, never inside shell text.
+ */
+export const TUN_GUARD_SCRIPT = `#!/bin/sh
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+usage() {
+  echo "usage: sash-tun-guard setup <device> | teardown" >&2
+  exit 2
+}
+
+if [ $# -lt 1 ]; then
+  usage
+fi
+verb=$1
+
+device=""
+if [ "$verb" = "setup" ]; then
+  if [ $# -lt 2 ]; then
+    echo "sash-tun-guard: setup requires a device name" >&2
+    exit 2
+  fi
+  device=$2
+  case $device in
+    "" | *[!a-zA-Z0-9._-]*)
+      echo "sash-tun-guard: invalid device name" >&2
+      exit 2
+      ;;
+  esac
+  if [ \${#device} -gt 32 ]; then
+    echo "sash-tun-guard: device name too long" >&2
+    exit 2
+  fi
+elif [ "$verb" != "teardown" ]; then
+  usage
+fi
+
+exec 9>/run/sash-tun-guard.lock
+if ! flock -w 30 9; then
+  echo "sash-tun-guard: timed out waiting for the guard lock" >&2
+  exit 1
+fi
+
+table=2022
+
+if [ "$verb" = "teardown" ]; then
+  ip route del blackhole default metric 100 table "$table" 2>/dev/null || true
+  ip -6 route del blackhole default metric 100 table "$table" 2>/dev/null || true
+  # Teardown only runs with TUN off or at final shutdown, when mihomo's dev
+  # Meta routes are already gone with the interface, so the flush converges
+  # the copied connected routes and any strays without touching live ones.
+  ip route flush table "$table" 2>/dev/null || true
+  ip -6 route flush table "$table" 2>/dev/null || true
+  echo "sash-tun-guard: blackhole fallback removed from table $table" >&2
+  exit 0
+fi
+
+ip route replace blackhole default metric 100 table "$table"
+ip -6 route replace blackhole default metric 100 table "$table" 2>/dev/null || true
+
+# Only the kernel-connected subnets are copied: a wider exemption cannot be
+# told apart from healthy routing, since a longer prefix wins in either state,
+# so remote private networks keep entering the tunnel while directly attached
+# subnets bypass it even with the Core dead, the same LAN exemption the
+# macOS and Windows kill switches apply.
+copy_connected_routes() {
+  if [ "$1" = v6 ]; then
+    ip -6 route show proto kernel 2>/dev/null
+  else
+    ip route show proto kernel scope link 2>/dev/null
+  fi | while read -r prefix devword devname rest; do
+    case $prefix in
+      "" | default | ::/0 | 0.0.0.0/0 | unreachable | nexthop | fe[89ab][0-9a-f]:*)
+        continue
+        ;;
+    esac
+    if [ "$devword" != dev ] || [ -z "$devname" ]; then
+      continue
+    fi
+    case $rest in
+      *" expires "*)
+        continue
+        ;;
+    esac
+    if [ "$1" = v6 ]; then
+      ip -6 route add "$prefix" dev "$devname" table "$table" 2>/dev/null || true
+    else
+      ip route add "$prefix" dev "$devname" table "$table" 2>/dev/null || true
+    fi
+  done
+}
+copy_connected_routes v4
+copy_connected_routes v6
+
+if ! command -v resolvectl >/dev/null 2>&1; then
+  echo "sash-tun-guard: resolvectl is missing; skipping systemd-resolved integration" >&2
+  exit 0
+fi
+if ! command -v systemctl >/dev/null 2>&1 || ! systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+  echo "sash-tun-guard: systemd-resolved is not active; skipping DNS integration" >&2
+  exit 0
+fi
+
+waited=0
+while [ $waited -lt 50 ]; do
+  if ip link show dev "$device" >/dev/null 2>&1; then
+    break
+  fi
+  waited=$((waited + 1))
+  sleep 0.2
+done
+if ! ip link show dev "$device" >/dev/null 2>&1; then
+  echo "sash-tun-guard: interface $device did not appear" >&2
+  exit 1
+fi
+
+attempt=1
+while [ $attempt -le 5 ]; do
+  resolvectl dns "$device" 198.18.0.2 >/dev/null 2>&1 || true
+  resolvectl domain "$device" "~." >/dev/null 2>&1 || true
+  resolvectl default-route "$device" true >/dev/null 2>&1 || true
+  link_state=$(resolvectl status "$device" 2>/dev/null || true)
+  if echo "$link_state" | grep -F "198.18.0.2" >/dev/null 2>&1 && echo "$link_state" | grep -F "~." >/dev/null 2>&1; then
+    echo "sash-tun-guard: systemd-resolved configured on $device" >&2
+    exit 0
+  fi
+  attempt=$((attempt + 1))
+  if [ $attempt -le 5 ]; then
+    sleep 1
+  fi
+done
+
+echo "sash-tun-guard: could not configure systemd-resolved on $device" >&2
+exit 1
+`;
+
+const GUARD_INSTALL = `
+guard=/usr/local/libexec/sash-tun-guard
+guard_tmp=/usr/local/libexec/.sash-tun-guard.new.$$
+guard_installed=0
+if (
+  mkdir -p /usr/local/libexec &&
+  cat > "$guard_tmp" <<'SASH_TUN_GUARD_EOF' &&
+${TUN_GUARD_SCRIPT}SASH_TUN_GUARD_EOF
+  chmod 0755 "$guard_tmp" &&
+  chown root:root "$guard_tmp" &&
+  mv -f "$guard_tmp" "$guard"
+); then
+  guard_installed=1
+else
+  echo "warning: could not install $guard; the TUN kill-switch fallback is unavailable" >&2
+fi
+rm -f "$guard_tmp" 2>/dev/null || true
+
+sudoers_user=$(printenv SUDO_USER 2>/dev/null || true)
+if [ -z "$sudoers_user" ]; then
+  pkexec_uid=$(printenv PKEXEC_UID 2>/dev/null || true)
+  if [ -n "$pkexec_uid" ]; then
+    sudoers_user=$(id -nu "$pkexec_uid" 2>/dev/null || true)
+  fi
+fi
+case $sudoers_user in
+  "" | *[!a-zA-Z0-9._-]* | root)
+    sudoers_user=""
+    ;;
+esac
+if [ \${#sudoers_user} -gt 32 ]; then
+  sudoers_user=""
+fi
+
+if [ "$guard_installed" = 1 ]; then
+  if [ -z "$sudoers_user" ]; then
+    if printenv SUDO_USER >/dev/null 2>&1 || printenv PKEXEC_UID >/dev/null 2>&1; then
+      echo "warning: could not identify a sudoers-safe invoking user; the TUN guard will not run automatically" >&2
+    fi
+  elif ! command -v sudo >/dev/null 2>&1; then
+    echo "warning: sudo is not installed; the TUN guard script cannot run without a sudoers rule" >&2
+  else
+    sudoers_tmp=/etc/sudoers.d/.sash-tun-guard.$$
+    if ! (
+      mkdir -p /etc/sudoers.d &&
+      printf '%s\\n' "$sudoers_user ALL=(root) NOPASSWD: $guard" > "$sudoers_tmp" &&
+      chmod 0440 "$sudoers_tmp" &&
+      visudo -cf "$sudoers_tmp" >/dev/null 2>&1 &&
+      mv -f "$sudoers_tmp" /etc/sudoers.d/sash-tun-guard
+    ); then
+      echo "warning: could not install the sudoers rule for $guard; the TUN guard will not run automatically" >&2
+    fi
+    rm -f "$sudoers_tmp" 2>/dev/null || true
+  fi
+fi
+`;
+
+const GUARD_REMOVE = `
+rm -f /etc/sudoers.d/sash-tun-guard
+rm -f /usr/local/libexec/sash-tun-guard
+rm -f /run/sash-tun-guard.lock
+ip route del blackhole default metric 100 table 2022 2>/dev/null || true
+ip -6 route del blackhole default metric 100 table 2022 2>/dev/null || true
+ip route flush table 2022 2>/dev/null || true
+ip -6 route flush table 2022 2>/dev/null || true
+if command -v resolvectl >/dev/null 2>&1; then
+  resolvectl revert Meta >/dev/null 2>&1 || true
+fi
+`;
+
+/**
  * Both scripts arrive on the elevated shell's stdin and take the Core path
  * as $1, so no user-writable file ever feeds the root shell. Replacing the
  * Core file (a Core update) drops its capabilities with it.
@@ -38,14 +253,14 @@ if ! command -v setcap >/dev/null 2>&1; then
   exit 2
 fi
 setcap ${CORE_CAPABILITIES} "$core"
-${LEGACY_CLEANUP}`;
+${LEGACY_CLEANUP}${GUARD_INSTALL}`;
 
 export const REVOKE_SCRIPT = `set -eu
 core="$1"
 if [ -f "$core" ] && [ ! -L "$core" ] && command -v setcap >/dev/null 2>&1; then
   setcap -r "$core" 2>/dev/null || true
 fi
-${LEGACY_CLEANUP}`;
+${GUARD_REMOVE}${LEGACY_CLEANUP}`;
 
 export type Runner = (
   cmd: string,

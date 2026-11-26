@@ -16,7 +16,9 @@ import type { SashSettings } from "../settings.js";
 import { SettingsService } from "../settings-service.js";
 import { CoreSupervisor } from "../supervisor.js";
 import { type SystemProxyController, SystemProxyManager } from "../sysproxy/manager.js";
+import { TunGuard, type TunGuardLike } from "../tun-guard.js";
 import { createTunPlatform } from "../tun-platform/index.js";
+import { windowsTunGuard } from "../tun-platform/windows-guard.js";
 import { type TunPlatform, TunService } from "../tun-service.js";
 import { resolveUiDir } from "../webui.js";
 import { type DaemonContext, DaemonGate } from "./context.js";
@@ -46,6 +48,7 @@ export interface DaemonDeps {
   resolveCoreReleaseFn?: typeof resolveCoreRelease;
   seedGeodataFn?: (file: string, options: { signal: AbortSignal }) => Promise<GeodataSeedResult>;
   controllerProbe?: (settings: SashSettings) => Promise<boolean>;
+  tunGuard?: TunGuardLike;
   engine?: CoreEngine;
   plugins?: PluginRegistry;
   onShutdown?: () => void;
@@ -75,6 +78,7 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
   let profiles: ProfileService;
   let coreControl: CoreControlService;
   let coreRecovery: Promise<void> | undefined;
+  const hostedCore = tunPlatform.host?.(layout);
   const events = new DaemonEvents(createEventObserver(() => context));
   const supervisor =
     deps.supervisor ??
@@ -84,7 +88,8 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
       runner: createCoreRunner({
         layout,
         engine,
-        ...(tunPlatform.host ? { tunHost: tunPlatform.host(layout) } : {}),
+        ...(hostedCore ? { tunHost: hostedCore } : {}),
+        tunExpected: () => settings().tun.enable,
       }),
       settings: () => lifecycle?.settings() ?? settings(),
       onExit: () => {
@@ -114,6 +119,9 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
           });
       },
     });
+  const tunGuard =
+    deps.tunGuard ??
+    (process.platform === "win32" && hostedCore ? windowsTunGuard(hostedCore) : new TunGuard());
   lifecycle = new RuntimeLifecycle({
     layout,
     supervisor,
@@ -121,13 +129,14 @@ export function buildDaemonContext(deps: DaemonDeps): DaemonApp {
     settings,
     engine,
     tun,
+    tunGuard,
     controllerProbe: deps.controllerProbe,
   });
   const cancelPreparations = (): void => {
     coreControl.cancelPreparation();
     profiles.cancelDownloads();
   };
-  gate = new DaemonGate(() => lifecycle.stop(), cancelPreparations, {
+  gate = new DaemonGate(() => lifecycle.stop({ final: true }), cancelPreparations, {
     onChange: () => events.notify(),
   });
   const mutate = <T>(action: () => T | Promise<T>) => gate.mutate(action);

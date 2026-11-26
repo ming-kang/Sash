@@ -69,16 +69,17 @@ func run(args []string) error {
 }
 
 func runForeground(cfg config) error {
-	host, listener, err := open(cfg)
+	core, listener, err := open(cfg)
 	if err != nil {
 		return err
 	}
-	defer host.close()
+	defer core.close()
+	convergeStartup(core, cfg.stderr)
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
-	go serve(listener, host, cfg.home)
+	go serve(listener, core, cfg.home)
 	fmt.Fprintf(os.Stderr, "sash-tun-helper %s listening on %s\n", buildVersion, cfg.pipe)
 	<-interrupt
 	_ = listener.Close()
-	return host.stop()
+	return core.shutdown()
 }

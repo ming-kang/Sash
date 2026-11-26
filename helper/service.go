@@ -17,13 +17,14 @@ type service struct {
 
 func (s *service) Execute(_ []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	status <- svc.Status{State: svc.StartPending}
-	host, listener, err := open(s.cfg)
+	core, listener, err := open(s.cfg)
 	if err != nil {
 		s.report(err)
 		return false, 1
 	}
-	defer host.close()
-	go serve(listener, host, s.cfg.home)
+	defer core.close()
+	convergeStartup(core, s.cfg.stderr)
+	go serve(listener, core, s.cfg.home)
 	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	for request := range requests {
 		switch request.Cmd {
@@ -32,7 +33,7 @@ func (s *service) Execute(_ []string, requests <-chan svc.ChangeRequest, status 
 		case svc.Stop, svc.Shutdown:
 			status <- svc.Status{State: svc.StopPending}
 			_ = listener.Close()
-			if err := host.stop(); err != nil {
+			if err := core.shutdown(); err != nil {
 				s.report(err)
 			}
 			return false, 0
@@ -44,7 +45,11 @@ func (s *service) Execute(_ []string, requests <-chan svc.ChangeRequest, status 
 // report appends a service failure to the Core's error log, where Sash
 // already looks when a Core fails to start.
 func (s *service) report(err error) {
-	file, openErr := openLog(s.cfg.stderr)
+	reportIssue(s.cfg.stderr, err)
+}
+
+func reportIssue(logPath string, err error) {
+	file, openErr := openLog(logPath)
 	if openErr != nil {
 		return
 	}

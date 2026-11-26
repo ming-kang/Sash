@@ -14,6 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - `sash tun` now points at `sash restart` when advanced TUN settings are saved but not applied, not only when the enable switch differs.
+- Reject `sash proxy on` up front on systems without a supported desktop instead of persisting the preference and failing every later apply, which used to block TUN helper uninstall until a manual `sash proxy off`.
+- Fail empty proxy groups closed in every mode, not only with TUN: provider-backed groups no longer fall back to direct traffic through the mixed port during Core restarts, when the cached group selection would otherwise pin the direct fallback for ten seconds after proxies finish loading.
+- Close the fail-open window after a TUN Core crash on Linux: `sash tun helper install` now also installs a root-owned guard that blackholes traffic in the tunnel's routing table until the Core rebuilds it, instead of falling through to the physical default route, and configures systemd-resolved as root so fake-ip capture no longer depends on polkit admitting the unprivileged Core. Run `sash tun helper install` again after upgrading.
+- Close the fail-open window after a TUN Core crash on macOS: the helper install now anchors a pf kill switch that blocks direct outbound traffic on physical interfaces while still permitting the setuid-root Core, LAN, link-local and multicast traffic; `sash stop` or switching TUN off lifts it again, and `sash doctor` reports the anchor state. Run `sash tun helper install` again after upgrading.
+- Hold the Windows TUN kill switch in the helper service instead of the Core process: static WFP filters survive a Core crash and cover the whole recovery window, permitting the Core binary, the tunnel interface, LAN and ICMPv6 neighbor discovery while blocking everything else. Reinstall the helper when prompted after upgrading.
 
 ## [0.7.3] - 2026-11-25
 

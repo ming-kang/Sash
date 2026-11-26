@@ -633,6 +633,6 @@ export class CoreControlService {
 
   async stop(): Promise<void> {
     this.cancelPreparation();
-    await this.options.commit(() => this.options.lifecycle.stop());
+    await this.options.commit(() => this.options.lifecycle.stop({ final: true }));
   }
 }

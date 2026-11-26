@@ -134,6 +134,7 @@ describe("CoreEngine injection", () => {
       const settings = testSettings({ systemProxy: false });
       const core = new FakeCoreSupervisor(layout, settings);
       const proxy: SystemProxyController = {
+        supported: true,
         apply: async () => {},
         release: async () => {},
         inspect: async () => ({
@@ -174,6 +175,7 @@ describe("CoreEngine injection", () => {
       const settings = testSettings({ systemProxy: false });
       const core = new FakeCoreSupervisor(layout, settings);
       const proxy: SystemProxyController = {
+        supported: true,
         apply: async () => {},
         release: async () => {},
         inspect: async () => ({

@@ -10,6 +10,7 @@ import {
   parseContentDispositionFilename,
   parseSafeHttpUrl,
   parseSubscriptionUserinfo,
+  renderConfig,
   resolveSubscriptionRedirect,
   stripManagedKeys,
   tunDisabledGeneratedConfig,
@@ -233,13 +234,14 @@ describe("mihomo-config", () => {
       assert.deepEqual(overlaid.tun, { enable: false, "auto-route": true });
       assert.deepEqual(overlaid.dns, profile.dns);
       assert.deepEqual(overlaid["proxy-groups"], [
-        ...(profile["proxy-groups"] as unknown[]),
+        { name: "PROXY", type: "url-test", "expected-status": 204, "empty-fallback": "REJECT" },
         {
           name: "GLOBAL",
           type: "select",
           proxies: ["PROXY"],
           "include-all": true,
           "default-selected": "PROXY",
+          "empty-fallback": "REJECT",
         },
       ]);
       assert.deepEqual(profile["proxy-groups"], original["proxy-groups"]);
@@ -264,39 +266,55 @@ describe("mihomo-config", () => {
         proxies: ["PROXY", "JP"],
         "include-all": true,
         "default-selected": "PROXY",
+        "empty-fallback": "REJECT",
       });
       assert.deepEqual(profile, original);
     });
 
-    it("keeps an explicit GLOBAL group and fails empty groups closed only while TUN is enabled", () => {
+    it("keeps an explicit GLOBAL group while adding its empty fallback", () => {
       const explicit = { name: "GLOBAL", type: "select", proxies: ["node-a"] };
+      const original = structuredClone(explicit);
       const overlaid = overlayManagedKeys({ "proxy-groups": [explicit] }, mockSettings);
-      assert.deepEqual(overlaid["proxy-groups"], [explicit]);
+      assert.deepEqual(overlaid["proxy-groups"], [{ ...original, "empty-fallback": "REJECT" }]);
+      assert.deepEqual(explicit, original);
+    });
 
-      const tun = { ...mockSettings, tun: { ...defaultTunSettings(), enable: true } };
-      const warnings: string[] = [];
-      const hardened = overlayManagedKeys(
-        {
-          "proxy-groups": [
-            { name: "Auto", type: "url-test", use: ["airport"] },
-            { name: "DirectFallback", type: "select", proxies: [], "empty-fallback": "DIRECT" },
-            { name: "PinnedFallback", type: "select", proxies: [], "empty-fallback": "node-a" },
-          ],
-        },
-        tun,
-        warnings,
-      );
-      const groups = hardened["proxy-groups"] as Array<Record<string, unknown>>;
-      assert.equal(groups.find((group) => group.name === "Auto")?.["empty-fallback"], "REJECT");
-      assert.equal(
-        groups.find((group) => group.name === "DirectFallback")?.["empty-fallback"],
-        "REJECT",
-      );
-      assert.equal(
-        groups.find((group) => group.name === "PinnedFallback")?.["empty-fallback"],
-        "node-a",
-      );
-      assert.ok(warnings.some((warning) => warning.includes("DirectFallback")));
+    it("fails empty groups closed in generated configs regardless of TUN state", () => {
+      for (const enable of [false, true]) {
+        const settings = { ...mockSettings, tun: { ...defaultTunSettings(), enable } };
+        const generated = renderConfig(
+          {
+            "proxy-groups": [
+              { name: "Auto", type: "url-test", use: ["airport"] },
+              {
+                name: "CompatibleFallback",
+                type: "select",
+                proxies: [],
+                "empty-fallback": "COMPATIBLE",
+              },
+              { name: "PinnedFallback", type: "select", proxies: [], "empty-fallback": "node-a" },
+            ],
+          },
+          settings,
+          "subscription",
+        );
+        const document = YAML.parse(generated.yaml) as Record<string, unknown>;
+        const groups = document["proxy-groups"] as Array<Record<string, unknown>>;
+        assert.equal(groups.find((group) => group.name === "Auto")?.["empty-fallback"], "REJECT");
+        assert.equal(
+          groups.find((group) => group.name === "CompatibleFallback")?.["empty-fallback"],
+          "REJECT",
+        );
+        assert.equal(
+          groups.find((group) => group.name === "PinnedFallback")?.["empty-fallback"],
+          "node-a",
+        );
+        assert.ok(
+          generated.warnings?.some(
+            (warning) => warning.includes("CompatibleFallback") && !warning.includes("TUN"),
+          ),
+        );
+      }
     });
 
     it("overrides managed keys while preserving unmanaged subscription keys", () => {

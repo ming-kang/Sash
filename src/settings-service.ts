@@ -20,6 +20,12 @@ export class CoreUnhealthyError extends Error {
     this.name = "CoreUnhealthyError";
   }
 }
+export class SystemProxyUnsupportedError extends Error {
+  constructor(message?: string) {
+    super(message);
+    this.name = "SystemProxyUnsupportedError";
+  }
+}
 export { StateConflictError as SettingsConflictError } from "./app-state.js";
 
 export interface SettingsApplyResult {
@@ -54,6 +60,17 @@ export class SettingsService {
         throw new SettingsInputError(errorMessage(error));
       }
       if (patch.systemProxy === true) {
+        if (!this.options.lifecycle.systemProxySupported)
+          throw withErrorPresentation(
+            new SystemProxyUnsupportedError(
+              "Cannot enable system proxy: not supported on this system",
+            ),
+            {
+              message:
+                "System proxy integration is not supported on this system, so it was not enabled.",
+              advice: "On Linux this requires a GNOME or KDE desktop session.",
+            },
+          );
         const core = await this.options.supervisor.status();
         if (!core.running || !core.healthy)
           throw withErrorPresentation(

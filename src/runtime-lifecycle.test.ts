@@ -76,6 +76,7 @@ describe("Core and proxy lifecycle", () => {
       events.push("stop");
     };
     const proxy: SystemProxyController = {
+      supported: true,
       apply: async ({ port }) => {
         events.push(`proxy:${port}`);
       },
@@ -392,6 +393,7 @@ describe("configuration reload", () => {
     core.running = true;
     const events: string[] = [];
     const proxy: SystemProxyController = {
+      supported: true,
       apply: async ({ port }) => {
         events.push(`proxy:${port}`);
       },
@@ -641,6 +643,7 @@ describe("TUN apply", () => {
       events.push("stop");
     };
     const proxy: SystemProxyController = {
+      supported: true,
       apply: async ({ port }) => {
         events.push(`proxy:${port}`);
       },
@@ -792,6 +795,214 @@ describe("TUN apply", () => {
     await f.lifecycle.handleUnexpectedCoreExit();
     assert.equal(f.core.starts, starts);
     assert.equal(f.events.at(-1), "release");
+  });
+});
+
+describe("TUN guard reconcile", () => {
+  let root: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-tun-guard-test-"));
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  function fixture({ tun = true } = {}) {
+    const layout = sashLayout(root);
+    const settings = testSettings({
+      tun: { ...defaultTunSettings(), enable: tun, device: "Meta" },
+    });
+    const core = new FakeCoreSupervisor(layout, settings);
+    const calls: Array<{ verb: string; device?: string }> = [];
+    let failWith: Error | undefined;
+    const tunGuard = {
+      supported: true,
+      reconcile: (verb: "setup" | "teardown", options?: { device?: string }) => {
+        calls.push({ verb, ...(options?.device ? { device: options.device } : {}) });
+        return failWith ? Promise.reject(failWith) : Promise.resolve();
+      },
+      lastResult: () => undefined,
+    };
+    const proxy: SystemProxyController = {
+      supported: true,
+      apply: async () => {},
+      release: async () => {},
+      inspect: async () => ({
+        applied: false,
+        appliedKnown: true,
+        stateKnown: true,
+        state: { supported: true, enabled: false },
+      }),
+    };
+    const lifecycle = new RuntimeLifecycle({
+      layout,
+      supervisor: core,
+      systemProxy: proxy,
+      settings: () => settings,
+      engine: mihomoEngine,
+      controllerProbe: async () => false,
+      reloadConfig: async () => {},
+      tun: new TunService(
+        {
+          mechanism: "capabilities",
+          inspect: async () => ({ state: "ready" as const }),
+          install: async () => {},
+          uninstall: async () => {},
+        },
+        layout,
+      ),
+      tunGuard,
+    });
+    const configuration = {
+      generated: { yaml: "rules: ['MATCH,DIRECT']\n", proxyCount: 0, source: "default" as const },
+      settings: { ...settings },
+      profile: null,
+    };
+    return {
+      layout,
+      settings,
+      core,
+      calls,
+      lifecycle,
+      configuration,
+      tunGuard,
+      setFailure: (error: Error | undefined) => {
+        failWith = error;
+      },
+    };
+  }
+
+  async function settle() {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  it("converges setup with the configured device after a TUN Core starts", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    assert.deepEqual(f.calls, [{ verb: "setup", device: f.settings.tun.device }]);
+  });
+
+  it("converges teardown after a non-TUN Core starts", async () => {
+    const f = fixture({ tun: false });
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    assert.deepEqual(f.calls, [{ verb: "teardown" }]);
+  });
+
+  it("does not teardown in the intermediate stop of a replacement", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    f.calls.length = 0;
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    assert.deepEqual(f.calls, [{ verb: "setup", device: f.settings.tun.device }]);
+  });
+
+  it("does not teardown during crash recovery and converges setup again", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    f.calls.length = 0;
+    f.core.running = false;
+    await f.lifecycle.restoreCoreSession(f.configuration);
+    await settle();
+    const verbs = f.calls.map((call) => call.verb);
+    assert.equal(verbs.includes("teardown"), false);
+    assert.deepEqual(f.calls, [{ verb: "setup", device: "Meta" }]);
+  });
+
+  it("switches to teardown when the replacement disables TUN", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    f.calls.length = 0;
+    const ordinary = {
+      ...f.configuration,
+      settings: { ...f.settings, tun: disabledTun(f.settings.tun) },
+    };
+    await f.lifecycle.apply(ordinary);
+    await settle();
+    assert.deepEqual(f.calls, [{ verb: "teardown" }]);
+  });
+
+  it("tears down on the final stop but not on a plain stop", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    f.calls.length = 0;
+    await f.lifecycle.stop();
+    assert.deepEqual(f.calls, []);
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    f.calls.length = 0;
+    await f.lifecycle.stop({ final: true });
+    assert.deepEqual(f.calls, [{ verb: "teardown" }]);
+  });
+
+  it("does not fail the start when the guard reconcile rejects", async () => {
+    const f = fixture();
+    f.setFailure(new Error("boom"));
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    assert.equal(f.core.running, true);
+    assert.deepEqual(f.calls, [{ verb: "setup", device: f.settings.tun.device }]);
+  });
+
+  it("reconverges setup after a hot reload while TUN stays enabled", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    f.calls.length = 0;
+    await f.lifecycle.reload(f.configuration);
+    await settle();
+    assert.deepEqual(f.calls, [{ verb: "setup", device: "Meta" }]);
+  });
+
+  it("does not reconcile after a hot reload when TUN is disabled", async () => {
+    const f = fixture({ tun: false });
+    await f.lifecycle.apply(f.configuration);
+    await settle();
+    f.calls.length = 0;
+    await f.lifecycle.reload(f.configuration);
+    await settle();
+    assert.deepEqual(f.calls, []);
+  });
+
+  it("keeps running without a guard wired in", async () => {
+    const layout = sashLayout(root);
+    const settings = testSettings();
+    const core = new FakeCoreSupervisor(layout, settings);
+    const proxy: SystemProxyController = {
+      supported: true,
+      apply: async () => {},
+      release: async () => {},
+      inspect: async () => ({
+        applied: false,
+        appliedKnown: true,
+        stateKnown: true,
+        state: { supported: true, enabled: false },
+      }),
+    };
+    const lifecycle = new RuntimeLifecycle({
+      layout,
+      supervisor: core,
+      systemProxy: proxy,
+      settings: () => settings,
+      engine: mihomoEngine,
+      controllerProbe: async () => false,
+      tun: new TunService(unsupportedTunPlatform(), layout),
+    });
+    const configuration = {
+      generated: { yaml: "rules: []\n", proxyCount: 0, source: "default" as const },
+      settings: { ...settings },
+      profile: null,
+    };
+    await lifecycle.apply(configuration);
+    assert.equal(core.running, true);
+    await lifecycle.stop({ final: true });
+    assert.equal(core.running, false);
   });
 });
 

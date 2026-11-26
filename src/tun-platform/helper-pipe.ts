@@ -3,7 +3,14 @@ import { z } from "zod";
 
 export const HELPER_PIPE = "\\\\.\\pipe\\sash-tun";
 /** Bumped together with protocolVersion in helper/server.go. */
-export const HELPER_PROTOCOL = 1;
+export const HELPER_PROTOCOL = 2;
+
+const helperGuardSchema = z.object({
+  active: z.boolean(),
+  device: z.string().optional(),
+  interfaceIndex: z.number().int().nonnegative().optional(),
+});
+export type HelperGuard = z.output<typeof helperGuardSchema>;
 
 const helperReplySchema = z.object({
   ok: z.boolean(),
@@ -11,27 +18,49 @@ const helperReplySchema = z.object({
   home: z.string(),
   running: z.boolean(),
   pid: z.number().int().positive().optional(),
+  guard: helperGuardSchema.optional(),
   error: z.string().optional(),
 });
 export type HelperReply = z.output<typeof helperReplySchema>;
-export type HelperOp = "status" | "start" | "stop";
-export type HelperRequest = (op: HelperOp, timeoutMs: number) => Promise<HelperReply>;
+
+export function helperGuardUnsupportedWarning(reply: HelperReply): string | null {
+  if (reply.protocol >= HELPER_PROTOCOL) return null;
+  return `the TUN service speaks protocol ${reply.protocol} and cannot run the TUN kill switch; reinstall it: sash tun helper install`;
+}
+
+export type HelperOp = "status" | "start" | "stop" | "unguard";
+export interface HelperStartOptions {
+  guard?: boolean;
+  device?: string;
+}
+export type HelperRequest = (
+  op: HelperOp,
+  timeoutMs: number,
+  start?: HelperStartOptions,
+) => Promise<HelperReply>;
 
 /** One request line per connection, answered by one reply line. */
 export function requestHelper(
   op: HelperOp,
   timeoutMs: number,
-  pipe: string = HELPER_PIPE,
+  options: { pipe?: string; start?: HelperStartOptions } = {},
 ): Promise<HelperReply> {
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ path: pipe });
+    const socket = net.createConnection({ path: options.pipe ?? HELPER_PIPE });
     let buffer = "";
     const timer = setTimeout(
       () => socket.destroy(new Error(`TUN helper did not answer ${op} within ${timeoutMs}ms`)),
       timeoutMs,
     );
     socket.setEncoding("utf8");
-    socket.once("connect", () => socket.write(`${JSON.stringify({ op })}\n`));
+    socket.once("connect", () => {
+      const request: Record<string, unknown> = { op };
+      if (op === "start" && options.start) {
+        if (options.start.guard) request.guard = true;
+        if (options.start.device) request.device = options.start.device;
+      }
+      socket.write(`${JSON.stringify(request)}\n`);
+    });
     socket.on("data", (chunk: string) => {
       buffer += chunk;
       const newline = buffer.indexOf("\n");

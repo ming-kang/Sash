@@ -10,9 +10,11 @@ import {
   HELPER_PROTOCOL,
   type HelperReply,
   type HelperRequest,
+  helperGuardUnsupportedWarning,
   requestHelper,
 } from "./helper-pipe.js";
 import { resolveHelperSource } from "./helper-source.js";
+import type { WindowsGuardHost } from "./windows-guard.js";
 
 export const HELPER_SERVICE = "SashTun";
 /** The 0.7.0 helper service, replaced on install and removed on uninstall. */
@@ -23,7 +25,7 @@ function samePath(left: string, right: string): boolean {
 }
 
 export function privilegeFromReply(reply: HelperReply, layout: SashLayout): TunPrivilege {
-  if (reply.protocol !== HELPER_PROTOCOL)
+  if (reply.protocol > HELPER_PROTOCOL || reply.protocol < 1)
     return {
       state: "stale",
       detail: `the TUN service speaks protocol ${reply.protocol}; this Sash needs ${HELPER_PROTOCOL}`,
@@ -31,6 +33,29 @@ export function privilegeFromReply(reply: HelperReply, layout: SashLayout): TunP
   if (!samePath(reply.home, layout.root))
     return { state: "stale", detail: `the TUN service serves another data folder (${reply.home})` };
   return { state: "ready" };
+}
+
+export interface WindowsGuardStatus {
+  /** False while a protocol-1 helper serves: it pre-dates the kill switch. */
+  supported: boolean;
+  active: boolean;
+  device?: string;
+  interfaceIndex?: number;
+}
+
+/** The kill switch picture a status reply carries, for doctor and status surfaces. */
+export function guardFromReply(reply: HelperReply): WindowsGuardStatus {
+  if (reply.protocol < HELPER_PROTOCOL) return { supported: false, active: false };
+  return {
+    supported: true,
+    active: reply.guard?.active ?? false,
+    ...(reply.guard?.device ? { device: reply.guard.device } : {}),
+    ...(reply.guard?.interfaceIndex ? { interfaceIndex: reply.guard.interfaceIndex } : {}),
+  };
+}
+
+export function guardSupportWarning(reply: HelperReply): string | null {
+  return helperGuardUnsupportedWarning(reply);
 }
 
 /** CommandLineToArgvW quoting; arguments without spaces or quotes stay bare. */
@@ -207,7 +232,8 @@ export interface WindowsTunPlatformDeps {
 }
 
 export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatform {
-  const request = deps.request ?? ((op, timeoutMs) => requestHelper(op, timeoutMs));
+  const request =
+    deps.request ?? ((op, timeoutMs, start) => requestHelper(op, timeoutMs, { start }));
   const registered = deps.serviceRegistered ?? serviceRegistered;
   const run = deps.run ?? runElevated;
   const resolveSource = deps.resolveSource ?? resolveHelperSource;
@@ -262,12 +288,19 @@ export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatfo
       await run(uninstallScript(), "remove the TUN helper");
     },
     host(layout): HostedCore {
-      return {
-        async start() {
-          const privilege = privilegeFromReply(await request("status", 5_000), layout);
+      const hosted: WindowsGuardHost = {
+        async start(options) {
+          const status = await request("status", 5_000);
+          const privilege = privilegeFromReply(status, layout);
           if (privilege.state !== "ready")
             throw new Error(`The TUN service cannot start this Core: ${privilege.detail}`);
-          const reply = await request("start", 30_000);
+          const unsupported = guardSupportWarning(status);
+          if (unsupported) console.warn(`[sashd] TUN kill switch unavailable: ${unsupported}`);
+          const guarded = status.protocol >= HELPER_PROTOCOL;
+          const reply = await request("start", 30_000, {
+            guard: guarded,
+            ...(options?.device ? { device: options.device } : {}),
+          });
           if (!reply.ok || !reply.pid)
             throw new Error(reply.error ?? "The TUN service did not start the Core");
           return { pid: reply.pid };
@@ -276,11 +309,20 @@ export function windowsTunPlatform(deps: WindowsTunPlatformDeps = {}): TunPlatfo
           const reply = await request("stop", 30_000);
           if (!reply.ok) throw new Error(reply.error ?? "The TUN service did not stop the Core");
         },
+        async unguard() {
+          const reply = await request("unguard", 10_000);
+          if (!reply.ok)
+            throw new Error(reply.error ?? "The TUN service did not remove the TUN kill switch");
+        },
         async status() {
           const reply = await request("status", 5_000);
           return { running: reply.running, pid: reply.pid ?? null };
         },
+        async probeGuard() {
+          return request("status", 5_000);
+        },
       };
+      return hosted;
     },
   };
 }

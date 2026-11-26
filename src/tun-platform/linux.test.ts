@@ -13,6 +13,7 @@ import {
   REVOKE_SCRIPT,
   type Runner,
   resolveHelperAuth,
+  TUN_GUARD_SCRIPT,
 } from "./linux.js";
 
 function layoutWithCore(core = true) {
@@ -71,6 +72,287 @@ describe("Linux scripts", () => {
       assert.match(script, /systemctl disable --now sash-helper\.service/);
       assert.match(script, /rm -rf \/usr\/local\/lib\/sash \/var\/lib\/sash-helper/);
     }
+  });
+});
+
+describe("TUN guard scripts", () => {
+  it("embeds the guard script byte-exactly inside the grant heredoc", () => {
+    const match = GRANT_SCRIPT.match(
+      /cat > "\$guard_tmp" <<'SASH_TUN_GUARD_EOF' &&\n([\s\S]*?)SASH_TUN_GUARD_EOF\n/,
+    );
+    assert.ok(match, "grant script carries the guard heredoc");
+    assert.equal(match[1], TUN_GUARD_SCRIPT);
+  });
+
+  it("writes the guard atomically as root-owned 0755", () => {
+    assert.match(GRANT_SCRIPT, /\.sash-tun-guard\.new\.\$\$/);
+    assert.match(GRANT_SCRIPT, /chmod 0755 "\$guard_tmp"/);
+    assert.match(GRANT_SCRIPT, /chown root:root "\$guard_tmp"/);
+    assert.match(GRANT_SCRIPT, /mv -f "\$guard_tmp" "\$guard"/);
+    assert.match(GRANT_SCRIPT, /mkdir -p \/usr\/local\/libexec/);
+  });
+
+  it("installs a per-user nopasswd sudoers rule validated by visudo before enabling", () => {
+    assert.match(
+      GRANT_SCRIPT,
+      /printf '%s\\n' "\$sudoers_user ALL=\(root\) NOPASSWD: \$guard" > "\$sudoers_tmp"/,
+    );
+    assert.match(GRANT_SCRIPT, /chmod 0440 "\$sudoers_tmp"/);
+    const visudo = GRANT_SCRIPT.indexOf('visudo -cf "$sudoers_tmp"');
+    const enable = GRANT_SCRIPT.indexOf('mv -f "$sudoers_tmp" /etc/sudoers.d/sash-tun-guard');
+    assert.ok(visudo > 0 && enable > visudo, "visudo validates before the rule is enabled");
+  });
+
+  it("derives the sudoers user from the elevation environment only", () => {
+    assert.match(GRANT_SCRIPT, /printenv SUDO_USER/);
+    assert.match(GRANT_SCRIPT, /printenv PKEXEC_UID/);
+    assert.match(GRANT_SCRIPT, /id -nu "\$pkexec_uid"/);
+    assert.match(GRANT_SCRIPT, /case \$sudoers_user in/);
+  });
+
+  it("degrades to warnings instead of failing the grant", () => {
+    assert.match(GRANT_SCRIPT, /warning: sudo is not installed/);
+    assert.match(GRANT_SCRIPT, /warning: could not install the sudoers rule/);
+    assert.match(GRANT_SCRIPT, /warning: could not install \$guard/);
+  });
+
+  it("guard script: validates device strictly before any work", () => {
+    const validate = TUN_GUARD_SCRIPT.indexOf("*[!a-zA-Z0-9._-]*");
+    const flock = TUN_GUARD_SCRIPT.indexOf("flock -w 30 9");
+    assert.ok(validate > 0 && validate < flock, "device validation precedes the lock");
+    assert.match(TUN_GUARD_SCRIPT, /\$\{#device\} -gt 32/);
+  });
+
+  it("guard script: setup installs blackhole first, then configures resolved with retries", () => {
+    const v4 = TUN_GUARD_SCRIPT.indexOf("ip route replace blackhole default metric 100");
+    const v6 = TUN_GUARD_SCRIPT.indexOf("ip -6 route replace blackhole default metric 100");
+    const wait = TUN_GUARD_SCRIPT.indexOf('ip link show dev "$device"');
+    const dns = TUN_GUARD_SCRIPT.indexOf('resolvectl dns "$device" 198.18.0.2');
+    assert.ok(v4 > 0 && v6 > v4, "v4 blackhole before v6");
+    assert.ok(wait > v6, "blackhole does not wait for the interface");
+    assert.ok(dns > wait, "resolved configuration follows the interface wait");
+    assert.match(TUN_GUARD_SCRIPT, /ip -6 route replace blackhole[^\n]*\|\| true/);
+    assert.match(TUN_GUARD_SCRIPT, /resolvectl domain "\$device" "~\."/);
+    assert.match(TUN_GUARD_SCRIPT, /resolvectl default-route "\$device" true/);
+    assert.match(TUN_GUARD_SCRIPT, /while \[ \$attempt -le 5 \]/);
+    assert.match(TUN_GUARD_SCRIPT, /while \[ \$waited -lt 50 \]/);
+    assert.match(TUN_GUARD_SCRIPT, /grep -F "198\.18\.0\.2"/);
+    assert.match(TUN_GUARD_SCRIPT, /grep -F "~\."/);
+  });
+
+  it("guard script: runs single-instance under flock with a bounded wait", () => {
+    assert.match(TUN_GUARD_SCRIPT, /exec 9>\/run\/sash-tun-guard\.lock/);
+    assert.match(TUN_GUARD_SCRIPT, /flock -w 30 9/);
+    assert.match(TUN_GUARD_SCRIPT, /^set -eu$/m);
+  });
+
+  it("guard script: skips resolved integration unless resolved is really in use", () => {
+    assert.match(TUN_GUARD_SCRIPT, /command -v resolvectl/);
+    assert.match(TUN_GUARD_SCRIPT, /systemctl is-active --quiet systemd-resolved/);
+  });
+
+  it("guard script: teardown removes both blackhole routes idempotently and flushes the table", () => {
+    assert.match(
+      TUN_GUARD_SCRIPT,
+      /ip route del blackhole default metric 100 table "\$table" 2>\/dev\/null \|\| true/,
+    );
+    assert.match(
+      TUN_GUARD_SCRIPT,
+      /ip -6 route del blackhole default metric 100 table "\$table" 2>\/dev\/null \|\| true/,
+    );
+    assert.match(TUN_GUARD_SCRIPT, /ip route flush table "\$table" 2>\/dev\/null \|\| true/);
+    assert.match(TUN_GUARD_SCRIPT, /ip -6 route flush table "\$table" 2>\/dev\/null \|\| true/);
+  });
+
+  it("guard script: copies only kernel-connected subnets into the table", () => {
+    assert.match(TUN_GUARD_SCRIPT, /ip route show proto kernel scope link/);
+    assert.match(TUN_GUARD_SCRIPT, /ip -6 route show proto kernel/);
+    assert.match(TUN_GUARD_SCRIPT, /ip route add "\$prefix" dev "\$devname" table "\$table"/);
+    assert.match(TUN_GUARD_SCRIPT, /ip -6 route add "\$prefix" dev "\$devname" table "\$table"/);
+    const blackhole = TUN_GUARD_SCRIPT.indexOf("ip route replace blackhole");
+    const copy = TUN_GUARD_SCRIPT.indexOf("copy_connected_routes v4");
+    assert.ok(blackhole > 0 && copy > blackhole, "connected routes copy after the blackhole");
+    assert.match(TUN_GUARD_SCRIPT, /fe\[89ab\]\[0-9a-f\]:\*/);
+  });
+
+  it("revoke removes the sudoers rule, the guard script, the lock and the table routes", () => {
+    assert.match(REVOKE_SCRIPT, /rm -f \/etc\/sudoers\.d\/sash-tun-guard/);
+    assert.match(REVOKE_SCRIPT, /rm -f \/usr\/local\/libexec\/sash-tun-guard/);
+    assert.match(REVOKE_SCRIPT, /rm -f \/run\/sash-tun-guard\.lock/);
+    assert.match(REVOKE_SCRIPT, /ip route del blackhole default metric 100 table 2022/);
+    assert.match(REVOKE_SCRIPT, /ip -6 route del blackhole default metric 100 table 2022/);
+    assert.match(REVOKE_SCRIPT, /ip route flush table 2022/);
+    assert.match(REVOKE_SCRIPT, /ip -6 route flush table 2022/);
+    assert.match(REVOKE_SCRIPT, /resolvectl revert Meta/);
+  });
+
+  it("keeps the fixed table number mihomo uses", () => {
+    assert.match(TUN_GUARD_SCRIPT, /table=2022/);
+    assert.match(REVOKE_SCRIPT, /table 2022/);
+  });
+
+  it("uses no template-literal interpolation artifacts", () => {
+    for (const script of [GRANT_SCRIPT, REVOKE_SCRIPT, TUN_GUARD_SCRIPT]) {
+      assert.equal(script.includes("undefined"), false);
+      assert.equal(script.includes("\r"), false);
+    }
+  });
+});
+
+describe.skipIf(process.platform !== "linux")("TUN guard shell behavior", () => {
+  const sh = "/bin/sh";
+
+  function writeRig(root: string): void {
+    fs.mkdirSync(path.join(root, "bin"), { recursive: true });
+    fs.mkdirSync(path.join(root, "state"), { recursive: true });
+    fs.mkdirSync(path.join(root, "run"), { recursive: true });
+    const stub = (name: string, body: string) => {
+      fs.writeFileSync(path.join(root, "bin", name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    };
+    stub(
+      "ip",
+      `echo "ip $*" >> "$RIG/log"
+case "$1 $2" in
+  "link show") [ -f "$RIG/state/link-up" ] && exit 0 || exit 1 ;;
+  "route del") exit 1 ;;
+  "route show") cat "$RIG/state/v4routes" 2>/dev/null ;;
+  "-6 route") [ "$3" = "show" ] && cat "$RIG/state/v6routes" 2>/dev/null ;;
+esac
+exit 0`,
+    );
+    stub("flock", 'echo "flock $*" >> "$RIG/log"\nexit 0');
+    stub("systemctl", '[ -f "$RIG/state/resolved-active" ] && exit 0 || exit 3');
+  }
+
+  function guardUnderTest(root: string): string {
+    const script = path.join(root, "guard.sh");
+    fs.writeFileSync(
+      script,
+      TUN_GUARD_SCRIPT.replace("/run/sash-tun-guard.lock", path.join(root, "run", "lock")).replace(
+        "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+        ": test rigs intercept through the inherited PATH",
+      ),
+    );
+    return script;
+  }
+
+  async function runGuard(
+    root: string,
+    args: string[],
+  ): Promise<{ code: number | null; stderr: string }> {
+    const { execFile } = await import("node:child_process");
+    return new Promise((resolve) => {
+      execFile(
+        sh,
+        [guardUnderTest(root), ...args],
+        {
+          env: { PATH: `${path.join(root, "bin")}:${process.env.PATH ?? ""}`, RIG: root },
+          timeout: 30_000,
+        },
+        (error, _stdout, stderr) => {
+          resolve({ code: error ? ((error as { code?: number }).code ?? 1) : 0, stderr });
+        },
+      );
+    });
+  }
+
+  function rig() {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-guard-rig-"));
+    onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
+    writeRig(root);
+    return root;
+  }
+
+  function log(root: string): string {
+    try {
+      return fs.readFileSync(path.join(root, "log"), "utf8");
+    } catch {
+      return "";
+    }
+  }
+
+  it("installs blackhole routes before touching resolved", async () => {
+    const root = rig();
+    fs.writeFileSync(
+      path.join(root, "bin", "resolvectl"),
+      '#!/bin/sh\necho "resolvectl $*" >> "$RIG/log"\nif [ "$1" = "status" ]; then echo "DNS Servers: 198.18.0.2"; echo "DNS Domain: ~."; fi\nexit 0\n',
+      { mode: 0o755 },
+    );
+    for (const marker of ["link-up", "resolved-active"]) {
+      fs.writeFileSync(path.join(root, "state", marker), "");
+    }
+    const result = await runGuard(root, ["setup", "Meta"]);
+    assert.equal(result.code, 0, result.stderr);
+    const lines = log(root).split("\n");
+    const blackhole = lines.findIndex((line) => line.includes("route replace blackhole"));
+    const link = lines.findIndex((line) => line.includes("link show"));
+    const dns = lines.findIndex((line) => line.includes("resolvectl dns"));
+    assert.ok(blackhole > 0 && blackhole < link && link < dns, log(root));
+  });
+
+  it("rejects an invalid device before any work", async () => {
+    const root = rig();
+    const result = await runGuard(root, ["setup", "bad;name"]);
+    assert.equal(result.code, 2);
+    assert.equal(log(root), "");
+  });
+
+  it("teardown removes routes, flushes the table and tolerates their absence", async () => {
+    const root = rig();
+    const first = await runGuard(root, ["teardown"]);
+    const second = await runGuard(root, ["teardown"]);
+    assert.equal(first.code, 0);
+    assert.equal(second.code, 0);
+    assert.match(log(root), /route del blackhole default metric 100/);
+    assert.match(log(root), /ip route flush table 2022/);
+    assert.match(log(root), /ip -6 route flush table 2022/);
+  });
+
+  it("copies connected subnets after the blackhole, skipping link-local, unreachable and multipath", async () => {
+    const root = rig();
+    fs.writeFileSync(path.join(root, "state", "link-up"), "");
+    fs.writeFileSync(
+      path.join(root, "state", "v4routes"),
+      "192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.5\n172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "state", "v6routes"),
+      "::1 dev lo proto kernel metric 256 pref medium\nfe80::/64 dev eth0 proto kernel metric 256 pref medium\n2001:db8:1::/64 dev eth0 proto kernel metric 256 pref medium\nunreachable 2001:db8:dead::/64 dev lo proto kernel metric 256 error -113 pref medium\n2001:db8:2::/64 proto kernel metric 256\n\tnexthop dev eth0 weight 1\n\tnexthop dev eth1 weight 1\n2001:db8:3::/64 dev eth0 proto kernel metric 256 expires 300sec pref medium\n",
+    );
+    const result = await runGuard(root, ["setup", "Meta"]);
+    assert.equal(result.code, 0, result.stderr);
+    const logged = log(root);
+    assert.match(logged, /route add 192\.168\.1\.0\/24 dev eth0 table 2022/);
+    assert.match(logged, /route add 172\.17\.0\.0\/16 dev docker0 table 2022/);
+    assert.match(logged, /-6 route add 2001:db8:1::\/64 dev eth0 table 2022/);
+    assert.equal(logged.includes("fe80"), false);
+    assert.equal(logged.includes("2001:db8:dead"), false);
+    assert.equal(logged.includes("2001:db8:2"), false);
+    assert.equal(logged.includes("2001:db8:3"), false);
+    const lines = logged.split("\n");
+    const blackhole = lines.findIndex((line) => line.includes("route replace blackhole"));
+    const copied = lines.findIndex((line) => line.includes("route add 192.168.1.0/24"));
+    assert.ok(blackhole > 0 && copied > blackhole, logged);
+  });
+
+  it("exits nonzero when the interface never appears but keeps the blackhole", async () => {
+    const root = rig();
+    fs.writeFileSync(path.join(root, "state", "resolved-active"), "");
+    const script = guardUnderTest(root);
+    fs.writeFileSync(script, fs.readFileSync(script, "utf8").replace("-lt 50", "-lt 3"));
+    const result = await runGuard(root, ["setup", "Meta"]);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /did not appear/);
+    assert.match(log(root), /route replace blackhole/);
+  });
+
+  it("skips resolved configuration when systemd-resolved is inactive", async () => {
+    const root = rig();
+    fs.writeFileSync(path.join(root, "state", "link-up"), "");
+    const result = await runGuard(root, ["setup", "Meta"]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(log(root).includes("resolvectl dns"), false);
+    assert.match(log(root), /route replace blackhole/);
   });
 });
 

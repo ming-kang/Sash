@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, it } from "vitest";
+import { afterAll, beforeAll, describe, it } from "vitest";
 import YAML from "yaml";
 import { type DaemonStatus, type TunHelperStatus, tunApplyState } from "./contracts.js";
 import { readInstallRecord } from "./core.js";
@@ -10,8 +10,33 @@ import { useDaemonTestHarness } from "./testing/daemon-harness.js";
 import { FakeCoreSupervisor } from "./testing/state.js";
 import { type TunPlatform, unsupportedTunPlatform } from "./tun-service.js";
 
+/**
+ * The daemon reads the transport proxy from this process environment, and the
+ * developer machine may export HTTP_PROXY of its own. Pin it empty for the
+ * whole file so helper invocations carry no proxyUri unless a test sets one.
+ */
+const PROXY_ENV_KEYS = [
+  "HTTP_PROXY",
+  "http_proxy",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+];
+
 describe("daemon TUN controls", () => {
   const harness = useDaemonTestHarness();
+  let savedProxyEnv: Array<[string, string | undefined]>;
+  beforeAll(() => {
+    savedProxyEnv = PROXY_ENV_KEYS.map((key) => [key, process.env[key]]);
+    for (const key of PROXY_ENV_KEYS) delete process.env[key];
+  });
+  afterAll(() => {
+    for (const [key, value] of savedProxyEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
 
   async function tunState() {
     return tunApplyState((await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus);

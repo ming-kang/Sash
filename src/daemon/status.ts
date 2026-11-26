@@ -91,5 +91,15 @@ export async function readDaemonStatus(
       ? { id: activeProfile.id, name: activeProfile.name, url: activeProfile.url }
       : null,
   };
+  const tunGuard = ctx.lifecycle.tunGuard;
+  if (tunGuard?.supported) {
+    const last = tunGuard.lastResult();
+    status.tunGuard = {
+      supported: true,
+      lastReconcile: last
+        ? { state: last.state, verb: last.verb, detail: last.detail, at: last.at }
+        : null,
+    };
+  }
   return status;
 }
