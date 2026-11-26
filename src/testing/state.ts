@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { SashStateStore } from "../app-state.js";
-import type { DaemonStatus, ProfileMeta } from "../contracts.js";
+import { type DaemonStatus, type ProfileMeta, tunApplyStateFor } from "../contracts.js";
 import { currentCoreVersion } from "../core.js";
 import { createCoreRunner } from "../core-runner.js";
 import { mihomoEngine } from "../engine/index.js";
@@ -94,6 +94,7 @@ export function testStatus(): DaemonStatus {
         allowLan: settings.allowLan,
         tun: settings.tun,
       },
+      tunApply: tunApplyStateFor(settings.tun, settings.tun),
     },
     systemProxy: {
       desired: false,

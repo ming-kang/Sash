@@ -10,7 +10,11 @@ import type { ProfileMeta, ProfilesIndex } from "./profiles.js";
 import type { PublicSashSettings } from "./settings.js";
 import type { CoreState } from "./supervisor.js";
 import type { SystemProxyState } from "./sysproxy/types.js";
-import type { TunSettings, TunSettingsPatch } from "./tun-settings.js";
+import {
+  sameEffectiveTunSettings,
+  type TunSettings,
+  type TunSettingsPatch,
+} from "./tun-settings.js";
 
 export type { ProfileMeta, ProfilesIndex };
 
@@ -131,8 +135,23 @@ export type TunHelperStatus =
 export interface TunApplyState {
   desired: boolean;
   applied: boolean;
-  /** The saved TUN settings differ from what a running Core uses, or no Core runs them yet. */
   pending: boolean;
+}
+
+/**
+ * Whether the saved TUN settings still await an Apply: they differ from what a
+ * running Core applied, or nothing has applied them while TUN is saved on.
+ */
+export function tunPending(saved: TunSettings, applied?: TunSettings): boolean {
+  return applied ? !sameEffectiveTunSettings(applied, saved) : saved.enable;
+}
+
+export function tunApplyStateFor(saved: TunSettings, applied?: TunSettings): TunApplyState {
+  return {
+    desired: saved.enable,
+    applied: applied?.enable ?? false,
+    pending: tunPending(saved, applied),
+  };
 }
 
 export interface TunGuardReconcileState {
@@ -166,6 +185,7 @@ export interface DaemonStatus {
     applyMethod: CoreApplyMethod;
     appliedProfile: { id: string; revision: number; name: string; url: string } | null;
     appliedSettings: { mixedPort: number; allowLan: boolean; tun: TunSettings } | null;
+    tunApply: TunApplyState;
   };
   systemProxy: {
     desired: boolean;
@@ -181,14 +201,7 @@ export interface DaemonStatus {
 }
 
 export function tunApplyState(status: DaemonStatus): TunApplyState {
-  const desired = status.settings.tun.enable;
-  const applied =
-    status.core.running && (status.configuration.appliedSettings?.tun.enable ?? false);
-  return {
-    desired,
-    applied,
-    pending: status.configuration.pendingChanges.tun || desired !== applied,
-  };
+  return { ...status.configuration.tunApply };
 }
 
 export function apiErrorBody(

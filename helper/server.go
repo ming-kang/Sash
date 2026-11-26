@@ -39,53 +39,83 @@ type response struct {
 	Error    string     `json:"error,omitempty"`
 }
 
-type controller interface {
-	start(startOptions) error
-	stop() error
-	unguard() error
-	status() (bool, int)
-	guardState() guardState
+type operationKind int
+
+const (
+	opStatus operationKind = iota
+	opStart
+	opStop
+	opUnguard
+)
+
+type operation struct {
+	kind  operationKind
+	start startOptions
 }
 
-// open prepares the Core host, the kill switch engine and the control pipe.
-// The pipe admits only LocalSystem, Administrators and the installing
-// account; remote clients are always rejected.
-func open(cfg config) (*guardedCore, net.Listener, error) {
+type operationResult struct {
+	err error
+}
+
+type statusSnapshot struct {
+	running bool
+	pid     int
+	guard   guardState
+}
+
+type controller interface {
+	apply(operation) operationResult
+	snapshot() statusSnapshot
+}
+
+type helper struct {
+	cfg      config
+	core     *guardedCore
+	listener net.Listener
+}
+
+// openHelper prepares the Core host, the kill switch engine and the control
+// pipe for one helper lifetime. The pipe admits only LocalSystem,
+// Administrators and the installing account; remote clients are always
+// rejected.
+func openHelper(cfg config) (*helper, error) {
 	engine, engineErr := openWfpEngine()
-	core, listener, err := openWithEngine(cfg, engine, engineErr)
+	h, err := openHelperWithEngine(cfg, engine, engineErr)
 	if err != nil && engine != nil {
 		engine.close()
 	}
-	return core, listener, err
+	return h, err
 }
 
-func openWithEngine(cfg config, engine filterEngine, engineErr error) (*guardedCore, net.Listener, error) {
+func openHelperWithEngine(cfg config, engine filterEngine, engineErr error) (*helper, error) {
 	host, err := newCoreHost(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	core := newGuardedCore(host, newTunGuard(engine, engineErr))
+	if err := core.convergeStaleGuard(); err != nil {
+		reportIssue(cfg.stderr, fmt.Errorf("startup kill switch cleanup: %w", err))
+	}
+	listener, err := listenHelper(cfg)
+	if err != nil {
+		core.close()
+		return nil, err
+	}
+	return &helper{cfg: cfg, core: core, listener: listener}, nil
+}
+
+func listenHelper(cfg config) (net.Listener, error) {
 	sddl := fmt.Sprintf("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;%s)", cfg.user)
 	listener, err := winio.ListenPipe(cfg.pipe, &winio.PipeConfig{SecurityDescriptor: sddl})
 	if err != nil {
-		core.close()
-		return nil, nil, fmt.Errorf("listen on %s: %w", cfg.pipe, err)
+		return nil, fmt.Errorf("listen on %s: %w", cfg.pipe, err)
 	}
-	return core, listener, nil
+	return listener, nil
 }
 
-// convergeStartup removes kill switch objects a previous helper life left
-// behind: no Core can be running when the service starts, so a leftover
-// guard would only block the machine without protecting a Core.
-func convergeStartup(core *guardedCore, logPath string) {
-	if err := core.guard.uninstall(); err != nil {
-		reportIssue(logPath, fmt.Errorf("startup kill switch cleanup: %w", err))
-	}
-}
-
-func serve(listener net.Listener, core controller, home string) {
+func (h *helper) serve() {
 	for {
-		conn, err := listener.Accept()
+		conn, err := h.listener.Accept()
 		if errors.Is(err, winio.ErrPipeListenerClosed) || errors.Is(err, net.ErrClosed) {
 			return
 		}
@@ -93,48 +123,74 @@ func serve(listener net.Listener, core controller, home string) {
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		go handle(conn, core, home)
+		go h.handle(conn)
 	}
 }
 
 // handle answers exactly one request line per connection.
-func handle(conn net.Conn, core controller, home string) {
+func (h *helper) handle(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(stopTimeout + 20*time.Second))
 	line, err := bufio.NewReader(io.LimitReader(conn, 4096)).ReadBytes('\n')
 	res := response{Error: "expected one request line"}
 	if err == nil {
-		res = dispatch(core, line)
+		res = dispatch(h.core, line)
 	}
 	res.Protocol = protocolVersion
-	res.Home = home
+	res.Home = h.cfg.home
 	_ = json.NewEncoder(conn).Encode(res)
 }
 
-func dispatch(core controller, line []byte) response {
+func (h *helper) shutdown() error {
+	_ = h.listener.Close()
+	return h.core.shutdown()
+}
+
+func (h *helper) close() {
+	_ = h.listener.Close()
+	h.core.close()
+}
+
+func parseOperation(line []byte) (operation, error) {
 	var req request
 	if err := json.Unmarshal(line, &req); err != nil {
-		return response{Error: "invalid request"}
+		return operation{}, errors.New("invalid request")
 	}
-	var err error
 	switch req.Op {
 	case "status":
+		return operation{kind: opStatus}, nil
 	case "start":
 		if req.Device != "" && !devicePattern.MatchString(req.Device) {
-			return response{Error: fmt.Sprintf("invalid device name %q", req.Device)}
+			return operation{}, fmt.Errorf("invalid device name %q", req.Device)
 		}
-		err = core.start(startOptions{guard: req.Guard, device: req.Device})
+		return operation{kind: opStart, start: startOptions{guard: req.Guard, device: req.Device}}, nil
 	case "stop":
-		err = core.stop()
+		return operation{kind: opStop}, nil
 	case "unguard":
-		err = core.unguard()
+		return operation{kind: opUnguard}, nil
 	default:
-		return response{Error: fmt.Sprintf("unknown op %q", req.Op)}
+		return operation{}, fmt.Errorf("unknown op %q", req.Op)
 	}
-	running, pid := core.status()
-	res := response{OK: err == nil, Running: running, PID: pid, Guard: core.guardState()}
+}
+
+func dispatch(core controller, line []byte) response {
+	op, err := parseOperation(line)
 	if err != nil {
-		res.Error = err.Error()
+		return response{Error: err.Error()}
+	}
+	result := core.apply(op)
+	return result.withState(core.snapshot())
+}
+
+func (r operationResult) withState(state statusSnapshot) response {
+	res := response{
+		OK:      r.err == nil,
+		Running: state.running,
+		PID:     state.pid,
+		Guard:   state.guard,
+	}
+	if r.err != nil {
+		res.Error = r.err.Error()
 	}
 	return res
 }

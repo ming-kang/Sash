@@ -17,14 +17,30 @@ export interface TunGuardReconcileResult {
   at: string;
 }
 
+export interface TunGuardObservation {
+  supported: boolean;
+  active: boolean;
+  device?: string;
+  interfaceIndex?: number;
+  detail: string | null;
+}
+
 /**
  * The lifecycle only ever converges the guard; callers may fire-and-forget
- * the promise or await it — it never rejects.
+ * the promise or await it — it never rejects. A convergence resolves with the
+ * invocation that actually ran, which may carry a verb requested after this
+ * call because queued calls coalesce to the latest desired state.
  */
 export interface TunGuardLike {
   readonly supported: boolean;
-  reconcile(desired: TunGuardVerb, options?: { device?: string }): Promise<void>;
+  converge(
+    desired: TunGuardVerb,
+    options?: { device?: string },
+  ): Promise<TunGuardReconcileResult | undefined>;
+  /** Cached convergence result for polling status; performs no I/O. */
   lastResult(): TunGuardReconcileResult | undefined;
+  /** Fresh guard observation for interactive checks; performs I/O when supported. */
+  readFreshStatus?(): Promise<TunGuardObservation>;
 }
 
 export type TunGuardRunner = (
@@ -61,7 +77,7 @@ const TEARDOWN_TIMEOUT_MS = 40_000;
 interface QueuedReconcile {
   verb: TunGuardVerb;
   device: string | undefined;
-  waiters: Array<() => void>;
+  waiters: Array<(result: TunGuardReconcileResult | undefined) => void>;
 }
 
 /**
@@ -102,10 +118,13 @@ export class TunGuard implements TunGuardLike {
     return this.result;
   }
 
-  reconcile(desired: TunGuardVerb, options: { device?: string } = {}): Promise<void> {
-    if (!this.supported) return Promise.resolve();
+  converge(
+    desired: TunGuardVerb,
+    options: { device?: string } = {},
+  ): Promise<TunGuardReconcileResult | undefined> {
+    if (!this.supported) return Promise.resolve(undefined);
     const device = this.effectiveDevice(options.device);
-    return new Promise<void>((resolve) => {
+    return new Promise<TunGuardReconcileResult | undefined>((resolve) => {
       if (this.queued) {
         this.queued.verb = desired;
         this.queued.device = device;
@@ -127,17 +146,18 @@ export class TunGuard implements TunGuardLike {
       const job = this.queued;
       if (!job) {
         // Clear synchronously with the empty-queue check: a waiter continuation
-        // can enqueue the next reconcile before a .finally callback would run.
+        // can enqueue the next convergence before a .finally callback would run.
         this.draining = undefined;
         return;
       }
       this.queued = undefined;
+      let result: TunGuardReconcileResult | undefined;
       try {
-        await this.invoke(job.verb, job.device);
+        result = await this.invoke(job.verb, job.device);
       } catch {
-        // invoke swallows reconcile failures; this guards programming errors.
+        // invoke swallows convergence failures; this guards programming errors.
       }
-      for (const resolve of job.waiters) resolve();
+      for (const resolve of job.waiters) resolve(result);
     }
   }
 
@@ -148,23 +168,24 @@ export class TunGuard implements TunGuardLike {
     return ["setup", device];
   }
 
-  private async invoke(verb: TunGuardVerb, device: string | undefined): Promise<void> {
+  private async invoke(
+    verb: TunGuardVerb,
+    device: string | undefined,
+  ): Promise<TunGuardReconcileResult | undefined> {
     const guardArgs = this.guardArgs(verb, device);
     if (!guardArgs) {
-      this.record({
+      return this.record({
         state: "failed",
         verb,
         detail: `refusing invalid TUN device name ${JSON.stringify(device)}`,
       });
-      return;
     }
     const probe = await this.probe();
     if (!probe.available) {
       // Nothing was ever installed, so nothing needs undoing: a teardown for a
       // missing script is already converged, not a failure worth logging.
-      if (verb === "teardown" && probe.reason === "no-script") return;
-      this.record({ state: "unavailable", verb, detail: probe.detail });
-      return;
+      if (verb === "teardown" && probe.reason === "no-script") return undefined;
+      return this.record({ state: "unavailable", verb, detail: probe.detail });
     }
     const timeoutMs = verb === "setup" ? SETUP_TIMEOUT_MS : TEARDOWN_TIMEOUT_MS;
     try {
@@ -173,14 +194,13 @@ export class TunGuard implements TunGuardLike {
       } else {
         const sudo = this.resolveSudo();
         if (!sudo) {
-          this.record({ state: "unavailable", verb, detail: "sudo is not installed" });
-          return;
+          return this.record({ state: "unavailable", verb, detail: "sudo is not installed" });
         }
         await this.run(sudo, ["-n", this.scriptPath, ...guardArgs], { timeoutMs });
       }
-      this.record({ state: "ok", verb, detail: null });
+      return this.record({ state: "ok", verb, detail: null });
     } catch (error) {
-      this.record({ state: "failed", verb, detail: errorMessage(error) });
+      return this.record({ state: "failed", verb, detail: errorMessage(error) });
     }
   }
 
@@ -223,25 +243,27 @@ export class TunGuard implements TunGuardLike {
     return outcome;
   }
 
-  private record(result: Omit<TunGuardReconcileResult, "at">): void {
-    this.result = { ...result, at: new Date().toISOString() };
-    if (result.state === "ok") {
+  private record(result: Omit<TunGuardReconcileResult, "at">): TunGuardReconcileResult {
+    const recorded = { ...result, at: new Date().toISOString() };
+    this.result = recorded;
+    if (recorded.state === "ok") {
       this.lastWarnKey = undefined;
-      return;
+      return recorded;
     }
-    const key = `${result.state}:${result.verb}:${result.detail ?? ""}`;
-    if (key === this.lastWarnKey) return;
+    const key = `${recorded.state}:${recorded.verb}:${recorded.detail ?? ""}`;
+    if (key === this.lastWarnKey) return recorded;
     this.lastWarnKey = key;
     console.warn(
-      `[sashd] TUN guard ${result.verb} ${result.state}: ${result.detail ?? "unknown error"}`,
+      `[sashd] TUN guard ${recorded.verb} ${recorded.state}: ${recorded.detail ?? "unknown error"}`,
     );
+    return recorded;
   }
 }
 
 export function noopTunGuard(): TunGuardLike {
   return {
     supported: false,
-    reconcile: async () => {},
+    converge: async () => undefined,
     lastResult: () => undefined,
   };
 }

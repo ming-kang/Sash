@@ -112,29 +112,37 @@ type fakeController struct {
 	fail      error
 	started   []startOptions
 	unguarded int
+	sequence  []string
 }
 
-func (f *fakeController) start(options startOptions) error {
-	f.started = append(f.started, options)
-	if f.fail != nil {
-		return f.fail
+func (f *fakeController) apply(op operation) operationResult {
+	f.sequence = append(f.sequence, "apply")
+	switch op.kind {
+	case opStart:
+		f.started = append(f.started, op.start)
+		if f.fail != nil {
+			return operationResult{err: f.fail}
+		}
+		f.running = true
+	case opStop:
+		f.running = false
+	case opUnguard:
+		f.unguarded++
 	}
-	f.running = true
-	return nil
+	return operationResult{}
 }
-func (f *fakeController) stop() error { f.running = false; return nil }
-func (f *fakeController) unguard() error {
-	f.unguarded++
-	return nil
-}
-func (f *fakeController) status() (bool, int) {
+
+func (f *fakeController) snapshot() statusSnapshot {
+	f.sequence = append(f.sequence, "snapshot")
+	running, pid := false, 0
 	if f.running {
-		return true, 42
+		running, pid = true, 42
 	}
-	return false, 0
-}
-func (f *fakeController) guardState() guardState {
-	return guardState{Active: true, Device: "Meta", InterfaceIndex: 7}
+	return statusSnapshot{
+		running: running,
+		pid:     pid,
+		guard:   guardState{Active: true, Device: "Meta", InterfaceIndex: 7},
+	}
 }
 
 func TestDispatch(t *testing.T) {
@@ -173,6 +181,23 @@ func TestDispatch(t *testing.T) {
 	for _, line := range []string{`{"op":"exec"}`, `not json`} {
 		if res := dispatch(core, []byte(line)); res.OK || res.Error == "" {
 			t.Fatalf("%s: %+v", line, res)
+		}
+	}
+}
+
+func TestDispatchReadsStateAfterOperation(t *testing.T) {
+	core := &fakeController{}
+	dispatch(core, []byte(`{"op":"start"}`))
+	dispatch(core, []byte(`{"op":"stop"}`))
+	want := []string{"apply", "snapshot", "apply", "snapshot"}
+	if strings.Join(core.sequence, ",") != strings.Join(want, ",") {
+		t.Fatalf("operation/state order %v, want %v", core.sequence, want)
+	}
+	for _, line := range []string{`{"op":"start","device":"bad device!"}`, `{"op":"exec"}`, `not json`} {
+		core.sequence = nil
+		dispatch(core, []byte(line))
+		if len(core.sequence) != 0 {
+			t.Fatalf("%s read state without a valid operation: %v", line, core.sequence)
 		}
 	}
 }
@@ -236,15 +261,34 @@ func TestCoreHostRejectsMissingCoreAndLinkedLogs(t *testing.T) {
 	}
 }
 
-func TestPipeRoundTrip(t *testing.T) {
+func TestHelperStartupConvergesStaleGuard(t *testing.T) {
 	cfg := testConfig(t)
-	host, listener, err := openWithEngine(cfg, newFakeEngine(), nil)
+	engine := newFakeEngine()
+	if err := installGuardPlan(engine, buildGuardPlan([]byte("stale"), 1)); err != nil {
+		t.Fatal(err)
+	}
+	helper, err := openHelperWithEngine(cfg, engine, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer host.close()
-	defer listener.Close()
-	go serve(listener, host, cfg.home)
+	defer helper.close()
+	state := helper.core.snapshot()
+	if state.running || state.guard.Active {
+		t.Fatalf("startup state %+v", state)
+	}
+	if _, count := engine.snapshot(); count != 0 {
+		t.Fatalf("%d stale filters remain after helper startup", count)
+	}
+}
+
+func TestPipeRoundTrip(t *testing.T) {
+	cfg := testConfig(t)
+	helper, err := openHelperWithEngine(cfg, newFakeEngine(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer helper.close()
+	go helper.serve()
 
 	callLine := func(line string) response {
 		t.Helper()

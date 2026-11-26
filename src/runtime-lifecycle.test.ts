@@ -3,7 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, it } from "vitest";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import YAML from "yaml";
 import { mihomoEngine } from "./engine/index.js";
 import { errorPresentation, withErrorPresentation } from "./error-utils.js";
@@ -11,6 +11,7 @@ import { RequestDeadlineError } from "./http.js";
 import { sashLayout } from "./paths.js";
 import {
   CoreStartError,
+  coreSessionRestoreDecision,
   RuntimeLifecycle,
   restartRequiringSettingsChanged,
   runtimeDelta,
@@ -53,6 +54,49 @@ describe("verification configuration", () => {
     assert.equal(base.settings.tun.enable, true);
     assert.equal(YAML.parse(base.generated.yaml).tun.enable, true);
     assert.equal(YAML.parse(base.generated.yaml).tun.stack, "system");
+  });
+});
+
+describe("core session restore decision", () => {
+  const saved = testSettings();
+  const configuration = (tun = saved.tun) => ({
+    generated: { yaml: "rules: []\n", proxyCount: 0, source: "default" as const },
+    settings: { ...saved, tun },
+    profile: null,
+  });
+
+  it("restores a non-TUN session regardless of saved TUN edits", () => {
+    const expected = configuration();
+    assert.deepEqual(
+      coreSessionRestoreDecision(expected, {
+        ...saved,
+        tun: { ...saved.tun, enable: true, device: "other" },
+      }),
+      { restore: true },
+    );
+  });
+
+  it("restores a TUN session while the saved TUN settings still match", () => {
+    const tun = { ...defaultTunSettings(), enable: true };
+    assert.deepEqual(coreSessionRestoreDecision(configuration(tun), { ...saved, tun }), {
+      restore: true,
+    });
+  });
+
+  it("skips a TUN session when the saved TUN settings changed", () => {
+    const tun = { ...defaultTunSettings(), enable: true };
+    assert.deepEqual(
+      coreSessionRestoreDecision(configuration(tun), {
+        ...saved,
+        tun: { ...tun, device: "other" },
+      }),
+      {
+        restore: false,
+        reason: "tun-settings-changed",
+        detail:
+          "saved TUN settings changed since the Core started; a supervised restart must apply them instead of restoring the previous TUN session",
+      },
+    );
   });
 });
 
@@ -236,7 +280,7 @@ describe("Core and proxy lifecycle", () => {
     assert.equal(f.lifecycle.configuration(), f.configuration);
   });
 
-  it("does not restore TUN after the saved TUN setting changed", async () => {
+  it("explains why it does not restore TUN after the saved TUN setting changed", async () => {
     const f = fixture();
     await f.lifecycle.apply(f.configuration);
     f.core.running = false;
@@ -248,14 +292,47 @@ describe("Core and proxy lifecycle", () => {
         tun: { ...f.configuration.settings.tun, enable: true },
       },
     };
-    await f.lifecycle.restoreCoreSessionWithRetries(
-      expected,
-      (action) => Promise.resolve(action()),
-      () => false,
-      [0, 0],
-    );
+    const outcome = await f.lifecycle.restoreCoreSession(expected);
+    assert.deepEqual(outcome, {
+      status: "skipped",
+      reason: "tun-settings-changed",
+      detail:
+        "saved TUN settings changed since the Core started; a supervised restart must apply them instead of restoring the previous TUN session",
+    });
     assert.equal(f.core.running, false);
     assert.equal(f.core.starts, starts);
+  });
+
+  it("logs a skipped crash recovery when the saved TUN setting changed", async () => {
+    const f = fixture();
+    await f.lifecycle.apply(f.configuration);
+    f.core.running = false;
+    const starts = f.core.starts;
+    const expected = {
+      ...f.configuration,
+      settings: {
+        ...f.configuration.settings,
+        tun: { ...f.configuration.settings.tun, enable: true },
+      },
+    };
+    const warnings: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((message?: unknown) => {
+      warnings.push(String(message));
+    });
+    try {
+      await f.lifecycle.restoreCoreSessionWithRetries(
+        expected,
+        (action) => Promise.resolve(action()),
+        () => false,
+        [0, 0],
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    assert.equal(f.core.running, false);
+    assert.equal(f.core.starts, starts);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? "", /Core recovery skipped: saved TUN settings changed/);
   });
 
   it("retries Core recovery until the process accepts the launch", async () => {
@@ -798,7 +875,7 @@ describe("TUN apply", () => {
   });
 });
 
-describe("TUN guard reconcile", () => {
+describe("TUN guard convergence", () => {
   let root: string;
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "sash-tun-guard-test-"));
@@ -817,9 +894,9 @@ describe("TUN guard reconcile", () => {
     let failWith: Error | undefined;
     const tunGuard = {
       supported: true,
-      reconcile: (verb: "setup" | "teardown", options?: { device?: string }) => {
+      converge: (verb: "setup" | "teardown", options?: { device?: string }) => {
         calls.push({ verb, ...(options?.device ? { device: options.device } : {}) });
-        return failWith ? Promise.reject(failWith) : Promise.resolve();
+        return failWith ? Promise.reject(failWith) : Promise.resolve(undefined);
       },
       lastResult: () => undefined,
     };
@@ -941,7 +1018,7 @@ describe("TUN guard reconcile", () => {
     assert.deepEqual(f.calls, [{ verb: "teardown" }]);
   });
 
-  it("does not fail the start when the guard reconcile rejects", async () => {
+  it("does not fail the start when the guard convergence rejects", async () => {
     const f = fixture();
     f.setFailure(new Error("boom"));
     await f.lifecycle.apply(f.configuration);
@@ -960,7 +1037,7 @@ describe("TUN guard reconcile", () => {
     assert.deepEqual(f.calls, [{ verb: "setup", device: "Meta" }]);
   });
 
-  it("does not reconcile after a hot reload when TUN is disabled", async () => {
+  it("does not converge after a hot reload when TUN is disabled", async () => {
     const f = fixture({ tun: false });
     await f.lifecycle.apply(f.configuration);
     await settle();
@@ -1036,6 +1113,14 @@ describe("runtime delta", () => {
       pending: true,
       restartRequired: false,
       pendingChanges: changes({ runtimeUnknown: true }),
+    });
+  });
+  it("reports enabled saved TUN as pending while nothing has applied it", () => {
+    const tunEnabled = { ...settings, tun: { ...settings.tun, enable: true } };
+    assert.deepEqual(runtimeDelta(undefined, { profile: null, settings: tunEnabled }), {
+      pending: true,
+      restartRequired: false,
+      pendingChanges: changes({ tun: true, runtimeUnknown: true }),
     });
   });
   it("separates a new profile revision from restart-requiring changes", () => {

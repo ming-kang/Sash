@@ -32,7 +32,7 @@ Stopping Core cancels in-flight preparation and pending reloads; shutdown also c
 
 ## TUN Mode
 
-TUN changes only *how Core gets privilege* — the controller, reloads, logs and Apply are identical. [CoreSupervisor](../src/supervisor.ts) drives one [CoreRunner](../src/core-runner.ts): a spawned child, or on Windows a Core started by the TUN service. [TunService](../src/tun-service.ts) reports the helper as `unsupported`, `ready`, `missing`, `stale` or `unknown` — that is all `GET /sash/tun` and the event feed carry; whether TUN is saved, applied or pending is read from status through `tunApplyState` in [contracts.ts](../src/contracts.ts). Apply refuses TUN before stopping a running Core unless it is `ready`.
+TUN changes only *how Core gets privilege* — the controller, reloads, logs and Apply are identical. [CoreSupervisor](../src/supervisor.ts) drives one [CoreRunner](../src/core-runner.ts): a spawned child, or on Windows a Core started by the TUN service. [TunService](../src/tun-service.ts) reports the helper as `unsupported`, `ready`, `missing`, `stale` or `unknown` — that is all `GET /sash/tun` and the event feed carry; whether TUN is saved, applied or pending comes from status through `tunApplyState`, which reads the daemon's `configuration.tunApply` in [contracts.ts](../src/contracts.ts). Apply refuses TUN before stopping a running Core unless it is `ready`.
 
 Each platform acts on the managed `bin/mihomo` itself, so no Core version is pinned:
 
@@ -55,7 +55,7 @@ The listener binds to `127.0.0.1`. [routes.ts](../src/daemon/routes.ts) enumerat
 
 Authorization: health, status and proxy observations are public reads; private profile URLs always need the bearer; everything else accepts either the CLI bearer or browser same-origin evidence (`Origin` equal to the loopback `Host`, or `Sec-Fetch-Site: same-origin` without `Origin`). A presented bearer must be valid. Errors are `{error: {code, message}}` with optional `error.presentation: {message, advice?}` for CLI display; the top-level error `message` remains the raw wire message. Empty success is `204`.
 
-Status projects saved vs. running state through `configuration: {pending, pendingChanges, applyMethod, appliedProfile, appliedSettings}`; `daemon.bootId` identifies the process and `revisions.state`/`revisions.runtime` track saved and binary changes — clients key their refreshes off these. SSE sends full snapshots from one shared observer; slow clients retain only the newest pending snapshot.
+Status projects saved vs. running state through `configuration: {pending, pendingChanges, applyMethod, appliedProfile, appliedSettings, tunApply}`; `daemon.bootId` identifies the process and `revisions.state`/`revisions.runtime` track saved and binary changes — clients key their refreshes off these. SSE sends full snapshots from one shared observer; slow clients retain only the newest pending snapshot.
 
 ## Security boundaries
 

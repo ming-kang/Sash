@@ -590,6 +590,39 @@ func TestGuardedRestartRefreshesObjects(t *testing.T) {
 	}
 }
 
+func TestCoreCrashKeepsGuard(t *testing.T) {
+	core, guard, host := testGuardedCore(newFakeEngine())
+	if err := core.start(startOptions{guard: true, device: "Meta"}); err != nil {
+		t.Fatal(err)
+	}
+	host.running = false
+	if !guard.state().Active {
+		t.Fatal("a Core crash must keep the guard")
+	}
+	_, count := core.guard.engine.(*fakeEngine).snapshot()
+	if count != 16 {
+		t.Fatalf("filters after crash: %d", count)
+	}
+}
+
+func TestNewHelperLifecycleConvergesCrashLeftover(t *testing.T) {
+	core, guard, host := testGuardedCore(newFakeEngine())
+	if err := core.start(startOptions{guard: true, device: "Meta"}); err != nil {
+		t.Fatal(err)
+	}
+	host.running = false
+	if err := core.convergeStaleGuard(); err != nil {
+		t.Fatal(err)
+	}
+	if guard.state().Active {
+		t.Fatal("guard survived into a new helper lifecycle")
+	}
+	_, count := core.guard.engine.(*fakeEngine).snapshot()
+	if count != 0 {
+		t.Fatalf("%d filters left for the next helper lifetime", count)
+	}
+}
+
 func TestUnguardWithoutCoreRemovesObjects(t *testing.T) {
 	core, _, _ := testGuardedCore(newFakeEngine())
 	if err := installGuardPlan(core.guard.engine.(*fakeEngine), buildGuardPlan([]byte("x"), 1)); err != nil {

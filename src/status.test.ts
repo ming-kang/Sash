@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, it } from "vitest";
 import type { AutostartStatus } from "./autostart/contract.js";
 import { withCliErrors } from "./cli-errors.js";
 import { runStatus } from "./commands/status.js";
-import type { DaemonStatus } from "./contracts.js";
+import { type DaemonStatus, tunApplyStateFor } from "./contracts.js";
 import { readSashPackageInfo } from "./package-info.js";
 import { sashLayout } from "./paths.js";
 import { createDaemonClient } from "./sash-client-node.js";
@@ -55,6 +55,7 @@ function statusResponse(
       applyMethod: "reload",
       appliedProfile: null,
       appliedSettings: { mixedPort: 17890, allowLan: false, tun: defaultTunSettings() },
+      tunApply: tunApplyStateFor(defaultTunSettings()),
     },
     core,
     systemProxy: {

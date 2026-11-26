@@ -1,5 +1,10 @@
 import { errorMessage } from "../error-utils.js";
-import type { TunGuardLike, TunGuardReconcileResult, TunGuardVerb } from "../tun-guard.js";
+import type {
+  TunGuardLike,
+  TunGuardObservation,
+  TunGuardReconcileResult,
+  TunGuardVerb,
+} from "../tun-guard.js";
 import type { HostedCore } from "../tun-service.js";
 import {
   HELPER_PROTOCOL,
@@ -7,12 +12,13 @@ import {
   helperGuardUnsupportedWarning,
   requestHelper,
 } from "./helper-pipe.js";
+import { guardFromReply } from "./windows.js";
 
 const PROBE_TIMEOUT_MS = 5_000;
 
 interface QueuedReconcile {
   verb: TunGuardVerb;
-  waiters: Array<() => void>;
+  waiters: Array<(result: TunGuardReconcileResult | undefined) => void>;
 }
 
 export interface WindowsGuardHost extends HostedCore {
@@ -21,7 +27,7 @@ export interface WindowsGuardHost extends HostedCore {
 
 export interface WindowsTunGuardDeps {
   host: WindowsGuardHost;
-  probe?: () => Promise<HelperReply>;
+  readHelperStatus?: () => Promise<HelperReply>;
 }
 
 export class WindowsTunGuard implements TunGuardLike {
@@ -29,7 +35,7 @@ export class WindowsTunGuard implements TunGuardLike {
   readonly supported = true;
 
   private readonly host: WindowsGuardHost;
-  private readonly probe: () => Promise<HelperReply>;
+  private readonly readHelperStatus: () => Promise<HelperReply>;
   private draining: Promise<void> | undefined;
   private queued: QueuedReconcile | undefined;
   private result: TunGuardReconcileResult | undefined;
@@ -37,8 +43,8 @@ export class WindowsTunGuard implements TunGuardLike {
 
   constructor(deps: WindowsTunGuardDeps) {
     this.host = deps.host;
-    this.probe =
-      deps.probe ??
+    this.readHelperStatus =
+      deps.readHelperStatus ??
       deps.host.probeGuard?.bind(deps.host) ??
       (() => requestHelper("status", PROBE_TIMEOUT_MS));
   }
@@ -47,8 +53,15 @@ export class WindowsTunGuard implements TunGuardLike {
     return this.result;
   }
 
-  reconcile(desired: TunGuardVerb): Promise<void> {
-    return new Promise<void>((resolve) => {
+  async readFreshStatus(): Promise<TunGuardObservation> {
+    const reply = await this.readHelperStatus();
+    const detail = this.unsupportedDetail(reply);
+    if (detail) return { supported: false, active: false, detail };
+    return { ...guardFromReply(reply), detail: null };
+  }
+
+  converge(desired: TunGuardVerb): Promise<TunGuardReconcileResult | undefined> {
+    return new Promise<TunGuardReconcileResult | undefined>((resolve) => {
       if (this.queued) {
         this.queued.verb = desired;
         this.queued.waiters.push(resolve);
@@ -67,21 +80,18 @@ export class WindowsTunGuard implements TunGuardLike {
         return;
       }
       this.queued = undefined;
+      let result: TunGuardReconcileResult | undefined;
       try {
-        await this.invoke(job.verb);
+        result = await this.invoke(job.verb);
       } catch {
         // invoke records operational failures; this guards programming errors.
       }
-      for (const resolve of job.waiters) resolve();
+      for (const resolve of job.waiters) resolve(result);
     }
   }
 
-  private async invoke(verb: TunGuardVerb): Promise<void> {
-    if (verb === "setup") {
-      await this.setup();
-      return;
-    }
-    await this.teardown();
+  private async invoke(verb: TunGuardVerb): Promise<TunGuardReconcileResult> {
+    return verb === "setup" ? this.setup() : this.teardown();
   }
 
   private unsupportedDetail(reply: HelperReply): string | null {
@@ -91,20 +101,19 @@ export class WindowsTunGuard implements TunGuardLike {
     return null;
   }
 
-  private async setup(): Promise<void> {
+  private async setup(): Promise<TunGuardReconcileResult> {
     try {
-      const reply = await this.probe();
+      const reply = await this.readHelperStatus();
       const unsupported = this.unsupportedDetail(reply);
       if (unsupported) {
-        this.record({ state: "unavailable", verb: "setup", detail: unsupported });
-        return;
+        return this.record({ state: "unavailable", verb: "setup", detail: unsupported });
       }
-      this.record({ state: "ok", verb: "setup", detail: null });
+      return this.record({ state: "ok", verb: "setup", detail: null });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       const missing =
         code === "ENOENT" || code === "ECONNREFUSED" || code === "EACCES" || code === "EPERM";
-      this.record({
+      return this.record({
         state: missing ? "unavailable" : "failed",
         verb: "setup",
         detail: missing
@@ -114,15 +123,15 @@ export class WindowsTunGuard implements TunGuardLike {
     }
   }
 
-  private async teardown(): Promise<void> {
+  private async teardown(): Promise<TunGuardReconcileResult> {
     try {
       await this.host.unguard();
-      this.record({ state: "ok", verb: "teardown", detail: null });
+      return this.record({ state: "ok", verb: "teardown", detail: null });
     } catch (error) {
       let state: TunGuardReconcileResult["state"] = "failed";
       let detail = errorMessage(error);
       try {
-        const unsupported = this.unsupportedDetail(await this.probe());
+        const unsupported = this.unsupportedDetail(await this.readHelperStatus());
         if (unsupported) {
           state = "unavailable";
           detail = unsupported;
@@ -130,22 +139,24 @@ export class WindowsTunGuard implements TunGuardLike {
       } catch {
         // The original unguard error is the actionable failure.
       }
-      this.record({ state, verb: "teardown", detail });
+      return this.record({ state, verb: "teardown", detail });
     }
   }
 
-  private record(result: Omit<TunGuardReconcileResult, "at">): void {
-    this.result = { ...result, at: new Date().toISOString() };
-    if (result.state === "ok") {
+  private record(result: Omit<TunGuardReconcileResult, "at">): TunGuardReconcileResult {
+    const recorded = { ...result, at: new Date().toISOString() };
+    this.result = recorded;
+    if (recorded.state === "ok") {
       this.lastWarnKey = undefined;
-      return;
+      return recorded;
     }
-    const key = `${result.state}:${result.verb}:${result.detail ?? ""}`;
-    if (key === this.lastWarnKey) return;
+    const key = `${recorded.state}:${recorded.verb}:${recorded.detail ?? ""}`;
+    if (key === this.lastWarnKey) return recorded;
     this.lastWarnKey = key;
     console.warn(
-      `[sashd] TUN guard ${result.verb} ${result.state}: ${result.detail ?? "unknown error"}`,
+      `[sashd] TUN guard ${recorded.verb} ${recorded.state}: ${recorded.detail ?? "unknown error"}`,
     );
+    return recorded;
   }
 }
 

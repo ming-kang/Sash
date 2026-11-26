@@ -188,7 +188,7 @@ describe("Windows helper state", () => {
     }).host?.(layout);
     assert.ok(host);
     const guard = windowsTunGuard(host);
-    await guard.reconcile("setup");
+    await guard.converge("setup");
     assert.deepEqual(calls, ["status"]);
     assert.equal(guard.lastResult()?.state, "ok");
   });

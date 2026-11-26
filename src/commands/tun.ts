@@ -6,6 +6,7 @@ import {
   type TunApplyState,
   type TunHelperStatus,
   tunApplyState,
+  tunApplyStateFor,
 } from "../contracts.js";
 import { ensureDaemonSession, resolveDaemonSession } from "../daemon-session.js";
 import { log } from "../log.js";
@@ -81,11 +82,8 @@ export async function runTun(
         const owner = await resolveDaemonSession(context);
         if (owner.kind === "daemon") return daemonReport(owner.client);
         if (owner.kind === "unhealthy") process.exitCode = 2;
-        const desired = context.settings.tun.enable;
         return {
-          desired,
-          applied: false,
-          pending: desired,
+          ...tunApplyStateFor(context.settings.tun),
           helper: await new TunService(createTunPlatform(), context.layout).helperStatus({
             fresh: true,
           }),

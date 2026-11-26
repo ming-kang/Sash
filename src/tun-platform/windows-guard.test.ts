@@ -12,10 +12,10 @@ function reply(patch: Partial<HelperReply> = {}): HelperReply {
 }
 
 function fixture({
-  probe,
+  readHelperStatus,
   unguard,
 }: {
-  probe?: () => Promise<HelperReply>;
+  readHelperStatus?: () => Promise<HelperReply>;
   unguard?: () => Promise<void>;
 } = {}) {
   const host: HostedCore & { unguards: number } = {
@@ -34,18 +34,19 @@ function fixture({
   };
   const guard = new WindowsTunGuard({
     host,
-    probe: probe ?? (async () => reply()),
+    readHelperStatus: readHelperStatus ?? (async () => reply()),
   });
   return { guard, host };
 }
 
-describe("WindowsTunGuard setup reconcile", () => {
+describe("WindowsTunGuard setup convergence", () => {
   it("is a successful no-op when the helper speaks the guard protocol", async () => {
     const f = fixture();
-    await f.guard.reconcile("setup");
+    const result = await f.guard.converge("setup");
     assert.equal(f.host.unguards, 0);
-    assert.equal(f.guard.lastResult()?.state, "ok");
-    assert.equal(f.guard.lastResult()?.verb, "setup");
+    assert.equal(result, f.guard.lastResult());
+    assert.equal(result?.state, "ok");
+    assert.equal(result?.verb, "setup");
   });
 
   it("reports a protocol-1 helper as unavailable instead of pretending convergence", async () => {
@@ -53,8 +54,8 @@ describe("WindowsTunGuard setup reconcile", () => {
     vi.spyOn(console, "warn").mockImplementation((line: unknown) => {
       warnings.push(String(line));
     });
-    const f = fixture({ probe: async () => reply({ protocol: 1 }) });
-    await f.guard.reconcile("setup");
+    const f = fixture({ readHelperStatus: async () => reply({ protocol: 1 }) });
+    await f.guard.converge("setup");
     const result = f.guard.lastResult();
     assert.equal(result?.state, "unavailable");
     assert.match(result?.detail ?? "", /protocol 1/);
@@ -64,11 +65,11 @@ describe("WindowsTunGuard setup reconcile", () => {
 
   it("reports a missing helper as unavailable", async () => {
     const f = fixture({
-      probe: async () => {
+      readHelperStatus: async () => {
         throw Object.assign(new Error("connect ENOENT"), { code: "ENOENT" });
       },
     });
-    await f.guard.reconcile("setup");
+    await f.guard.converge("setup");
     const result = f.guard.lastResult();
     assert.equal(result?.state, "unavailable");
     assert.match(result?.detail ?? "", /unreachable/);
@@ -76,21 +77,21 @@ describe("WindowsTunGuard setup reconcile", () => {
 
   it("reports an unexpected probe failure as failed without rejecting", async () => {
     const f = fixture({
-      probe: async () => {
+      readHelperStatus: async () => {
         throw new Error("pipe timed out");
       },
     });
-    await f.guard.reconcile("setup");
+    await f.guard.converge("setup");
     const result = f.guard.lastResult();
     assert.equal(result?.state, "failed");
     assert.match(result?.detail ?? "", /pipe timed out/);
   });
 });
 
-describe("WindowsTunGuard teardown reconcile", () => {
+describe("WindowsTunGuard teardown convergence", () => {
   it("calls the host unguard operation and records success", async () => {
     const f = fixture();
-    await f.guard.reconcile("teardown");
+    await f.guard.converge("teardown");
     assert.equal(f.host.unguards, 1);
     assert.equal(f.guard.lastResult()?.state, "ok");
     assert.equal(f.guard.lastResult()?.verb, "teardown");
@@ -102,7 +103,7 @@ describe("WindowsTunGuard teardown reconcile", () => {
         throw new Error("pipe busy");
       },
     });
-    await f.guard.reconcile("teardown");
+    await f.guard.converge("teardown");
     const result = f.guard.lastResult();
     assert.equal(f.host.unguards, 1);
     assert.equal(result?.state, "failed");
@@ -111,12 +112,12 @@ describe("WindowsTunGuard teardown reconcile", () => {
 
   it("classifies a protocol-1 unguard failure for doctor", async () => {
     const f = fixture({
-      probe: async () => reply({ protocol: 1 }),
+      readHelperStatus: async () => reply({ protocol: 1 }),
       unguard: async () => {
         throw new Error(`unknown op "unguard"`);
       },
     });
-    await f.guard.reconcile("teardown");
+    await f.guard.converge("teardown");
     const result = f.guard.lastResult();
     assert.equal(result?.state, "unavailable");
     assert.match(result?.detail ?? "", /protocol 1/);
@@ -124,12 +125,44 @@ describe("WindowsTunGuard teardown reconcile", () => {
   });
 });
 
+describe("WindowsTunGuard status reads", () => {
+  it("reads fresh helper state without replacing the cached convergence result", async () => {
+    let active = false;
+    const f = fixture({
+      readHelperStatus: async () =>
+        reply({ guard: { active, device: "sashtun", interfaceIndex: 17 } }),
+    });
+    await f.guard.converge("setup");
+    const cached = f.guard.lastResult();
+
+    active = true;
+    assert.deepEqual(await f.guard.readFreshStatus(), {
+      supported: true,
+      active: true,
+      device: "sashtun",
+      interfaceIndex: 17,
+      detail: null,
+    });
+    assert.equal(f.guard.lastResult(), cached);
+    assert.equal(cached?.verb, "setup");
+  });
+
+  it("reports an unsupported helper for interactive reads", async () => {
+    const f = fixture({ readHelperStatus: async () => reply({ protocol: 1 }) });
+    const status = await f.guard.readFreshStatus();
+    assert.equal(status.supported, false);
+    assert.equal(status.active, false);
+    assert.match(status.detail ?? "", /protocol 1/);
+    assert.equal(f.guard.lastResult(), undefined);
+  });
+});
+
 describe("WindowsTunGuard serialization", () => {
-  it("never overlaps operations and coalesces queued reconciles to the latest state", async () => {
+  it("never overlaps operations and coalesces queued convergences to the latest state", async () => {
     const gate: Array<() => void> = [];
     const events: string[] = [];
     const f = fixture({
-      probe: async () => {
+      readHelperStatus: async () => {
         events.push("probe");
         return reply();
       },
@@ -138,18 +171,25 @@ describe("WindowsTunGuard serialization", () => {
         await new Promise<void>((resolve) => gate.push(resolve));
       },
     });
-    const first = f.guard.reconcile("teardown");
-    const second = f.guard.reconcile("setup");
-    const third = f.guard.reconcile("teardown");
+    const first = f.guard.converge("teardown");
+    const second = f.guard.converge("setup");
+    const third = f.guard.converge("teardown");
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(events, ["unguard"]);
     for (const release of gate.splice(0)) release();
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(events, ["unguard", "unguard"]);
     for (const release of gate.splice(0)) release();
-    await Promise.all([first, second, third]);
+    const [firstResult, secondResult, thirdResult] = await Promise.all([first, second, third]);
     assert.equal(f.host.unguards, 2);
     assert.equal(events.includes("probe"), false, "the intermediate setup coalesced away");
+    assert.equal(firstResult?.verb, "teardown");
+    assert.equal(
+      secondResult?.verb,
+      "teardown",
+      "the superseded setup reports the teardown that ran",
+    );
+    assert.equal(thirdResult?.verb, "teardown");
     assert.equal(f.guard.lastResult()?.verb, "teardown");
   });
 });

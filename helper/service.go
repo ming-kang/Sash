@@ -17,14 +17,18 @@ type service struct {
 
 func (s *service) Execute(_ []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	status <- svc.Status{State: svc.StartPending}
-	core, listener, err := open(s.cfg)
+	helper, err := openHelper(s.cfg)
 	if err != nil {
 		s.report(err)
 		return false, 1
 	}
-	defer core.close()
-	convergeStartup(core, s.cfg.stderr)
-	go serve(listener, core, s.cfg.home)
+	defer helper.close()
+	defer func() {
+		if err := helper.shutdown(); err != nil {
+			s.report(err)
+		}
+	}()
+	go helper.serve()
 	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	for request := range requests {
 		switch request.Cmd {
@@ -32,10 +36,6 @@ func (s *service) Execute(_ []string, requests <-chan svc.ChangeRequest, status 
 			status <- request.CurrentStatus
 		case svc.Stop, svc.Shutdown:
 			status <- svc.Status{State: svc.StopPending}
-			_ = listener.Close()
-			if err := core.shutdown(); err != nil {
-				s.report(err)
-			}
 			return false, 0
 		}
 	}

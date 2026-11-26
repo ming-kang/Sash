@@ -126,6 +126,11 @@ describe("daemon TUN controls", () => {
     const dormant = (await harness.apiRequest("/sash/daemon/status")).data as DaemonStatus;
     assert.equal(dormant.configuration.pending, false);
     assert.equal(dormant.configuration.pendingChanges.tun, false);
+    assert.deepEqual(dormant.configuration.tunApply, {
+      desired: false,
+      applied: false,
+      pending: false,
+    });
 
     assert.equal(
       (
@@ -146,6 +151,29 @@ describe("daemon TUN controls", () => {
       runtimeUnknown: false,
     });
     assert.equal(pending.configuration.applyMethod, "restart");
+    assert.deepEqual(pending.configuration.tunApply, {
+      desired: true,
+      applied: false,
+      pending: true,
+    });
+  });
+
+  it("keeps saved TUN pending while no running Core has applied it", async () => {
+    const supervisor = new FakeCoreSupervisor(harness.layout, harness.settings);
+    await harness.startServer({ supervisor, tunPlatform: readyTunPlatform() });
+    await harness.apiRequest("/sash/settings", {
+      method: "PATCH",
+      body: { tun: { enable: true } },
+    });
+    assert.equal(
+      (await harness.apiRequest("/sash/core/restart", { method: "POST" })).statusCode,
+      200,
+    );
+    assert.deepEqual(await tunState(), { desired: true, applied: true, pending: false });
+
+    assert.equal((await harness.apiRequest("/sash/core/stop", { method: "POST" })).statusCode, 204);
+
+    assert.deepEqual(await tunState(), { desired: true, applied: false, pending: true });
   });
 
   it("keeps the saved TUN preference when validation fails before any Core start", async () => {

@@ -1,4 +1,4 @@
-import type { DaemonStatus } from "../contracts.js";
+import { type DaemonStatus, tunApplyStateFor } from "../contracts.js";
 import { currentCoreVersion } from "../core.js";
 import { errorMessage } from "../error-utils.js";
 import { publicSettings } from "../settings.js";
@@ -37,6 +37,7 @@ export async function readDaemonStatus(
     core = { running: false };
   const configurationState = ctx.core.configurationState(core);
   const applied = ctx.lifecycle.configuration();
+  const appliedTun = core.running ? applied?.settings.tun : undefined;
   const transport = ctx.core.downloadTransport();
   if (transport) {
     try {
@@ -76,6 +77,7 @@ export async function readDaemonStatus(
             tun: applied.settings.tun,
           }
         : null,
+      tunApply: tunApplyStateFor(committedSettings.tun, appliedTun),
     },
     core,
     systemProxy: {

@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - A failed **Apply configuration** or `sash restart` now brings Core back on the configuration it was running, for proxy-port and LAN-access changes as well as TUN; the saved changes stay pending instead of leaving Core stopped.
-- `sash tun --json` now prints `{desired, applied, pending, helper}`: `helper` replaces `privilege` and reports an unsupported platform as `{"state": "unsupported"}` instead of a separate `supported` flag. Status carries the applied TUN settings in `configuration.appliedSettings.tun`.
+- `sash tun --json` now prints `{desired, applied, pending, helper}`: `helper` replaces `privilege` and reports an unsupported platform as `{"state": "unsupported"}` instead of a separate `supported` flag. Status carries the applied TUN settings in `configuration.appliedSettings.tun` and the canonical saved/applied/pending TUN state in `configuration.tunApply`, which the CLI, doctor and dashboard read through `tunApplyState`.
 
 ### Fixed
 

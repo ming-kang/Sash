@@ -68,8 +68,8 @@ describe("TunGuard platform dispatch", () => {
   it("does nothing on unsupported platforms", async () => {
     const { guard, calls } = guardFixture({ platform: "win32" });
     assert.equal(guard.supported, false);
-    await guard.reconcile("setup", {});
-    await guard.reconcile("teardown", {});
+    await guard.converge("setup", {});
+    await guard.converge("teardown", {});
     assert.deepEqual(calls, []);
     assert.equal(guard.lastResult(), undefined);
   });
@@ -84,7 +84,7 @@ describe("TunGuard platform dispatch", () => {
 describe("TunGuard invocation", () => {
   it("probes sudo authorization once and invokes through sudo -n", async () => {
     const { guard, calls, scriptPath, sudo } = guardFixture();
-    await guard.reconcile("setup", {});
+    const result = await guard.converge("setup", {});
     assert.deepEqual(
       calls.map((call) => [call.cmd, ...call.args]),
       [
@@ -92,13 +92,14 @@ describe("TunGuard invocation", () => {
         [sudo, "-n", scriptPath, "setup", "Meta"],
       ],
     );
-    assert.equal(guard.lastResult()?.state, "ok");
-    assert.equal(guard.lastResult()?.verb, "setup");
+    assert.equal(result, guard.lastResult());
+    assert.equal(result?.state, "ok");
+    assert.equal(result?.verb, "setup");
   });
 
   it("passes a configured device name to setup", async () => {
     const { guard, calls, scriptPath, sudo } = guardFixture();
-    await guard.reconcile("setup", { device: "tun7" });
+    await guard.converge("setup", { device: "tun7" });
     const invocation = calls.find((call) => !call.args.includes("-l"));
     assert.deepEqual(invocation?.args, ["-n", scriptPath, "setup", "tun7"]);
     assert.equal(invocation?.cmd, sudo);
@@ -106,17 +107,17 @@ describe("TunGuard invocation", () => {
 
   it("defaults to the Meta interface only on linux", async () => {
     const linux = guardFixture({ platform: "linux" });
-    await linux.guard.reconcile("setup", {});
+    await linux.guard.converge("setup", {});
     assert.deepEqual(guardInvocations(linux.calls)[0]?.args.slice(-2), ["setup", "Meta"]);
 
     const darwin = guardFixture({ platform: "darwin" });
-    await darwin.guard.reconcile("setup", {});
+    await darwin.guard.converge("setup", {});
     assert.deepEqual(guardInvocations(darwin.calls)[0]?.args.slice(-2), [
       darwin.scriptPath,
       "setup",
     ]);
 
-    await darwin.guard.reconcile("setup", { device: "utun5" });
+    await darwin.guard.converge("setup", { device: "utun5" });
     assert.deepEqual(guardInvocations(darwin.calls)[1]?.args.slice(-2), [
       darwin.scriptPath,
       "setup",
@@ -125,7 +126,7 @@ describe("TunGuard invocation", () => {
 
   it("invokes the script directly as root without sudo", async () => {
     const { guard, calls, scriptPath } = guardFixture({ asRoot: true });
-    await guard.reconcile("setup", {});
+    await guard.converge("setup", {});
     assert.deepEqual(
       calls.map((call) => [call.cmd, ...call.args]),
       [[scriptPath, "setup", "Meta"]],
@@ -135,7 +136,7 @@ describe("TunGuard invocation", () => {
   it("refuses invalid device names without invoking anything", async () => {
     for (const device of ["", "with space", "a".repeat(33), "../Meta", "Meta;rm", "M\tum"]) {
       const { guard, calls } = guardFixture();
-      await guard.reconcile("setup", { device });
+      await guard.converge("setup", { device });
       assert.deepEqual(calls, [], `device ${JSON.stringify(device)} must not reach sudo`);
       assert.equal(guard.lastResult()?.state, "failed");
       assert.match(guard.lastResult()?.detail ?? "", /invalid TUN device name/);
@@ -145,7 +146,7 @@ describe("TunGuard invocation", () => {
   it("accepts boundary-length and punctuation device names", async () => {
     for (const device of ["a".repeat(32), "tun-1_x.y", "-i"]) {
       const { guard, calls } = guardFixture();
-      await guard.reconcile("setup", { device });
+      await guard.converge("setup", { device });
       assert.deepEqual(guardInvocations(calls)[0]?.args.slice(-2), ["setup", device]);
     }
   });
@@ -154,7 +155,7 @@ describe("TunGuard invocation", () => {
 describe("TunGuard availability", () => {
   it("reports setup unavailable when the script is not installed", async () => {
     const { guard, calls } = guardFixture({ scriptInstalled: false });
-    await guard.reconcile("setup", {});
+    await guard.converge("setup", {});
     assert.equal(guard.lastResult()?.state, "unavailable");
     assert.match(guard.lastResult()?.detail ?? "", /not installed/);
     assert.deepEqual(calls, []);
@@ -162,7 +163,7 @@ describe("TunGuard availability", () => {
 
   it("skips a teardown silently when nothing was ever installed", async () => {
     const { guard, calls } = guardFixture({ scriptInstalled: false });
-    await guard.reconcile("teardown", {});
+    await guard.converge("teardown", {});
     assert.equal(guard.lastResult(), undefined);
     assert.deepEqual(calls, []);
   });
@@ -174,7 +175,7 @@ describe("TunGuard availability", () => {
         return "";
       },
     });
-    await guard.reconcile("setup", {});
+    await guard.converge("setup", {});
     assert.equal(guard.lastResult()?.state, "unavailable");
     assert.match(guard.lastResult()?.detail ?? "", /passwordless sudo/);
     assert.equal(
@@ -187,28 +188,28 @@ describe("TunGuard availability", () => {
   it("caches the probe within its ttl and reprobes after", async () => {
     let now = 1_000_000;
     const { guard, calls } = guardFixture({ now: () => now });
-    await guard.reconcile("setup", {});
-    await guard.reconcile("teardown", {});
+    await guard.converge("setup", {});
+    await guard.converge("teardown", {});
     assert.equal(
       calls.filter((call) => call.args.includes("-l")).length,
       1,
-      "the second reconcile reuses the probe",
+      "the second convergence reuses the probe",
     );
     now += 31_000;
-    await guard.reconcile("setup", {});
+    await guard.converge("setup", {});
     assert.equal(calls.filter((call) => call.args.includes("-l")).length, 2, "the probe expires");
   });
 });
 
 describe("TunGuard failure degradation", () => {
-  it("records failures without rejecting the reconcile promise", async () => {
+  it("records failures without rejecting the convergence promise", async () => {
     const { guard } = guardFixture({
       run: async (_cmd, args) => {
         if (args.includes("-l")) return "";
         throw new Error("ip: command not found");
       },
     });
-    await guard.reconcile("setup", {});
+    await guard.converge("setup", {});
     assert.equal(guard.lastResult()?.state, "failed");
     assert.match(guard.lastResult()?.detail ?? "", /command not found/);
   });
@@ -227,17 +228,17 @@ describe("TunGuard failure degradation", () => {
           return "";
         },
       });
-      await guard.reconcile("setup", {});
-      await guard.reconcile("setup", {});
+      await guard.converge("setup", {});
+      await guard.converge("setup", {});
       assert.equal(warnings.length, 1, "identical failures warn once");
       assert.match(warnings[0] ?? "", /^\[sashd\] TUN guard setup failed: broken/);
 
       fail = false;
-      await guard.reconcile("setup", {});
+      await guard.converge("setup", {});
       assert.equal(warnings.length, 1, "success is quiet");
 
       fail = true;
-      await guard.reconcile("setup", {});
+      await guard.converge("setup", {});
       assert.equal(warnings.length, 2, "a failure after a success warns again");
     } finally {
       spy.mockRestore();
@@ -260,9 +261,9 @@ describe("TunGuard serialization", () => {
 
   it("never overlaps invocations and coalesces to the latest desired state", async () => {
     const { guard, gate, calls } = blockingFixture();
-    const first = guard.reconcile("setup", {});
-    const second = guard.reconcile("teardown", {});
-    const third = guard.reconcile("setup", { device: "tun3" });
+    const first = guard.converge("setup", {});
+    const second = guard.converge("teardown", {});
+    const third = guard.converge("setup", { device: "tun3" });
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(guardInvocations(calls).length, 1, "only the first invocation is in flight");
     for (const release of gate.release.splice(0)) release();
@@ -270,10 +271,10 @@ describe("TunGuard serialization", () => {
     assert.equal(
       guardInvocations(calls).length,
       2,
-      "the queued reconciles merged into one trailing invocation",
+      "the queued convergences merged into one trailing invocation",
     );
     for (const release of gate.release.splice(0)) release();
-    await Promise.all([first, second, third]);
+    const [firstResult, secondResult, thirdResult] = await Promise.all([first, second, third]);
     const invocations = guardInvocations(calls);
     assert.deepEqual(
       invocations.map((call) => call.args.slice(-2)),
@@ -283,26 +284,35 @@ describe("TunGuard serialization", () => {
       ],
       "the trailing invocation carries the latest target state",
     );
+    assert.equal(firstResult?.verb, "setup");
+    assert.equal(secondResult?.verb, "setup", "the superseded teardown reports the setup that ran");
+    assert.equal(thirdResult?.verb, "setup");
   });
 
-  it("resolves every waiter after its state was attempted", async () => {
+  it("resolves every waiter with the invocation that actually ran", async () => {
     const { guard, gate } = blockingFixture();
     const order: string[] = [];
-    const first = guard.reconcile("setup", {}).then(() => order.push("first"));
-    const second = guard.reconcile("teardown", {}).then(() => order.push("second"));
+    const first = guard.converge("setup", {}).then((result) => {
+      order.push("first");
+      return result;
+    });
+    const second = guard.converge("teardown", {}).then((result) => {
+      order.push("second");
+      return result;
+    });
     await new Promise((resolve) => setImmediate(resolve));
     for (const release of gate.release.splice(0)) release();
-    await first;
+    assert.equal((await first)?.verb, "setup");
     assert.deepEqual(order, ["first"]);
     for (const release of gate.release.splice(0)) release();
-    await second;
+    assert.equal((await second)?.verb, "teardown");
     assert.deepEqual(order, ["first", "second"]);
     assert.equal(guard.lastResult()?.verb, "teardown");
   });
 
-  it("drains a reconcile chained from a waiter continuation", async () => {
+  it("drains a convergence chained from a waiter continuation", async () => {
     const { guard, gate, calls } = blockingFixture();
-    const chained = guard.reconcile("setup", {}).then(() => guard.reconcile("teardown", {}));
+    const chained = guard.converge("setup", {}).then(() => guard.converge("teardown", {}));
     await new Promise((resolve) => setImmediate(resolve));
     for (const release of gate.release.splice(0)) release();
     await new Promise((resolve) => setImmediate(resolve));
@@ -314,12 +324,12 @@ describe("TunGuard serialization", () => {
     );
   });
 
-  it("serializes a rapid sequence of reconciles", async () => {
+  it("serializes a rapid sequence of convergences", async () => {
     const { guard, calls } = guardFixture();
     await Promise.all([
-      guard.reconcile("setup", {}),
-      guard.reconcile("teardown", {}),
-      guard.reconcile("setup", {}),
+      guard.converge("setup", {}),
+      guard.converge("teardown", {}),
+      guard.converge("setup", {}),
     ]);
     const invocations = guardInvocations(calls);
     assert.equal(invocations.length <= 2, true, "intermediate states coalesce");

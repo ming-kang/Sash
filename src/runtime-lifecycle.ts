@@ -1,4 +1,4 @@
-import type { ConfigurationPendingChanges, CoreStartResult } from "./contracts.js";
+import { type ConfigurationPendingChanges, type CoreStartResult, tunPending } from "./contracts.js";
 import type { StagedCore } from "./core.js";
 import {
   type CoreUpdateResult,
@@ -90,7 +90,7 @@ function restartRequiringSettingChanges(
   return {
     mixedPort: applied.mixedPort !== target.mixedPort,
     allowLan: applied.allowLan !== target.allowLan,
-    tun: !sameEffectiveTunSettings(applied.tun, target.tun),
+    tun: tunPending(target.tun, applied.tun),
   };
 }
 
@@ -114,7 +114,7 @@ export function runtimeDelta(
         profile: false,
         mixedPort: false,
         allowLan: false,
-        tun: false,
+        tun: tunPending(target.settings.tun),
         runtimeUnknown: true,
       },
     };
@@ -143,6 +143,36 @@ export function runtimeDelta(
 const CORE_RESTORE_DELAYS_MS = [500, 1_500, 3_000, 6_000, 10_000, 15_000, 25_000];
 const CORE_RECOVERY_WINDOW_MS = 10 * 60 * 1000;
 const CORE_RECOVERY_CYCLES_PER_WINDOW = 3;
+
+export type CoreSessionRestoreDecision =
+  | { restore: true }
+  | {
+      restore: false;
+      reason: "tun-settings-changed";
+      detail: string;
+    };
+
+export type CoreSessionRestoreOutcome =
+  | { status: "restored" }
+  | {
+      status: "skipped";
+      reason: "core-running" | "tun-settings-changed";
+      detail: string;
+    };
+
+export function coreSessionRestoreDecision(
+  expected: RuntimeConfiguration,
+  saved: SashSettings,
+): CoreSessionRestoreDecision {
+  if (!expected.settings.tun.enable) return { restore: true };
+  if (sameEffectiveTunSettings(saved.tun, expected.settings.tun)) return { restore: true };
+  return {
+    restore: false,
+    reason: "tun-settings-changed",
+    detail:
+      "saved TUN settings changed since the Core started; a supervised restart must apply them instead of restoring the previous TUN session",
+  };
+}
 
 export class RuntimeLifecycle {
   private readonly engine: CoreEngine;
@@ -243,15 +273,15 @@ export class RuntimeLifecycle {
     }
   }
 
-  private reconcileTunGuard(configuration: RuntimeConfiguration): void {
+  private convergeTunGuard(configuration: RuntimeConfiguration): void {
     const guard = this.options.tunGuard;
     if (!guard) return;
     const tun = configuration.settings.tun;
-    const reconciled = tun.enable
-      ? guard.reconcile("setup", { device: tun.device })
-      : guard.reconcile("teardown", {});
-    void reconciled.catch((error: unknown) => {
-      console.warn(`[sashd] TUN guard reconcile failed: ${errorMessage(error)}`);
+    const convergence = tun.enable
+      ? guard.converge("setup", { device: tun.device })
+      : guard.converge("teardown", {});
+    void convergence.catch((error: unknown) => {
+      console.warn(`[sashd] TUN guard converge failed: ${errorMessage(error)}`);
     });
   }
 
@@ -262,7 +292,7 @@ export class RuntimeLifecycle {
     this.runtimeSettings = { ...configuration.settings };
     const result = await this.startCore();
     this.applied = configuration;
-    this.reconcileTunGuard(configuration);
+    this.convergeTunGuard(configuration);
     await this.reconcileSystemProxy();
     return result;
   }
@@ -314,7 +344,7 @@ export class RuntimeLifecycle {
     const core = await this.options.supervisor.status();
     if (!core.running || !core.healthy || !core.pid)
       throw new Error("Core did not stay healthy after the configuration reload");
-    if (configuration.settings.tun.enable) this.reconcileTunGuard(configuration);
+    if (configuration.settings.tun.enable) this.convergeTunGuard(configuration);
     await this.reconcileSystemProxy();
     return {
       pid: core.pid,
@@ -330,7 +360,7 @@ export class RuntimeLifecycle {
     this.runtimeRevision += 1;
     const guard = this.options.tunGuard;
     if (!options.final || !guard) return;
-    const teardown = guard.reconcile("teardown", {});
+    const teardown = guard.converge("teardown", {});
     const timeout = new Promise<"timeout">((resolve) => {
       const timer = setTimeout(() => resolve("timeout"), 5_000);
       timer.unref?.();
@@ -446,16 +476,15 @@ export class RuntimeLifecycle {
     }
   }
 
-  async restoreCoreSession(expected: RuntimeConfiguration): Promise<void> {
-    if (this.options.supervisor.isRunning()) return;
-    const desired = this.options.settings();
-    if (
-      expected.settings.tun.enable &&
-      !sameEffectiveTunSettings(desired.tun, expected.settings.tun)
-    )
-      return;
+  async restoreCoreSession(expected: RuntimeConfiguration): Promise<CoreSessionRestoreOutcome> {
+    if (this.options.supervisor.isRunning())
+      return { status: "skipped", reason: "core-running", detail: "the Core is already running" };
+    const decision = coreSessionRestoreDecision(expected, this.options.settings());
+    if (!decision.restore)
+      return { status: "skipped", reason: decision.reason, detail: decision.detail };
     await this.apply(expected);
     console.warn("[sashd] Core restarted after an unexpected exit");
+    return { status: "restored" };
   }
 
   private allowRecoveryCycle(): boolean {
@@ -484,7 +513,12 @@ export class RuntimeLifecycle {
       if (index > 0) await new Promise((resolve) => setTimeout(resolve, delays[index]));
       if (closing()) return;
       try {
-        await mutate(() => this.restoreCoreSession(expected));
+        const outcome = await mutate(() => this.restoreCoreSession(expected));
+        if (outcome.status === "skipped") {
+          if (outcome.reason === "tun-settings-changed")
+            console.warn(`[sashd] Core recovery skipped: ${outcome.detail}`);
+          return;
+        }
         return;
       } catch (error) {
         if (closing()) return;

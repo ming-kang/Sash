@@ -524,9 +524,10 @@ type coreControl interface {
 	close()
 }
 
-// guardedCore composes the Core host with the guard lifecycle: the kill
-// switch goes in before the Core starts and stays across restarts and crashes
-// until the daemon explicitly converges it away.
+// guardedCore owns the kill switch for one helper lifetime. Only a guarded
+// start installs it; it survives Core restarts and crashes, and only an
+// explicit unguard or this helper's shutdown removes it. A new helper
+// converges whatever a dead helper left behind before it listens.
 type guardedCore struct {
 	host     coreControl
 	corePath string
@@ -540,6 +541,10 @@ func newGuardedCore(host *coreHost, guard *tunGuard) *guardedCore {
 type startOptions struct {
 	guard  bool
 	device string
+}
+
+func (c *guardedCore) convergeStaleGuard() error {
+	return c.guard.uninstall()
 }
 
 func (c *guardedCore) start(options startOptions) error {
@@ -573,12 +578,24 @@ func (c *guardedCore) unguard() error {
 	return c.guard.uninstall()
 }
 
-func (c *guardedCore) status() (bool, int) {
-	return c.host.status()
+func (c *guardedCore) apply(op operation) operationResult {
+	switch op.kind {
+	case opStatus:
+		return operationResult{}
+	case opStart:
+		return operationResult{err: c.start(op.start)}
+	case opStop:
+		return operationResult{err: c.stop()}
+	case opUnguard:
+		return operationResult{err: c.unguard()}
+	default:
+		return operationResult{err: fmt.Errorf("unsupported operation %d", op.kind)}
+	}
 }
 
-func (c *guardedCore) guardState() guardState {
-	return c.guard.state()
+func (c *guardedCore) snapshot() statusSnapshot {
+	running, pid := c.host.status()
+	return statusSnapshot{running: running, pid: pid, guard: c.guard.state()}
 }
 
 func (c *guardedCore) shutdown() error {
