@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it, vi } from "vitest";
 import type { WindowsSystemProxySnapshot } from "./types.js";
-import { applyWindowsSnapshot, captureWindowsSnapshot, restoreWindowsSnapshot } from "./windows.js";
+import {
+  applyWindowsSnapshot,
+  captureWindowsSnapshot,
+  createWindowsTarget,
+  restoreWindowsSnapshot,
+} from "./windows.js";
 
 interface RecordedCommand {
   command: string;
@@ -349,7 +354,7 @@ describe("Windows system proxy journal restore", () => {
     ]);
   });
 
-  it("skips a connection blob whose bytes differ from the journal", async () => {
+  it("leaves named connection blobs outside Sash ownership out of restore decisions", async () => {
     const fixture = registryFixture(targetFlat(), new Map([["Vpn", "CC22"]]));
     const result = await restoreWindowsSnapshot(
       windowsSnapshot({ ...original, connections: { Vpn: "BB11" } }),
@@ -357,9 +362,7 @@ describe("Windows system proxy journal restore", () => {
       fixture.run,
     );
     assert.equal(fixture.connections.get("Vpn"), "CC22");
-    assert.deepEqual(result.skipped, [
-      { key: "Vpn", service: "Connections\\Vpn", reason: "modified" },
-    ]);
+    assert.deepEqual(result.skipped, []);
   });
 
   // Realistic WinINet blob: u32 version, u32 counter, u32 flags, then three
@@ -395,6 +398,24 @@ describe("Windows system proxy journal restore", () => {
     assert.deepEqual(result.skipped, []);
   });
 
+  it("ignores DIRECT-bit drift on an otherwise identical blob", async () => {
+    const originalBlob = blob(0x2c, 0x09);
+    const drifted = blob(0x2e, 0x08);
+    const fixture = registryFixture(
+      targetFlat(),
+      new Map([["DefaultConnectionSettings", drifted]]),
+    );
+    const result = await restoreWindowsSnapshot(
+      windowsSnapshot({ ...original, connections: { DefaultConnectionSettings: originalBlob } }),
+      windowsSnapshot({
+        ...target,
+        connections: { DefaultConnectionSettings: originalBlob },
+      }),
+      fixture.run,
+    );
+    assert.deepEqual(result.skipped, []);
+  });
+
   it("restores a blob matching the target semantically despite counter drift", async () => {
     const originalBlob = blob(0x2c, 0x09);
     const targetBlob = blob(0x2e, 0x02, "127.0.0.1:7890", "localhost");
@@ -413,6 +434,75 @@ describe("Windows system proxy journal restore", () => {
     );
     assert.deepEqual(result.skipped, []);
     assert.equal(fixture.connections.get("DefaultConnectionSettings"), originalBlob);
+  });
+
+  it("restores an applied LAN blob that retains inactive PAC text", async () => {
+    const pac = "http://127.0.0.1:9/pac-test.pac";
+    const originalBlob = blob(0x7e, 0x09, "127.0.0.1:7890", "localhost", pac);
+    const targetBlob = blob(0x7f, 0x0b, "127.0.0.1:7890", "localhost;<local>", pac);
+    const applied = blob(0x80, 0x0b, "127.0.0.1:7890", "localhost;<local>", pac);
+    const fixture = registryFixture(
+      targetFlat(),
+      new Map([["DefaultConnectionSettings", applied]]),
+    );
+    const result = await restoreWindowsSnapshot(
+      windowsSnapshot({ ...original, connections: { DefaultConnectionSettings: originalBlob } }),
+      windowsSnapshot({
+        ...target,
+        connections: { DefaultConnectionSettings: targetBlob },
+      }),
+      fixture.run,
+    );
+    assert.deepEqual(result.skipped, []);
+    assert.equal(fixture.connections.get("DefaultConnectionSettings"), originalBlob);
+  });
+
+  it("restores a LAN blob holding a per-field transition between original and target", async () => {
+    const pac = "http://127.0.0.1:9/pac-test.pac";
+    const originalBlob = blob(0x7e, 0x09, "127.0.0.1:7890", "localhost", pac);
+    const targetBlob = blob(0x7f, 0x0b, "127.0.0.1:7890", "localhost;<local>", pac);
+    const transitional = blob(0x80, 0x09, "127.0.0.1:7890", "localhost;<local>", pac);
+    const fixture = registryFixture(
+      targetFlat(),
+      new Map([["DefaultConnectionSettings", transitional]]),
+    );
+    const result = await restoreWindowsSnapshot(
+      windowsSnapshot({ ...original, connections: { DefaultConnectionSettings: originalBlob } }),
+      windowsSnapshot({
+        ...target,
+        connections: { DefaultConnectionSettings: targetBlob },
+      }),
+      fixture.run,
+    );
+    assert.deepEqual(result.skipped, []);
+    assert.equal(fixture.connections.get("DefaultConnectionSettings"), originalBlob);
+  });
+
+  it("still skips a LAN blob when one field is neither original nor target", async () => {
+    const pac = "http://127.0.0.1:9/pac-test.pac";
+    const originalBlob = blob(0x7e, 0x09, "127.0.0.1:7890", "localhost", pac);
+    const targetBlob = blob(0x7f, 0x0b, "127.0.0.1:7890", "localhost;<local>", pac);
+    const foreign = blob(0x80, 0x09, "127.0.0.1:7890", "foreign-bypass", pac);
+    const fixture = registryFixture(
+      targetFlat(),
+      new Map([["DefaultConnectionSettings", foreign]]),
+    );
+    const result = await restoreWindowsSnapshot(
+      windowsSnapshot({ ...original, connections: { DefaultConnectionSettings: originalBlob } }),
+      windowsSnapshot({
+        ...target,
+        connections: { DefaultConnectionSettings: targetBlob },
+      }),
+      fixture.run,
+    );
+    assert.deepEqual(result.skipped, [
+      {
+        key: "DefaultConnectionSettings",
+        service: "Connections\\DefaultConnectionSettings",
+        reason: "modified",
+      },
+    ]);
+    assert.equal(fixture.connections.get("DefaultConnectionSettings"), foreign);
   });
 
   it("still reports semantic changes hidden behind equal lengths", async () => {
@@ -439,7 +529,7 @@ describe("Windows system proxy journal restore", () => {
     ]);
   });
 
-  it("treats a missing connection entry as removed rather than writing it", async () => {
+  it("does not treat a missing named connection entry as a LAN restore failure", async () => {
     const fixture = registryFixture(targetFlat(), new Map());
     const result = await restoreWindowsSnapshot(
       windowsSnapshot({ ...original, connections: { Vpn: "BB11" } }),
@@ -447,9 +537,7 @@ describe("Windows system proxy journal restore", () => {
       fixture.run,
     );
     assert.equal(fixture.connections.has("Vpn"), false);
-    assert.deepEqual(result.skipped, [
-      { key: "Vpn", service: "Connections\\Vpn", reason: "removed" },
-    ]);
+    assert.deepEqual(result.skipped, []);
   });
 
   it("reports a blob the refresh rewrote after the write", async () => {
@@ -623,6 +711,37 @@ describe("Windows apply LAN-blob verification", () => {
     await applyWindowsSnapshot(target, fixture.run);
     assert.equal(target.connections.DefaultConnectionSettings, "AA00");
     assert.equal(fixture.queries, 1);
+  });
+
+  it("preserves and accepts inactive PAC text retained by WinINet", async () => {
+    const pac = "http://127.0.0.1:9/pac-test.pac";
+    const originalBlob = lanBlobHex(0x09, "127.0.0.1:7890", "localhost", pac);
+    const original = windowsSnapshot({
+      proxyEnable: 0,
+      proxyServer: "127.0.0.1:7890",
+      proxyOverride: "localhost",
+      autoConfigUrl: null,
+      connections: {
+        SavedLegacySettings: originalBlob,
+        DefaultConnectionSettings: originalBlob,
+      },
+    });
+    const target = createWindowsTarget({ port: 7890, bypass: ["localhost", "<local>"] }, original);
+    const retained = lanBlobHex(0x0b, "127.0.0.1:7890", "localhost;<local>", pac);
+    assert.equal(target.connections.SavedLegacySettings, retained);
+    assert.equal(target.connections.DefaultConnectionSettings, retained);
+    const fixture = applyFixture(
+      appliedFlat(),
+      new Map([
+        ["SavedLegacySettings", retained],
+        ["DefaultConnectionSettings", retained],
+      ]),
+      effective,
+    );
+    await applyWindowsSnapshot(target, fixture.run);
+    assert.equal(target.connections.SavedLegacySettings, retained);
+    assert.equal(target.connections.DefaultConnectionSettings, retained);
+    assert.equal(fixture.queries, 0);
   });
 
   it("fails the apply when the registry blob is parseable but conflicting, even if the API matches", async () => {

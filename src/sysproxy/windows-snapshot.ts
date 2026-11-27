@@ -58,6 +58,11 @@ export interface ConnectionBlobSemantics {
   autoConfigUrl: string;
 }
 
+const CONNECTION_FLAG_DIRECT = 0x01;
+const CONNECTION_FLAG_PROXY = 0x02;
+const CONNECTION_FLAG_AUTO_PROXY_URL = 0x04;
+const CONNECTION_FLAG_AUTO_DETECT = 0x08;
+
 /**
  * INTERNET_PER_CONN_OPTION_LIST layout: u32 version, u32 write counter,
  * u32 flags, then three u32-length-prefixed ASCII strings — ProxyServer,
@@ -118,24 +123,51 @@ export function serializeConnectionSemantics(sem: ConnectionBlobSemantics): stri
     .toUpperCase();
 }
 
-/** Two blobs encode the same user configuration — ignoring version/counter bytes. */
+/** Two blobs encode the same user configuration — ignoring version/counter bytes and the ever-present DIRECT bit. */
 export function blobsSemanticallyEqual(a: string, b: string): boolean {
   if (a.toUpperCase() === b.toUpperCase()) return true;
   const pa = parseConnectionBlobSemantics(a);
   const pb = parseConnectionBlobSemantics(b);
   if (pa === null || pb === null) return false; // unknown format ≠ equal
   return (
-    pa.flags === pb.flags &&
+    (pa.flags & ~CONNECTION_FLAG_DIRECT) === (pb.flags & ~CONNECTION_FLAG_DIRECT) &&
     pa.proxyServer === pb.proxyServer &&
     pa.proxyBypass === pb.proxyBypass &&
     pa.autoConfigUrl === pb.autoConfigUrl
   );
 }
 
+/** Every user-controlled leaf lies on the original→target transition path; DIRECT is WinINet's base bit. */
+export function blobWithinJournalSemantics(
+  currentHex: string,
+  originalHex: string,
+  targetHex: string,
+): boolean {
+  const current = parseConnectionBlobSemantics(currentHex);
+  const original = parseConnectionBlobSemantics(originalHex);
+  const target = parseConnectionBlobSemantics(targetHex);
+  if (current === null || original === null || target === null) return false;
+  const flagsWithin = [
+    CONNECTION_FLAG_PROXY,
+    CONNECTION_FLAG_AUTO_PROXY_URL,
+    CONNECTION_FLAG_AUTO_DETECT,
+  ].every((bit) => {
+    const cur = (current.flags & bit) !== 0;
+    return cur === ((original.flags & bit) !== 0) || cur === ((target.flags & bit) !== 0);
+  });
+  const within = (cur: string, was: string, want: string) => cur === was || cur === want;
+  return (
+    flagsWithin &&
+    within(current.proxyServer, original.proxyServer, target.proxyServer) &&
+    within(current.proxyBypass, original.proxyBypass, target.proxyBypass) &&
+    within(current.autoConfigUrl, original.autoConfigUrl, target.autoConfigUrl)
+  );
+}
+
 /**
- * Connection maps match by name and user-visible semantics — an entry on
- * only one side, or semantically different, fails: a readback must never
- * adopt foreign changes.
+ * Connection maps match by name and effective user-visible semantics — an
+ * entry on only one side, or semantically different, fails: a readback must
+ * never adopt foreign changes.
  */
 function connectionMapsEquivalent(
   left: Record<string, string> | undefined,
@@ -145,6 +177,7 @@ function connectionMapsEquivalent(
   const r = right ?? {};
   const names = new Set([...Object.keys(l), ...Object.keys(r)]);
   for (const name of names) {
+    if (!WIN_LAN_CONNECTIONS.has(name)) continue;
     const a = l[name];
     const b = r[name];
     if (a === undefined || b === undefined || !blobsSemanticallyEqual(a, b)) return false;
@@ -220,33 +253,37 @@ export async function runWindowsPowerShell<T>(
 /**
  * The semantic target a LAN blob must reach after `apply`: PROXY set,
  * AUTO_PROXY_URL cleared, ProxyServer/ProxyBypass verbatim from the flat
- * values. DIRECT/AUTO_DETECT come from a parseable original, else a
- * standard fallback (AUTO_DETECT from the flat setting; a fresh blob may
- * add DIRECT). A comparison/journal value — version/counter stay
- * WinINet-owned — never bytes to write.
+ * values. The stored PAC URL survives its disabled checkbox, as on the
+ * Windows LAN-settings dialog. DIRECT/AUTO_DETECT come from a parseable
+ * original, else a standard fallback (AUTO_DETECT from the flat setting; a
+ * fresh blob may add DIRECT). A comparison/journal value — version/counter
+ * stay WinINet-owned — never bytes to write.
  */
 export function buildExpectedLanBlob(
   originalHex: string | undefined,
   server: string,
   bypass: string,
   autoDetect: number | null,
+  retainedAutoConfigUrl = "",
 ): string {
   const semantics = originalHex === undefined ? null : parseConnectionBlobSemantics(originalHex);
   const flags =
-    semantics === null ? 0x02 | (autoDetect === 1 ? 0x08 : 0) : (semantics.flags & ~0x04) | 0x02;
+    semantics === null
+      ? CONNECTION_FLAG_PROXY | (autoDetect === 1 ? CONNECTION_FLAG_AUTO_DETECT : 0)
+      : (semantics.flags & ~CONNECTION_FLAG_AUTO_PROXY_URL) | CONNECTION_FLAG_PROXY;
   return serializeConnectionSemantics({
     flags,
     proxyServer: server,
     proxyBypass: bypass,
-    autoConfigUrl: "",
+    autoConfigUrl: semantics?.autoConfigUrl ?? retainedAutoConfigUrl,
   });
 }
 
 /**
  * A readback (registry blob or InternetQueryOption result) proves the
- * applied LAN settings when PROXY is on, AUTO_PROXY_URL is off, the strings
- * match the flat intent, and AUTO_DETECT is on when the expected asserts
- * it. DIRECT is environment-owned and never checked; an expected
+ * applied LAN settings when PROXY is on, AUTO_PROXY_URL is off, the stored
+ * strings match the target intent, and AUTO_DETECT is on when the expected
+ * asserts it. DIRECT is environment-owned and never checked; an expected
  * AUTO_DETECT-off is WinINet's claim-free bit and never fails the readback.
  */
 export function lanEffectiveMatch(
@@ -255,12 +292,14 @@ export function lanEffectiveMatch(
   target: WindowsSystemProxySnapshot,
 ): boolean {
   return (
-    (actual.flags & 0x02) !== 0 &&
-    (actual.flags & 0x04) === 0 &&
-    (expected === null || (expected.flags & 0x08) === 0 || (actual.flags & 0x08) !== 0) &&
+    (actual.flags & CONNECTION_FLAG_PROXY) !== 0 &&
+    (actual.flags & CONNECTION_FLAG_AUTO_PROXY_URL) === 0 &&
+    (expected === null ||
+      (expected.flags & CONNECTION_FLAG_AUTO_DETECT) === 0 ||
+      (actual.flags & CONNECTION_FLAG_AUTO_DETECT) !== 0) &&
     actual.proxyServer === (target.proxyServer ?? "") &&
     actual.proxyBypass === (target.proxyOverride ?? "") &&
-    actual.autoConfigUrl === (target.autoConfigUrl ?? "")
+    actual.autoConfigUrl === (expected?.autoConfigUrl ?? target.autoConfigUrl ?? "")
   );
 }
 

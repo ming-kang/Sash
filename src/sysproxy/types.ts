@@ -46,9 +46,9 @@ export interface WindowsSystemProxySnapshot {
   autoConfigUrl: string | null;
   autoDetect: number | null;
   /**
-   * `Internet Settings\Connections` per-connection REG_BINARY blobs keyed
-   * by value name, hex-encoded — WinINet rewrites them from the flat values
-   * on refresh, so a faithful restore must carry them too.
+   * `Internet Settings\Connections` LAN REG_BINARY blobs keyed by value
+   * name, hex-encoded — WinINet rewrites them from the flat values on
+   * refresh, so a faithful restore must carry them too.
    */
   connections: Record<string, string>;
 }

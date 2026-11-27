@@ -13,6 +13,7 @@ import type {
 import { DEFAULT_BYPASS_LIST, SYSTEM_PROXY_SNAPSHOT_VERSION } from "./types.js";
 import {
   blobsSemanticallyEqual,
+  blobWithinJournalSemantics,
   buildExpectedLanBlob,
   type CommandRunner,
   LAN_CONNECTION_DEFAULT,
@@ -159,9 +160,9 @@ export function parseWindowsRegistryProxyValues(output: string): WindowsRegistry
 }
 
 /**
- * Every value under `...\Internet Settings\Connections`: name → REG_BINARY
- * hex string — LAN blobs plus named RAS/VPN entries, kept verbatim so
- * restore is byte-exact.
+ * LAN blobs under `...\Internet Settings\Connections`: name → REG_BINARY
+ * hex string, kept verbatim so restore is byte-exact. Named RAS/VPN entries
+ * are outside Sash's LAN ownership and are diagnosed separately.
  */
 async function captureWindowsConnections(run: CommandRunner): Promise<Record<string, string>> {
   const connections: Record<string, string> = {};
@@ -173,7 +174,11 @@ async function captureWindowsConnections(run: CommandRunner): Promise<Record<str
   }
   for (const line of output.split(/\r\n?|\n/)) {
     const entry = parseWindowsConnectionLine(line);
-    if (entry?.type === "REG_BINARY" && /^[0-9a-fA-F]+$/.test(entry.data)) {
+    if (
+      entry?.type === "REG_BINARY" &&
+      WIN_LAN_CONNECTIONS.has(entry.name) &&
+      /^[0-9a-fA-F]+$/.test(entry.data)
+    ) {
       connections[entry.name] = entry.data.toUpperCase();
     }
   }
@@ -307,13 +312,19 @@ export async function restoreWindowsSnapshot(
     if (cur === target[key]) writes.push([regName, type, key, orig]);
     else skipped.push({ key, service: "Internet Settings", reason: "modified" });
   }
-  const blobTargetMatches = (name: string, cur: string, targetHex: string | undefined): boolean =>
+  const blobTargetMatches = (
+    name: string,
+    cur: string,
+    originalHex: string,
+    targetHex: string | undefined,
+  ): boolean =>
     targetHex !== undefined &&
     (blobsSemanticallyEqual(cur, targetHex) ||
       // For LAN blobs the expected is a semantic intent, not a byte layout —
-      // WinINet materializes it with its own DIRECT/AUTO_DETECT bits.
+      // WinINet materializes it asynchronously and may transiently hold a
+      // per-field mix of original and target values.
       (WIN_LAN_CONNECTIONS.has(name) &&
-        lanEffectiveMatch(
+        (lanEffectiveMatch(
           parseConnectionBlobSemantics(cur) ?? {
             flags: 0,
             proxyServer: "",
@@ -322,14 +333,16 @@ export async function restoreWindowsSnapshot(
           },
           parseConnectionBlobSemantics(targetHex),
           target,
-        )));
+        ) ||
+          blobWithinJournalSemantics(cur, originalHex, targetHex))));
   const blobWrites: Array<{ name: string; hex: string; recheckAbsent: boolean }> = [];
   const writtenBlobs: Array<{ name: string; hex: string }> = [];
   for (const [name, hex] of Object.entries(original.connections)) {
+    if (!WIN_LAN_CONNECTIONS.has(name)) continue;
     const cur = current.connections[name];
     const targetHex = target.connections?.[name];
     if (cur !== undefined && blobsSemanticallyEqual(cur, hex)) continue;
-    if (cur !== undefined && blobTargetMatches(name, cur, targetHex)) {
+    if (cur !== undefined && blobTargetMatches(name, cur, hex, targetHex)) {
       blobWrites.push({ name, hex, recheckAbsent: false });
     } else if (cur === undefined && WIN_LAN_CONNECTIONS.has(name)) {
       // A LAN blob WinINet has not regenerated yet — the recorded
@@ -352,7 +365,7 @@ export async function restoreWindowsSnapshot(
         const latest = (await captureWindowsConnections(run))[name];
         if (latest !== undefined) {
           if (blobsSemanticallyEqual(latest, hex)) continue;
-          if (!blobTargetMatches(name, latest, target.connections?.[name])) {
+          if (!blobTargetMatches(name, latest, hex, target.connections?.[name])) {
             skipped.push({
               key: name,
               service: `Connections\\${name}`,
@@ -418,11 +431,14 @@ export function createWindowsTarget(
   const connections: Record<string, string> = {};
   if (original?.platform === "win32") {
     for (const [name, hex] of Object.entries(original.connections)) {
-      // LAN blobs are what Sash's apply changes; named (RAS/VPN) entries are
-      // left untouched, so their expected value is the original itself.
-      connections[name] = WIN_LAN_CONNECTIONS.has(name)
-        ? buildExpectedLanBlob(hex, proxyServer, proxyOverride, original.autoDetect)
-        : hex;
+      if (!WIN_LAN_CONNECTIONS.has(name)) continue;
+      connections[name] = buildExpectedLanBlob(
+        hex,
+        proxyServer,
+        proxyOverride,
+        original.autoDetect,
+        original.autoConfigUrl ?? "",
+      );
     }
     // An apply is unproven until the default LAN blob exists and matches —
     // expect one even when the original had none (apply drops it again if
@@ -433,6 +449,7 @@ export function createWindowsTarget(
         proxyServer,
         proxyOverride,
         original.autoDetect,
+        original.autoConfigUrl ?? "",
       );
     }
   }

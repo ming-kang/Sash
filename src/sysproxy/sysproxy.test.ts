@@ -151,6 +151,33 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
       assert.equal(snapshotsEquivalent(target, { ...target, autoDetect: null }), true);
     });
 
+    it("ignores named RAS/VPN connection records outside LAN ownership", () => {
+      const base = {
+        version: 1 as const,
+        platform: "win32" as const,
+        proxyEnable: 0,
+        proxyServer: null,
+        proxyOverride: "<local>",
+        autoConfigUrl: null,
+        autoDetect: 1,
+      };
+      assert.equal(
+        snapshotsEquivalent(
+          { ...base, connections: { "Office VPN": "AA00" } },
+          { ...base, connections: {} },
+        ),
+        true,
+      );
+      const target = createWindowsTarget(
+        { port: 17890 },
+        {
+          ...base,
+          connections: { "Office VPN": "AA00" },
+        },
+      );
+      assert.equal(target.connections["Office VPN"], undefined);
+    });
+
     it("parses legacy v1 snapshots that predate the connections field", () => {
       const legacy = parseSystemProxySnapshot({
         version: 1,
