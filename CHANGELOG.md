@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-11-27
+
 ### Fixed
 
 - Windows system proxy recovery no longer mistakes WinINet's retained inactive PAC URLs, DIRECT-bit drift, or per-field transition states for outside modification, preventing false `modified outside Sash` rollback failures.
